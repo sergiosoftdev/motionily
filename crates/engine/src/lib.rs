@@ -1,0 +1,278 @@
+//! GPU renderer. Knows nothing about the browser, React or files: it receives a
+//! [`Scene`] and a time, and draws one frame into a wgpu surface. The host
+//! (WASM bindings today, Tauri/native later) creates the surface.
+
+use bytemuck::{Pod, Zeroable};
+use scene::{DrawShape, Scene};
+use wgpu::util::DeviceExt;
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct Globals {
+    scene_size: [f32; 2],
+    linearize: f32,
+    _pad: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct Instance {
+    center: [f32; 2],
+    size: [f32; 2],
+    color: [f32; 4],
+    radius: f32,
+    rotation: f32,
+}
+
+impl From<&DrawShape> for Instance {
+    fn from(s: &DrawShape) -> Self {
+        Instance {
+            center: s.center,
+            size: s.size,
+            color: s.color.0,
+            radius: s.radius,
+            rotation: s.rotation,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum EngineError {
+    NoAdapter(String),
+    NoDevice(String),
+    UnsupportedSurface,
+}
+
+impl std::fmt::Display for EngineError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EngineError::NoAdapter(e) => write!(f, "no GPU adapter: {e}"),
+            EngineError::NoDevice(e) => write!(f, "could not open GPU device: {e}"),
+            EngineError::UnsupportedSurface => f.write_str("surface not supported by adapter"),
+        }
+    }
+}
+
+impl std::error::Error for EngineError {}
+
+pub struct Renderer {
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    surface: wgpu::Surface<'static>,
+    config: wgpu::SurfaceConfiguration,
+    pipeline: wgpu::RenderPipeline,
+    globals: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
+    instances: wgpu::Buffer,
+    instance_capacity: usize,
+    pub adapter_info: String,
+}
+
+impl Renderer {
+    pub async fn new(
+        instance: &wgpu::Instance,
+        surface: wgpu::Surface<'static>,
+        width: u32,
+        height: u32,
+    ) -> Result<Self, EngineError> {
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+                apply_limit_buckets: false,
+            })
+            .await
+            .map_err(|e| EngineError::NoAdapter(e.to_string()))?;
+
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("motionily"),
+                required_limits: wgpu::Limits::downlevel_webgl2_defaults()
+                    .using_resolution(adapter.limits()),
+                ..Default::default()
+            })
+            .await
+            .map_err(|e| EngineError::NoDevice(e.to_string()))?;
+
+        let mut config = surface
+            .get_default_config(&adapter, width.max(1), height.max(1))
+            .ok_or(EngineError::UnsupportedSurface)?;
+        // Prefer a non-sRGB surface: our palette colors are already sRGB.
+        let caps = surface.get_capabilities(&adapter);
+        if let Some(f) = caps.formats.iter().copied().find(|f| !f.is_srgb()) {
+            config.format = f;
+        }
+        surface.configure(&device, &config);
+
+        let shader = device.create_shader_module(wgpu::include_wgsl!("shapes.wgsl"));
+
+        let globals = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("globals"),
+            size: std::mem::size_of::<Globals>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let bind_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("globals"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("globals"),
+            layout: &bind_layout,
+            entries: &[wgpu::BindGroupEntry { binding: 0, resource: globals.as_entire_binding() }],
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("shapes"),
+            bind_group_layouts: &[Some(&bind_layout)],
+            ..Default::default()
+        });
+
+        const ATTRS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
+            0 => Float32x2, 1 => Float32x2, 2 => Float32x4, 3 => Float32, 4 => Float32
+        ];
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("shapes"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Instance>() as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &ATTRS,
+                })],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: Default::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+
+        let instance_capacity = 64;
+        let instances = Self::make_instance_buffer(&device, instance_capacity);
+        let info = adapter.get_info();
+
+        Ok(Renderer {
+            device,
+            queue,
+            surface,
+            config,
+            pipeline,
+            globals,
+            bind_group,
+            instances,
+            instance_capacity,
+            adapter_info: if info.name.is_empty() {
+                format!("{:?}", info.backend)
+            } else {
+                format!("{} ({:?})", info.name, info.backend)
+            },
+        })
+    }
+
+    fn make_instance_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("instances"),
+            contents: &vec![0u8; capacity * std::mem::size_of::<Instance>()],
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        })
+    }
+
+    pub fn resize(&mut self, width: u32, height: u32) {
+        if width == 0 || height == 0 {
+            return;
+        }
+        self.config.width = width;
+        self.config.height = height;
+        self.surface.configure(&self.device, &self.config);
+    }
+
+    /// Draw `scene` at time `t` (seconds) into the surface.
+    pub fn render(&mut self, scene: &Scene, t: f32) {
+        let shapes: Vec<Instance> = scene.frame(t).iter().map(Instance::from).collect();
+        if shapes.len() > self.instance_capacity {
+            self.instance_capacity = shapes.len().next_power_of_two();
+            self.instances = Self::make_instance_buffer(&self.device, self.instance_capacity);
+        }
+        if !shapes.is_empty() {
+            self.queue.write_buffer(&self.instances, 0, bytemuck::cast_slice(&shapes));
+        }
+        let linearize = if self.config.format.is_srgb() { 1.0 } else { 0.0 };
+        self.queue.write_buffer(
+            &self.globals,
+            0,
+            bytemuck::bytes_of(&Globals {
+                scene_size: [scene.width as f32, scene.height as f32],
+                linearize,
+                _pad: 0.0,
+            }),
+        );
+
+        let frame = match self.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(f) | wgpu::CurrentSurfaceTexture::Suboptimal(f) => f,
+            _ => {
+                self.surface.configure(&self.device, &self.config);
+                return;
+            }
+        };
+        let view = frame.texture.create_view(&Default::default());
+        let [r, g, b, _] = scene.palette().background.0;
+        let clear = if linearize > 0.5 { [r, g, b].map(srgb_to_linear) } else { [r, g, b] };
+
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("frame"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: clear[0] as f64,
+                            g: clear[1] as f64,
+                            b: clear[2] as f64,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                ..Default::default()
+            });
+            if !shapes.is_empty() {
+                pass.set_pipeline(&self.pipeline);
+                pass.set_bind_group(0, &self.bind_group, &[]);
+                pass.set_vertex_buffer(0, self.instances.slice(..));
+                pass.draw(0..6, 0..shapes.len() as u32);
+            }
+        }
+        self.queue.submit([encoder.finish()]);
+        self.queue.present(frame);
+    }
+}
+
+fn srgb_to_linear(c: f32) -> f32 {
+    if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+}

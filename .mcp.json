@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "motionily": {
+      "command": "npx",
+      "args": ["tsx", "packages/mcp-server/src/index.ts"],
+      "env": { "MOTIONILY_PROJECT": "project.motionily.json" }
+    }
+  }
+}

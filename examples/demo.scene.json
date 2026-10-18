@@ -1,0 +1,48 @@
+{
+  "width": 1080,
+  "height": 1920,
+  "fps": 30,
+  "duration": 6,
+  "style": "neon",
+  "caption_style": "pop_word",
+  "layers": [
+    {
+      "id": "bg-blob",
+      "shape": "ellipse",
+      "fill": "surface",
+      "x": 540, "y": 960,
+      "w": [{"t":0,"v":0,"ease":"ease_out"},{"t":1.2,"v":1400}],
+      "h": [{"t":0,"v":0,"ease":"ease_out"},{"t":1.2,"v":1400}]
+    },
+    {
+      "id": "card",
+      "shape": "rect",
+      "start": 0.6,
+      "fill": "primary",
+      "x": 540,
+      "y": [{"t":0,"v":2200,"ease":"back"},{"t":0.7,"v":960}],
+      "w": 760, "h": 420, "radius": 48,
+      "rotation": [{"t":0,"v":-8,"ease":"ease_out"},{"t":0.9,"v":0}]
+    },
+    {
+      "id": "dot",
+      "shape": "ellipse",
+      "start": 1.4,
+      "fill": "accent",
+      "x": [{"t":0,"v":300},{"t":2,"v":780},{"t":4,"v":300}],
+      "y": 1380,
+      "w": 120, "h": 120,
+      "scale": [{"t":0,"v":0,"ease":"back"},{"t":0.5,"v":1}]
+    },
+    {
+      "id": "bar",
+      "shape": "rect",
+      "start": 2.0,
+      "fill": "text",
+      "x": 540, "y": 1560,
+      "w": [{"t":0,"v":0,"ease":"ease_in_out"},{"t":0.8,"v":600}],
+      "h": 16, "radius": 8,
+      "opacity": [{"t":3.2,"v":1},{"t":3.8,"v":0}]
+    }
+  ]
+}

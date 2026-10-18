@@ -1,0 +1,6 @@
+target/
+node_modules/
+dist/
+apps/web/src/engine/pkg/
+*.motionily.json
+.DS_Store
