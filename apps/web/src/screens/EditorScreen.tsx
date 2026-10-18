@@ -11,6 +11,7 @@ import { ActivityLog } from "../components/ActivityLog";
 import { BuildPanel } from "../components/lego/BuildPanel";
 import { BrickPicker } from "../components/lego/BrickPicker";
 import { slotMeta } from "../components/lego/slots";
+import { ConnectAgent } from "../components/ConnectAgent";
 
 const SAVE_DEBOUNCE_MS = 800;
 
@@ -54,12 +55,14 @@ export function EditorScreen({ id }: { id: string }) {
         revision.current = p.sceneRevision;
         await engineHost.mount(canvasRef.current, p.scene ? JSON.stringify(p.scene) : null);
         if (cancelled || !engineHost.ready) return;
-        engineHost.applyOpsQuietly(buildToOps(p.build, new Map(b.map((x) => [x.key, x]))));
+        engineHost.setBuildOps(buildToOps(p.build, new Map(b.map((x) => [x.key, x]))));
         agentBridge.start();
+        agentBridge.setProject(id);
       })
       .catch((e: Error) => setError(e.message));
     return () => {
       cancelled = true;
+      agentBridge.setProject(null);
       engineHost.unmount();
     };
   }, [id]);
@@ -91,7 +94,7 @@ export function EditorScreen({ id }: { id: string }) {
       const p = await api.setSlot(id, slot, value, applyKitDefaults);
       setProject(p);
       if (engineHost.ready) {
-        engineHost.applyOps(buildToOps(p.build, byKey));
+        engineHost.setBuildOps(buildToOps(p.build, byKey));
         agentBridge.sceneChanged();
       }
       const names = [value].flat().filter(Boolean).map((k) => kitName(k as string));
@@ -128,6 +131,7 @@ export function EditorScreen({ id }: { id: string }) {
           <span className={`size-2 rounded-full ${agentConnected ? "bg-emerald-400" : "bg-neutral-600"}`} />
           {agentConnected ? "Agente conectado" : "Esperando al agente"}
         </span>
+        <ConnectAgent projectId={id} />
       </TopBar>
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">

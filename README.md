@@ -64,11 +64,18 @@ The catalog lives in `apps/api/src/bricks/seed/catalog.ts` and is upserted on bo
 
 | Tool | Purpose |
 | --- | --- |
+| `get_project` | Brief, the bricks the user chose per slot, scene state (start here) |
 | `get_reference` | Scene format and op list (read once) |
+| `list_bricks` / `get_brick` | Brick catalog for this project, compact or full |
 | `get_scene` | Compact summary, or full JSON with `full=true` |
-| `apply_ops` | Atomic batch of edits; returns the new summary |
-| `load_scene` | Start from scratch |
-| `get_feedback` | Comments and choices the user made since the last call |
+| `apply_ops` | Atomic batch of edits, rendered live in the editor; returns the new summary |
+| `load_scene` | First cut from scratch |
+| `create_brick` | Save a missing brick (e.g. animation) as private to the project |
+| `get_feedback` | Comments and brick swaps since the last call |
+
+Connect: in the editor press **Conectar agente** and paste the command. It registers
+the server in Claude Code with a token scoped to that project (it cannot swap bricks
+or delete the project).
 
 ## Getting started
 
@@ -83,8 +90,8 @@ pnpm api            # API on :3100
 pnpm dev            # builds the engine to WASM and opens the editor on :5173
 ```
 
-Open the repo in Claude Code: `.mcp.json` registers the `motionily` server.
-Ask for a video and watch the editor.
+Sign in, open a project, press **Conectar agente**, paste the command, then ask
+Claude Code for the video and watch the editor.
 
 ```bash
 pnpm test                                     # Rust tests + typecheck

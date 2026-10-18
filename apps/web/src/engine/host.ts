@@ -43,6 +43,7 @@ class EngineHost {
         return;
       }
       this.engine = engine;
+      this.buildOps = [];
       this.engine.loadScene(sceneJson ?? demoScene);
       this.resizeObserver = new ResizeObserver(() => this.fitCanvas());
       this.resizeObserver.observe(canvas);
@@ -61,13 +62,6 @@ class EngineHost {
     this.engine?.free();
     this.engine = null;
     this.canvas = null;
-  }
-
-  /** Apply ops without notifying scene listeners (used to mirror the build, which is saved elsewhere). */
-  applyOpsQuietly(ops: Op[]) {
-    this.require().applyOps(JSON.stringify(ops));
-    this.syncMeta();
-    this.draw();
   }
 
   /** Called after every scene change, from the agent or the user. */
@@ -94,8 +88,18 @@ class EngineHost {
     this.changed();
   }
 
+  /** Ops derived from the user's bricks (palette…). Re-applied on every scene load so an agent can't drop them. */
+  private buildOps: Op[] = [];
+
+  setBuildOps(ops: Op[]) {
+    this.buildOps = ops;
+    if (this.engine) this.applyOps(ops);
+  }
+
   loadScene(json: string) {
-    this.require().loadScene(json);
+    const engine = this.require();
+    engine.loadScene(json);
+    if (this.buildOps.length) engine.applyOps(JSON.stringify(this.buildOps));
     this.changed();
   }
 

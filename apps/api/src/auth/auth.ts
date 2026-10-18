@@ -2,6 +2,7 @@ import {
   CanActivate,
   createParamDecorator,
   ExecutionContext,
+  ForbiddenException,
   Injectable,
   SetMetadata,
   UnauthorizedException,
@@ -14,10 +15,21 @@ const IS_PUBLIC = "isPublic";
 /** Opt a route out of the global JWT guard. */
 export const Public = () => SetMetadata(IS_PUBLIC, true);
 
-export type JwtPayload = { sub: string; email: string };
-export type AuthUser = { id: Types.ObjectId; email: string };
+export enum TokenScope {
+  /** Full account access, from signing in. */
+  User = "user",
+  /** One project only, handed to an agent (MCP). */
+  Agent = "agent",
+}
 
-type AuthedRequest = { headers: Record<string, string | undefined>; user?: AuthUser };
+export type JwtPayload = { sub: string; email: string; scope?: TokenScope; projectId?: string };
+export type AuthUser = { id: Types.ObjectId; email: string; scope: TokenScope; projectId?: string };
+
+type AuthedRequest = {
+  headers: Record<string, string | undefined>;
+  params?: Record<string, string>;
+  user?: AuthUser;
+};
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -34,11 +46,20 @@ export class JwtAuthGuard implements CanActivate {
     if (scheme !== "Bearer" || !token) throw new UnauthorizedException();
     try {
       const payload = await this.jwt.verifyAsync<JwtPayload>(token);
-      req.user = { id: new Types.ObjectId(payload.sub), email: payload.email };
-      return true;
+      req.user = {
+        id: new Types.ObjectId(payload.sub),
+        email: payload.email,
+        scope: payload.scope ?? TokenScope.User,
+        projectId: payload.projectId,
+      };
     } catch {
       throw new UnauthorizedException();
     }
+    // Agent tokens only reach their own project.
+    if (req.user.scope === TokenScope.Agent && req.params?.id !== req.user.projectId) {
+      throw new ForbiddenException("agent token is limited to its project");
+    }
+    return true;
   }
 }
 

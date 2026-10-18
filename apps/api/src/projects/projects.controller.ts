@@ -1,5 +1,6 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query } from "@nestjs/common";
-import { CurrentUser, type AuthUser } from "../auth/auth";
+import { Body, Controller, Delete, ForbiddenException, Get, HttpCode, Param, Patch, Post, Put, Query } from "@nestjs/common";
+import { JwtService } from "@nestjs/jwt";
+import { CurrentUser, TokenScope, type AuthUser, type JwtPayload } from "../auth/auth";
 import { BricksService } from "../bricks/bricks.service";
 import { CreateBrickDto, ListBricksQuery } from "../bricks/bricks.dto";
 import { BrickSlot } from "../bricks/brick.enums";
@@ -12,6 +13,7 @@ export class ProjectsController {
   constructor(
     private readonly projects: ProjectsService,
     private readonly bricks: BricksService,
+    private readonly jwt: JwtService,
   ) {}
 
   @Get()
@@ -31,12 +33,14 @@ export class ProjectsController {
 
   @Patch(":id")
   async update(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpdateProjectDto) {
+    userOnly(user);
     return this.view(await this.projects.update(user.id, id, dto));
   }
 
   @Delete(":id")
   @HttpCode(204)
   remove(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    userOnly(user);
     return this.projects.remove(user.id, id);
   }
 
@@ -47,7 +51,18 @@ export class ProjectsController {
     @Param("slot") slot: BrickSlot,
     @Body() dto: SetSlotDto,
   ) {
+    // Bricks are the user's choice; the agent may suggest, never swap.
+    userOnly(user);
     return this.view(await this.projects.setSlot(user.id, id, slot, dto));
+  }
+
+  /** A token the user pastes into their agent (MCP). It can only touch this project. */
+  @Post(":id/agent-token")
+  async agentToken(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    userOnly(user);
+    const project = await this.projects.get(user.id, id);
+    const payload: JwtPayload = { sub: user.id.toString(), email: user.email, scope: TokenScope.Agent, projectId: project.id };
+    return { token: await this.jwt.signAsync(payload, { expiresIn: "90d" }), projectId: project.id };
   }
 
   @Put(":id/scene")
@@ -98,4 +113,9 @@ export class ProjectsController {
       updatedAt: (p as unknown as { updatedAt: Date }).updatedAt,
     };
   }
+}
+
+/** Routes that stay in the user's hands even when an agent holds a project token. */
+function userOnly(user: AuthUser) {
+  if (user.scope !== TokenScope.User) throw new ForbiddenException("only the user can do this");
 }

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * Motionily MCP server: the agent's hands. The agent builds and edits videos
- * with small ops; the human watches the editor, picks styles and leaves
- * feedback, which the agent reads back with `get_feedback`.
+ * Motionily MCP server: the agent's hands on one project.
+ * The user picks bricks and writes a brief in the editor; the agent reads them,
+ * builds the video with small ops (rendered live in the editor) and iterates
+ * on the user's feedback.
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -10,98 +11,199 @@ import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { BRIDGE_PORT, FeedbackKind, type Feedback, type Op } from "@motionily/protocol";
+import {
+  BRIDGE_PORT,
+  BrickSlot,
+  BrickVisibility,
+  EngineSupport,
+  FeedbackKind,
+  type Brick,
+  type Feedback,
+  type Op,
+  type Project,
+} from "@motionily/protocol";
 import { EditorBridge } from "./bridge.js";
+import { ProjectApi } from "./api.js";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const REFERENCE = readFileSync(resolve(here, "../../../docs/scene-reference.md"), "utf8");
-const projectPath = resolve(process.env.MOTIONILY_PROJECT ?? "project.motionily.json");
-const bridge = new EditorBridge(Number(process.env.MOTIONILY_PORT ?? BRIDGE_PORT), projectPath);
 
-const server = new McpServer({ name: "motionily", version: "0.1.0" });
+const token = process.env.MOTIONILY_TOKEN;
+const projectId = process.env.MOTIONILY_PROJECT;
+if (!token || !projectId) {
+  console.error("[motionily] MOTIONILY_TOKEN and MOTIONILY_PROJECT are required. Get them from 'Conectar agente' in the editor.");
+  process.exit(1);
+}
+const api = new ProjectApi(process.env.MOTIONILY_API ?? "http://localhost:3100", token, projectId);
+const bridge = new EditorBridge(Number(process.env.MOTIONILY_PORT ?? BRIDGE_PORT), projectId);
+
+const server = new McpServer({ name: "motionily", version: "0.2.0" });
 
 const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] });
 const fail = (t: string) => ({ ...text(t), isError: true });
+const guard =
+  <A,>(fn: (args: A) => Promise<ReturnType<typeof text>>) =>
+  async (args: A) => {
+    try {
+      return await fn(args);
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+  };
+
+const SLOT_VALUES = Object.values(BrickSlot) as [BrickSlot, ...BrickSlot[]];
+
+server.registerTool(
+  "get_project",
+  {
+    description:
+      "START HERE. The user's brief, the bricks they chose for every slot (style, palette, composition, animations…) and the current scene summary.",
+    inputSchema: {},
+  },
+  guard(async () => {
+    const [project, bricks] = await Promise.all([api.project(), api.bricks()]);
+    return text(describeProject(project, new Map(bricks.map((b) => [b.key, b]))));
+  }),
+);
 
 server.registerTool(
   "get_reference",
-  {
-    description:
-      "Scene format and op reference. Read once per session before your first edit; it is not repeated elsewhere.",
-    inputSchema: {},
-  },
+  { description: "Scene format and op reference. Read once before your first edit.", inputSchema: {} },
   async () => text(REFERENCE),
+);
+
+server.registerTool(
+  "list_bricks",
+  {
+    description: "Brick catalog this project can use (official + ones you created), one line each. Filter by slot.",
+    inputSchema: { slot: z.enum(SLOT_VALUES).optional() },
+  },
+  guard(async ({ slot }) => {
+    const bricks = await api.bricks(slot);
+    return text(bricks.map(brickLine).join("\n") || "No bricks.");
+  }),
+);
+
+server.registerTool(
+  "get_brick",
+  {
+    description: "Full data of one brick (payload: colors, keyframe templates, kit defaults…).",
+    inputSchema: { key: z.string().describe('e.g. "animation/pop_in"') },
+  },
+  guard(async ({ key }) => {
+    const brick = (await api.bricks()).find((b) => b.key === key);
+    if (!brick) return fail(`No brick '${key}'. Use list_bricks.`);
+    const { slot, name, description, fits, engine, payload } = brick;
+    return text(JSON.stringify({ key, slot, name, description, fits, engine, payload }));
+  }),
 );
 
 server.registerTool(
   "get_scene",
   {
-    description:
-      "Current scene. Default is a compact one-line-per-layer summary (cheap). Use full=true only when you need exact keyframes.",
+    description: "Current scene: compact summary by default; full=true for exact keyframes.",
     inputSchema: { full: z.boolean().optional() },
   },
-  async ({ full }) => {
-    if (full) return text(bridge.savedScene() ?? "No scene saved yet.");
-    if (bridge.lastSummary) return text(bridge.lastSummary);
-    return fail("No scene yet. Is the editor open?");
-  },
+  guard(async ({ full }) => {
+    if (!full && bridge.connected && bridge.lastSummary) return text(bridge.lastSummary);
+    const { scene } = await api.project();
+    if (!scene) return text("Empty project: no scene yet. Start with load_scene.");
+    return text(full ? JSON.stringify(scene) : `${bridge.connected ? "" : "(editor closed) "}${JSON.stringify(scene).slice(0, 2000)}`);
+  }),
 );
 
 server.registerTool(
   "apply_ops",
   {
     description:
-      "Edit the video with a batch of ops (atomic: all or nothing). Returns the new summary. Prefer this over load_scene for any change.",
+      "Edit the video with an atomic batch of ops. Rendered live in the user's editor and autosaved. Returns the new summary.",
     inputSchema: { ops: z.array(z.looseObject({ op: z.string() })).min(1) },
   },
-  async ({ ops }) => {
-    try {
-      const res = await bridge.applyOps(ops as Op[]);
-      return res.ok ? text(res.summary ?? "ok") : fail(res.error ?? "rejected");
-    } catch (e) {
-      return fail((e as Error).message);
-    }
-  },
+  guard(async ({ ops }) => {
+    const res = await bridge.applyOps(ops as Op[]);
+    return res.ok ? text(res.summary ?? "ok") : fail(res.error ?? "rejected");
+  }),
 );
 
 server.registerTool(
   "load_scene",
   {
-    description: "Replace the whole scene with new JSON. Use only to start a video from scratch.",
+    description: "Replace the whole scene. Use to build the first cut; prefer apply_ops afterwards.",
     inputSchema: { scene: z.string().describe("Full scene JSON") },
   },
-  async ({ scene }) => {
-    try {
-      const res = await bridge.loadScene(scene);
-      return res.ok ? text(res.summary ?? "ok") : fail(res.error ?? "rejected");
-    } catch (e) {
-      return fail((e as Error).message);
-    }
+  guard(async ({ scene }) => {
+    const res = await bridge.loadScene(scene);
+    return res.ok ? text(res.summary ?? "ok") : fail(res.error ?? "rejected");
+  }),
+);
+
+server.registerTool(
+  "create_brick",
+  {
+    description:
+      "Save a brick that did not exist (e.g. a custom animation) as a private brick of this project, so it can be reused. Payload is free-form JSON (keyframe template, colors…).",
+    inputSchema: {
+      slot: z.enum(SLOT_VALUES),
+      id: z.string().regex(/^[a-z0-9_]{2,40}$/).describe("snake_case; key becomes slot/id"),
+      name: z.string().max(80),
+      description: z.string().max(400).optional(),
+      payload: z.record(z.string(), z.unknown()).optional(),
+    },
   },
+  guard(async (brick) => {
+    const created = await api.createBrick(brick);
+    return text(`Saved ${created.key} (private to this project).`);
+  }),
 );
 
 server.registerTool(
   "get_feedback",
   {
     description:
-      "What the user did in the editor since the last call: comments pinned to a time, style and caption choices. Check it after each round of edits.",
+      "What the user said or changed since your last call: comments pinned to a second, and bricks they swapped. Check after every round of edits.",
     inputSchema: {},
   },
-  async () => {
-    const items = bridge.drainFeedback();
-    if (items.length === 0) return text("No new feedback.");
-    return text(items.map(formatFeedback).join("\n"));
-  },
+  guard(async () => {
+    const items = await api.consumeFeedback();
+    return text(items.length ? items.map(feedbackLine).join("\n") : "No new feedback.");
+  }),
 );
 
-function formatFeedback(f: Feedback): string {
+function describeProject(p: Project, byKey: Map<string, Brick>): string {
+  const lines = [`Project "${p.name}"`, `Brief: ${p.brief.trim() || "(empty — ask the user what the video is about)"}`, ""];
+  lines.push("Bricks chosen by the user (respect them; never swap, you may suggest):");
+  for (const slot of SLOT_VALUES) {
+    const keys = [p.build[slot]].flat().filter((k): k is string => typeof k === "string");
+    const names = keys.map((k) => {
+      const b = byKey.get(k);
+      if (!b) return k;
+      const extra = slot === BrickSlot.Palette ? ` ${JSON.stringify(b.payload)}` : "";
+      return `${b.name} (${k})${b.engine === EngineSupport.Planned ? " [not rendered yet: use as intent]" : ""}${extra}`;
+    });
+    lines.push(`- ${slot}: ${names.join("; ") || "—"}`);
+  }
+  if (p.misfits.length) lines.push(`Misfits (user chose them anyway): ${p.misfits.join(", ")}`);
+  lines.push("");
+  lines.push(
+    "Engine today: rect/ellipse layers with keyframes, palette slots (background/surface/primary/accent/text) follow the palette brick. Text, captions, 3D and render styles are not rendered yet.",
+  );
+  lines.push(p.scene ? `Scene: exists (rev ${p.sceneRevision}); see get_scene.` : "Scene: empty. Build the first cut with load_scene.");
+  lines.push(bridge.connected ? "Editor: open (your edits render live)." : "Editor: NOT open on this project — ask the user to open it before editing.");
+  return lines.join("\n");
+}
+
+function brickLine(b: Brick): string {
+  const fits = b.fits.length ? ` fits=${b.fits.map((f) => f.split("/")[1]).join(",")}` : "";
+  const flags = `${b.engine === EngineSupport.Planned ? " planned" : ""}${b.visibility === BrickVisibility.Private ? " yours" : ""}`;
+  return `${b.key} | ${b.name} | ${b.description}${fits}${flags}`;
+}
+
+function feedbackLine(f: Feedback): string {
   switch (f.kind) {
     case FeedbackKind.Comment:
-      return `comment @${f.at.toFixed(2)}s: ${f.text}`;
-    case FeedbackKind.StyleChosen:
-      return `user chose style=${f.style} (already applied)`;
-    case FeedbackKind.CaptionStyleChosen:
-      return `user chose captions=${f.captionStyle} (already applied)`;
+      return `comment @${(f.at ?? 0).toFixed(1)}s: ${f.text}`;
+    case FeedbackKind.BrickChosen:
+      return `user set ${f.slot} = ${JSON.stringify(f.value)}`;
   }
 }
 

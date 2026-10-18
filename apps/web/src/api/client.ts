@@ -49,6 +49,7 @@ export const api = {
     call<Brick[]>(HttpMethod.Get, `/projects/${id}/bricks${slot ? `?slot=${slot}` : ""}`),
   setSlot: (id: string, slot: BrickSlot, value: string | string[] | null, applyKitDefaults?: boolean) =>
     call<Project>(HttpMethod.Put, `/projects/${id}/build/${slot}`, { value, applyKitDefaults }),
+  agentToken: (id: string) => call<{ token: string; projectId: string }>(HttpMethod.Post, `/projects/${id}/agent-token`),
   saveScene: (id: string, scene: unknown, baseRevision: number) =>
     call<{ sceneRevision: number }>(HttpMethod.Put, `/projects/${id}/scene`, { scene, baseRevision }),
   addComment: (id: string, text: string, at: number) =>

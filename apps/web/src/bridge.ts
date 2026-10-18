@@ -3,7 +3,6 @@ import {
   EditorMessageType,
   ServerMessageType,
   type EditorMessage,
-  type Feedback,
   type ServerMessage,
 } from "@motionily/protocol";
 import { engineHost } from "./engine/host";
@@ -17,16 +16,20 @@ const RECONNECT_MS = 2000;
  */
 class AgentBridge {
   private ws: WebSocket | null = null;
+  private projectId: string | null = null;
+
+  /** The project open in the editor. Agents for other projects are ignored. */
+  setProject(id: string | null) {
+    this.projectId = id;
+    useEditor.setState({ agentConnected: false });
+    this.hello();
+  }
 
   start() {
     if (this.ws) return;
     const ws = new WebSocket(`ws://127.0.0.1:${BRIDGE_PORT}`);
     this.ws = ws;
-    ws.onopen = () => {
-      useEditor.setState({ agentConnected: true });
-      logActivity(ActivitySource.System, "Agente conectado");
-      this.send({ type: EditorMessageType.Hello, scene: engineHost.sceneJson(), summary: engineHost.summary() });
-    };
+    ws.onopen = () => this.hello();
     ws.onmessage = (e) => this.handle(JSON.parse(e.data) as ServerMessage);
     ws.onclose = () => {
       if (useEditor.getState().agentConnected) logActivity(ActivitySource.System, "Agente desconectado");
@@ -36,16 +39,29 @@ class AgentBridge {
     };
   }
 
-  /** User changed something by hand: keep the agent's copy in sync. */
+  /** User changed something by hand: keep the agent's summary in sync. */
   sceneChanged() {
-    this.send({ type: EditorMessageType.SceneChanged, scene: engineHost.sceneJson(), summary: engineHost.summary() });
+    if (!this.projectId || !engineHost.ready) return;
+    this.send({ type: EditorMessageType.SceneChanged, projectId: this.projectId, scene: engineHost.sceneJson(), summary: engineHost.summary() });
   }
 
-  feedback(feedback: Feedback) {
-    this.send({ type: EditorMessageType.Feedback, feedback });
+  private hello() {
+    if (!this.projectId || !engineHost.ready || this.ws?.readyState !== WebSocket.OPEN) return;
+    this.send({ type: EditorMessageType.Hello, projectId: this.projectId, scene: engineHost.sceneJson(), summary: engineHost.summary() });
   }
 
   private handle(msg: ServerMessage) {
+    if (msg.type === ServerMessageType.Attached) {
+      if (msg.projectId === this.projectId) {
+        useEditor.setState({ agentConnected: true });
+        logActivity(ActivitySource.System, "Agente conectado");
+      }
+      return;
+    }
+    if (msg.projectId !== this.projectId) {
+      this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error: "The editor is showing another project." });
+      return;
+    }
     try {
       switch (msg.type) {
         case ServerMessageType.ApplyOps:

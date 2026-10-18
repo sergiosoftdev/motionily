@@ -27,38 +27,44 @@ export type Op = { op: string } & Record<string, unknown>;
 
 export const FeedbackKind = {
   Comment: "comment",
-  StyleChosen: "style_chosen",
-  CaptionStyleChosen: "caption_style_chosen",
+  BrickChosen: "brick_chosen",
 } as const;
 export type FeedbackKind = (typeof FeedbackKind)[keyof typeof FeedbackKind];
 
-export type Feedback =
-  | { kind: typeof FeedbackKind.Comment; at: number; text: string; createdAt: string }
-  | { kind: typeof FeedbackKind.StyleChosen; style: StylePreset; createdAt: string }
-  | { kind: typeof FeedbackKind.CaptionStyleChosen; captionStyle: CaptionStyle; createdAt: string };
+/** Feedback as stored by the API (/projects/:id/feedback). */
+export type Feedback = {
+  kind: FeedbackKind;
+  text?: string;
+  at?: number;
+  slot?: string;
+  value?: string | string[] | null;
+  createdAt: string;
+};
 
 export const ServerMessageType = {
   ApplyOps: "apply_ops",
   LoadScene: "load_scene",
+  /** The agent accepted this editor as the one showing its project. */
+  Attached: "attached",
 } as const;
 export type ServerMessageType = (typeof ServerMessageType)[keyof typeof ServerMessageType];
 
 /** Agent -> editor. Each request gets exactly one `result` back. */
 export type ServerMessage =
-  | { type: typeof ServerMessageType.ApplyOps; requestId: string; ops: Op[] }
-  | { type: typeof ServerMessageType.LoadScene; requestId: string; scene: string };
+  | { type: typeof ServerMessageType.ApplyOps; requestId: string; projectId: string; ops: Op[] }
+  | { type: typeof ServerMessageType.LoadScene; requestId: string; projectId: string; scene: string }
+  | { type: typeof ServerMessageType.Attached; projectId: string };
 
 export const EditorMessageType = {
   Hello: "hello",
   Result: "result",
   SceneChanged: "scene_changed",
-  Feedback: "feedback",
 } as const;
 export type EditorMessageType = (typeof EditorMessageType)[keyof typeof EditorMessageType];
 
 /** Editor -> agent. `scene` is the full scene JSON, `summary` the token-cheap version. */
 export type EditorMessage =
-  | { type: typeof EditorMessageType.Hello; scene: string; summary: string }
+  | { type: typeof EditorMessageType.Hello; projectId: string; scene: string; summary: string }
   | {
       type: typeof EditorMessageType.Result;
       requestId: string;
@@ -67,8 +73,7 @@ export type EditorMessage =
       scene?: string;
       summary?: string;
     }
-  | { type: typeof EditorMessageType.SceneChanged; scene: string; summary: string }
-  | { type: typeof EditorMessageType.Feedback; feedback: Feedback };
+  | { type: typeof EditorMessageType.SceneChanged; projectId: string; scene: string; summary: string };
 
 
 /** Op names the editor itself sends. The full list lives in docs/scene-reference.md. */

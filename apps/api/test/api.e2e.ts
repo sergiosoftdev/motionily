@@ -186,3 +186,28 @@ describe("agent loop", () => {
     assert.equal(second.body.length, 0);
   });
 });
+
+describe("agent tokens", () => {
+  it("reach only their project and cannot swap the user's bricks", async () => {
+    const auth = await login("tokens@example.com");
+    const { body: p } = await http.post("/projects").set(auth).send({ name: "P", motionStyle: "motion_style/apple" });
+    const { body: q } = await http.post("/projects").set(auth).send({ name: "Q", motionStyle: "motion_style/apple" });
+    const { body: t } = await http.post(`/projects/${p.id}/agent-token`).set(auth).expect(201);
+    const agent = { Authorization: `Bearer ${t.token as string}` };
+
+    await http.get(`/projects/${p.id}`).set(agent).expect(200);
+    await http.get(`/projects/${p.id}/bricks`).set(agent).expect(200);
+    await http.post(`/projects/${p.id}/feedback/consume`).set(agent).expect(200);
+    await http
+      .post(`/projects/${p.id}/bricks`)
+      .set(agent)
+      .send({ slot: "animation", id: "agent_spin", name: "Spin" })
+      .expect(201);
+
+    await http.get(`/projects/${q.id}`).set(agent).expect(403);
+    await http.get("/projects").set(agent).expect(403);
+    await http.put(`/projects/${p.id}/build/palette`).set(agent).send({ value: "palette/sunset" }).expect(403);
+    await http.delete(`/projects/${p.id}`).set(agent).expect(403);
+    await http.post(`/projects/${p.id}/agent-token`).set(agent).expect(403);
+  });
+});

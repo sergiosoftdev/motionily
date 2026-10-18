@@ -1,6 +1,4 @@
 import { useState } from "react";
-import { FeedbackKind } from "@motionily/protocol";
-import { agentBridge } from "../bridge";
 import { api } from "../api/client";
 import { ActivitySource, logActivity, useEditor } from "../store";
 import { Section } from "./Section";
@@ -12,7 +10,6 @@ export function FeedbackBox({ projectId }: { projectId: string }) {
   const send = () => {
     const t = text.trim();
     if (!t) return;
-    agentBridge.feedback({ kind: FeedbackKind.Comment, at: time, text: t, createdAt: new Date().toISOString() });
     api.addComment(projectId, t, time).catch((e: Error) => logActivity(ActivitySource.System, e.message));
     logActivity(ActivitySource.User, `@${time.toFixed(1)}s: ${t}`);
     setText("");

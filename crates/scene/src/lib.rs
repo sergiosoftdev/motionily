@@ -163,12 +163,12 @@ impl Scene {
     /// Compact, token-cheap description for agents. One line per layer.
     pub fn summary(&self) -> String {
         let mut s = format!(
-            "{}x{} {}fps {}s style={} captions={} layers={}\n",
+            "{}x{} {}fps {}s palette={} captions={} layers={}\n",
             self.width,
             self.height,
             self.fps,
             self.duration,
-            enum_name(&self.style),
+            if self.palette.is_some() { "brick".to_owned() } else { enum_name(&self.style) },
             enum_name(&self.caption_style),
             self.layers.len()
         );
@@ -221,7 +221,7 @@ mod tests {
     fn demo_scene_parses_and_renders() {
         let scene = Scene::from_json(DEMO).unwrap();
         assert!(!scene.frame(1.0).is_empty());
-        assert!(scene.summary().contains("style="));
+        assert!(scene.summary().contains("palette="));
     }
 
     #[test]
