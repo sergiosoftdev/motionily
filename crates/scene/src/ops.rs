@@ -1,4 +1,4 @@
-use crate::{Animated, CaptionStyle, ColorRef, Layer, Scene, StylePreset};
+use crate::{Animated, CaptionStyle, ColorRef, CustomPalette, Layer, Scene, StylePreset};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -9,6 +9,8 @@ use std::fmt;
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Op {
     SetStyle { style: StylePreset },
+    /// Colors from a palette brick; `null` goes back to the style preset colors.
+    SetPalette { palette: Option<CustomPalette> },
     SetCaptionStyle { caption_style: CaptionStyle },
     SetDuration { duration: f32 },
     SetSize { width: u32, height: u32 },
@@ -68,6 +70,7 @@ impl Scene {
     fn apply_one(&mut self, op: &Op) -> Result<(), OpError> {
         match op {
             Op::SetStyle { style } => self.style = *style,
+            Op::SetPalette { palette } => self.palette = *palette,
             Op::SetCaptionStyle { caption_style } => self.caption_style = *caption_style,
             Op::SetDuration { duration } => {
                 if *duration <= 0.0 {
@@ -164,5 +167,25 @@ mod tests {
         let err = scene.apply(&ops).unwrap_err();
         assert_eq!(err.0, 1);
         assert_eq!(scene.style, StylePreset::Clean);
+    }
+}
+
+#[cfg(test)]
+mod palette_tests {
+    use super::*;
+
+    #[test]
+    fn palette_brick_overrides_style_colors() {
+        let mut scene = Scene::default();
+        let ops: Vec<Op> = serde_json::from_str(
+            r##"[{"op":"set_palette","palette":{"background":"#d9c3a0","surface":"#f3e9d8","primary":"#c2553a","accent":"#3f7d6e","text":"#2a211b"}}]"##,
+        )
+        .unwrap();
+        scene.apply(&ops).unwrap();
+        assert_eq!(scene.palette().background, crate::Rgba::hex(0xd9c3a0));
+        scene.apply(&[Op::SetPalette { palette: None }]).unwrap();
+        assert_eq!(scene.palette(), StylePreset::Clean.palette());
+        let bad: Result<Vec<Op>, _> = serde_json::from_str(r#"[{"op":"set_palette","palette":{"background":"red"}}]"#);
+        assert!(bad.is_err());
     }
 }

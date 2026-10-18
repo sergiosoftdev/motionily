@@ -82,7 +82,7 @@ engine WASM (Rust/wgpu)  ◀────── WebSocket (ops en vivo) ───
 1. ✅ **API base** — NestJS + Mongo: auth simulada, usuarios, proyectos, catálogo de
    piezas con seed (cajas Apple, Startup, Isométrico, Anime, Cartoon, Paper cut y
    sus piezas). Tests e2e con Mongo en memoria.
-2. **Editor con cuenta** — login simulado, lista de proyectos, crear proyecto
+2. ✅ **Editor con cuenta** — login simulado, lista de proyectos, crear proyecto
    eligiendo caja, montaje Lego (ranuras + piezas), guardado en la API.
 3. **Agente sobre la API** — MCP con token y proyecto: `get_build`, `list_bricks`,
    `apply_ops`, `create_brick`, `get_feedback`; feedback persistido.

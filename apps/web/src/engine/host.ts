@@ -20,24 +20,54 @@ class EngineHost {
   captionStyles: CaptionStyle[] = [];
   palettes: Record<StylePreset, string[]> = {} as Record<StylePreset, string[]>;
 
-  async mount(canvas: HTMLCanvasElement) {
+  private wasmReady: Promise<unknown> | null = null;
+  private resizeObserver: ResizeObserver | null = null;
+
+  /** Attach the engine to a canvas (one per editor screen) and load `sceneJson`, or the demo scene. */
+  async mount(canvas: HTMLCanvasElement, sceneJson?: string | null) {
     if (this.canvas === canvas) return;
+    this.unmount();
     this.canvas = canvas;
+    useEditor.setState({ engineStatus: EngineStatus.Loading, time: 0 });
     try {
-      await init();
-      this.styles = JSON.parse(stylePresets());
-      this.captionStyles = JSON.parse(captionStyles());
-      this.palettes = JSON.parse(stylePalettes());
+      this.wasmReady ??= init().then(() => {
+        this.styles = JSON.parse(stylePresets());
+        this.captionStyles = JSON.parse(captionStyles());
+        this.palettes = JSON.parse(stylePalettes());
+      });
+      await this.wasmReady;
       this.fitCanvas();
-      this.engine = await Engine.create(canvas);
-      this.engine.loadScene(demoScene);
-      new ResizeObserver(() => this.fitCanvas()).observe(canvas);
+      const engine = await Engine.create(canvas);
+      if (this.canvas !== canvas) {
+        engine.free(); // unmounted while creating
+        return;
+      }
+      this.engine = engine;
+      this.engine.loadScene(sceneJson ?? demoScene);
+      this.resizeObserver = new ResizeObserver(() => this.fitCanvas());
+      this.resizeObserver.observe(canvas);
       useEditor.setState({ engineStatus: EngineStatus.Ready, adapter: this.engine.adapterInfo() });
       this.syncMeta();
       this.draw();
     } catch (e) {
       useEditor.setState({ engineStatus: EngineStatus.Failed, engineError: String(e) });
     }
+  }
+
+  unmount() {
+    this.pause();
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
+    this.engine?.free();
+    this.engine = null;
+    this.canvas = null;
+  }
+
+  /** Apply ops without notifying scene listeners (used to mirror the build, which is saved elsewhere). */
+  applyOpsQuietly(ops: Op[]) {
+    this.require().applyOps(JSON.stringify(ops));
+    this.syncMeta();
+    this.draw();
   }
 
   /** Called after every scene change, from the agent or the user. */

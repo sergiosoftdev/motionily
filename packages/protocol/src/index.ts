@@ -75,5 +75,87 @@ export type EditorMessage =
 export const OpName = {
   SetStyle: "set_style",
   SetCaptionStyle: "set_caption_style",
+  SetPalette: "set_palette",
 } as const;
 export type OpName = (typeof OpName)[keyof typeof OpName];
+
+// ── API (apps/api) shapes used by the editor and the MCP server ───────────
+
+export const BrickSlot = {
+  MotionStyle: "motion_style",
+  Palette: "palette",
+  Composition: "composition",
+  Typography: "typography",
+  RenderStyle: "render_style",
+  Captions: "captions",
+  Scenario: "scenario",
+  Character: "character",
+  Animation: "animation",
+  Transition: "transition",
+} as const;
+export type BrickSlot = (typeof BrickSlot)[keyof typeof BrickSlot];
+
+export const SlotCardinality = { One: "one", Optional: "optional", Many: "many" } as const;
+export type SlotCardinality = (typeof SlotCardinality)[keyof typeof SlotCardinality];
+
+export const SLOT_CARDINALITY: Record<BrickSlot, SlotCardinality> = {
+  motion_style: SlotCardinality.One,
+  palette: SlotCardinality.One,
+  composition: SlotCardinality.One,
+  typography: SlotCardinality.One,
+  render_style: SlotCardinality.One,
+  captions: SlotCardinality.One,
+  scenario: SlotCardinality.Optional,
+  character: SlotCardinality.Many,
+  animation: SlotCardinality.Many,
+  transition: SlotCardinality.Many,
+};
+
+export const EngineSupport = { Supported: "supported", Planned: "planned" } as const;
+export type EngineSupport = (typeof EngineSupport)[keyof typeof EngineSupport];
+
+export const BrickVisibility = { Official: "official", Private: "private" } as const;
+export type BrickVisibility = (typeof BrickVisibility)[keyof typeof BrickVisibility];
+
+export type Brick = {
+  key: string;
+  slot: BrickSlot;
+  name: string;
+  description: string;
+  tags: string[];
+  fits: string[];
+  payload: Record<string, unknown>;
+  engine: EngineSupport;
+  visibility: BrickVisibility;
+  version: number;
+};
+
+export type PalettePayload = { background: string; surface: string; primary: string; accent: string; text: string };
+
+export type Build = {
+  motion_style: string;
+  palette: string;
+  composition: string;
+  typography: string;
+  render_style: string;
+  captions: string;
+  scenario: string | null;
+  character: string[];
+  animation: string[];
+  transition: string[];
+};
+
+export type Project = {
+  id: string;
+  name: string;
+  brief: string;
+  build: Build;
+  misfits: string[];
+  scene: Record<string, unknown> | null;
+  sceneRevision: number;
+  updatedAt: string;
+};
+
+export type ProjectListItem = { _id: string; name: string; build: Build; updatedAt: string };
+
+export type User = { id: string; email: string; name: string; avatarUrl: string | null; provider: string };

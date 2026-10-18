@@ -1,18 +1,19 @@
 import { useState } from "react";
 import { FeedbackKind } from "@motionily/protocol";
 import { agentBridge } from "../bridge";
+import { api } from "../api/client";
 import { ActivitySource, logActivity, useEditor } from "../store";
 import { Section } from "./Section";
 
-export function FeedbackBox() {
+export function FeedbackBox({ projectId }: { projectId: string }) {
   const [text, setText] = useState("");
   const time = useEditor((s) => s.time);
-  const connected = useEditor((s) => s.agentConnected);
 
   const send = () => {
     const t = text.trim();
     if (!t) return;
     agentBridge.feedback({ kind: FeedbackKind.Comment, at: time, text: t, createdAt: new Date().toISOString() });
+    api.addComment(projectId, t, time).catch((e: Error) => logActivity(ActivitySource.System, e.message));
     logActivity(ActivitySource.User, `@${time.toFixed(1)}s: ${t}`);
     setText("");
   };
@@ -41,7 +42,7 @@ export function FeedbackBox() {
         />
         <button
           type="submit"
-          disabled={!connected || !text.trim()}
+          disabled={!text.trim()}
           className="self-end rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-neutral-950 hover:bg-neutral-200 disabled:opacity-40"
         >
           Enviar al agente

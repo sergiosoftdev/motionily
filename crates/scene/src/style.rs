@@ -123,3 +123,48 @@ pub enum CaptionStyle {
 impl CaptionStyle {
     pub const ALL: [CaptionStyle; 4] = [Self::Minimal, Self::Karaoke, Self::PopWord, Self::Highlight];
 }
+
+/// A `#rrggbb` color as written in brick payloads.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct HexColor(pub Rgba);
+
+impl Serialize for HexColor {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let [r, g, b, _] = self.0 .0.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8);
+        s.serialize_str(&format!("#{r:02x}{g:02x}{b:02x}"))
+    }
+}
+
+impl<'de> Deserialize<'de> for HexColor {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(d)?;
+        let hex = s.strip_prefix('#').unwrap_or(&s);
+        if hex.len() != 6 {
+            return Err(serde::de::Error::custom(format!("expected #rrggbb, got '{s}'")));
+        }
+        let v = u32::from_str_radix(hex, 16).map_err(serde::de::Error::custom)?;
+        Ok(HexColor(Rgba::hex(v)))
+    }
+}
+
+/// Palette from a palette brick. Overrides the style preset's colors.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct CustomPalette {
+    pub background: HexColor,
+    pub surface: HexColor,
+    pub primary: HexColor,
+    pub accent: HexColor,
+    pub text: HexColor,
+}
+
+impl From<CustomPalette> for Palette {
+    fn from(p: CustomPalette) -> Self {
+        Palette {
+            background: p.background.0,
+            surface: p.surface.0,
+            primary: p.primary.0,
+            accent: p.accent.0,
+            text: p.text.0,
+        }
+    }
+}

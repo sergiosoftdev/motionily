@@ -5,7 +5,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
-    "dev": "tsc -p tsconfig.build.json && node --watch-path=dist dist/main.js & tsc -p tsconfig.build.json -w --preserveWatchOutput",
+    "dev": "bash scripts/dev.sh",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "bash test/run.sh"
   },

@@ -11,7 +11,7 @@ mod style;
 
 pub use anim::{Animated, Easing, Keyframe};
 pub use ops::{Op, OpError, Prop};
-pub use style::{CaptionStyle, ColorRef, Palette, PaletteSlot, Rgba, StylePreset};
+pub use style::{CaptionStyle, ColorRef, CustomPalette, HexColor, Palette, PaletteSlot, Rgba, StylePreset};
 
 use serde::{Deserialize, Serialize};
 use std::fmt::Write;
@@ -31,6 +31,9 @@ pub struct Scene {
     pub style: StylePreset,
     #[serde(default)]
     pub caption_style: CaptionStyle,
+    /// Colors from a palette brick. When set, it wins over `style`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub palette: Option<CustomPalette>,
     #[serde(default)]
     pub layers: Vec<Layer>,
 }
@@ -50,6 +53,7 @@ impl Default for Scene {
             duration: 6.0,
             style: StylePreset::default(),
             caption_style: CaptionStyle::default(),
+            palette: None,
             layers: Vec::new(),
         }
     }
@@ -115,7 +119,7 @@ impl Scene {
     }
 
     pub fn palette(&self) -> Palette {
-        self.style.palette()
+        self.palette.map(Palette::from).unwrap_or_else(|| self.style.palette())
     }
 
     pub fn layer(&self, id: &str) -> Option<&Layer> {

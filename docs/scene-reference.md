@@ -35,6 +35,7 @@ Coordinates are scene pixels, origin top-left, y down.
 {"op":"set_timing","id":"card","start":1,"end":3}     // end may be null
 {"op":"reorder","id":"card","index":0}               // 0 = back
 {"op":"set_style","style":"neon"}
+{"op":"set_palette","palette":{"background":"#rrggbb","surface":"#…","primary":"#…","accent":"#…","text":"#…"}}   // null = style colors
 {"op":"set_caption_style","caption_style":"pop_word"}
 {"op":"set_duration","duration":8}
 {"op":"set_size","width":1080,"height":1920}

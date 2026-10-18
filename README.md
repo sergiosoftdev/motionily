@@ -78,7 +78,7 @@ Requirements: Rust (with `wasm32-unknown-unknown`), `wasm-bindgen-cli 0.2.129`, 
 rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --version 0.2.129 --locked
 pnpm install
-docker compose up -d   # or any local mongod on :27017
+brew services start mongodb-community   # local mongod on :27017
 pnpm api            # API on :3100
 pnpm dev            # builds the engine to WASM and opens the editor on :5173
 ```
