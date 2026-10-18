@@ -8,6 +8,7 @@
     "dev": "pnpm wasm && pnpm --filter @motionily/web dev",
     "mcp": "pnpm --filter @motionily/mcp-server start",
     "build": "pnpm wasm && pnpm -r build",
-    "test": "cargo test --workspace --exclude engine-wasm && cargo check -p engine-wasm --target wasm32-unknown-unknown && pnpm -r typecheck"
+    "test": "cargo test --workspace --exclude engine-wasm && cargo check -p engine-wasm --target wasm32-unknown-unknown && pnpm -r typecheck && pnpm --filter @motionily/api test",
+    "api": "pnpm --filter @motionily/api build && pnpm --filter @motionily/api start"
   }
 }

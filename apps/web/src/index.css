@@ -1,1 +1,6 @@
 @import "tailwindcss";
+
+@theme {
+  /* Brand typeface for the whole editor UI. */
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+}

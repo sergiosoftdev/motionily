@@ -1,0 +1,177 @@
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { InjectModel } from "@nestjs/mongoose";
+import { Model, Types } from "mongoose";
+import { BricksService } from "../bricks/bricks.service";
+import { BrickSlot, SLOT_CARDINALITY, SlotCardinality } from "../bricks/brick.enums";
+import { Build, Feedback, FeedbackKind, Project, ProjectDocument } from "./project.schema";
+import type { CreateFeedbackDto, CreateProjectDto, SaveSceneDto, SetSlotDto, UpdateProjectDto } from "./projects.dto";
+
+type KitPayload = { defaults?: Partial<Build> };
+
+@Injectable()
+export class ProjectsService {
+  constructor(
+    @InjectModel(Project.name) private readonly projects: Model<Project>,
+    @InjectModel(Feedback.name) private readonly feedback: Model<Feedback>,
+    private readonly bricks: BricksService,
+  ) {}
+
+  list(ownerId: Types.ObjectId) {
+    return this.projects
+      .find({ ownerId }, { name: 1, build: 1, updatedAt: 1, createdAt: 1 })
+      .sort({ updatedAt: -1 })
+      .lean();
+  }
+
+  async get(ownerId: Types.ObjectId, id: string): Promise<ProjectDocument> {
+    if (!Types.ObjectId.isValid(id)) throw new NotFoundException("project not found");
+    const project = await this.projects.findOne({ _id: id, ownerId });
+    if (!project) throw new NotFoundException("project not found");
+    return project;
+  }
+
+  /** Opening the box: the motion style fills every slot with its default bricks. */
+  async create(ownerId: Types.ObjectId, dto: CreateProjectDto) {
+    const kit = await this.bricks.get(dto.motionStyle);
+    if (kit.slot !== BrickSlot.MotionStyle) {
+      throw new BadRequestException(`'${dto.motionStyle}' is not a motion style`);
+    }
+    const build = this.buildFromKit(kit.key, kit.payload as KitPayload);
+    await this.assertBricksExist(build);
+    return this.projects.create({ ownerId, name: dto.name, brief: dto.brief ?? "", build });
+  }
+
+  async update(ownerId: Types.ObjectId, id: string, dto: UpdateProjectDto) {
+    const project = await this.get(ownerId, id);
+    if (dto.name !== undefined) project.name = dto.name;
+    if (dto.brief !== undefined) project.brief = dto.brief;
+    return project.save();
+  }
+
+  async remove(ownerId: Types.ObjectId, id: string) {
+    const project = await this.get(ownerId, id);
+    await Promise.all([project.deleteOne(), this.feedback.deleteMany({ projectId: project._id })]);
+  }
+
+  /** Snap a brick (or several) into one slot. Records the choice as feedback for the agent. */
+  async setSlot(ownerId: Types.ObjectId, id: string, slot: BrickSlot, dto: SetSlotDto) {
+    if (!Object.values(BrickSlot).includes(slot)) throw new BadRequestException(`unknown slot '${slot}'`);
+    const project = await this.get(ownerId, id);
+    const value = normalizeSlotValue(slot, dto.value);
+
+    for (const key of [value].flat()) {
+      if (key === null) continue;
+      const brick = await this.bricks.get(key, project._id);
+      if (brick.slot !== slot) throw new BadRequestException(`'${key}' is a ${brick.slot} brick, not ${slot}`);
+    }
+
+    let build: Build = { ...project.build, [slot]: value };
+    if (slot === BrickSlot.MotionStyle && dto.applyKitDefaults) {
+      const kit = await this.bricks.get(value as string);
+      build = this.buildFromKit(kit.key, kit.payload as KitPayload);
+    }
+    project.build = build;
+    project.markModified("build");
+    await project.save();
+    await this.feedback.create({ projectId: project._id, kind: FeedbackKind.BrickChosen, slot, value });
+    return project;
+  }
+
+  /** Brick keys in the build that do not fit the chosen motion style. Shown dimmed, never blocked. */
+  async misfits(project: ProjectDocument): Promise<string[]> {
+    const style = project.build[BrickSlot.MotionStyle];
+    const keys = Object.entries(project.build)
+      .filter(([slot]) => slot !== BrickSlot.MotionStyle)
+      .flatMap(([, v]) => [v].flat())
+      .filter((k): k is string => typeof k === "string");
+    const out: string[] = [];
+    for (const key of keys) {
+      const brick = await this.bricks.get(key, project._id).catch(() => null);
+      if (brick && brick.fits.length > 0 && !brick.fits.includes(style)) out.push(key);
+    }
+    return out;
+  }
+
+  async saveScene(ownerId: Types.ObjectId, id: string, dto: SaveSceneDto) {
+    const project = await this.get(ownerId, id);
+    const updated = await this.projects.findOneAndUpdate(
+      { _id: project._id, sceneRevision: dto.baseRevision },
+      { $set: { scene: dto.scene }, $inc: { sceneRevision: 1 } },
+      { returnDocument: "after" },
+    );
+    if (!updated) {
+      throw new ConflictException(`scene changed since revision ${dto.baseRevision}; now ${project.sceneRevision}`);
+    }
+    return { sceneRevision: updated.sceneRevision };
+  }
+
+  async addFeedback(ownerId: Types.ObjectId, id: string, dto: CreateFeedbackDto) {
+    const project = await this.get(ownerId, id);
+    if (dto.kind === FeedbackKind.Comment && !dto.text?.trim()) {
+      throw new BadRequestException("a comment needs text");
+    }
+    return this.feedback.create({ projectId: project._id, kind: dto.kind, text: dto.text?.trim(), at: dto.at });
+  }
+
+  listFeedback(projectId: Types.ObjectId) {
+    return this.feedback.find({ projectId }).sort({ createdAt: 1 }).lean();
+  }
+
+  /** Agent side: everything the user said since the last call, marked as read. */
+  async consumeFeedback(ownerId: Types.ObjectId, id: string) {
+    const project = await this.get(ownerId, id);
+    const pending = await this.feedback.find({ projectId: project._id, consumedAt: null }).sort({ createdAt: 1 }).lean();
+    if (pending.length) {
+      await this.feedback.updateMany({ _id: { $in: pending.map((f) => f._id) } }, { $set: { consumedAt: new Date() } });
+    }
+    return pending;
+  }
+
+  private buildFromKit(kitKey: string, payload: KitPayload): Build {
+    const d = payload.defaults ?? {};
+    const required = [
+      BrickSlot.Palette,
+      BrickSlot.Composition,
+      BrickSlot.Typography,
+      BrickSlot.RenderStyle,
+      BrickSlot.Captions,
+    ] as const;
+    for (const slot of required) {
+      if (typeof d[slot] !== "string") throw new BadRequestException(`motion style '${kitKey}' has no default ${slot}`);
+    }
+    return {
+      [BrickSlot.MotionStyle]: kitKey,
+      [BrickSlot.Palette]: d[BrickSlot.Palette]!,
+      [BrickSlot.Composition]: d[BrickSlot.Composition]!,
+      [BrickSlot.Typography]: d[BrickSlot.Typography]!,
+      [BrickSlot.RenderStyle]: d[BrickSlot.RenderStyle]!,
+      [BrickSlot.Captions]: d[BrickSlot.Captions]!,
+      [BrickSlot.Scenario]: d[BrickSlot.Scenario] ?? null,
+      [BrickSlot.Character]: d[BrickSlot.Character] ?? [],
+      [BrickSlot.Animation]: d[BrickSlot.Animation] ?? [],
+      [BrickSlot.Transition]: d[BrickSlot.Transition] ?? [],
+    };
+  }
+
+  private async assertBricksExist(build: Build) {
+    for (const key of Object.values(build).flat()) {
+      if (typeof key === "string") await this.bricks.get(key);
+    }
+  }
+}
+
+function normalizeSlotValue(slot: BrickSlot, value: unknown): string | string[] | null {
+  switch (SLOT_CARDINALITY[slot]) {
+    case SlotCardinality.One:
+      if (typeof value !== "string") throw new BadRequestException(`${slot} needs exactly one brick key`);
+      return value;
+    case SlotCardinality.Optional:
+      if (value !== null && typeof value !== "string") throw new BadRequestException(`${slot} takes one brick key or null`);
+      return value;
+    case SlotCardinality.Many:
+      if (!Array.isArray(value) || value.some((v) => typeof v !== "string")) {
+        throw new BadRequestException(`${slot} takes a list of brick keys`);
+      }
+      return [...new Set(value as string[])];
+  }
+}

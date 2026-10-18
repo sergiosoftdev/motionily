@@ -41,6 +41,25 @@ reusing the same web app.
 - The format reference is fetched once (`get_reference`), not repeated in every
   tool description.
 
+## API (apps/api)
+
+NestJS + Mongo. Projects are **Lego builds**: every slot (motion style, palette,
+composition, typography, render style, captions, scenario, characters,
+animations, transitions) holds a brick from the store. Picking a motion style
+opens its "box" and snaps default bricks into every slot. See `docs/PLAN.md`.
+
+| Route | |
+| --- | --- |
+| `POST /auth/mock-google` | Simulated Google sign-in, returns a JWT |
+| `GET /bricks?slot=&fits=&q=` | Public brick store |
+| `POST /projects` | New project from a motion style box |
+| `PUT /projects/:id/build/:slot` | Snap bricks into a slot (`applyKitDefaults` to re-open a box) |
+| `PUT /projects/:id/scene` | Save the scene (optimistic `baseRevision`) |
+| `POST /projects/:id/bricks` | Agent-made private brick |
+| `POST /projects/:id/feedback/consume` | Agent reads pending feedback |
+
+The catalog lives in `apps/api/src/bricks/seed/catalog.ts` and is upserted on boot.
+
 ## MCP tools
 
 | Tool | Purpose |
@@ -59,6 +78,8 @@ Requirements: Rust (with `wasm32-unknown-unknown`), `wasm-bindgen-cli 0.2.129`, 
 rustup target add wasm32-unknown-unknown
 cargo install wasm-bindgen-cli --version 0.2.129 --locked
 pnpm install
+docker compose up -d   # or any local mongod on :27017
+pnpm api            # API on :3100
 pnpm dev            # builds the engine to WASM and opens the editor on :5173
 ```
 

@@ -4,3 +4,5 @@ dist/
 apps/web/src/engine/pkg/
 *.motionily.json
 .DS_Store
+dist-test/
+.env

@@ -1,0 +1,188 @@
+import "reflect-metadata";
+import { after, before, describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { Test } from "@nestjs/testing";
+import type { INestApplication } from "@nestjs/common";
+import { MongoMemoryServer } from "mongodb-memory-server";
+import request from "supertest";
+import { AppModule } from "../src/app.module";
+import { configureApp } from "../src/setup";
+import { BrickSlot } from "../src/bricks/brick.enums";
+import { CATALOG } from "../src/bricks/seed/catalog";
+
+let mongo: MongoMemoryServer;
+let app: INestApplication;
+let http: ReturnType<typeof request>;
+
+async function login(email: string) {
+  const res = await http.post("/auth/mock-google").send({ email }).expect(201);
+  return { Authorization: `Bearer ${res.body.token as string}` };
+}
+
+before(async () => {
+  mongo = await MongoMemoryServer.create();
+  process.env.MONGO_URI = mongo.getUri("motionily-test");
+  process.env.JWT_SECRET = "test-secret";
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+  app = moduleRef.createNestApplication();
+  configureApp(app, "http://localhost:5173");
+  await app.init();
+  http = request(app.getHttpServer());
+});
+
+after(async () => {
+  await app?.close();
+  await mongo?.stop();
+});
+
+describe("auth (simulated Google)", () => {
+  it("logs in, returns the same user on repeat, and protects routes", async () => {
+    const a = await http.post("/auth/mock-google").send({ email: "Ana@Example.com", name: "Ana" }).expect(201);
+    const b = await http.post("/auth/mock-google").send({ email: "ana@example.com" }).expect(201);
+    assert.equal(a.body.user.id, b.body.user.id);
+    assert.equal(a.body.user.provider, "mock");
+    await http.get("/projects").expect(401);
+    const me = await http.get("/auth/me").set({ Authorization: `Bearer ${b.body.token}` }).expect(200);
+    assert.equal(me.body.email, "ana@example.com");
+  });
+});
+
+describe("brick store", () => {
+  it("seeds the whole catalog and is public", async () => {
+    const res = await http.get("/bricks").expect(200);
+    assert.equal(res.body.length, CATALOG.length);
+  });
+
+  it("filters by slot and by what fits a motion style", async () => {
+    const styles = await http.get("/bricks").query({ slot: BrickSlot.MotionStyle }).expect(200);
+    assert.deepEqual(
+      styles.body.map((b: { key: string }) => b.key).sort(),
+      ["anime", "apple", "cartoon", "isometric", "paper_cut", "startup"].map((s) => `motion_style/${s}`),
+    );
+    const anime = await http.get("/bricks").query({ slot: BrickSlot.Palette, fits: "motion_style/anime" }).expect(200);
+    const keys = anime.body.map((b: { key: string }) => b.key);
+    assert.ok(keys.includes("palette/anime_sky"), "brick made for anime fits");
+    assert.ok(keys.includes("palette/sunset"), "brick without fits fits everything");
+    assert.ok(!keys.includes("palette/kraft"), "paper-cut-only brick does not fit anime");
+  });
+
+  it("gets one brick by key", async () => {
+    const res = await http.get("/bricks/animation/pop_in").expect(200);
+    assert.equal(res.body.slot, BrickSlot.Animation);
+    await http.get("/bricks/animation/nope").expect(404);
+  });
+});
+
+describe("projects as Lego builds", () => {
+  it("opening a box fills every slot with its defaults", async () => {
+    const auth = await login("lego@example.com");
+    const res = await http
+      .post("/projects")
+      .set(auth)
+      .send({ name: "Lanzamiento", motionStyle: "motion_style/startup", brief: "App de reservas" })
+      .expect(201);
+    const { build, misfits } = res.body;
+    assert.equal(build.motion_style, "motion_style/startup");
+    assert.equal(build.palette, "palette/startup_green");
+    assert.deepEqual(build.animation, ["animation/pop_in", "animation/slide_in", "animation/fade_up"]);
+    assert.equal(build.scenario, null);
+    assert.deepEqual(misfits, []);
+  });
+
+  it("swaps bricks, flags misfits without blocking, and validates slots", async () => {
+    const auth = await login("swap@example.com");
+    const { body: p } = await http.post("/projects").set(auth).send({ name: "P", motionStyle: "motion_style/startup" });
+
+    const swapped = await http.put(`/projects/${p.id}/build/palette`).set(auth).send({ value: "palette/kraft" }).expect(200);
+    assert.equal(swapped.body.build.palette, "palette/kraft");
+    assert.deepEqual(swapped.body.misfits, ["palette/kraft"]);
+
+    await http.put(`/projects/${p.id}/build/palette`).set(auth).send({ value: "animation/pop_in" }).expect(400);
+    await http.put(`/projects/${p.id}/build/palette`).set(auth).send({ value: ["palette/sunset"] }).expect(400);
+    await http.put(`/projects/${p.id}/build/animation`).set(auth).send({ value: "animation/pop_in" }).expect(400);
+    await http.put(`/projects/${p.id}/build/scenario`).set(auth).send({ value: null }).expect(200);
+    await http.put(`/projects/${p.id}/build/nonsense`).set(auth).send({ value: "x" }).expect(400);
+  });
+
+  it("changing the box can re-snap every slot to the new kit", async () => {
+    const auth = await login("box@example.com");
+    const { body: p } = await http.post("/projects").set(auth).send({ name: "P", motionStyle: "motion_style/startup" });
+    const res = await http
+      .put(`/projects/${p.id}/build/motion_style`)
+      .set(auth)
+      .send({ value: "motion_style/paper_cut", applyKitDefaults: true })
+      .expect(200);
+    assert.equal(res.body.build.palette, "palette/kraft");
+    assert.equal(res.body.build.render_style, "render_style/paper_cut");
+  });
+
+  it("isolates projects between accounts", async () => {
+    const owner = await login("owner@example.com");
+    const other = await login("other@example.com");
+    const { body: p } = await http.post("/projects").set(owner).send({ name: "Mío", motionStyle: "motion_style/apple" });
+    await http.get(`/projects/${p.id}`).set(other).expect(404);
+    const mine = await http.get("/projects").set(owner).expect(200);
+    const theirs = await http.get("/projects").set(other).expect(200);
+    assert.equal(mine.body.length, 1);
+    assert.equal(theirs.body.length, 0);
+  });
+
+  it("saves scenes with optimistic revisions", async () => {
+    const auth = await login("scene@example.com");
+    const { body: p } = await http.post("/projects").set(auth).send({ name: "P", motionStyle: "motion_style/apple" });
+    const scene = { width: 1080, height: 1920, fps: 30, duration: 6, layers: [] };
+    const r1 = await http.put(`/projects/${p.id}/scene`).set(auth).send({ scene, baseRevision: 0 }).expect(200);
+    assert.equal(r1.body.sceneRevision, 1);
+    await http.put(`/projects/${p.id}/scene`).set(auth).send({ scene, baseRevision: 0 }).expect(409);
+  });
+});
+
+describe("agent loop", () => {
+  it("creates private bricks for one project only", async () => {
+    const auth = await login("agent@example.com");
+    const { body: a } = await http.post("/projects").set(auth).send({ name: "A", motionStyle: "motion_style/cartoon" });
+    const { body: b } = await http.post("/projects").set(auth).send({ name: "B", motionStyle: "motion_style/cartoon" });
+    const brick = {
+      slot: BrickSlot.Animation,
+      id: "jelly_bounce",
+      name: "Jelly bounce",
+      payload: { keys: { scale: [[0, 0, "back"], [0.3, 1.2], [0.5, 1]] } },
+    };
+    const created = await http.post(`/projects/${a.id}/bricks`).set(auth).send(brick).expect(201);
+    assert.equal(created.body.visibility, "private");
+
+    await http.post(`/projects/${a.id}/bricks`).set(auth).send({ ...brick, id: "pop_in" }).expect(400);
+
+    const inA = await http.get(`/projects/${a.id}/bricks`).query({ slot: BrickSlot.Animation }).set(auth);
+    const inB = await http.get(`/projects/${b.id}/bricks`).query({ slot: BrickSlot.Animation }).set(auth);
+    const store = await http.get("/bricks").query({ slot: BrickSlot.Animation });
+    const has = (res: { body: { key: string }[] }) => res.body.some((x) => x.key === "animation/jelly_bounce");
+    assert.ok(has(inA));
+    assert.ok(!has(inB));
+    assert.ok(!has(store));
+
+    const used = await http
+      .put(`/projects/${a.id}/build/animation`)
+      .set(auth)
+      .send({ value: ["animation/pop_in", "animation/jelly_bounce"] })
+      .expect(200);
+    assert.ok(used.body.build.animation.includes("animation/jelly_bounce"));
+    await http.put(`/projects/${b.id}/build/animation`).set(auth).send({ value: ["animation/jelly_bounce"] }).expect(404);
+  });
+
+  it("queues comments and brick choices until the agent consumes them", async () => {
+    const auth = await login("fb@example.com");
+    const { body: p } = await http.post("/projects").set(auth).send({ name: "P", motionStyle: "motion_style/anime" });
+    await http.post(`/projects/${p.id}/feedback`).set(auth).send({ kind: "comment", text: "más rápido", at: 1.5 }).expect(201);
+    await http.post(`/projects/${p.id}/feedback`).set(auth).send({ kind: "comment", text: "  " }).expect(400);
+    await http.put(`/projects/${p.id}/build/captions`).set(auth).send({ value: "captions/karaoke" }).expect(200);
+
+    const first = await http.post(`/projects/${p.id}/feedback/consume`).set(auth).expect(200);
+    assert.deepEqual(
+      first.body.map((f: { kind: string }) => f.kind),
+      ["comment", "brick_chosen"],
+    );
+    const second = await http.post(`/projects/${p.id}/feedback/consume`).set(auth).expect(200);
+    assert.equal(second.body.length, 0);
+  });
+});

@@ -1,0 +1,41 @@
+import { Module } from "@nestjs/common";
+import { ConfigModule, ConfigService } from "@nestjs/config";
+import { APP_GUARD } from "@nestjs/core";
+import { JwtModule } from "@nestjs/jwt";
+import { MongooseModule } from "@nestjs/mongoose";
+import { AuthController } from "./auth/auth.controller";
+import { JwtAuthGuard } from "./auth/auth";
+import { User, UserSchema } from "./users/user.schema";
+import { Brick, BrickSchema } from "./bricks/brick.schema";
+import { BricksService } from "./bricks/bricks.service";
+import { BricksController } from "./bricks/bricks.controller";
+import { Feedback, FeedbackSchema, Project, ProjectSchema } from "./projects/project.schema";
+import { ProjectsService } from "./projects/projects.service";
+import { ProjectsController } from "./projects/projects.controller";
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    MongooseModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (c: ConfigService) => ({ uri: c.get("MONGO_URI", "mongodb://127.0.0.1:27017/motionily") }),
+    }),
+    MongooseModule.forFeature([
+      { name: User.name, schema: UserSchema },
+      { name: Brick.name, schema: BrickSchema },
+      { name: Project.name, schema: ProjectSchema },
+      { name: Feedback.name, schema: FeedbackSchema },
+    ]),
+    JwtModule.registerAsync({
+      global: true,
+      inject: [ConfigService],
+      useFactory: (c: ConfigService) => ({
+        secret: c.get("JWT_SECRET", "dev-only-secret"),
+        signOptions: { expiresIn: "30d" },
+      }),
+    }),
+  ],
+  controllers: [AuthController, BricksController, ProjectsController],
+  providers: [BricksService, ProjectsService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
+})
+export class AppModule {}
