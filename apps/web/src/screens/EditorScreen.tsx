@@ -8,14 +8,14 @@ import { TopBar } from "./TopBar";
 import { Transport } from "../components/Transport";
 import { FeedbackBox } from "../components/FeedbackBox";
 import { ActivityLog } from "../components/ActivityLog";
-import { BuildPanel } from "../components/lego/BuildPanel";
-import { BrickPicker } from "../components/lego/BrickPicker";
-import { slotMeta } from "../components/lego/slots";
+import { StylePanel } from "../components/style/StylePanel";
+import { OptionsSheet } from "../components/style/OptionsSheet";
+import { slotUi } from "../components/style/options";
 import { ConnectAgent } from "../components/ConnectAgent";
 
 const SAVE_DEBOUNCE_MS = 800;
 
-const SidebarTab = { Build: "build", Feedback: "feedback" } as const;
+const SidebarTab = { Video: "video", Feedback: "feedback" } as const;
 type SidebarTab = (typeof SidebarTab)[keyof typeof SidebarTab];
 
 /** Mirror the bricks the engine already understands into scene ops. */
@@ -35,14 +35,14 @@ export function EditorScreen({ id }: { id: string }) {
   const [project, setProject] = useState<Project | null>(null);
   const [bricks, setBricks] = useState<Brick[]>([]);
   const [openSlot, setOpenSlot] = useState<BrickSlot | null>(null);
-  const [tab, setTab] = useState<SidebarTab>(SidebarTab.Build);
+  const [tab, setTab] = useState<SidebarTab>(SidebarTab.Video);
   const [error, setError] = useState<string | null>(null);
   const status = useEditor((s) => s.engineStatus);
   const engineError = useEditor((s) => s.engineError);
   const agentConnected = useEditor((s) => s.agentConnected);
 
   const byKey = useMemo(() => new Map(bricks.map((b) => [b.key, b])), [bricks]);
-  const kitName = useCallback((key: string) => byKey.get(key)?.name ?? key, [byKey]);
+  const nameOf = useCallback((key: string) => byKey.get(key)?.name ?? key, [byKey]);
 
   // Load project + its catalog, then start the engine on its scene.
   useEffect(() => {
@@ -97,8 +97,8 @@ export function EditorScreen({ id }: { id: string }) {
         engineHost.setBuildOps(buildToOps(p.build, byKey));
         agentBridge.sceneChanged();
       }
-      const names = [value].flat().filter(Boolean).map((k) => kitName(k as string));
-      logActivity(ActivitySource.User, `${slotMeta(slot).label}: ${names.join(", ") || "vacío"}`);
+      const names = [value].flat().filter(Boolean).map((k) => nameOf(k as string));
+      logActivity(ActivitySource.User, `${slotUi(slot).label}: ${names.join(", ") || "vacío"}`);
       if (slot !== BrickSlot.Character && slot !== BrickSlot.Animation && slot !== BrickSlot.Transition) setOpenSlot(null);
     } catch (e) {
       logActivity(ActivitySource.System, e instanceof Error ? e.message : String(e));
@@ -149,7 +149,7 @@ export function EditorScreen({ id }: { id: string }) {
         <aside className="relative flex w-full flex-col lg:w-96">
           <div className="flex gap-1 px-5 pt-3">
             {[
-              [SidebarTab.Build, "Montaje"],
+              [SidebarTab.Video, "Vídeo"],
               [SidebarTab.Feedback, "Feedback"],
             ].map(([t, label]) => (
               <button
@@ -163,20 +163,21 @@ export function EditorScreen({ id }: { id: string }) {
             ))}
           </div>
           <div className="flex-1 overflow-y-auto px-5 py-4">
-            {project && tab === SidebarTab.Build && (
+            {project && tab === SidebarTab.Video && (
               <div className="flex flex-col gap-6">
                 <label className="flex flex-col gap-2">
-                  <span className="text-xs font-medium text-neutral-300">Brief para el agente</span>
+                  <span className="text-sm font-semibold">¿De qué va el vídeo?</span>
+                  <span className="-mt-1 text-xs text-neutral-500">El agente lo monta a partir de esto y del estilo que elijas.</span>
                   <textarea
                     key={project.id}
                     defaultValue={project.brief}
                     onBlur={(e) => void saveBrief(e.target.value)}
-                    rows={3}
-                    placeholder="De qué va el vídeo, para quién, qué debe transmitir…"
+                    rows={4}
+                    placeholder="Ej.: anuncio de 20 s de mi app de reservas para fisios, tono cercano"
                     className="resize-none rounded-lg bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-white/40"
                   />
                 </label>
-                <BuildPanel build={project.build} byKey={byKey} misfits={project.misfits} kitName={kitName} onOpenSlot={setOpenSlot} />
+                <StylePanel build={project.build} byKey={byKey} onOpen={setOpenSlot} />
               </div>
             )}
             {tab === SidebarTab.Feedback && (
@@ -187,11 +188,11 @@ export function EditorScreen({ id }: { id: string }) {
             )}
           </div>
           {project && openSlot && (
-            <BrickPicker
+            <OptionsSheet
               slot={openSlot}
               build={project.build}
               bricks={bricks}
-              kitName={kitName}
+              byKey={byKey}
               onPick={(value, rebox) => void pick(openSlot, value, rebox)}
               onClose={() => setOpenSlot(null)}
             />

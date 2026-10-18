@@ -2,8 +2,6 @@ import { useState } from "react";
 import { api } from "../api/client";
 import { useSession } from "../session";
 import { Logo } from "../components/Logo";
-import { Studs } from "../components/lego/Studs";
-import { SLOTS } from "../components/lego/slots";
 
 export function LoginScreen() {
   const login = useSession((s) => s.login);
@@ -26,20 +24,9 @@ export function LoginScreen() {
   return (
     <div className="flex min-h-dvh items-center justify-center px-4">
       <div className="flex w-full max-w-sm flex-col items-center gap-8 text-center">
-        <div className="flex gap-1.5">
-          {SLOTS.slice(0, 5).map((s, i) => (
-            <span
-              key={s.slot}
-              className="relative mt-[5px] block h-7 w-10 rounded-md"
-              style={{ background: s.color, boxShadow: "inset 0 -3px 0 rgba(0,0,0,.22)", transform: `translateY(${i % 2 ? 6 : 0}px)` }}
-            >
-              <Studs count={2} color={s.color} />
-            </span>
-          ))}
-        </div>
         <div className="flex flex-col gap-2">
           <Logo size="text-4xl" />
-          <p className="text-sm text-neutral-400">Tú eliges las piezas. El agente monta el vídeo.</p>
+          <p className="text-sm text-neutral-400">Elige un estilo. Tu agente monta el vídeo.</p>
         </div>
         <form
           className="flex w-full flex-col gap-3"

@@ -74,7 +74,7 @@ export function ConnectAgent({ projectId }: { projectId: string }) {
               </li>
               <li className="text-neutral-400">3. Deja esta pestaña abierta: verás cómo lo monta en directo.</li>
             </ol>
-            <p className="text-xs text-neutral-500">El token caduca en 90 días y no puede cambiar tus piezas ni borrar el proyecto.</p>
+            <p className="text-xs text-neutral-500">El token caduca en 90 días y no puede cambiar el estilo que elijas ni borrar el proyecto.</p>
           </div>
         </div>
       )}
