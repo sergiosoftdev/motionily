@@ -7,7 +7,7 @@
   "caption_style": "pop_word",
   "layers": [
     {
-      "id": "bg-blob",
+      "id": "bg-blob", "type": "shape",
       "shape": "ellipse",
       "fill": "surface",
       "x": 540, "y": 960,
@@ -15,7 +15,7 @@
       "h": [{"t":0,"v":0,"ease":"ease_out"},{"t":1.2,"v":1400}]
     },
     {
-      "id": "card",
+      "id": "card", "type": "shape",
       "shape": "rect",
       "start": 0.6,
       "fill": "primary",
@@ -25,7 +25,7 @@
       "rotation": [{"t":0,"v":-8,"ease":"ease_out"},{"t":0.9,"v":0}]
     },
     {
-      "id": "dot",
+      "id": "dot", "type": "shape",
       "shape": "ellipse",
       "start": 1.4,
       "fill": "accent",
@@ -35,7 +35,7 @@
       "scale": [{"t":0,"v":0,"ease":"back"},{"t":0.5,"v":1}]
     },
     {
-      "id": "bar",
+      "id": "bar", "type": "shape",
       "shape": "rect",
       "start": 2.0,
       "fill": "text",

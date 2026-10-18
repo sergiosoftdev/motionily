@@ -14,7 +14,7 @@ Coordinates are scene pixels, origin top-left, y down.
 
 ## Layer
 ```json
-{ "id": "card", "shape": "rect|ellipse",
+{ "id": "card", "type": "shape", "shape": "rect|ellipse",
   "start": 0.5, "end": 4,            // seconds; end defaults to scene end
   "fill": "primary",                 // palette slot: background|surface|primary|accent|text
   "x": 540, "y": 960,                // center

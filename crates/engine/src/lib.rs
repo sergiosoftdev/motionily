@@ -1,37 +1,47 @@
 //! GPU renderer. Knows nothing about the browser, React or files: it receives a
 //! [`Scene`] and a time, and draws one frame into a wgpu surface. The host
 //! (WASM bindings today, Tauri/native later) creates the surface.
+//!
+//! Each kind of [`DrawItem`] has its own pipeline module (`shapes.rs`, …) with
+//! the same shape: `new(&Ctx)`, `prepare(&Ctx, &[Item])` once per frame, then
+//! `draw(pass, range)` for every consecutive run of that kind, so layer order is
+//! kept across kinds.
+
+mod shapes;
 
 use bytemuck::{Pod, Zeroable};
-use scene::{DrawShape, Scene};
-use wgpu::util::DeviceExt;
+use scene::{DrawItem, DrawShape, Scene};
+use shapes::ShapePipeline;
+use std::ops::Range;
+
+/// Initial per-pipeline instance capacity; buffers grow as needed.
+pub(crate) const ITEM_CAPACITY: usize = 64;
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Globals {
     scene_size: [f32; 2],
     linearize: f32,
-    _pad: f32,
+    /// Seconds into the scene, for time-based effects.
+    time: f32,
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct Instance {
-    center: [f32; 2],
-    size: [f32; 2],
-    color: [f32; 4],
-    radius: f32,
-    rotation: f32,
+/// What every pipeline needs to build and upload. Group 0 is always the globals uniform.
+pub struct Ctx<'a> {
+    pub device: &'a wgpu::Device,
+    pub queue: &'a wgpu::Queue,
+    pub format: wgpu::TextureFormat,
+    pub globals_layout: &'a wgpu::BindGroupLayout,
+    pub globals_pipeline_layout: &'a wgpu::PipelineLayout,
 }
 
-impl From<&DrawShape> for Instance {
-    fn from(s: &DrawShape) -> Self {
-        Instance {
-            center: s.center,
-            size: s.size,
-            color: s.color.0,
-            radius: s.radius,
-            rotation: s.rotation,
+impl Ctx<'_> {
+    /// Premultiplied-alpha target used by every scene pipeline.
+    pub fn color_target(&self) -> wgpu::ColorTargetState {
+        wgpu::ColorTargetState {
+            format: self.format,
+            blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+            write_mask: wgpu::ColorWrites::ALL,
         }
     }
 }
@@ -55,16 +65,48 @@ impl std::fmt::Display for EngineError {
 
 impl std::error::Error for EngineError {}
 
+/// Which pipeline draws a run of consecutive items.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ItemKind {
+    Shape,
+}
+
+/// The frame's items split per pipeline, plus the ordered runs that interleave them.
+#[derive(Default)]
+struct Batches {
+    shapes: Vec<DrawShape>,
+    runs: Vec<(ItemKind, Range<u32>)>,
+}
+
+impl Batches {
+    fn build(items: Vec<DrawItem>) -> Self {
+        let mut b = Batches::default();
+        for item in items {
+            let (kind, index) = match item {
+                DrawItem::Shape(s) => {
+                    b.shapes.push(s);
+                    (ItemKind::Shape, b.shapes.len() as u32 - 1)
+                }
+            };
+            match b.runs.last_mut() {
+                Some((k, r)) if *k == kind && r.end == index => r.end += 1,
+                _ => b.runs.push((kind, index..index + 1)),
+            }
+        }
+        b
+    }
+}
+
 pub struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
-    pipeline: wgpu::RenderPipeline,
     globals: wgpu::Buffer,
+    globals_layout: wgpu::BindGroupLayout,
+    globals_pipeline_layout: wgpu::PipelineLayout,
     bind_group: wgpu::BindGroup,
-    instances: wgpu::Buffer,
-    instance_capacity: usize,
+    shapes: ShapePipeline,
     pub adapter_info: String,
 }
 
@@ -88,8 +130,7 @@ impl Renderer {
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("motionily"),
-                required_limits: wgpu::Limits::downlevel_webgl2_defaults()
-                    .using_resolution(adapter.limits()),
+                required_limits: wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits()),
                 ..Default::default()
             })
             .await
@@ -105,15 +146,13 @@ impl Renderer {
         }
         surface.configure(&device, &config);
 
-        let shader = device.create_shader_module(wgpu::include_wgsl!("shapes.wgsl"));
-
         let globals = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("globals"),
             size: std::mem::size_of::<Globals>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let bind_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let globals_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("globals"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -128,75 +167,40 @@ impl Renderer {
         });
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("globals"),
-            layout: &bind_layout,
+            layout: &globals_layout,
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: globals.as_entire_binding() }],
         });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("shapes"),
-            bind_group_layouts: &[Some(&bind_layout)],
+        let globals_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("globals only"),
+            bind_group_layouts: &[Some(&globals_layout)],
             ..Default::default()
         });
 
-        const ATTRS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
-            0 => Float32x2, 1 => Float32x2, 2 => Float32x4, 3 => Float32, 4 => Float32
-        ];
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("shapes"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<Instance>() as u64,
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &ATTRS,
-                })],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
-                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: Default::default(),
-            depth_stencil: None,
-            multisample: Default::default(),
-            multiview_mask: None,
-            cache: None,
-        });
+        let ctx = Ctx {
+            device: &device,
+            queue: &queue,
+            format: config.format,
+            globals_layout: &globals_layout,
+            globals_pipeline_layout: &globals_pipeline_layout,
+        };
+        let shapes = ShapePipeline::new(&ctx);
 
-        let instance_capacity = 64;
-        let instances = Self::make_instance_buffer(&device, instance_capacity);
         let info = adapter.get_info();
-
         Ok(Renderer {
+            shapes,
             device,
             queue,
             surface,
             config,
-            pipeline,
             globals,
+            globals_layout,
+            globals_pipeline_layout,
             bind_group,
-            instances,
-            instance_capacity,
             adapter_info: if info.name.is_empty() {
                 format!("{:?}", info.backend)
             } else {
                 format!("{} ({:?})", info.name, info.backend)
             },
-        })
-    }
-
-    fn make_instance_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
-        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("instances"),
-            contents: &vec![0u8; capacity * std::mem::size_of::<Instance>()],
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         })
     }
 
@@ -211,24 +215,22 @@ impl Renderer {
 
     /// Draw `scene` at time `t` (seconds) into the surface.
     pub fn render(&mut self, scene: &Scene, t: f32) {
-        let shapes: Vec<Instance> = scene.frame(t).iter().map(Instance::from).collect();
-        if shapes.len() > self.instance_capacity {
-            self.instance_capacity = shapes.len().next_power_of_two();
-            self.instances = Self::make_instance_buffer(&self.device, self.instance_capacity);
-        }
-        if !shapes.is_empty() {
-            self.queue.write_buffer(&self.instances, 0, bytemuck::cast_slice(&shapes));
-        }
+        let batches = Batches::build(scene.frame(t));
         let linearize = if self.config.format.is_srgb() { 1.0 } else { 0.0 };
         self.queue.write_buffer(
             &self.globals,
             0,
-            bytemuck::bytes_of(&Globals {
-                scene_size: [scene.width as f32, scene.height as f32],
-                linearize,
-                _pad: 0.0,
-            }),
+            bytemuck::bytes_of(&Globals { scene_size: [scene.width as f32, scene.height as f32], linearize, time: t }),
         );
+        // Built from fields (not `self.ctx()`) so pipelines can be borrowed mutably alongside it.
+        let ctx = Ctx {
+            device: &self.device,
+            queue: &self.queue,
+            format: self.config.format,
+            globals_layout: &self.globals_layout,
+            globals_pipeline_layout: &self.globals_pipeline_layout,
+        };
+        self.shapes.prepare(&ctx, &batches.shapes);
 
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(f) | wgpu::CurrentSurfaceTexture::Suboptimal(f) => f,
@@ -261,11 +263,11 @@ impl Renderer {
                 })],
                 ..Default::default()
             });
-            if !shapes.is_empty() {
-                pass.set_pipeline(&self.pipeline);
-                pass.set_bind_group(0, &self.bind_group, &[]);
-                pass.set_vertex_buffer(0, self.instances.slice(..));
-                pass.draw(0..6, 0..shapes.len() as u32);
+            pass.set_bind_group(0, &self.bind_group, &[]);
+            for (kind, range) in &batches.runs {
+                match kind {
+                    ItemKind::Shape => self.shapes.draw(&mut pass, range.clone()),
+                }
             }
         }
         self.queue.submit([encoder.finish()]);

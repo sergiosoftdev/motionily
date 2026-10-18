@@ -6,10 +6,12 @@
 //! change and makes undo, sync and feedback trivial.
 
 mod anim;
+mod layer;
 mod ops;
 mod style;
 
 pub use anim::{Animated, Easing, Keyframe};
+pub use layer::{DrawItem, DrawShape, Layer, LayerContent, Shape};
 pub use ops::{Op, OpError, Prop};
 pub use style::{CaptionStyle, ColorRef, CustomPalette, HexColor, Palette, PaletteSlot, Rgba, StylePreset};
 
@@ -59,59 +61,11 @@ impl Default for Scene {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Shape {
-    Rect,
-    Ellipse,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Layer {
-    pub id: String,
-    pub shape: Shape,
-    /// Seconds. Keyframe times are relative to this.
-    #[serde(default)]
-    pub start: f32,
-    /// Seconds. Defaults to the end of the scene.
-    #[serde(default)]
-    pub end: Option<f32>,
-    #[serde(default)]
-    pub fill: ColorRef,
-    /// Center position in scene pixels.
-    pub x: Animated,
-    pub y: Animated,
-    pub w: Animated,
-    pub h: Animated,
-    #[serde(default = "one")]
-    pub scale: Animated,
-    /// Degrees, clockwise.
-    #[serde(default)]
-    pub rotation: Animated,
-    #[serde(default = "one")]
-    pub opacity: Animated,
-    /// Corner radius in pixels (rects only).
-    #[serde(default)]
-    pub radius: Animated,
-}
-
-fn one() -> Animated {
-    Animated::Static(1.0)
-}
-
-/// One resolved shape for one frame, in scene pixels. This is all the renderer sees.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct DrawShape {
-    pub center: [f32; 2],
-    pub size: [f32; 2],
-    pub radius: f32,
-    pub rotation: f32,
-    pub color: Rgba,
-}
-
 impl Scene {
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
-        serde_json::from_str(json)
+        let mut value: serde_json::Value = serde_json::from_str(json)?;
+        layer::migrate(&mut value);
+        serde_json::from_value(value)
     }
 
     pub fn to_json(&self) -> String {
@@ -131,32 +85,12 @@ impl Scene {
     }
 
     /// Resolve every visible layer at time `t` (seconds), back to front.
-    pub fn frame(&self, t: f32) -> Vec<DrawShape> {
+    pub fn frame(&self, t: f32) -> Vec<DrawItem> {
         let palette = self.palette();
         self.layers
             .iter()
             .filter(|l| t >= l.start && t < l.end.unwrap_or(self.duration))
-            .filter_map(|l| {
-                let lt = t - l.start;
-                let scale = l.scale.sample(lt);
-                let mut color = l.fill.resolve(&palette);
-                color.0[3] *= l.opacity.sample(lt).clamp(0.0, 1.0);
-                if color.0[3] <= 0.0 {
-                    return None;
-                }
-                let size = [l.w.sample(lt) * scale, l.h.sample(lt) * scale];
-                let radius = match l.shape {
-                    Shape::Ellipse => size[0].min(size[1]) / 2.0,
-                    Shape::Rect => l.radius.sample(lt) * scale,
-                };
-                Some(DrawShape {
-                    center: [l.x.sample(lt), l.y.sample(lt)],
-                    size,
-                    radius,
-                    rotation: l.rotation.sample(lt).to_radians(),
-                    color,
-                })
-            })
+            .filter_map(|l| l.draw(t - l.start, &palette))
             .collect()
     }
 
@@ -192,7 +126,7 @@ impl Scene {
                 s,
                 "- {} {} {:.2}-{:.2}s at ({:.0},{:.0}) {:.0}x{:.0} fill={} anim=[{}]",
                 l.id,
-                enum_name(&l.shape),
+                l.content.kind_name(),
                 l.start,
                 end,
                 l.x.sample(0.0),
@@ -207,7 +141,7 @@ impl Scene {
     }
 }
 
-fn enum_name<T: Serialize>(v: &T) -> String {
+pub(crate) fn enum_name<T: Serialize>(v: &T) -> String {
     serde_json::to_string(v).unwrap_or_default().trim_matches('"').to_owned()
 }
 
@@ -225,11 +159,19 @@ mod tests {
     }
 
     #[test]
+    fn old_layers_without_type_still_load() {
+        let scene = Scene::from_json(r#"{"width":10,"height":10,"fps":30,"duration":1,
+            "layers":[{"id":"a","shape":"ellipse","x":0,"y":0,"w":4,"h":4}]}"#)
+        .unwrap();
+        assert_eq!(scene.layers[0].content, LayerContent::Shape { shape: Shape::Ellipse });
+    }
+
+    #[test]
     fn layers_outside_their_range_are_hidden() {
         let mut scene = Scene::default();
         scene.layers.push(Layer {
             id: "a".into(),
-            shape: Shape::Rect,
+            content: LayerContent::Shape { shape: Shape::Rect },
             start: 1.0,
             end: Some(2.0),
             fill: ColorRef::default(),
@@ -237,9 +179,9 @@ mod tests {
             y: 0.0.into(),
             w: 10.0.into(),
             h: 10.0.into(),
-            scale: one(),
+            scale: 1.0.into(),
             rotation: Animated::default(),
-            opacity: one(),
+            opacity: 1.0.into(),
             radius: Animated::default(),
         });
         assert!(scene.frame(0.5).is_empty());

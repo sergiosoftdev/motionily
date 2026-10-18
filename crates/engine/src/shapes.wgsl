@@ -4,7 +4,8 @@ struct Globals {
     scene_size: vec2<f32>,
     // 1.0 when the surface is sRGB and we must linearize our sRGB colors.
     linearize: f32,
-    _pad: f32,
+    // Seconds into the scene.
+    time: f32,
 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
