@@ -81,6 +81,8 @@ export const OpName = {
   SetStyle: "set_style",
   SetCaptionStyle: "set_caption_style",
   SetPalette: "set_palette",
+  SetLibrary: "set_library",
+  DefineAnim: "define_anim",
 } as const;
 export type OpName = (typeof OpName)[keyof typeof OpName];
 

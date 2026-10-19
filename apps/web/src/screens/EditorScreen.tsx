@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BrickSlot, OpName, type Brick, type Build, type Op, type PalettePayload, type Project } from "@motionily/protocol";
+import { BrickSlot, EngineSupport, OpName, type Brick, type Build, type Op, type PalettePayload, type Project } from "@motionily/protocol";
 import { api, ApiError } from "../api/client";
 import { engineHost } from "../engine/host";
 import { agentBridge } from "../bridge";
@@ -18,9 +18,22 @@ const SAVE_DEBOUNCE_MS = 800;
 const SidebarTab = { Video: "video", Feedback: "feedback" } as const;
 type SidebarTab = (typeof SidebarTab)[keyof typeof SidebarTab];
 
+/** Engine library from the project's bricks: every animation/transition it may use, plus the composition anchors. */
+function libraryOf(build: Build, byKey: Map<string, Brick>) {
+  const animations: Record<string, unknown> = {};
+  const transitions: Record<string, unknown> = {};
+  for (const b of byKey.values()) {
+    if (b.engine !== EngineSupport.Supported) continue;
+    if (b.slot === BrickSlot.Animation) animations[b.key] = { keys: b.payload.keys };
+    if (b.slot === BrickSlot.Transition) transitions[b.key] = { kind: b.payload.kind };
+  }
+  const anchors = (byKey.get(build.composition)?.payload.anchors as Record<string, [number, number]> | undefined) ?? {};
+  return { animations, transitions, anchors };
+}
+
 /** Mirror the bricks the engine already understands into scene ops. */
 function buildToOps(build: Build, byKey: Map<string, Brick>): Op[] {
-  const ops: Op[] = [];
+  const ops: Op[] = [{ op: OpName.SetLibrary, library: libraryOf(build, byKey) }];
   const palette = byKey.get(build.palette);
   if (palette) ops.push({ op: OpName.SetPalette, palette: palette.payload as PalettePayload });
   const captionId = build.captions.split("/")[1];

@@ -17,6 +17,7 @@ import {
   BrickVisibility,
   EngineSupport,
   FeedbackKind,
+  OpName,
   type Brick,
   type Feedback,
   type Op,
@@ -152,6 +153,12 @@ server.registerTool(
   },
   guard(async (brick) => {
     const created = await api.createBrick(brick);
+    // Animations become usable right away: teach the live engine the new template.
+    if (brick.slot === BrickSlot.Animation && brick.payload?.keys && bridge.connected) {
+      const res = await bridge.applyOps([{ op: OpName.DefineAnim, key: created.key, template: { keys: brick.payload.keys } }]);
+      if (!res.ok) return fail(`Saved ${created.key}, but the engine rejected its keys: ${res.error}`);
+      return text(`Saved ${created.key}; use it with {"use":"${created.key}"}.`);
+    }
     return text(`Saved ${created.key} (private to this project).`);
   }),
 );
@@ -185,7 +192,7 @@ function describeProject(p: Project, byKey: Map<string, Brick>): string {
   if (p.misfits.length) lines.push(`Misfits (user chose them anyway): ${p.misfits.join(", ")}`);
   lines.push("");
   lines.push(
-    "Engine today: rect/ellipse layers with keyframes, palette slots (background/surface/primary/accent/text) follow the palette brick. Text, captions, 3D and render styles are not rendered yet.",
+    "Engine today: rect/ellipse layers; animate them by referencing animation bricks ({\"use\":\"animation/pop_in\",\"at\":0.3}) instead of hand keyframes; place them on composition anchors (anchor: hero/title/caption/accent); cut scenes with transition bricks (add_transition). Palette slots follow the palette brick. Text, captions, 3D and render styles are not rendered yet.",
   );
   lines.push(p.scene ? `Scene: exists (rev ${p.sceneRevision}); see get_scene.` : "Scene: empty. Build the first cut with load_scene.");
   lines.push(bridge.connected ? "Editor: open (your edits render live)." : "Editor: NOT open on this project — ask the user to open it before editing.");

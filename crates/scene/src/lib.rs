@@ -7,11 +7,15 @@
 
 mod anim;
 mod layer;
+mod library;
+mod transition;
 mod ops;
 mod style;
 
 pub use anim::{Animated, Easing, Keyframe};
-pub use layer::{DrawItem, DrawShape, Layer, LayerContent, Shape};
+pub use layer::{AnimRef, DrawItem, DrawShape, EvalCtx, Layer, LayerContent, Shape};
+pub use library::{AnimProp, AnimTemplate, Library, TemplateKey, TransitionKind, TransitionTemplate};
+pub use transition::TransitionRef;
 pub use ops::{Op, OpError, Prop};
 pub use style::{CaptionStyle, ColorRef, CustomPalette, HexColor, Palette, PaletteSlot, Rgba, StylePreset};
 
@@ -38,6 +42,12 @@ pub struct Scene {
     pub palette: Option<CustomPalette>,
     #[serde(default)]
     pub layers: Vec<Layer>,
+    /// Brick data the engine needs (animations, anchors, transitions). Filled by the editor.
+    #[serde(default, skip_serializing_if = "Library::is_empty")]
+    pub library: Library,
+    /// Cuts between scenes, each drawn with a transition brick.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub transitions: Vec<TransitionRef>,
 }
 
 fn scene_version() -> u32 {
@@ -57,6 +67,8 @@ impl Default for Scene {
             caption_style: CaptionStyle::default(),
             palette: None,
             layers: Vec::new(),
+            library: Library::default(),
+            transitions: Vec::new(),
         }
     }
 }
@@ -87,11 +99,15 @@ impl Scene {
     /// Resolve every visible layer at time `t` (seconds), back to front.
     pub fn frame(&self, t: f32) -> Vec<DrawItem> {
         let palette = self.palette();
-        self.layers
+        let ctx = EvalCtx { palette: &palette, library: &self.library, scene_size: [self.width as f32, self.height as f32] };
+        let mut items: Vec<DrawItem> = self
+            .layers
             .iter()
             .filter(|l| t >= l.start && t < l.end.unwrap_or(self.duration))
-            .filter_map(|l| l.draw(t - l.start, &palette))
-            .collect()
+            .filter_map(|l| l.draw(t - l.start, &ctx))
+            .collect();
+        transition::apply(self, &palette, t, &mut items);
+        items
     }
 
     /// Compact, token-cheap description for agents. One line per layer.
@@ -122,19 +138,35 @@ impl Scene {
             .filter(|(_, a)| matches!(a, Animated::Keys(_)))
             .map(|(n, _)| n)
             .collect();
+            let uses: Vec<String> = l.anims.iter().map(|a| format!("{}@{}", a.key.trim_start_matches("animation/"), a.at)).collect();
+            let anchor = l.anchor.as_ref().map(|a| format!(" anchor={a}")).unwrap_or_default();
             let _ = writeln!(
                 s,
-                "- {} {} {:.2}-{:.2}s at ({:.0},{:.0}) {:.0}x{:.0} fill={} anim=[{}]",
+                "- {} {} {:.2}-{:.2}s at ({:.0},{:.0}){} {:.0}x{:.0} fill={} keys=[{}] uses=[{}]",
                 l.id,
                 l.content.kind_name(),
                 l.start,
                 end,
                 l.x.sample(0.0),
                 l.y.sample(0.0),
+                anchor,
                 l.w.sample(0.0),
                 l.h.sample(0.0),
                 serde_json::to_string(&l.fill).unwrap_or_default().trim_matches('"'),
-                animated.join(",")
+                animated.join(","),
+                uses.join(",")
+            );
+        }
+        for tr in &self.transitions {
+            let _ = writeln!(s, "cut @{:.2}s {} {:.2}s", tr.at, tr.key.trim_start_matches("transition/"), tr.duration);
+        }
+        if !self.library.is_empty() {
+            let _ = writeln!(
+                s,
+                "library: {} animations, {} transitions, anchors=[{}]",
+                self.library.animations.len(),
+                self.library.transitions.len(),
+                self.library.anchors.keys().cloned().collect::<Vec<_>>().join(",")
             );
         }
         s
@@ -175,6 +207,7 @@ mod tests {
             start: 1.0,
             end: Some(2.0),
             fill: ColorRef::default(),
+            anchor: None,
             x: 0.0.into(),
             y: 0.0.into(),
             w: 10.0.into(),
@@ -183,6 +216,7 @@ mod tests {
             rotation: Animated::default(),
             opacity: 1.0.into(),
             radius: Animated::default(),
+            anims: Vec::new(),
         });
         assert!(scene.frame(0.5).is_empty());
         assert_eq!(scene.frame(1.5).len(), 1);

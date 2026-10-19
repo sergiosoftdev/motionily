@@ -86,7 +86,7 @@ engine WASM (Rust/wgpu)  ◀────── WebSocket (ops en vivo) ───
    eligiendo caja, montaje Lego (ranuras + piezas), guardado en la API.
 3. ✅ **Agente sobre la API** — MCP con token y proyecto: `get_build`, `list_bricks`,
    `apply_ops`, `create_brick`, `get_feedback`; feedback persistido.
-4. **Piezas en el motor** — ops que referencian piezas (`use`), animaciones
+4. ✅ **Piezas en el motor** — ops que referencian piezas (`use`), animaciones
    paramétricas, composición, paletas reales por pieza.
 5. **Texto y subtítulos** — cosmic-text + atlas, estilos de captions.
 6. **Render styles** — shaders toon/contorno, papel recortado, clay sobre 2D.

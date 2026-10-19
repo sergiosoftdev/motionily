@@ -38,23 +38,24 @@ await call("load_scene", {
     fps: 30,
     duration: 5,
     layers: [
-      { id: "sheet", shape: "rect", fill: "surface", x: 540, y: 960, w: 860, h: 1300, radius: 24,
-        rotation: [{ t: 0, v: -6, ease: "back" }, { t: 0.8, v: -2 }],
-        y_note: "ignored field is rejected? no: serde ignores unknown" },
-      { id: "title_bar", shape: "rect", start: 0.4, fill: "primary", x: 540, w: 640, h: 120, radius: 12,
-        y: [{ t: 0, v: 2100, ease: "back" }, { t: 0.7, v: 640 }] },
-      { id: "seal", shape: "ellipse", start: 1, fill: "accent", x: 800, y: 1400, w: 220, h: 220,
-        scale: [{ t: 0, v: 0, ease: "back" }, { t: 0.5, v: 1 }] },
+      { id: "sheet", type: "shape", shape: "rect", fill: "surface", anchor: "hero", w: 860, h: 1100, radius: 24, end: 2.5,
+        anims: [{ use: "animation/paper_flutter" }] },
+      { id: "title_bar", type: "shape", shape: "rect", fill: "primary", anchor: "title", w: 640, h: 120, radius: 12, end: 2.5,
+        anims: [{ use: "animation/slide_in", at: 0.4 }] },
+      { id: "seal", type: "shape", shape: "ellipse", fill: "accent", anchor: "accent", w: 220, h: 220, start: 2.5,
+        anims: [{ use: "animation/pop_in", at: 0.1 }] },
     ],
   }),
 });
-await call("apply_ops", { ops: [{ op: "set_prop", id: "seal", prop: "rotation", value: [{ t: 0, v: 0 }, { t: 3, v: 360, ease: "linear" }] }] });
+await call("apply_ops", { ops: [{ op: "add_transition", transition: { at: 2.5, use: "transition/page_flip", duration: 0.8 } }] });
+await call("apply_ops", { ops: [{ op: "add_anim", id: "seal", anim: { use: "animation/nope" } }] });
 await call("create_brick", {
   slot: "animation",
   id: "stamp_spin",
   name: "Sello girando",
   payload: { keys: { rotation: [[0, 0, "linear"], [3, 360]] } },
 });
+await call("apply_ops", { ops: [{ op: "add_anim", id: "seal", anim: { use: "animation/stamp_spin", at: 0.6 } }] });
 await new Promise((r) => setTimeout(r, Number(process.env.SMOKE_FEEDBACK_WAIT_MS ?? 0)));
 await call("get_feedback");
 await client.close();

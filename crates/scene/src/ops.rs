@@ -1,4 +1,4 @@
-use crate::{Animated, CaptionStyle, ColorRef, CustomPalette, Layer, Scene, StylePreset};
+use crate::{AnimRef, AnimTemplate, Animated, CaptionStyle, ColorRef, CustomPalette, Layer, Library, Scene, StylePreset, TransitionRef};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -22,6 +22,18 @@ pub enum Op {
     SetTiming { id: String, start: f32, end: Option<f32> },
     /// Move a layer in the stack. 0 is the back.
     Reorder { id: String, index: usize },
+    /// Play an animation brick on a layer: `{"op":"add_anim","id":"title","anim":{"use":"animation/pop_in","at":0.2}}`.
+    AddAnim { id: String, anim: AnimRef },
+    ClearAnims { id: String },
+    /// Pin a layer to a composition anchor (`null` to go back to absolute x/y).
+    SetAnchor { id: String, anchor: Option<String> },
+    /// Cut to the next scene at `at` with a transition brick.
+    AddTransition { transition: TransitionRef },
+    ClearTransitions,
+    /// Replace the brick library (the editor sends this from the project's bricks).
+    SetLibrary { library: Library },
+    /// Add or replace one animation template (e.g. a brick the agent just created).
+    DefineAnim { key: String, template: AnimTemplate },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,6 +54,8 @@ pub enum OpError {
     UnknownLayer(String),
     DuplicateLayer(String),
     Invalid(&'static str),
+    /// A brick key the scene library doesn't have; carries what is available.
+    UnknownBrick { key: String, available: Vec<String> },
 }
 
 impl fmt::Display for OpError {
@@ -50,6 +64,9 @@ impl fmt::Display for OpError {
             OpError::UnknownLayer(id) => write!(f, "unknown layer id '{id}'"),
             OpError::DuplicateLayer(id) => write!(f, "layer id '{id}' already exists"),
             OpError::Invalid(why) => f.write_str(why),
+            OpError::UnknownBrick { key, available } => {
+                write!(f, "unknown brick '{key}'; available: {}", available.join(", "))
+            }
         }
     }
 }
@@ -88,6 +105,12 @@ impl Scene {
             Op::AddLayer { layer } => {
                 if self.layer(&layer.id).is_some() {
                     return Err(OpError::DuplicateLayer(layer.id.clone()));
+                }
+                for a in &layer.anims {
+                    self.check_anim(&a.key)?;
+                }
+                if let Some(anchor) = &layer.anchor {
+                    self.check_anchor(anchor)?;
                 }
                 self.layers.push(layer.clone());
             }
@@ -138,8 +161,53 @@ impl Scene {
                 let to = (*index).min(self.layers.len());
                 self.layers.insert(to, layer);
             }
+            Op::AddAnim { id, anim } => {
+                self.check_anim(&anim.key)?;
+                self.layer_mut(id).ok_or_else(|| OpError::UnknownLayer(id.clone()))?.anims.push(anim.clone());
+            }
+            Op::ClearAnims { id } => {
+                self.layer_mut(id).ok_or_else(|| OpError::UnknownLayer(id.clone()))?.anims.clear();
+            }
+            Op::SetAnchor { id, anchor } => {
+                if let Some(a) = anchor {
+                    self.check_anchor(a)?;
+                }
+                self.layer_mut(id).ok_or_else(|| OpError::UnknownLayer(id.clone()))?.anchor = anchor.clone();
+            }
+            Op::AddTransition { transition } => {
+                if !self.library.transitions.contains_key(&transition.key) {
+                    return Err(OpError::UnknownBrick {
+                        key: transition.key.clone(),
+                        available: self.library.transitions.keys().cloned().collect(),
+                    });
+                }
+                if transition.at <= 0.0 || transition.at >= self.duration {
+                    return Err(OpError::Invalid("transition must happen inside the video"));
+                }
+                self.transitions.push(transition.clone());
+                self.transitions.sort_by(|a, b| a.at.total_cmp(&b.at));
+            }
+            Op::ClearTransitions => self.transitions.clear(),
+            Op::SetLibrary { library } => self.library = library.clone(),
+            Op::DefineAnim { key, template } => {
+                self.library.animations.insert(key.clone(), template.clone());
+            }
         }
         Ok(())
+    }
+
+    fn check_anim(&self, key: &str) -> Result<(), OpError> {
+        if self.library.animations.contains_key(key) {
+            return Ok(());
+        }
+        Err(OpError::UnknownBrick { key: key.to_owned(), available: self.library.animations.keys().cloned().collect() })
+    }
+
+    fn check_anchor(&self, anchor: &str) -> Result<(), OpError> {
+        if self.library.anchors.contains_key(anchor) {
+            return Ok(());
+        }
+        Err(OpError::UnknownBrick { key: anchor.to_owned(), available: self.library.anchors.keys().cloned().collect() })
     }
 }
 
@@ -167,6 +235,58 @@ mod tests {
         let err = scene.apply(&ops).unwrap_err();
         assert_eq!(err.0, 1);
         assert_eq!(scene.style, StylePreset::Clean);
+    }
+}
+
+#[cfg(test)]
+mod brick_tests {
+    use super::*;
+    use crate::DrawItem;
+
+    fn scene() -> Scene {
+        let mut s = Scene::default();
+        let lib: Library = serde_json::from_str(
+            r#"{"animations":{"animation/pop_in":{"keys":{"scale":[[0,0,"back"],[0.5,1]]}},
+                              "animation/fade_up":{"keys":{"opacity":[[0,0],[0.4,1]],"dy":[[0,40],[0.4,0]]}}},
+                "anchors":{"hero":[0.5,0.25]}}"#,
+        )
+        .unwrap();
+        s.apply(&[Op::SetLibrary { library: lib }]).unwrap();
+        let layer: Layer = serde_json::from_str(
+            r#"{"id":"t","type":"shape","shape":"rect","anchor":"hero","x":10,"w":100,"h":50,
+                "anims":[{"use":"animation/fade_up","at":0.5}]}"#,
+        )
+        .unwrap();
+        s.apply(&[Op::AddLayer { layer }]).unwrap();
+        s
+    }
+
+    fn shape(s: &Scene, t: f32) -> Option<crate::DrawShape> {
+        s.frame(t).into_iter().next().map(|DrawItem::Shape(d)| d)
+    }
+
+    #[test]
+    fn anchors_place_layers_relative_to_the_composition() {
+        let d = shape(&scene(), 2.0).unwrap();
+        assert_eq!(d.center, [540.0 + 10.0, 1920.0 * 0.25]);
+    }
+
+    #[test]
+    fn anim_refs_hide_before_start_and_settle_after() {
+        let s = scene();
+        assert!(shape(&s, 0.2).is_none(), "fade_up starts at opacity 0");
+        let mid = shape(&s, 0.7).unwrap();
+        assert!(mid.center[1] > 480.0, "still offset downwards");
+        assert_eq!(shape(&s, 2.0).unwrap().color.0[3], 1.0);
+    }
+
+    #[test]
+    fn unknown_bricks_are_rejected_with_the_available_list() {
+        let mut s = scene();
+        let err = s
+            .apply(&[Op::AddAnim { id: "t".into(), anim: serde_json::from_str(r#"{"use":"animation/nope"}"#).unwrap() }])
+            .unwrap_err();
+        assert!(err.1.to_string().contains("animation/pop_in"));
     }
 }
 

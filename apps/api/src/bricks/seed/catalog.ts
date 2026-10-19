@@ -68,7 +68,7 @@ const kit = (d: {
   },
 });
 
-export const CATALOG: SeedBrick[] = [
+const BASE: SeedBrick[] = [
   // ── Cajas: estilos de motion ────────────────────────────────────────────
   {
     slot: S.MotionStyle, id: Apple, name: "Apple",
@@ -218,3 +218,54 @@ export const CATALOG: SeedBrick[] = [
   { slot: S.Scenario, id: "office", name: "Oficina", description: "Escritorios, plantas y pantallas." },
   { slot: S.Scenario, id: "iso_city", name: "Ciudad isométrica", description: "Manzanas que se levantan pieza a pieza.", fits: [Isometric] },
 ];
+
+/**
+ * Data the render engine reads for animation, composition and transition bricks
+ * (phase 4). Kept apart from the descriptions above so the library reads like a
+ * catalog. Anchors are normalized (0..1) points; animation keys are `[t, v, ease?]`
+ * where opacity/scale multiply and dx/dy/rotation add to the layer.
+ */
+const ENGINE_DATA: Record<string, Record<string, unknown>> = {
+  [k(S.Animation, "fade_up")]: { keys: { opacity: [[0, 0], [0.45, 1]], dy: [[0, 40, "ease_out"], [0.45, 0]] } },
+  [k(S.Animation, "pop_in")]: { keys: { scale: [[0, 0, "back"], [0.5, 1]] } },
+  [k(S.Animation, "slide_in")]: { keys: { dx: [[0, -600, "ease_out"], [0.6, 0]], opacity: [[0, 0], [0.2, 1]] } },
+  [k(S.Animation, "mask_reveal")]: {
+    keys: { opacity: [[0, 0], [0.15, 1]], dy: [[0, 24, "ease_out"], [0.5, 0]], scale: [[0, 0.92, "ease_out"], [0.5, 1]] },
+  },
+  [k(S.Animation, "squash_stretch")]: {
+    keys: { dy: [[0, -300, "ease_in"], [0.35, 0]], scale: [[0.35, 1], [0.42, 0.82, "ease_out"], [0.6, 1.08], [0.75, 1]] },
+  },
+  [k(S.Animation, "wobble")]: { keys: { rotation: [[0, 0], [0.25, 6], [0.5, -6], [0.75, 3], [1, 0]] } },
+  [k(S.Animation, "speed_lines")]: { keys: { dx: [[0, -900, "ease_out"], [0.25, 0]], scale: [[0, 1.3], [0.25, 1]] } },
+  [k(S.Animation, "paper_flutter")]: {
+    keys: {
+      rotation: [[0, -12, "ease_out"], [0.3, 6], [0.55, -3], [0.8, 0]],
+      dy: [[0, -200, "ease_out"], [0.8, 0]],
+      opacity: [[0, 0], [0.2, 1]],
+    },
+  },
+  [k(S.Animation, "iso_rise")]: { keys: { dy: [[0, 120, "back"], [0.6, 0]], scale: [[0, 0, "back"], [0.6, 1]] } },
+  [k(S.Animation, "typewriter")]: { keys: { opacity: [[0, 0, "hold"], [0.05, 1]] } },
+
+  [k(S.Transition, "shape_wipe")]: { kind: "shape_wipe" },
+  [k(S.Transition, "zoom_through")]: { kind: "zoom_through" },
+  [k(S.Transition, "page_flip")]: { kind: "page_flip" },
+  [k(S.Transition, "flash_cut")]: { kind: "flash_cut" },
+
+  [k(S.Composition, "centered")]: { anchors: { hero: [0.5, 0.45], title: [0.5, 0.22], caption: [0.5, 0.82], accent: [0.78, 0.68] } },
+  [k(S.Composition, "asymmetric")]: {
+    anchors: { hero: [0.32, 0.45], text: [0.7, 0.62], title: [0.62, 0.2], caption: [0.5, 0.84], accent: [0.8, 0.75] },
+  },
+  [k(S.Composition, "split")]: { anchors: { hero: [0.5, 0.28], title: [0.5, 0.62], caption: [0.5, 0.86], accent: [0.82, 0.5] } },
+  [k(S.Composition, "negative_space")]: {
+    anchors: { hero: [0.68, 0.68], title: [0.3, 0.2], caption: [0.5, 0.88], accent: [0.2, 0.8] },
+  },
+  [k(S.Composition, "iso_grid")]: { anchors: { hero: [0.5, 0.55], title: [0.5, 0.15], caption: [0.5, 0.88], accent: [0.75, 0.4] } },
+  [k(S.Composition, "layered")]: { anchors: { hero: [0.5, 0.5], title: [0.38, 0.25], caption: [0.5, 0.85], accent: [0.7, 0.7] } },
+};
+
+export const CATALOG: SeedBrick[] = BASE.map((b) => {
+  const data = ENGINE_DATA[k(b.slot, b.id)];
+  if (!data) return b;
+  return { ...b, payload: { ...b.payload, ...data }, engine: EngineSupport.Supported, version: (b.version ?? 1) + 1 };
+});
