@@ -90,6 +90,7 @@ export const OpName = {
   SetDuration: "set_duration",
   SetAudio: "set_audio",
   SetRenderStyle: "set_render_style",
+  SetScenario: "set_scenario",
 } as const;
 export type OpName = (typeof OpName)[keyof typeof OpName];
 

@@ -44,6 +44,20 @@ The user uploads the voice-over and the editor transcribes it into `captions.wor
 - mark key words (by index) so highlight/pop styles stress them: `{"op":"set_emphasis","words":[3,9],"emphasis":true}`
 - time your scenes and text to the speech (see the captions line in the summary).
 
+## Characters and scenarios
+```json
+{ "id": "doctora", "type": "character", "character": "stickman_plain|stickman_outfit|blob|chibi",
+  "outfit": "casual|doctor|office|sport", "action": "idle|walk|wave|point|jump|sit|celebrate",
+  "hair": "none|short|long|bun", "hair_color": "text" , "facing": 1,
+  "anchor": "hero", "w": 320, "h": 640 }
+```
+- The character stands on the bottom of its box; `h` is its height. Actions loop by themselves.
+- Use the character bricks the user chose (see get_project). Colors follow the palette;
+  `hair_color` takes a palette slot or `[r,g,b,a]` (e.g. white hair: `[1,1,1,1]`).
+- Change look/action without resending the layer: `{"op":"set_character","id":"doctora","action":"walk","hair_color":[1,1,1,1]}`.
+- The scenario brick sets the backdrop (`scenario`: empty_studio, clinic_room, office, iso_city — the city builds itself).
+  Place characters on the floor (lower half of the frame) when there is a room.
+
 ## Finish
 The user's render style brick sets `render_style` (flat, soft_depth, toon_outline, cel_anime,
 paper_cut, iso_flat): shadows, outlines, halftone, paper grain… applied to the whole frame.
@@ -87,4 +101,5 @@ Errors name the failing op index; nothing is applied when one fails.
 - `get_scene` returns a cheap summary; ask for `full=true` only when you need exact keyframes.
 - Do not override a style or caption style the user chose.
 - Not yet supported: video clips, export from the agent side.
+- When a comment names a layer, `get_layer` it and change just that layer.
 - Do not send `set_library`: the editor owns it.

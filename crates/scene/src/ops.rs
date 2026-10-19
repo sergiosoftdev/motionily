@@ -1,4 +1,4 @@
-use crate::{RenderStyle, AudioTrack, Captions, LayerContent, Typography, AnimRef, AnimTemplate, Animated, CaptionStyle, ColorRef, CustomPalette, Layer, Library, Scene, StylePreset, TransitionRef};
+use crate::{Action, Hair, Outfit, Scenario, RenderStyle, AudioTrack, Captions, LayerContent, Typography, AnimRef, AnimTemplate, Animated, CaptionStyle, ColorRef, CustomPalette, Layer, Library, Scene, StylePreset, TransitionRef};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -38,6 +38,22 @@ pub enum Op {
     SetTypography { typography: Option<Typography> },
     /// Replace the whole captions track (`null` removes captions).
     SetCaptions { captions: Option<Captions> },
+    /// Backdrop from the scenario brick (`null` = none).
+    SetScenario { scenario: Option<Scenario> },
+    /// Change a character's look or what it is doing; omitted fields stay.
+    SetCharacter {
+        id: String,
+        #[serde(default)]
+        outfit: Option<Outfit>,
+        #[serde(default)]
+        action: Option<Action>,
+        #[serde(default)]
+        hair: Option<Hair>,
+        #[serde(default)]
+        hair_color: Option<ColorRef>,
+        #[serde(default)]
+        facing: Option<f32>,
+    },
     /// Finish of the whole frame from the render style brick (`null` = flat).
     SetRenderStyle { render_style: Option<RenderStyle> },
     /// Place/trim the project's audio on the timeline (`null` = not used).
@@ -209,6 +225,28 @@ impl Scene {
                 }
             }
             Op::SetTypography { typography } => self.typography = typography.clone(),
+            Op::SetScenario { scenario } => self.scenario = *scenario,
+            Op::SetCharacter { id, outfit, action, hair, hair_color, facing } => {
+                let l = self.layer_mut(id).ok_or_else(|| OpError::UnknownLayer(id.clone()))?;
+                let LayerContent::Character { spec } = &mut l.content else {
+                    return Err(OpError::Invalid("set_character needs a character layer"));
+                };
+                if let Some(v) = outfit {
+                    spec.outfit = *v;
+                }
+                if let Some(v) = action {
+                    spec.action = *v;
+                }
+                if let Some(v) = hair {
+                    spec.hair = *v;
+                }
+                if let Some(v) = hair_color {
+                    spec.hair_color = *v;
+                }
+                if let Some(v) = facing {
+                    spec.facing = *v;
+                }
+            }
             Op::SetRenderStyle { render_style } => {
                 if render_style.is_some_and(|r| !(0.0..=3.0).contains(&r.amount)) {
                     return Err(OpError::Invalid("render style amount must be between 0 and 3"));
@@ -340,6 +378,22 @@ mod brick_tests {
         assert_eq!(s.pick(2.0, 550.0, 480.0).as_deref(), Some("t"));
         assert_eq!(s.pick(2.0, 10.0, 10.0), None);
         assert_eq!(s.pick(0.1, 550.0, 480.0), None, "invisible before its animation");
+    }
+
+    #[test]
+    fn characters_change_hair_without_touching_the_rest() {
+        let mut s = scene();
+        let layer: Layer = serde_json::from_str(
+            r#"{"id":"doc","type":"character","character":"stickman_outfit","outfit":"doctor","action":"wave","x":540,"y":1200,"w":300,"h":600}"#,
+        )
+        .unwrap();
+        s.apply(&[Op::AddLayer { layer }]).unwrap();
+        let op: Op = serde_json::from_str(r#"{"op":"set_character","id":"doc","hair":"short","hair_color":[1,1,1,1]}"#).unwrap();
+        s.apply(&[op]).unwrap();
+        let json = s.layer_json("doc").unwrap();
+        assert!(json.contains(r#""hair":"short""#) && json.contains(r#""action":"wave""#), "{json}");
+        assert!(matches!(&s.frame(1.0).last(), Some(DrawItem::Group(g)) if g.len() > 10));
+        assert_eq!(s.pick(1.0, 540.0, 1100.0).as_deref(), Some("doc"));
     }
 
     #[test]

@@ -6,7 +6,7 @@
 //! with its own pipeline, keeping layer order.
 
 use crate::text::{DrawText, TextAlign, TextRole, TextSpan, Typography, DEFAULT_FAMILY};
-use crate::{AnimProp, Animated, ColorRef, Library, Palette, Rgba};
+use crate::{draw_character, AnimProp, Animated, CharacterSpec, ColorRef, DrawPoly, Library, Palette, Rgba};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,6 +32,11 @@ pub enum LayerContent {
         #[serde(default = "default_line_height")]
         line_height: f32,
     },
+    /// Procedural character standing at the bottom of its box (`h` is its height).
+    Character {
+        #[serde(flatten)]
+        spec: CharacterSpec,
+    },
 }
 
 fn default_line_height() -> f32 {
@@ -44,6 +49,13 @@ impl LayerContent {
         match self {
             LayerContent::Shape { shape } => crate::enum_name(shape),
             LayerContent::Text { text, .. } => format!("text \"{}\"", text.chars().take(40).collect::<String>()),
+            LayerContent::Character { spec } => format!(
+                "character {}/{}/{} hair={}",
+                crate::enum_name(&spec.character),
+                crate::enum_name(&spec.outfit),
+                crate::enum_name(&spec.action),
+                crate::enum_name(&spec.hair)
+            ),
         }
     }
 }
@@ -141,6 +153,9 @@ pub struct DrawShape {
 pub enum DrawItem {
     Shape(DrawShape),
     Text(DrawText),
+    Poly(DrawPoly),
+    /// Several items from one layer (characters), drawn in order.
+    Group(Vec<DrawItem>),
 }
 
 impl Layer {
@@ -168,6 +183,10 @@ impl Layer {
                     Shape::Rect => self.radius.sample(lt) * scale,
                 };
                 Some(DrawItem::Shape(DrawShape { center, size, radius, rotation, color }))
+            }
+            LayerContent::Character { spec } => {
+                let feet = [center[0], center[1] + size[1] / 2.0];
+                Some(DrawItem::Group(draw_character(spec, feet, size[1], lt, color.0[3], ctx.palette)))
             }
             LayerContent::Text { text, size: px, role, align, line_height } => {
                 let (family, weight) = ctx
@@ -241,6 +260,19 @@ impl Layer {
             DrawItem::Text(t) => {
                 let scale = self.scale.sample(lt);
                 Some(Bounds { center: t.center, size: [t.max_width, self.h.sample(lt) * scale], rotation: t.rotation })
+            }
+            DrawItem::Poly(_) | DrawItem::Group(_) => {
+                let scale = self.scale.sample(lt);
+                let origin = self
+                    .anchor
+                    .as_ref()
+                    .and_then(|a| ctx.library.anchors.get(a))
+                    .map_or([0.0, 0.0], |[ax, ay]| [ax * ctx.scene_size[0], ay * ctx.scene_size[1]]);
+                Some(Bounds {
+                    center: [origin[0] + self.x.sample(lt), origin[1] + self.y.sample(lt)],
+                    size: [self.w.sample(lt) * scale, self.h.sample(lt) * scale],
+                    rotation: 0.0,
+                })
             }
         }
     }

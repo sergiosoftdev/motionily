@@ -7,12 +7,14 @@
 //! `draw(pass, range)` for every consecutive run of that kind, so layer order is
 //! kept across kinds.
 
+mod polys;
 mod post;
 mod shapes;
 mod text;
 
 use bytemuck::{Pod, Zeroable};
-use scene::{DrawItem, DrawShape, DrawText, Scene};
+use polys::PolyPipeline;
+use scene::{DrawItem, DrawPoly, DrawShape, DrawText, Scene};
 use post::{PostColors, PostPass};
 use shapes::ShapePipeline;
 use text::TextPipeline;
@@ -74,6 +76,7 @@ impl std::error::Error for EngineError {}
 enum ItemKind {
     Shape,
     Text,
+    Poly,
 }
 
 /// The frame's items split per pipeline, plus the ordered runs that interleave them.
@@ -81,14 +84,29 @@ enum ItemKind {
 struct Batches {
     shapes: Vec<DrawShape>,
     texts: Vec<DrawText>,
+    polys: Vec<DrawPoly>,
     runs: Vec<(ItemKind, Range<u32>)>,
 }
 
 impl Batches {
     fn build(items: Vec<DrawItem>) -> Self {
         let mut b = Batches::default();
+        b.push_all(items);
+        b
+    }
+
+    fn push_all(&mut self, items: Vec<DrawItem>) {
+        let b = self;
         for item in items {
             let (kind, index) = match item {
+                DrawItem::Group(children) => {
+                    b.push_all(children);
+                    continue;
+                }
+                DrawItem::Poly(p) => {
+                    b.polys.push(p);
+                    (ItemKind::Poly, b.polys.len() as u32 - 1)
+                }
                 DrawItem::Shape(s) => {
                     b.shapes.push(s);
                     (ItemKind::Shape, b.shapes.len() as u32 - 1)
@@ -103,7 +121,6 @@ impl Batches {
                 _ => b.runs.push((kind, index..index + 1)),
             }
         }
-        b
     }
 }
 
@@ -118,6 +135,7 @@ pub struct Renderer {
     bind_group: wgpu::BindGroup,
     shapes: ShapePipeline,
     text: TextPipeline,
+    polys: PolyPipeline,
     post: PostPass,
     pub adapter_info: String,
 }
@@ -197,12 +215,14 @@ impl Renderer {
         };
         let shapes = ShapePipeline::new(&ctx);
         let text = TextPipeline::new(&ctx);
+        let polys = PolyPipeline::new(&ctx);
         let post = PostPass::new(&device, config.format, config.width, config.height);
 
         let info = adapter.get_info();
         Ok(Renderer {
             shapes,
             text,
+            polys,
             post,
             device,
             queue,
@@ -254,6 +274,7 @@ impl Renderer {
         };
         self.shapes.prepare(&ctx, &batches.shapes);
         self.text.prepare(&ctx, &batches.texts);
+        self.polys.prepare(&ctx, &batches.polys);
 
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(f) | wgpu::CurrentSurfaceTexture::Suboptimal(f) => f,
@@ -292,6 +313,7 @@ impl Renderer {
                 match kind {
                     ItemKind::Shape => self.shapes.draw(&mut pass, range.clone()),
                     ItemKind::Text => self.text.draw(&mut pass, range.clone()),
+                    ItemKind::Poly => self.polys.draw(&mut pass, range.clone()),
                 }
             }
         }

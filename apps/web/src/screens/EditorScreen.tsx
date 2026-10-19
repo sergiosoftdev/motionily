@@ -48,6 +48,12 @@ function buildToOps(build: Build, byKey: Map<string, Brick>): Op[] {
   if (renderBrick?.engine === EngineSupport.Supported) {
     ops.push({ op: OpName.SetRenderStyle, render_style: { kind: build.render_style.split("/")[1], amount: 1 } });
   }
+  // Scenario brick ids are the engine's backdrop names (clinic_room, iso_city…).
+  const scenario = build.scenario ? byKey.get(build.scenario) : undefined;
+  ops.push({
+    op: OpName.SetScenario,
+    scenario: scenario?.engine === EngineSupport.Supported ? { kind: scenario.key.split("/")[1] } : null,
+  });
   const captionId = build.captions.split("/")[1];
   const engineCaption = engineHost.captionStyles.find((c) => c === captionId);
   if (engineCaption) ops.push({ op: OpName.SetCaptionStyle, caption_style: engineCaption });

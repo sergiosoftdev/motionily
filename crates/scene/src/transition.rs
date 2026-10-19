@@ -80,6 +80,12 @@ impl DrawItem {
                 text.size *= s;
                 text.max_width *= s;
             }
+            DrawItem::Poly(poly) => {
+                for p in &mut poly.points {
+                    *p = [origin[0] + (p[0] - origin[0]) * s, origin[1] + (p[1] - origin[1]) * s];
+                }
+            }
+            DrawItem::Group(items) => items.iter_mut().for_each(|i| i.scale_about(origin, s)),
         }
     }
 }

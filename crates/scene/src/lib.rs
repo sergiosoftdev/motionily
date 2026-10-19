@@ -6,6 +6,8 @@
 //! change and makes undo, sync and feedback trivial.
 
 mod anim;
+mod character;
+mod scenario;
 mod layer;
 mod library;
 mod ops;
@@ -18,6 +20,8 @@ pub use layer::{AnimRef, Bounds, DrawItem, DrawShape, EvalCtx, Layer, LayerConte
 pub use library::{AnimProp, AnimTemplate, Library, TemplateKey, TransitionKind, TransitionTemplate};
 pub use text::{AudioTrack, Captions, DrawText, TextAlign, TextRole, TextSpan, Typography, Word};
 pub use transition::TransitionRef;
+pub use character::{draw_character, pose, Action, CharacterKind, CharacterSpec, Hair, Outfit, Pose};
+pub use scenario::{draw_scenario, iso, DrawPoly, Scenario, ScenarioKind};
 pub use ops::{Op, OpError, Prop};
 pub use style::{RenderKind, RenderStyle, CaptionStyle, ColorRef, CustomPalette, HexColor, Palette, PaletteSlot, Rgba, StylePreset};
 
@@ -50,6 +54,9 @@ pub struct Scene {
     /// Font from the typography brick. Missing: the engine's default font.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub typography: Option<Typography>,
+    /// Backdrop drawn behind every layer (scenario brick).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scenario: Option<Scenario>,
     /// Finish of the whole frame (render style brick).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub render_style: Option<RenderStyle>,
@@ -83,6 +90,7 @@ impl Default for Scene {
             layers: Vec::new(),
             library: Library::default(),
             typography: None,
+            scenario: None,
             render_style: None,
             audio: None,
             captions: None,
@@ -124,11 +132,15 @@ impl Scene {
             scene_size: [self.width as f32, self.height as f32],
         };
         let mut items: Vec<DrawItem> = self
-            .layers
-            .iter()
-            .filter(|l| t >= l.start && t < l.end.unwrap_or(self.duration))
-            .filter_map(|l| l.draw(t - l.start, &ctx))
-            .collect();
+            .scenario
+            .map(|s| draw_scenario(&s, ctx.scene_size, t, &palette))
+            .unwrap_or_default();
+        items.extend(
+            self.layers
+                .iter()
+                .filter(|l| t >= l.start && t < l.end.unwrap_or(self.duration))
+                .filter_map(|l| l.draw(t - l.start, &ctx)),
+        );
         items.extend(text::caption_frame(self, &palette, t).map(DrawItem::Text));
         transition::apply(self, &palette, t, &mut items);
         items
@@ -218,6 +230,9 @@ impl Scene {
                 animated.join(","),
                 uses.join(",")
             );
+        }
+        if let Some(sc) = &self.scenario {
+            let _ = writeln!(s, "scenario: {}", enum_name(&sc.kind));
         }
         if let Some(r) = &self.render_style {
             let _ = writeln!(s, "finish: {} x{}", enum_name(&r.kind), r.amount);

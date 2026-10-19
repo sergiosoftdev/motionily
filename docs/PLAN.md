@@ -94,5 +94,5 @@ engine WASM (Rust/wgpu)  ◀────── WebSocket (ops en vivo) ───
    capa (`get_layer`), sin cargar el proyecto entero.
 5. ✅ **Texto y subtítulos** — cosmic-text + atlas, estilos de captions.
 6. ✅ **Render styles** — shaders toon/contorno, papel recortado, clay sobre 2D.
-7. **3D** — glTF, escenarios y personajes con esqueleto, isométrico.
+7. ✅ **3D (2.5D procedural)** — glTF, escenarios y personajes con esqueleto, isométrico.
 8. **Producto** — Google OAuth real, export MP4, Tauri, pagos.

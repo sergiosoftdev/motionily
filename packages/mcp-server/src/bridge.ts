@@ -22,6 +22,7 @@ export class EditorBridge {
   private socket: WebSocket | null = null;
   private pending = new Map<string, Pending>();
   private summary = "";
+  private scene: string | null = null;
 
   constructor(
     port: number,
@@ -39,6 +40,11 @@ export class EditorBridge {
 
   get lastSummary(): string {
     return this.summary;
+  }
+
+  /** Latest scene JSON the editor reported (fresher than the API's autosave). */
+  get lastScene(): string | null {
+    return this.connected ? this.scene : null;
   }
 
   applyOps(ops: Op[]) {
@@ -71,6 +77,7 @@ export class EditorBridge {
           ws.send(JSON.stringify({ type: ServerMessageType.Attached, projectId: this.projectId } satisfies ServerMessage));
         }
         this.summary = msg.summary;
+        this.scene = msg.scene;
         return;
       case EditorMessageType.Result: {
         const p = this.pending.get(msg.requestId);
@@ -78,6 +85,7 @@ export class EditorBridge {
         clearTimeout(p.timer);
         this.pending.delete(msg.requestId);
         if (msg.ok && msg.summary) this.summary = msg.summary;
+        if (msg.ok && msg.scene) this.scene = msg.scene;
         p.resolve(msg);
         return;
       }

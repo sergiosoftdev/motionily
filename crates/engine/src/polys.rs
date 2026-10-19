@@ -1,0 +1,87 @@
+//! Filled convex quads for scenarios (iso faces, perspective floors).
+
+use crate::{Ctx, ITEM_CAPACITY};
+use bytemuck::{Pod, Zeroable};
+use scene::DrawPoly;
+use std::ops::Range;
+use wgpu::util::DeviceExt;
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct Instance {
+    p01: [f32; 4],
+    p23: [f32; 4],
+    color: [f32; 4],
+}
+
+impl From<&DrawPoly> for Instance {
+    fn from(q: &DrawPoly) -> Self {
+        let [a, b, c, d] = q.points;
+        Instance { p01: [a[0], a[1], b[0], b[1]], p23: [c[0], c[1], d[0], d[1]], color: q.color.0 }
+    }
+}
+
+pub struct PolyPipeline {
+    pipeline: wgpu::RenderPipeline,
+    instances: wgpu::Buffer,
+    capacity: usize,
+}
+
+impl PolyPipeline {
+    pub fn new(ctx: &Ctx) -> Self {
+        let shader = ctx.device.create_shader_module(wgpu::include_wgsl!("polys.wgsl"));
+        const ATTRS: [wgpu::VertexAttribute; 3] = wgpu::vertex_attr_array![0 => Float32x4, 1 => Float32x4, 2 => Float32x4];
+        let pipeline = ctx.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("polys"),
+            layout: Some(ctx.globals_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Instance>() as u64,
+                    step_mode: wgpu::VertexStepMode::Instance,
+                    attributes: &ATTRS,
+                })],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs"),
+                compilation_options: Default::default(),
+                targets: &[Some(ctx.color_target())],
+            }),
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: Default::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        PolyPipeline { pipeline, instances: make_buffer(ctx.device, ITEM_CAPACITY), capacity: ITEM_CAPACITY }
+    }
+
+    /// Upload every poly of the frame once; runs then draw sub-ranges.
+    pub fn prepare(&mut self, ctx: &Ctx, polys: &[DrawPoly]) {
+        if polys.len() > self.capacity {
+            self.capacity = polys.len().next_power_of_two();
+            self.instances = make_buffer(ctx.device, self.capacity);
+        }
+        if !polys.is_empty() {
+            let data: Vec<Instance> = polys.iter().map(Instance::from).collect();
+            ctx.queue.write_buffer(&self.instances, 0, bytemuck::cast_slice(&data));
+        }
+    }
+
+    pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, range: Range<u32>) {
+        pass.set_pipeline(&self.pipeline);
+        pass.set_vertex_buffer(0, self.instances.slice(..));
+        pass.draw(0..6, range);
+    }
+}
+
+fn make_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
+    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("poly instances"),
+        contents: &vec![0u8; capacity * std::mem::size_of::<Instance>()],
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+    })
+}

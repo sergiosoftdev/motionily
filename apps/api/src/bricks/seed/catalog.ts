@@ -264,8 +264,8 @@ const ENGINE_DATA: Record<string, Record<string, unknown>> = {
   [k(S.Composition, "layered")]: { anchors: { hero: [0.5, 0.5], title: [0.38, 0.25], caption: [0.5, 0.85], accent: [0.7, 0.7] } },
 };
 
-/** Bricks the engine renders from their existing payload (phase 5: text and captions; phase 6: finishes). */
-const RENDERED_AS_IS = new Set<BrickSlot>([S.Typography, S.Captions, S.RenderStyle]);
+/** Bricks the engine renders from their existing payload (5: text, captions; 6: finishes; 7: characters, scenarios). */
+const RENDERED_AS_IS = new Set<BrickSlot>([S.Typography, S.Captions, S.RenderStyle, S.Character, S.Scenario]);
 
 export const CATALOG: SeedBrick[] = BASE.map((b) => {
   const data = ENGINE_DATA[k(b.slot, b.id)];
