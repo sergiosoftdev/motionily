@@ -1,10 +1,13 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { OpName, type Project } from "@motionily/protocol";
 import { api, mediaUrl } from "../api/client";
 import { engineHost } from "../engine/host";
 import { agentBridge } from "../bridge";
 import { ActivitySource, logActivity } from "../store";
 import { decodeForWhisper, transcribe } from "./transcribe";
+import { startGenerate, takePipeline, VideoPipeline } from "../pipeline";
+
+const ENGINE_POLL_MS = 300;
 
 const Status = { Idle: "idle", Working: "working", Done: "done", Error: "error" } as const;
 type Status = (typeof Status)[keyof typeof Status];
@@ -55,6 +58,18 @@ export function CaptionsPanel({ project, onProject }: { project: Project; onProj
       setStatus(Status.Error);
     }
   };
+
+  // Fresh from the wizard with a voice: transcribe as soon as the engine is up, then hand over to the agent.
+  useEffect(() => {
+    if (!audio || !takePipeline(project.id, VideoPipeline.TranscribeThenGenerate)) return;
+    const wait = setInterval(() => {
+      if (!engineHost.ready) return;
+      clearInterval(wait);
+      void run().then(() => startGenerate(project.id));
+    }, ENGINE_POLL_MS);
+    return () => clearInterval(wait);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id]);
 
   const clear = () => {
     engineHost.applyOps([{ op: OpName.SetCaptions, captions: null }]);

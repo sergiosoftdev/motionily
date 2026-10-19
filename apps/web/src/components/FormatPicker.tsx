@@ -1,6 +1,6 @@
 import { VideoFormat } from "@motionily/protocol";
 
-const OPTIONS: { format: VideoFormat; label: string; hint: string; box: string }[] = [
+export const FORMAT_OPTIONS: { format: VideoFormat; label: string; hint: string; box: string }[] = [
   { format: VideoFormat.Vertical, label: "9:16", hint: "Reels, TikTok", box: "h-4 w-[9px]" },
   { format: VideoFormat.Portrait, label: "4:5", hint: "Feed", box: "h-4 w-[13px]" },
   { format: VideoFormat.Square, label: "1:1", hint: "Cuadrado", box: "size-3.5" },
@@ -11,7 +11,7 @@ const OPTIONS: { format: VideoFormat; label: string; hint: string; box: string }
 export function FormatPicker({ value, onChange }: { value: VideoFormat; onChange: (f: VideoFormat) => void }) {
   return (
     <div className="grid grid-cols-4 gap-1 rounded-lg bg-neutral-900 p-1">
-      {OPTIONS.map((o) => (
+      {FORMAT_OPTIONS.map((o) => (
         <button
           key={o.format}
           type="button"

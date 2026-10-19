@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { GENERATE_EVENT, takePipeline, VideoPipeline } from "../pipeline";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 
 export const GenerateStatus = { Idle: "idle", Running: "running", Done: "done", Failed: "failed", Stopped: "stopped" } as const;
@@ -68,27 +69,6 @@ export const TOOL_LABEL: Record<string, string> = {
   ToolSearch: "Prepara sus herramientas",
 };
 
-const AUTOGEN_KEY = "motionily.autogen";
-
-/** Ask the editor to start generating as soon as it opens this project (new videos). */
-export function requestAutoGenerate(projectId: string) {
-  try {
-    sessionStorage.setItem(AUTOGEN_KEY, projectId);
-  } catch {
-    // Storage blocked: the user presses Generar themselves.
-  }
-}
-
-function takeAutoGenerate(projectId: string): boolean {
-  try {
-    if (sessionStorage.getItem(AUTOGEN_KEY) !== projectId) return false;
-    sessionStorage.removeItem(AUTOGEN_KEY);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /** The main action of the editor: let the agent build or change the video, no terminal needed. */
 export function GeneratePanel({ projectId, hasScene }: { projectId: string; hasScene: boolean }) {
   const [state, setState] = useState<GenerateState | null>(null);
@@ -113,9 +93,13 @@ export function GeneratePanel({ projectId, hasScene }: { projectId: string; hasS
     };
   }, [projectId]);
 
+  // Videos fresh from the wizard start by themselves (after their captions, if they have a voice).
+  const startRef = useRef<() => Promise<void>>(async () => undefined);
   useEffect(() => {
-    if (takeAutoGenerate(projectId)) void start();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (takePipeline(projectId, VideoPipeline.Generate)) void startRef.current();
+    const onGo = (e: Event) => (e as CustomEvent<string>).detail === projectId && void startRef.current();
+    window.addEventListener(GENERATE_EVENT, onGo);
+    return () => window.removeEventListener(GENERATE_EVENT, onGo);
   }, [projectId]);
 
   const start = async () => {
@@ -127,6 +111,8 @@ export function GeneratePanel({ projectId, hasScene }: { projectId: string; hasS
       setError(e instanceof Error ? e.message : String(e));
     }
   };
+
+  startRef.current = start;
 
   const steps = (state?.events ?? []).filter((e) => e.kind !== GenerateEventKind.Text).slice(-6);
   const lastThought = [...(state?.events ?? [])].reverse().find((e) => e.kind === GenerateEventKind.Text);
