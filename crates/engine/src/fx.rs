@@ -129,7 +129,9 @@ impl FxPass {
             ..Default::default()
         });
         let uniform = make_uniform(device, INITIAL_SLOTS);
-        let [layer, temp, copy, matte] = std::array::from_fn(|_| make_texture(device, format, width, height));
+        let (layer, matte) = (make_texture(device, format, width, height), make_texture(device, format, width, height));
+        // Blurs run at half resolution: the blur hides it and it costs a quarter of the fill rate.
+        let (temp, copy) = (make_texture(device, format, width / 2, height / 2), make_texture(device, format, width / 2, height / 2));
         let mut fx = FxPass {
             blur_pipeline,
             composite,
@@ -180,7 +182,10 @@ impl FxPass {
             return;
         }
         self.size = [width, height];
-        [self.layer, self.temp, self.copy, self.matte] = std::array::from_fn(|_| make_texture(device, self.format, width, height));
+        self.layer = make_texture(device, self.format, width, height);
+        self.matte = make_texture(device, self.format, width, height);
+        self.temp = make_texture(device, self.format, width / 2, height / 2);
+        self.copy = make_texture(device, self.format, width / 2, height / 2);
         self.rebind(device);
     }
 
