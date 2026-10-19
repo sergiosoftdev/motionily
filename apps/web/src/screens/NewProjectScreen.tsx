@@ -337,8 +337,7 @@ function Thinking({ count }: { count: number }) {
     return () => clearInterval(t);
   }, []);
   return (
-    <section className="flex flex-col items-center gap-10 text-center">
-      <div className="wiz-orb size-28 bg-gradient-to-br from-emerald-400 via-cyan-400 to-violet-500 opacity-90 blur-[2px]" />
+    <section className="flex flex-col items-center gap-10 pt-[6vh] text-center">
       <div className="flex flex-col gap-3">
         <h1 className="text-4xl font-semibold">Claude está pensando {count === 1 ? "una idea" : `${count} ideas`}</h1>
         <p key={line} className="wiz-in text-lg text-neutral-400">
