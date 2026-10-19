@@ -35,6 +35,8 @@ Coordinates are scene pixels, origin top-left, y down.
 ```
 - Font comes from the typography brick (`role` picks its heading or body weight). `w` is the wrap width.
 - Change words with `{"op":"set_text","id":"title","text":"…"}`.
+- `w`×`h` is the text box: the engine shrinks the type until it fits. When text sits on a card,
+  give the text layer the card's position and size minus padding (~8%), so it can never spill out.
 
 ## Captions
 The user uploads the voice-over and the editor transcribes it into `captions.words`

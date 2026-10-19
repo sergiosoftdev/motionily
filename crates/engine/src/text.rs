@@ -272,8 +272,46 @@ impl TextPipeline {
         pass.draw(0..6, first.start..last.end);
     }
 
+    /// Largest size (≤ requested) at which the block fits its box: no word wider than the
+    /// wrap width and, when the layer has a height, all lines inside it.
+    fn fit_size(&self, font: usize, item: &DrawText) -> f32 {
+        let words = self.measure_words(font, item);
+        let space = self.fonts[font].font.metrics(' ', item.size).advance_width;
+        let mut k = 1.0_f32;
+        for _ in 0..12 {
+            let widest = words.iter().map(|w| w.width * k).fold(0.0, f32::max);
+            let mut lines = 1;
+            let mut x = 0.0;
+            for w in &words {
+                let extra = if x == 0.0 { w.width * k } else { (space + w.width) * k };
+                if x > 0.0 && x + extra > item.max_width {
+                    lines += 1;
+                    x = w.width * k;
+                } else {
+                    x += extra;
+                }
+            }
+            let height = lines as f32 * item.size * k * item.line_height;
+            if widest <= item.max_width && item.max_height.is_none_or(|h| height <= h) {
+                break;
+            }
+            k *= 0.9;
+        }
+        item.size * k
+    }
+
     fn layout(&mut self, queue: &wgpu::Queue, item: &DrawText, out: &mut Vec<Quad>) {
         let Some(font) = self.pick_font(&item.family, item.weight) else { return };
+        let fitted;
+        let item = {
+            let size = self.fit_size(font, item);
+            if size < item.size {
+                fitted = DrawText { size, ..item.clone() };
+                &fitted
+            } else {
+                item
+            }
+        };
         let words = self.measure_words(font, item);
         let space = self.fonts[font].font.metrics(' ', item.size).advance_width;
 

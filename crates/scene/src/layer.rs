@@ -211,6 +211,7 @@ impl Layer {
                     line_height: *line_height,
                     center,
                     max_width: fit_width(size[0], center[0], ctx.scene_size[0]),
+                    max_height: Some(size[1].max(1.0)),
                     rotation,
                 }))
             }

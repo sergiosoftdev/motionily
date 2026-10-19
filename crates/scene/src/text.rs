@@ -64,6 +64,8 @@ pub struct DrawText {
     pub center: [f32; 2],
     /// Wrap width in scene pixels.
     pub max_width: f32,
+    /// Box height: the engine shrinks the type until the block fits. `None` = grow freely.
+    pub max_height: Option<f32>,
     pub rotation: f32,
 }
 
@@ -200,6 +202,7 @@ pub(crate) fn caption_frame(scene: &Scene, palette: &Palette, t: f32) -> Option<
         line_height: 1.2,
         center: [anchor[0] * w, anchor[1] * h],
         max_width: w * 0.84,
+        max_height: None,
         rotation: 0.0,
     })
 }
