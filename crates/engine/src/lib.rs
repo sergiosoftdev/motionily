@@ -8,10 +8,12 @@
 //! kept across kinds.
 
 mod shapes;
+mod text;
 
 use bytemuck::{Pod, Zeroable};
-use scene::{DrawItem, DrawShape, Scene};
+use scene::{DrawItem, DrawShape, DrawText, Scene};
 use shapes::ShapePipeline;
+use text::TextPipeline;
 use std::ops::Range;
 
 /// Initial per-pipeline instance capacity; buffers grow as needed.
@@ -69,12 +71,14 @@ impl std::error::Error for EngineError {}
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ItemKind {
     Shape,
+    Text,
 }
 
 /// The frame's items split per pipeline, plus the ordered runs that interleave them.
 #[derive(Default)]
 struct Batches {
     shapes: Vec<DrawShape>,
+    texts: Vec<DrawText>,
     runs: Vec<(ItemKind, Range<u32>)>,
 }
 
@@ -86,6 +90,10 @@ impl Batches {
                 DrawItem::Shape(s) => {
                     b.shapes.push(s);
                     (ItemKind::Shape, b.shapes.len() as u32 - 1)
+                }
+                DrawItem::Text(t) => {
+                    b.texts.push(t);
+                    (ItemKind::Text, b.texts.len() as u32 - 1)
                 }
             };
             match b.runs.last_mut() {
@@ -107,6 +115,7 @@ pub struct Renderer {
     globals_pipeline_layout: wgpu::PipelineLayout,
     bind_group: wgpu::BindGroup,
     shapes: ShapePipeline,
+    text: TextPipeline,
     pub adapter_info: String,
 }
 
@@ -184,10 +193,12 @@ impl Renderer {
             globals_pipeline_layout: &globals_pipeline_layout,
         };
         let shapes = ShapePipeline::new(&ctx);
+        let text = TextPipeline::new(&ctx);
 
         let info = adapter.get_info();
         Ok(Renderer {
             shapes,
+            text,
             device,
             queue,
             surface,
@@ -202,6 +213,11 @@ impl Renderer {
                 format!("{} ({:?})", info.name, info.backend)
             },
         })
+    }
+
+    /// Register a TTF/OTF font for text layers and captions.
+    pub fn add_font(&mut self, family: &str, weight: u16, bytes: &[u8]) -> Result<(), String> {
+        self.text.add_font(family, weight, bytes)
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -231,6 +247,7 @@ impl Renderer {
             globals_pipeline_layout: &self.globals_pipeline_layout,
         };
         self.shapes.prepare(&ctx, &batches.shapes);
+        self.text.prepare(&ctx, &batches.texts);
 
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(f) | wgpu::CurrentSurfaceTexture::Suboptimal(f) => f,
@@ -267,6 +284,7 @@ impl Renderer {
             for (kind, range) in &batches.runs {
                 match kind {
                     ItemKind::Shape => self.shapes.draw(&mut pass, range.clone()),
+                    ItemKind::Text => self.text.draw(&mut pass, range.clone()),
                 }
             }
         }

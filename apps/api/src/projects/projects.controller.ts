@@ -1,4 +1,22 @@
-import { Body, Controller, Delete, ForbiddenException, Get, HttpCode, Param, Patch, Post, Put, Query } from "@nestjs/common";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  ForbiddenException,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+  UploadedFile,
+  UseInterceptors,
+} from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
+import { diskStorage } from "multer";
+import { MAX_AUDIO_BYTES, MEDIA_DIR, mediaName, removeMedia } from "../media";
 import { JwtService } from "@nestjs/jwt";
 import { CurrentUser, TokenScope, type AuthUser, type JwtPayload } from "../auth/auth";
 import { BricksService } from "../bricks/bricks.service";
@@ -65,6 +83,31 @@ export class ProjectsController {
     return { token: await this.jwt.signAsync(payload, { expiresIn: "90d" }), projectId: project.id };
   }
 
+  /** Voice-over or music for the video. Replaces the previous file. */
+  @Post(":id/audio")
+  @UseInterceptors(
+    FileInterceptor("file", {
+      storage: diskStorage({ destination: MEDIA_DIR, filename: (_req, f, cb) => cb(null, mediaName(f.originalname)) }),
+      limits: { fileSize: MAX_AUDIO_BYTES },
+      fileFilter: (_req, f, cb) => cb(null, f.mimetype.startsWith("audio/") || f.mimetype.startsWith("video/")),
+    }),
+  )
+  async uploadAudio(@CurrentUser() user: AuthUser, @Param("id") id: string, @UploadedFile() file?: Express.Multer.File) {
+    userOnly(user);
+    if (!file) throw new BadRequestException("send an audio or video file in 'file'");
+    const { project, previous } = await this.projects.setAudio(user.id, id, { file: file.filename, name: file.originalname, mime: file.mimetype });
+    await removeMedia(previous);
+    return this.view(project);
+  }
+
+  @Delete(":id/audio")
+  async deleteAudio(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    userOnly(user);
+    const { project, previous } = await this.projects.setAudio(user.id, id, null);
+    await removeMedia(previous);
+    return this.view(project);
+  }
+
   @Put(":id/scene")
   saveScene(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: SaveSceneDto) {
     return this.projects.saveScene(user.id, id, dto);
@@ -109,6 +152,7 @@ export class ProjectsController {
       build: p.build,
       misfits: await this.projects.misfits(p),
       scene: p.scene,
+      audio: p.audio ? { url: `/media/${p.audio.file}`, name: p.audio.name, mime: p.audio.mime } : null,
       sceneRevision: p.sceneRevision,
       updatedAt: (p as unknown as { updatedAt: Date }).updatedAt,
     };

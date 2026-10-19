@@ -12,6 +12,7 @@ import { BricksController } from "./bricks/bricks.controller";
 import { Feedback, FeedbackSchema, Project, ProjectSchema } from "./projects/project.schema";
 import { ProjectsService } from "./projects/projects.service";
 import { ProjectsController } from "./projects/projects.controller";
+import { MediaController } from "./media";
 
 @Module({
   imports: [
@@ -35,7 +36,7 @@ import { ProjectsController } from "./projects/projects.controller";
       }),
     }),
   ],
-  controllers: [AuthController, BricksController, ProjectsController],
+  controllers: [AuthController, BricksController, ProjectsController, MediaController],
   providers: [BricksService, ProjectsService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
 })
 export class AppModule {}

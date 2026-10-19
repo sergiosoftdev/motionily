@@ -114,6 +114,21 @@ server.registerTool(
 );
 
 server.registerTool(
+  "get_layer",
+  {
+    description:
+      "One layer as JSON (the one a comment points at, or any id from the summary). Use it instead of reading the whole scene.",
+    inputSchema: { id: z.string() },
+  },
+  guard(async ({ id }) => {
+    const { scene } = await api.project();
+    const layers = (scene?.layers as { id: string }[] | undefined) ?? [];
+    const layer = layers.find((l) => l.id === id);
+    return layer ? text(JSON.stringify(layer)) : fail(`No layer '${id}'. Layers: ${layers.map((l) => l.id).join(", ") || "none"}`);
+  }),
+);
+
+server.registerTool(
   "apply_ops",
   {
     description:
@@ -192,7 +207,7 @@ function describeProject(p: Project, byKey: Map<string, Brick>): string {
   if (p.misfits.length) lines.push(`Misfits (user chose them anyway): ${p.misfits.join(", ")}`);
   lines.push("");
   lines.push(
-    "Engine today: rect/ellipse layers; animate them by referencing animation bricks ({\"use\":\"animation/pop_in\",\"at\":0.3}) instead of hand keyframes; place them on composition anchors (anchor: hero/title/caption/accent); cut scenes with transition bricks (add_transition). Palette slots follow the palette brick. Text, captions, 3D and render styles are not rendered yet.",
+    "Engine today: rect/ellipse layers; animate them by referencing animation bricks ({\"use\":\"animation/pop_in\",\"at\":0.3}) instead of hand keyframes; place them on composition anchors (anchor: hero/title/caption/accent); cut scenes with transition bricks (add_transition). Palette slots follow the palette brick. Text layers render in the typography brick font; captions (from the user\'s voice-over) render in their caption style — mark key words with set_emphasis. 3D and render styles are not rendered yet.",
   );
   lines.push(p.scene ? `Scene: exists (rev ${p.sceneRevision}); see get_scene.` : "Scene: empty. Build the first cut with load_scene.");
   lines.push(bridge.connected ? "Editor: open (your edits render live)." : "Editor: NOT open on this project — ask the user to open it before editing.");
@@ -208,7 +223,9 @@ function brickLine(b: Brick): string {
 function feedbackLine(f: Feedback): string {
   switch (f.kind) {
     case FeedbackKind.Comment:
-      return `comment @${(f.at ?? 0).toFixed(1)}s: ${f.text}`;
+      return f.layerId
+        ? `comment on layer '${f.layerId}' @${(f.at ?? 0).toFixed(1)}s: ${f.text} (get_layer ${f.layerId} to see it)`
+        : `comment @${(f.at ?? 0).toFixed(1)}s: ${f.text}`;
     case FeedbackKind.BrickChosen:
       return `user set ${f.slot} = ${JSON.stringify(f.value)}`;
   }

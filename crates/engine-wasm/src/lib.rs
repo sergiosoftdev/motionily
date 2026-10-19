@@ -61,8 +61,32 @@ impl Engine {
         self.scene.summary()
     }
 
+    /// Layer id under scene point (x, y) at time t, or undefined.
+    pub fn pick(&self, t: f32, x: f32, y: f32) -> Option<String> {
+        self.scene.pick(t, x, y)
+    }
+
+    /// `[cx, cy, w, h, rotation]` of a layer at time t in scene pixels, or undefined.
+    #[wasm_bindgen(js_name = layerBounds)]
+    pub fn layer_bounds(&self, id: &str, t: f32) -> Option<Vec<f32>> {
+        self.scene
+            .layer_bounds(id, t)
+            .map(|b| vec![b.center[0], b.center[1], b.size[0], b.size[1], b.rotation])
+    }
+
+    #[wasm_bindgen(js_name = layerJson)]
+    pub fn layer_json(&self, id: &str) -> Option<String> {
+        self.scene.layer_json(id)
+    }
+
     pub fn duration(&self) -> f32 {
         self.scene.duration
+    }
+
+    /// Register a font file (TTF/OTF bytes) under a family and weight.
+    #[wasm_bindgen(js_name = addFont)]
+    pub fn add_font(&mut self, family: &str, weight: u16, bytes: &[u8]) -> Result<(), JsError> {
+        self.renderer.add_font(family, weight, bytes).map_err(|e| JsError::new(&e))
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {

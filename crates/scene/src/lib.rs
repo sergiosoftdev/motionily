@@ -8,13 +8,15 @@
 mod anim;
 mod layer;
 mod library;
-mod transition;
 mod ops;
 mod style;
+mod text;
+mod transition;
 
 pub use anim::{Animated, Easing, Keyframe};
-pub use layer::{AnimRef, DrawItem, DrawShape, EvalCtx, Layer, LayerContent, Shape};
+pub use layer::{AnimRef, Bounds, DrawItem, DrawShape, EvalCtx, Layer, LayerContent, Shape};
 pub use library::{AnimProp, AnimTemplate, Library, TemplateKey, TransitionKind, TransitionTemplate};
+pub use text::{AudioTrack, Captions, DrawText, TextAlign, TextRole, TextSpan, Typography, Word};
 pub use transition::TransitionRef;
 pub use ops::{Op, OpError, Prop};
 pub use style::{CaptionStyle, ColorRef, CustomPalette, HexColor, Palette, PaletteSlot, Rgba, StylePreset};
@@ -45,6 +47,15 @@ pub struct Scene {
     /// Brick data the engine needs (animations, anchors, transitions). Filled by the editor.
     #[serde(default, skip_serializing_if = "Library::is_empty")]
     pub library: Library,
+    /// Font from the typography brick. Missing: the engine's default font.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub typography: Option<Typography>,
+    /// Placement and trim of the project's audio file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio: Option<AudioTrack>,
+    /// Timed words, drawn in `caption_style`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub captions: Option<Captions>,
     /// Cuts between scenes, each drawn with a transition brick.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub transitions: Vec<TransitionRef>,
@@ -68,6 +79,9 @@ impl Default for Scene {
             palette: None,
             layers: Vec::new(),
             library: Library::default(),
+            typography: None,
+            audio: None,
+            captions: None,
             transitions: Vec::new(),
         }
     }
@@ -99,15 +113,59 @@ impl Scene {
     /// Resolve every visible layer at time `t` (seconds), back to front.
     pub fn frame(&self, t: f32) -> Vec<DrawItem> {
         let palette = self.palette();
-        let ctx = EvalCtx { palette: &palette, library: &self.library, scene_size: [self.width as f32, self.height as f32] };
+        let ctx = EvalCtx {
+            palette: &palette,
+            typography: self.typography.as_ref(),
+            library: &self.library,
+            scene_size: [self.width as f32, self.height as f32],
+        };
         let mut items: Vec<DrawItem> = self
             .layers
             .iter()
             .filter(|l| t >= l.start && t < l.end.unwrap_or(self.duration))
             .filter_map(|l| l.draw(t - l.start, &ctx))
             .collect();
+        items.extend(text::caption_frame(self, &palette, t).map(DrawItem::Text));
         transition::apply(self, &palette, t, &mut items);
         items
+    }
+
+    /// Id of the top-most layer under scene point `(x, y)` at time `t`, for click-to-select.
+    pub fn pick(&self, t: f32, x: f32, y: f32) -> Option<String> {
+        let palette = self.palette();
+        let ctx = EvalCtx {
+            palette: &palette,
+            typography: self.typography.as_ref(),
+            library: &self.library,
+            scene_size: [self.width as f32, self.height as f32],
+        };
+        self.layers
+            .iter()
+            .rev()
+            .filter(|l| t >= l.start && t < l.end.unwrap_or(self.duration))
+            .find(|l| l.bounds(t - l.start, &ctx).is_some_and(|b| b.contains([x, y])))
+            .map(|l| l.id.clone())
+    }
+
+    /// On-screen box of a layer at time `t` (for the selection outline).
+    pub fn layer_bounds(&self, id: &str, t: f32) -> Option<Bounds> {
+        let palette = self.palette();
+        let ctx = EvalCtx {
+            palette: &palette,
+            typography: self.typography.as_ref(),
+            library: &self.library,
+            scene_size: [self.width as f32, self.height as f32],
+        };
+        let l = self.layer(id)?;
+        if t < l.start || t >= l.end.unwrap_or(self.duration) {
+            return None;
+        }
+        l.bounds(t - l.start, &ctx)
+    }
+
+    /// One layer as JSON, for agents that only need to touch that object.
+    pub fn layer_json(&self, id: &str) -> Option<String> {
+        self.layer(id).map(|l| serde_json::to_string(l).expect("layer always serializes"))
     }
 
     /// Compact, token-cheap description for agents. One line per layer.
@@ -156,6 +214,14 @@ impl Scene {
                 animated.join(","),
                 uses.join(",")
             );
+        }
+        if let Some(a) = &self.audio {
+            let out = a.trim_out.map(|o| format!("{o:.2}")).unwrap_or_else(|| "end".into());
+            let _ = writeln!(s, "audio: plays from {:.2}s, file {:.2}-{}", a.start, a.trim_in, out);
+        }
+        if let Some(c) = &self.captions {
+            let shown: Vec<&str> = c.words.iter().take(12).map(|w| w.text.as_str()).collect();
+            let _ = writeln!(s, "captions: {} words \"{}…\" style={}", c.words.len(), shown.join(" "), enum_name(&self.caption_style));
         }
         for tr in &self.transitions {
             let _ = writeln!(s, "cut @{:.2}s {} {:.2}s", tr.at, tr.key.trim_start_matches("transition/"), tr.duration);

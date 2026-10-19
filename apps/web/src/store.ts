@@ -28,6 +28,8 @@ type EditorState = {
   style: StylePreset | null;
   captionStyle: CaptionStyle | null;
   activity: Activity[];
+  /** Layer clicked in the preview or the timeline; comments go to it. */
+  selectedLayerId: string | null;
 };
 
 let nextId = 0;
@@ -43,6 +45,7 @@ export const useEditor = create<EditorState>(() => ({
   style: null,
   captionStyle: null,
   activity: [],
+  selectedLayerId: null,
 }));
 
 export function logActivity(source: ActivitySource, text: string) {

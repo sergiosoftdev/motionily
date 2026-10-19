@@ -1,4 +1,4 @@
-use crate::{AnimRef, AnimTemplate, Animated, CaptionStyle, ColorRef, CustomPalette, Layer, Library, Scene, StylePreset, TransitionRef};
+use crate::{AudioTrack, Captions, LayerContent, Typography, AnimRef, AnimTemplate, Animated, CaptionStyle, ColorRef, CustomPalette, Layer, Library, Scene, StylePreset, TransitionRef};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -32,6 +32,16 @@ pub enum Op {
     ClearTransitions,
     /// Replace the brick library (the editor sends this from the project's bricks).
     SetLibrary { library: Library },
+    /// Change the words of a text layer.
+    SetText { id: String, text: String },
+    /// Font from the typography brick (the editor sends it).
+    SetTypography { typography: Option<Typography> },
+    /// Replace the whole captions track (`null` removes captions).
+    SetCaptions { captions: Option<Captions> },
+    /// Place/trim the project's audio on the timeline (`null` = not used).
+    SetAudio { audio: Option<AudioTrack> },
+    /// Mark caption words (by index) as key words, or unmark them.
+    SetEmphasis { words: Vec<usize>, emphasis: bool },
     /// Add or replace one animation template (e.g. a brick the agent just created).
     DefineAnim { key: String, template: AnimTemplate },
 }
@@ -189,6 +199,39 @@ impl Scene {
             }
             Op::ClearTransitions => self.transitions.clear(),
             Op::SetLibrary { library } => self.library = library.clone(),
+            Op::SetText { id, text } => {
+                let l = self.layer_mut(id).ok_or_else(|| OpError::UnknownLayer(id.clone()))?;
+                match &mut l.content {
+                    LayerContent::Text { text: t, .. } => *t = text.clone(),
+                    _ => return Err(OpError::Invalid("set_text needs a text layer")),
+                }
+            }
+            Op::SetTypography { typography } => self.typography = typography.clone(),
+            Op::SetAudio { audio } => {
+                if let Some(a) = audio {
+                    if a.start < 0.0 || a.trim_in < 0.0 || a.trim_out.is_some_and(|o| o <= a.trim_in) {
+                        return Err(OpError::Invalid("audio needs start >= 0 and trim_in < trim_out"));
+                    }
+                }
+                self.audio = *audio;
+            }
+            Op::SetCaptions { captions } => {
+                if let Some(c) = captions {
+                    if c.words.windows(2).any(|w| w[1].start < w[0].start) || c.words.iter().any(|w| w.end < w.start) {
+                        return Err(OpError::Invalid("caption words must be in time order with end >= start"));
+                    }
+                }
+                self.captions = captions.clone();
+            }
+            Op::SetEmphasis { words, emphasis } => {
+                let c = self.captions.as_mut().ok_or(OpError::Invalid("there are no captions yet"))?;
+                if words.iter().any(|&i| i >= c.words.len()) {
+                    return Err(OpError::Invalid("caption word index out of range"));
+                }
+                for &i in words {
+                    c.words[i].emphasis = *emphasis;
+                }
+            }
             Op::DefineAnim { key, template } => {
                 self.library.animations.insert(key.clone(), template.clone());
             }
@@ -262,7 +305,10 @@ mod brick_tests {
     }
 
     fn shape(s: &Scene, t: f32) -> Option<crate::DrawShape> {
-        s.frame(t).into_iter().next().map(|DrawItem::Shape(d)| d)
+        s.frame(t).into_iter().find_map(|i| match i {
+            DrawItem::Shape(d) => Some(d),
+            _ => None,
+        })
     }
 
     #[test]
@@ -278,6 +324,14 @@ mod brick_tests {
         let mid = shape(&s, 0.7).unwrap();
         assert!(mid.center[1] > 480.0, "still offset downwards");
         assert_eq!(shape(&s, 2.0).unwrap().color.0[3], 1.0);
+    }
+
+    #[test]
+    fn pick_finds_the_top_layer_under_the_pointer() {
+        let s = scene();
+        assert_eq!(s.pick(2.0, 550.0, 480.0).as_deref(), Some("t"));
+        assert_eq!(s.pick(2.0, 10.0, 10.0), None);
+        assert_eq!(s.pick(0.1, 550.0, 480.0), None, "invisible before its animation");
     }
 
     #[test]

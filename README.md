@@ -41,6 +41,15 @@ reusing the same web app.
 - The format reference is fetched once (`get_reference`), not repeated in every
   tool description.
 
+## Editor
+
+- **Text and captions** rendered by the Rust engine with bundled OFL fonts (fontdue glyph atlas).
+- **Voice-over → captions**: upload audio/video, Whisper (`whisper-base_timestamped`) transcribes in a
+  Web Worker (WebGPU, WASM fallback) with word timestamps; key words are guessed and the agent can refine them.
+- **Timeline**: audio waveform with trim handles, captions word by word, one bar per layer.
+- **Click to select**: click an object in the preview and ask the agent about it; the comment carries the
+  layer id and the agent reads just that layer (`get_layer`).
+
 ## API (apps/api)
 
 NestJS + Mongo. Projects are **Lego builds**: every slot (motion style, palette,

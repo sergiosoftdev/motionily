@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BrickSlot, EngineSupport, OpName, type Brick, type Build, type Op, type PalettePayload, type Project } from "@motionily/protocol";
-import { api, ApiError } from "../api/client";
+import { api, ApiError, mediaUrl } from "../api/client";
 import { engineHost } from "../engine/host";
 import { agentBridge } from "../bridge";
 import { ActivitySource, EngineStatus, logActivity, useEditor } from "../store";
@@ -12,6 +12,9 @@ import { StylePanel } from "../components/style/StylePanel";
 import { OptionsSheet } from "../components/style/OptionsSheet";
 import { slotUi } from "../components/style/options";
 import { ConnectAgent } from "../components/ConnectAgent";
+import { CaptionsPanel } from "../captions/CaptionsPanel";
+import { Timeline } from "../timeline/Timeline";
+import { SelectionOverlay } from "../timeline/SelectionOverlay";
 
 const SAVE_DEBOUNCE_MS = 800;
 
@@ -36,6 +39,10 @@ function buildToOps(build: Build, byKey: Map<string, Brick>): Op[] {
   const ops: Op[] = [{ op: OpName.SetLibrary, library: libraryOf(build, byKey) }];
   const palette = byKey.get(build.palette);
   if (palette) ops.push({ op: OpName.SetPalette, palette: palette.payload as PalettePayload });
+  const typography = byKey.get(build.typography)?.payload as { family?: string; body?: number; heading?: number } | undefined;
+  if (typography?.family) {
+    ops.push({ op: OpName.SetTypography, typography: { family: typography.family, body: typography.body ?? 500, heading: typography.heading ?? 700 } });
+  }
   const captionId = build.captions.split("/")[1];
   const engineCaption = engineHost.captionStyles.find((c) => c === captionId);
   if (engineCaption) ops.push({ op: OpName.SetCaptionStyle, caption_style: engineCaption });
@@ -71,6 +78,8 @@ export function EditorScreen({ id }: { id: string }) {
         engineHost.setBuildOps(buildToOps(p.build, new Map(b.map((x) => [x.key, x]))));
         agentBridge.start();
         agentBridge.setProject(id);
+        engineHost.setAudio(p.audio ? mediaUrl(p.audio.url) : null);
+        useEditor.setState({ selectedLayerId: null });
       })
       .catch((e: Error) => setError(e.message));
     return () => {
@@ -148,15 +157,19 @@ export function EditorScreen({ id }: { id: string }) {
       </TopBar>
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <main className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 p-4">
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-4">
           <div className="relative flex min-h-0 w-full flex-1 items-center justify-center">
             <canvas ref={canvasRef} className="aspect-[9/16] h-full max-h-full max-w-full rounded-xl shadow-2xl shadow-black/50" />
+            <SelectionOverlay canvas={canvasRef} projectId={id} />
             {status === EngineStatus.Loading && !error && <p className="absolute text-sm text-neutral-400">Arrancando motor…</p>}
             {(error || status === EngineStatus.Failed) && (
               <p className="absolute max-w-sm text-center text-sm text-red-400">{error ?? `No se pudo iniciar el motor: ${engineError}`}</p>
             )}
           </div>
           <Transport />
+          </div>
+          <Timeline audioUrl={project?.audio ? mediaUrl(project.audio.url) : null} />
         </main>
 
         <aside className="relative flex w-full flex-col lg:w-96">
@@ -191,6 +204,7 @@ export function EditorScreen({ id }: { id: string }) {
                   />
                 </label>
                 <StylePanel build={project.build} byKey={byKey} onOpen={setOpenSlot} />
+                <CaptionsPanel project={project} onProject={setProject} />
               </div>
             )}
             {tab === SidebarTab.Feedback && (

@@ -36,6 +36,8 @@ export type Feedback = {
   kind: FeedbackKind;
   text?: string;
   at?: number;
+  /** Scene layer the comment points at (clicked in the preview). */
+  layerId?: string;
   slot?: string;
   value?: string | string[] | null;
   createdAt: string;
@@ -83,6 +85,10 @@ export const OpName = {
   SetPalette: "set_palette",
   SetLibrary: "set_library",
   DefineAnim: "define_anim",
+  SetTypography: "set_typography",
+  SetCaptions: "set_captions",
+  SetDuration: "set_duration",
+  SetAudio: "set_audio",
 } as const;
 export type OpName = (typeof OpName)[keyof typeof OpName];
 
@@ -159,6 +165,7 @@ export type Project = {
   build: Build;
   misfits: string[];
   scene: Record<string, unknown> | null;
+  audio: { url: string; name: string; mime: string } | null;
   sceneRevision: number;
   updatedAt: string;
 };

@@ -42,4 +42,5 @@ export class CreateFeedbackDto {
   @IsEnum(FeedbackKind) kind: FeedbackKind;
   @IsOptional() @IsString() @MaxLength(2000) text?: string;
   @IsOptional() @IsNumber() @Min(0) at?: number;
+  @IsOptional() @IsString() @MaxLength(80) layerId?: string;
 }

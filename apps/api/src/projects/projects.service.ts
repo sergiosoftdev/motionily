@@ -110,7 +110,7 @@ export class ProjectsService {
     if (dto.kind === FeedbackKind.Comment && !dto.text?.trim()) {
       throw new BadRequestException("a comment needs text");
     }
-    return this.feedback.create({ projectId: project._id, kind: dto.kind, text: dto.text?.trim(), at: dto.at });
+    return this.feedback.create({ projectId: project._id, kind: dto.kind, text: dto.text?.trim(), at: dto.at, layerId: dto.layerId });
   }
 
   listFeedback(projectId: Types.ObjectId) {
@@ -125,6 +125,15 @@ export class ProjectsService {
       await this.feedback.updateMany({ _id: { $in: pending.map((f) => f._id) } }, { $set: { consumedAt: new Date() } });
     }
     return pending;
+  }
+
+  async setAudio(ownerId: Types.ObjectId, id: string, audio: Project["audio"]) {
+    const project = await this.get(ownerId, id);
+    const previous = project.audio?.file;
+    project.audio = audio;
+    project.markModified("audio");
+    await project.save();
+    return { project, previous };
   }
 
   private buildFromKit(kitKey: string, payload: KitPayload): Build {

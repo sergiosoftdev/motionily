@@ -33,6 +33,18 @@ async function call<T>(method: HttpMethod, path: string, body?: unknown): Promis
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T);
 }
 
+/** Absolute URL for media the API serves (e.g. the project audio). */
+export const mediaUrl = (path: string) => `${API_URL}${path}`;
+
+async function upload<T>(path: string, file: File): Promise<T> {
+  const body = new FormData();
+  body.append("file", file);
+  const token = useSession.getState().token;
+  const res = await fetch(`${API_URL}${path}`, { method: "POST", body, headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) throw new ApiError(res.status, ((await res.json().catch(() => ({}))) as { message?: string }).message ?? res.statusText);
+  return (await res.json()) as T;
+}
+
 export const api = {
   mockGoogle: (email: string, name?: string) =>
     call<{ token: string; user: User }>(HttpMethod.Post, "/auth/mock-google", { email, name }),
@@ -52,6 +64,7 @@ export const api = {
   agentToken: (id: string) => call<{ token: string; projectId: string }>(HttpMethod.Post, `/projects/${id}/agent-token`),
   saveScene: (id: string, scene: unknown, baseRevision: number) =>
     call<{ sceneRevision: number }>(HttpMethod.Put, `/projects/${id}/scene`, { scene, baseRevision }),
-  addComment: (id: string, text: string, at: number) =>
-    call<unknown>(HttpMethod.Post, `/projects/${id}/feedback`, { kind: "comment", text, at }),
+  addComment: (id: string, text: string, at: number, layerId?: string) =>
+    call<unknown>(HttpMethod.Post, `/projects/${id}/feedback`, { kind: "comment", text, at, layerId }),
+  uploadAudio: (id: string, file: File) => upload<Project>(`/projects/${id}/audio`, file),
 };

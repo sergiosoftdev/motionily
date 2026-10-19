@@ -211,3 +211,28 @@ describe("agent tokens", () => {
     await http.post(`/projects/${p.id}/agent-token`).set(agent).expect(403);
   });
 });
+
+describe("audio and targeted feedback", () => {
+  it("stores one audio file per project and serves it without auth", async () => {
+    const auth = await login("audio@example.com");
+    const { body: p } = await http.post("/projects").set(auth).send({ name: "P", motionStyle: "motion_style/apple" });
+    const wav = Buffer.concat([Buffer.from("RIFF"), Buffer.alloc(40)]);
+    const up = await http.post(`/projects/${p.id}/audio`).set(auth).attach("file", wav, { filename: "voz.wav", contentType: "audio/wav" }).expect(201);
+    assert.match(up.body.audio.url, /^\/media\/[a-f0-9-]{36}\.wav$/);
+    const served = await http.get(up.body.audio.url).expect(200);
+    assert.equal(served.body.length ?? served.text.length, wav.length);
+    await http.post(`/projects/${p.id}/audio`).set(auth).attach("file", Buffer.from("x"), { filename: "a.txt", contentType: "text/plain" }).expect(400);
+    await http.get("/media/../package.json").expect(404);
+    const del = await http.delete(`/projects/${p.id}/audio`).set(auth).expect(200);
+    assert.equal(del.body.audio, null);
+    await http.get(up.body.audio.url).expect(404);
+  });
+
+  it("keeps the layer a comment is about", async () => {
+    const auth = await login("target@example.com");
+    const { body: p } = await http.post("/projects").set(auth).send({ name: "P", motionStyle: "motion_style/cartoon" });
+    await http.post(`/projects/${p.id}/feedback`).set(auth).send({ kind: "comment", text: "pelo blanco", at: 2, layerId: "monigote" }).expect(201);
+    const [f] = (await http.post(`/projects/${p.id}/feedback/consume`).set(auth).expect(200)).body;
+    assert.equal(f.layerId, "monigote");
+  });
+});

@@ -8,3 +8,4 @@ license.workspace = true
 scene.workspace = true
 wgpu.workspace = true
 bytemuck.workspace = true
+fontdue.workspace = true

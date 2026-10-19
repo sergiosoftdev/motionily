@@ -1,9 +1,14 @@
 import init, { Engine, captionStyles, stylePalettes, stylePresets } from "./pkg/engine_wasm.js";
 import type { CaptionStyle, Op, StylePreset } from "@motionily/protocol";
 import demoScene from "../../../../examples/demo.scene.json?raw";
+import { DEFAULT_FONT_FAMILY, fontFilesFor } from "./fonts";
 import { EngineStatus, useEditor } from "../store";
 
-type SceneMeta = { style: StylePreset; caption_style: CaptionStyle; duration: number };
+type AudioTrack = { start: number; trim_in: number; trim_out: number | null };
+type SceneMeta = { style: StylePreset; caption_style: CaptionStyle; duration: number; width: number; height: number; audio?: AudioTrack | null };
+
+/** Audio drift (s) tolerated before re-syncing it to the video clock. */
+const AUDIO_DRIFT = 0.15;
 
 /**
  * Owns the Rust engine and the playback loop, outside React. React only reads
@@ -15,6 +20,15 @@ class EngineHost {
   private raf = 0;
   private lastTick = 0;
   private listeners = new Set<() => void>();
+
+  /** Font files already handed to the current engine, by url. */
+  private loadedFonts = new Set<string>();
+  private fontCache = new Map<string, Promise<ArrayBuffer>>();
+
+  /** Voice-over/music played in sync with the preview (not saved yet). */
+  private audio: HTMLAudioElement | null = null;
+  private audioTrack: AudioTrack = { start: 0, trim_in: 0, trim_out: null };
+  private size: [number, number] = [1080, 1920];
 
   styles: StylePreset[] = [];
   captionStyles: CaptionStyle[] = [];
@@ -44,7 +58,9 @@ class EngineHost {
       }
       this.engine = engine;
       this.buildOps = [];
+      this.loadedFonts.clear();
       this.engine.loadScene(sceneJson ?? demoScene);
+      void this.ensureFonts(DEFAULT_FONT_FAMILY);
       this.resizeObserver = new ResizeObserver(() => this.fitCanvas());
       this.resizeObserver.observe(canvas);
       useEditor.setState({ engineStatus: EngineStatus.Ready, adapter: this.engine.adapterInfo() });
@@ -57,6 +73,7 @@ class EngineHost {
 
   unmount() {
     this.pause();
+    this.setAudio(null);
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     this.engine?.free();
@@ -72,6 +89,10 @@ class EngineHost {
 
   get ready() {
     return this.engine !== null;
+  }
+
+  duration() {
+    return useEditor.getState().duration;
   }
 
   sceneJson() {
@@ -93,6 +114,10 @@ class EngineHost {
 
   setBuildOps(ops: Op[]) {
     this.buildOps = ops;
+    for (const op of ops) {
+      const family = (op.typography as { family?: string } | null | undefined)?.family;
+      if (family) void this.ensureFonts(family);
+    }
     if (this.engine) this.applyOps(ops);
   }
 
@@ -103,22 +128,50 @@ class EngineHost {
     this.changed();
   }
 
+  /** Fetch a family's font files once and register them in the engine, then redraw. */
+  async ensureFonts(family: string) {
+    const files = fontFilesFor(family).filter((f) => !this.loadedFonts.has(f.url));
+    if (files.length === 0) return;
+    files.forEach((f) => this.loadedFonts.add(f.url));
+    const engine = this.engine;
+    await Promise.all(
+      files.map(async (f) => {
+        let bytes = this.fontCache.get(f.url);
+        if (!bytes) {
+          bytes = fetch(f.url).then((r) => r.arrayBuffer());
+          this.fontCache.set(f.url, bytes);
+        }
+        const data = new Uint8Array(await bytes);
+        if (engine && engine === this.engine) engine.addFont(f.family, f.weight, data);
+      }),
+    );
+    this.draw();
+  }
+
+  setAudio(url: string | null) {
+    this.audio?.pause();
+    this.audio = url ? new Audio(url) : null;
+  }
+
   play() {
     if (useEditor.getState().playing) return;
     const { time, duration } = useEditor.getState();
     if (time >= duration) useEditor.setState({ time: 0 });
     useEditor.setState({ playing: true });
+    this.syncAudio(true);
     this.lastTick = performance.now();
     this.raf = requestAnimationFrame(this.tick);
   }
 
   pause() {
     cancelAnimationFrame(this.raf);
+    this.audio?.pause();
     useEditor.setState({ playing: false });
   }
 
   seek(t: number) {
     useEditor.setState({ time: Math.max(0, Math.min(t, useEditor.getState().duration)) });
+    this.syncAudio(false);
     this.draw();
   }
 
@@ -133,9 +186,41 @@ class EngineHost {
       return;
     }
     useEditor.setState({ time: next });
+    this.syncAudio(true);
     this.draw();
     this.raf = requestAnimationFrame(this.tick);
   };
+
+  /** Keep the audio element on the timeline: play inside its trimmed window, silent outside. */
+  private syncAudio(playing: boolean) {
+    const a = this.audio;
+    if (!a) return;
+    const t = useEditor.getState().time;
+    const { start, trim_in, trim_out } = this.audioTrack;
+    const fileTime = trim_in + (t - start);
+    const end = trim_out ?? (Number.isFinite(a.duration) ? a.duration : Infinity);
+    const inside = t >= start && fileTime < end;
+    if (!inside) {
+      if (!a.paused) a.pause();
+      return;
+    }
+    if (Math.abs(a.currentTime - fileTime) > AUDIO_DRIFT) a.currentTime = fileTime;
+    if (playing && a.paused) void a.play();
+    if (!playing && !a.paused) a.pause();
+  }
+
+  sceneSize(): [number, number] {
+    return this.size;
+  }
+
+  pick(x: number, y: number): string | undefined {
+    return this.engine?.pick(useEditor.getState().time, x, y);
+  }
+
+  layerBounds(id: string): number[] | undefined {
+    const b = this.engine?.layerBounds(id, useEditor.getState().time);
+    return b ? Array.from(b) : undefined;
+  }
 
   private draw() {
     this.engine?.render(useEditor.getState().time);
@@ -149,6 +234,8 @@ class EngineHost {
 
   private syncMeta() {
     const meta = JSON.parse(this.require().sceneJson()) as SceneMeta;
+    this.size = [meta.width, meta.height];
+    this.audioTrack = meta.audio ?? { start: 0, trim_in: 0, trim_out: null };
     useEditor.setState((s) => ({
       style: meta.style,
       captionStyle: meta.caption_style,

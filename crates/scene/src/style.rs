@@ -118,10 +118,11 @@ pub enum CaptionStyle {
     Karaoke,
     PopWord,
     Highlight,
+    Sticker,
 }
 
 impl CaptionStyle {
-    pub const ALL: [CaptionStyle; 4] = [Self::Minimal, Self::Karaoke, Self::PopWord, Self::Highlight];
+    pub const ALL: [CaptionStyle; 5] = [Self::Minimal, Self::Karaoke, Self::PopWord, Self::Highlight, Self::Sticker];
 }
 
 /// A `#rrggbb` color as written in brick payloads.

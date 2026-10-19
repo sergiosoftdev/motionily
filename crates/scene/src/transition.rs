@@ -75,6 +75,11 @@ impl DrawItem {
                 shape.size = [shape.size[0] * s, shape.size[1] * s];
                 shape.radius *= s;
             }
+            DrawItem::Text(text) => {
+                text.center = [origin[0] + (text.center[0] - origin[0]) * s, origin[1] + (text.center[1] - origin[1]) * s];
+                text.size *= s;
+                text.max_width *= s;
+            }
         }
     }
 }
@@ -103,8 +108,8 @@ mod tests {
     #[test]
     fn flash_peaks_at_the_cut() {
         let s = scene_with(TransitionKind::FlashCut);
-        let DrawItem::Shape(at_cut) = &s.frame(2.0)[0];
-        let DrawItem::Shape(early) = &s.frame(1.8)[0];
+        let DrawItem::Shape(at_cut) = &s.frame(2.0)[0] else { panic!() };
+        let DrawItem::Shape(early) = &s.frame(1.8)[0] else { panic!() };
         assert!(at_cut.color.0[3] > 0.99);
         assert!(early.color.0[3] < at_cut.color.0[3]);
     }

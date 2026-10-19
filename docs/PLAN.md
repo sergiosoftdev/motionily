@@ -88,7 +88,11 @@ engine WASM (Rust/wgpu)  ◀────── WebSocket (ops en vivo) ───
    `apply_ops`, `create_brick`, `get_feedback`; feedback persistido.
 4. ✅ **Piezas en el motor** — ops que referencian piezas (`use`), animaciones
    paramétricas, composición, paletas reales por pieza.
-5. **Texto y subtítulos** — cosmic-text + atlas, estilos de captions.
+5b. ✅ **Timeline y selección** — línea de tiempo abajo tipo CapCut (audio con onda y
+   recorte, subtítulos palabra a palabra, capas); clic en un objeto del vídeo para
+   seleccionarlo y comentar sobre él: el agente recibe la referencia y lee solo esa
+   capa (`get_layer`), sin cargar el proyecto entero.
+5. ✅ **Texto y subtítulos** — cosmic-text + atlas, estilos de captions.
 6. **Render styles** — shaders toon/contorno, papel recortado, clay sobre 2D.
 7. **3D** — glTF, escenarios y personajes con esqueleto, isométrico.
 8. **Producto** — Google OAuth real, export MP4, Tauri, pagos.

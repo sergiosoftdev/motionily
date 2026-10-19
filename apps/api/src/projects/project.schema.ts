@@ -25,6 +25,8 @@ export class Project {
   @Prop({ type: MongooseSchema.Types.Mixed, required: true }) build: Build;
   /** Engine scene (see crates/scene). Null until the agent builds the first cut. */
   @Prop({ type: MongooseSchema.Types.Mixed, default: null }) scene: Record<string, unknown> | null;
+  /** Voice-over / music uploaded by the user. Served from /media/:file. */
+  @Prop({ type: MongooseSchema.Types.Mixed, default: null }) audio: { file: string; name: string; mime: string } | null;
   /** Bumped on every scene save; clients send it back to avoid overwriting newer edits. */
   @Prop({ default: 0 }) sceneRevision: number;
 }
@@ -45,6 +47,8 @@ export class Feedback {
   @Prop() text?: string;
   /** Seconds into the video, for comments. */
   @Prop() at?: number;
+  /** Scene layer the comment is about (clicked in the preview). */
+  @Prop() layerId?: string;
   @Prop({ enum: BrickSlot, type: String }) slot?: BrickSlot;
   @Prop({ type: MongooseSchema.Types.Mixed }) value?: string | string[] | null;
   /** Set when the agent has read it. */
