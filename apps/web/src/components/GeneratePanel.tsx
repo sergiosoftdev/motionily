@@ -163,7 +163,7 @@ export function GeneratePanel({ projectId, hasScene, runs = [] }: { projectId: s
           {...refs.handlers}
         />
       )}
-      {!running && <ReferenceStrip r={refs} />}
+      {hasScene && !running && <ReferenceStrip r={refs} />}
       {!running && (
         <div className="flex gap-2 text-xs">
           <select

@@ -29,6 +29,18 @@ const VISIBLE: { step: Step; label: string }[] = [
   { step: Step.Voice, label: "Voz" },
 ];
 const COUNTS = [1, 2, 3, 4, 5, 6];
+
+/** Starting directions that read like real motion design briefs; the user picks one (or none). */
+const STARTERS: { id: string; label: string; prompt: string }[] = [
+  { id: "kinetic", label: "Tipografía cinética", prompt: "Tipografía cinética a pantalla completa: palabras enormes que entran por máscaras y se empujan unas a otras, cortes al ritmo de la voz, contraste fuerte con un único color de acento y una palabra clave que golpea con escala." },
+  { id: "product", label: "Showcase de producto", prompt: "Showcase de la interfaz: capturas reales dentro de un marco de dispositivo que flota, zooms a cada función con un cursor animado, etiquetas y flechas que se dibujan, tarjetas de UI que salen del dispositivo con profundidad." },
+  { id: "data", label: "Infografía animada", prompt: "Infografía animada: contadores que suben, barras y gráficos que se construyen, líneas que se dibujan entre datos, iconos hechos con formas y una rejilla suiza visible que ordena todo." },
+  { id: "liquid", label: "Formas líquidas", prompt: "Formas orgánicas grandes que crecen, se funden y se usan como transiciones entre planos; paleta vibrante con un fondo que nunca está quieto y tipografía limpia encima." },
+  { id: "collage", label: "Collage y recortes", prompt: "Estética collage: bloques de color con bordes duros, elementos que entran como recortes con rebote y ligera rotación, sombras planas desplazadas y ritmo juguetón." },
+  { id: "keynote", label: "Minimal tipo keynote", prompt: "Minimalismo tipo keynote: mucho aire, una idea por plano, movimientos lentos y precisos con escalas sutiles, fundidos cuidados y un acento de color que guía la mirada." },
+  { id: "brutal", label: "Brutalista", prompt: "Brutalista: rejilla visible, tipografía condensada y monoespaciada, colores primarios saturados, cortes secos, bloques que tapan y destapan el contenido como glitches." },
+  { id: "steps", label: "Paso a paso", prompt: "Explicación paso a paso: números grandes, conectores y flechas que se dibujan entre pasos, cada paso entra mientras el anterior se reduce a un lado, cierre con todo el recorrido a la vista." },
+];
 const THINKING_LINES = [
   "Leyendo tu kit de marca…",
   "Buscando ganchos que paren el scroll…",
@@ -45,6 +57,12 @@ const THINKING_LINE_MS = 2600;
 export function NewProjectScreen({ brandId }: { brandId: string }) {
   const [step, setStep] = useState<Step>(Step.Idea);
   const [idea, setIdea] = useState("");
+  const [starter, setStarter] = useState<string | null>(null);
+  /** What Claude receives: the user's idea plus the chosen starting direction. */
+  const fullIdea = () => {
+    const st = STARTERS.find((x) => x.id === starter);
+    return st ? `${idea.trim()}\n\nDirección visual de partida: ${st.prompt}` : idea;
+  };
   const refs = useReferences();
   const [format, setFormat] = useState<VideoFormat>(VideoFormat.Vertical);
   const [count, setCount] = useState(3);
@@ -67,7 +85,7 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
     setStep(Step.Thinking);
     setError(null);
     try {
-      const { concepts: next, usage } = await api.concepts(brandId, { idea, format, count, steer: again ? steer : undefined, avoid: again ? seen : undefined, references: refs.refs, ...prefs });
+      const { concepts: next, usage } = await api.concepts(brandId, { idea: fullIdea(), format, count, steer: again ? steer : undefined, avoid: again ? seen : undefined, references: refs.refs, ...prefs });
       setConcepts(next);
       setPitchCost(usage ? usageLine(usage) : null);
       setSeen((s) => [...s, ...next.map((c) => c.title)]);
@@ -122,6 +140,26 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
               className="w-full resize-none rounded-2xl bg-white/5 px-6 py-5 text-lg leading-relaxed ring-1 ring-white/10 transition placeholder:text-neutral-600 focus:bg-white/[0.07] focus:outline-none focus:ring-white/30"
             />
             <ReferenceStrip r={refs} />
+            <div className="flex flex-col gap-3">
+              <span className="text-sm text-neutral-400">¿Con qué estilo de motion? (opcional)</span>
+              <div className="flex flex-wrap gap-2">
+                {STARTERS.map((st, i) => (
+                  <button
+                    key={st.id}
+                    type="button"
+                    title={st.prompt}
+                    onClick={() => setStarter((cur) => (cur === st.id ? null : st.id))}
+                    style={{ animationDelay: `${0.04 * i}s` }}
+                    className={`wiz-in rounded-full px-4 py-2 text-sm ring-1 transition hover:-translate-y-0.5 ${
+                      starter === st.id ? "bg-white text-neutral-950 ring-white" : "bg-white/[0.03] text-neutral-300 ring-white/10 hover:bg-white/[0.08]"
+                    }`}
+                  >
+                    {st.label}
+                  </button>
+                ))}
+              </div>
+              {starter && <p className="max-w-3xl text-sm text-neutral-500">{STARTERS.find((x) => x.id === starter)!.prompt}</p>}
+            </div>
             <Next disabled={!idea.trim() || refs.uploading} onClick={() => setStep(Step.Format)} hint="⌘ + Enter" />
           </Panel>
         )}
