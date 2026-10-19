@@ -1,3 +1,4 @@
+/** Demo agent: several characters with outfits/actions, then white hair via set_character. Needs the editor open. */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 const client = new Client({ name: "t", version: "0" });

@@ -1,3 +1,4 @@
+/** Demo agent: titles + captions with key words. Run with MOTIONILY_TOKEN/MOTIONILY_PROJECT and the editor open. */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 const client = new Client({ name: "t", version: "0" });
