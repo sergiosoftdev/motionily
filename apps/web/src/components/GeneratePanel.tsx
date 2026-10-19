@@ -23,7 +23,7 @@ export type AgentPrefs = { model: AgentModel; effort: AgentEffort };
 const MODEL_LABEL: Record<AgentModel, string> = { fable: "Fable", opus: "Opus", sonnet: "Sonnet", haiku: "Haiku" };
 const EFFORT_LABEL: Record<AgentEffort, string> = { low: "Bajo", medium: "Medio", high: "Alto", xhigh: "Muy alto", max: "Máximo" };
 
-function loadPrefs(): AgentPrefs {
+export function loadPrefs(): AgentPrefs {
   try {
     const raw = localStorage.getItem(PREFS_KEY);
     if (raw) return JSON.parse(raw) as AgentPrefs;
@@ -42,7 +42,7 @@ function savePrefs(p: AgentPrefs) {
 }
 
 /** What each agent tool means, in the user's words. */
-const TOOL_LABEL: Record<string, string> = {
+export const TOOL_LABEL: Record<string, string> = {
   get_project: "Lee tu brief y tu estilo",
   get_reference: "Repasa cómo se construye una escena",
   list_bricks: "Mira las opciones disponibles",

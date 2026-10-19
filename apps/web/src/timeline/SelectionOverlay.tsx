@@ -2,6 +2,9 @@ import { useEffect, useState, type RefObject } from "react";
 import { api } from "../api/client";
 import { engineHost } from "../engine/host";
 import { ActivitySource, logActivity, useEditor } from "../store";
+import { GenerateEventKind, GenerateStatus, loadPrefs, TOOL_LABEL, type GenerateState } from "../components/GeneratePanel";
+
+const POLL_MS = 1200;
 
 /**
  * Click an object in the preview to select it, then ask the agent about it.
@@ -12,6 +15,15 @@ export function SelectionOverlay({ canvas, projectId }: { canvas: RefObject<HTML
   const time = useEditor((s) => s.time);
   const [box, setBox] = useState<{ left: number; top: number; width: number; height: number; rotation: number } | null>(null);
   const [text, setText] = useState("");
+  /** Agent run started from this popover, shown live next to the object. */
+  const [run, setRun] = useState<GenerateState | null>(null);
+  const running = run?.status === GenerateStatus.Running;
+
+  useEffect(() => {
+    if (!running) return;
+    const timer = setInterval(() => void api.generateStatus(projectId).then(setRun, () => undefined), POLL_MS);
+    return () => clearInterval(timer);
+  }, [running, projectId]);
 
   // Hit-test clicks on the canvas.
   useEffect(() => {
@@ -44,11 +56,27 @@ export function SelectionOverlay({ canvas, projectId }: { canvas: RefObject<HTML
 
   const send = async () => {
     const t = text.trim();
-    if (!t) return;
-    await api.addComment(projectId, t, time, selected).catch((e: Error) => logActivity(ActivitySource.System, e.message));
+    if (!t || running) return;
     logActivity(ActivitySource.User, `${selected}: ${t}`);
     setText("");
+    try {
+      // The agent goes straight to this layer instead of re-reading the whole project.
+      setRun(
+        await api.generate(
+          projectId,
+          `Only about layer '${selected}' (around ${time.toFixed(1)}s): ${t}. Read it with get_layer ${selected}, change just that layer (or the options it needs), then render_frames at ${time.toFixed(1)}s to check.`,
+          loadPrefs(),
+        ),
+      );
+    } catch (e) {
+      // Agent busy or unavailable: keep the request as a comment for the next run.
+      await api.addComment(projectId, t, time, selected).catch(() => undefined);
+      logActivity(ActivitySource.System, e instanceof Error ? e.message : String(e));
+    }
   };
+
+  const steps = (run?.events ?? []).filter((e) => e.kind !== GenerateEventKind.Text).slice(-4);
+  const thought = [...(run?.events ?? [])].reverse().find((e) => e.kind === GenerateEventKind.Text);
 
   return (
     <>
@@ -67,12 +95,42 @@ export function SelectionOverlay({ canvas, projectId }: { canvas: RefObject<HTML
         <span className="shrink-0 rounded-md bg-sky-500/20 px-2 py-1 text-[11px] text-sky-200">{selected}</span>
         <input
           autoFocus
+          disabled={running}
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Pídele algo sobre esto…"
+          placeholder={running ? "El agente está en ello…" : "Pídele algo sobre esto…"}
           className="min-w-0 flex-1 bg-transparent px-1 text-xs placeholder:text-neutral-500 focus:outline-none"
         />
       </form>
+      {run && run.status !== GenerateStatus.Idle && (
+        <div
+          className="absolute z-10 flex w-64 flex-col gap-1.5 rounded-xl bg-neutral-900/95 p-3 text-xs shadow-xl ring-1 ring-white/10"
+          style={{ left: box.left + box.width + 12, top: box.top }}
+        >
+          <span className="flex items-center gap-2 font-medium">
+            {running && <span className="size-2 animate-pulse rounded-full bg-emerald-400" />}
+            {running ? "Trabajando en " : "Listo: "}
+            <span className="text-sky-300">{selected}</span>
+          </span>
+          {steps.map((e, i) => (
+            <span key={i} className={e.kind === GenerateEventKind.Error ? "text-red-400" : "text-neutral-400"}>
+              {TOOL_LABEL[e.text] ?? e.text}
+            </span>
+          ))}
+          {(running ? thought?.text : run.summary) && (
+            <span className="line-clamp-4 text-neutral-300">{running ? thought?.text : run.summary}</span>
+          )}
+          {running ? (
+            <button type="button" onClick={() => void api.stopGenerate(projectId).then(setRun)} className="self-start text-neutral-500 hover:text-white">
+              Parar
+            </button>
+          ) : (
+            <button type="button" onClick={() => setRun(null)} className="self-start text-neutral-500 hover:text-white">
+              Cerrar
+            </button>
+          )}
+        </div>
+      )}
     </>
   );
 }
