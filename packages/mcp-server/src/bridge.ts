@@ -51,6 +51,10 @@ export class EditorBridge {
     return this.request({ type: ServerMessageType.ApplyOps, requestId: randomUUID(), projectId: this.projectId, ops });
   }
 
+  renderFrames(times: number[]) {
+    return this.request({ type: ServerMessageType.RenderFrames, requestId: randomUUID(), projectId: this.projectId, times });
+  }
+
   loadScene(scene: string) {
     return this.request({ type: ServerMessageType.LoadScene, requestId: randomUUID(), projectId: this.projectId, scene });
   }

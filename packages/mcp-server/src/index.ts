@@ -155,6 +155,29 @@ server.registerTool(
 );
 
 server.registerTool(
+  "render_frames",
+  {
+    description:
+      "LOOK at your work: small JPEG stills of the video at the given seconds (max 6). Use after every edit round to check layout, legibility, overlaps and that things are on screen; fix before telling the user it's done.",
+    inputSchema: { times: z.array(z.number().min(0)).min(1).max(6) },
+  },
+  async ({ times }) => {
+    try {
+      const res = await bridge.renderFrames(times);
+      if (!res.ok || !res.images?.length) return fail(res.error ?? "no frames");
+      return {
+        content: res.images.flatMap((url, i) => [
+          { type: "text" as const, text: `t=${times[i]}s` },
+          { type: "image" as const, data: url.split(",")[1] ?? "", mimeType: "image/jpeg" },
+        ]),
+      };
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+  },
+);
+
+server.registerTool(
   "create_brick",
   {
     description:

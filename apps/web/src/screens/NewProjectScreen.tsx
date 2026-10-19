@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { BrickSlot, type Brick } from "@motionily/protocol";
+import { BrickSlot, VideoFormat, type Brick } from "@motionily/protocol";
+import { FormatPicker } from "../components/FormatPicker";
 import { api } from "../api/client";
 import { navigate, RouteName } from "../router";
 import { TopBar } from "./TopBar";
@@ -13,6 +14,7 @@ export function NewProjectScreen() {
   const [catalog, setCatalog] = useState<Brick[]>([]);
   const [styleKey, setStyleKey] = useState<string | null>(null);
   const [name, setName] = useState("");
+  const [format, setFormat] = useState<VideoFormat>(VideoFormat.Vertical);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,7 +36,7 @@ export function NewProjectScreen() {
     if (!style) return;
     setBusy(true);
     try {
-      const p = await api.createProject(name.trim() || `Vídeo ${style.name}`, style.key);
+      const p = await api.createProject(name.trim() || `Vídeo ${style.name}`, style.key, format);
       navigate({ name: RouteName.Editor, id: p.id });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -66,6 +68,9 @@ export function NewProjectScreen() {
             <div>
               <p className="text-sm">{style.description}</p>
               <p className="mt-1 text-xs text-neutral-500">Incluye {includes.join(" · ")}</p>
+            </div>
+            <div className="max-w-sm">
+              <FormatPicker value={format} onChange={setFormat} />
             </div>
             <div className="flex flex-col gap-3 sm:flex-row">
               <input

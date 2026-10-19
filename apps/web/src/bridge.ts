@@ -62,6 +62,12 @@ class AgentBridge {
       this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error: "The editor is showing another project." });
       return;
     }
+    if (msg.type === ServerMessageType.RenderFrames) {
+      const images = engineHost.snapshots(msg.times.slice(0, 6));
+      logActivity(ActivitySource.Agent, `Mira ${images.length} fotogramas`);
+      this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, images });
+      return;
+    }
     try {
       switch (msg.type) {
         case ServerMessageType.ApplyOps:

@@ -18,7 +18,7 @@ export class ProjectsService {
 
   list(ownerId: Types.ObjectId) {
     return this.projects
-      .find({ ownerId }, { name: 1, build: 1, updatedAt: 1, createdAt: 1 })
+      .find({ ownerId }, { name: 1, build: 1, format: 1, updatedAt: 1, createdAt: 1 })
       .sort({ updatedAt: -1 })
       .lean();
   }
@@ -38,13 +38,14 @@ export class ProjectsService {
     }
     const build = this.buildFromKit(kit.key, kit.payload as KitPayload);
     await this.assertBricksExist(build);
-    return this.projects.create({ ownerId, name: dto.name, brief: dto.brief ?? "", build });
+    return this.projects.create({ ownerId, name: dto.name, brief: dto.brief ?? "", build, format: dto.format });
   }
 
   async update(ownerId: Types.ObjectId, id: string, dto: UpdateProjectDto) {
     const project = await this.get(ownerId, id);
     if (dto.name !== undefined) project.name = dto.name;
     if (dto.brief !== undefined) project.brief = dto.brief;
+    if (dto.format !== undefined) project.format = dto.format;
     return project.save();
   }
 

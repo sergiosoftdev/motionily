@@ -16,6 +16,14 @@ export type Build = {
   [BrickSlot.Transition]: string[];
 };
 
+/** Frame shape of the video. Size is 1080 px on the short side. */
+export enum VideoFormat {
+  Vertical = "vertical_9_16",
+  Horizontal = "horizontal_16_9",
+  Square = "square_1_1",
+  Portrait = "portrait_4_5",
+}
+
 @Schema({ timestamps: true })
 export class Project {
   @Prop({ type: Types.ObjectId, ref: "User", required: true, index: true }) ownerId: Types.ObjectId;
@@ -23,6 +31,7 @@ export class Project {
   /** What the video is about, in the user's words. The agent's main input. */
   @Prop({ default: "" }) brief: string;
   @Prop({ type: MongooseSchema.Types.Mixed, required: true }) build: Build;
+  @Prop({ required: true, enum: VideoFormat, type: String, default: VideoFormat.Vertical }) format: VideoFormat;
   /** Engine scene (see crates/scene). Null until the agent builds the first cut. */
   @Prop({ type: MongooseSchema.Types.Mixed, default: null }) scene: Record<string, unknown> | null;
   /** Voice-over / music uploaded by the user. Served from /media/:file. */

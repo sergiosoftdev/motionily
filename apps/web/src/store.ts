@@ -28,6 +28,8 @@ type EditorState = {
   style: StylePreset | null;
   captionStyle: CaptionStyle | null;
   activity: Activity[];
+  /** Scene size in pixels; the preview keeps this aspect ratio. */
+  sceneSize: [number, number];
   /** Layer clicked in the preview or the timeline; comments go to it. */
   selectedLayerId: string | null;
 };
@@ -46,6 +48,7 @@ export const useEditor = create<EditorState>(() => ({
   captionStyle: null,
   activity: [],
   selectedLayerId: null,
+  sceneSize: [1080, 1920],
 }));
 
 export function logActivity(source: ActivitySource, text: string) {

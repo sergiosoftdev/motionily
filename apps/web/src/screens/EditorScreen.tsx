@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BrickSlot, EngineSupport, OpName, type Brick, type Build, type Op, type PalettePayload, type Project } from "@motionily/protocol";
+import { BrickSlot, EngineSupport, FORMAT_SIZE, OpName, type VideoFormat, type Brick, type Build, type Op, type PalettePayload, type Project } from "@motionily/protocol";
 import { api, ApiError, mediaUrl } from "../api/client";
 import { engineHost } from "../engine/host";
 import { agentBridge } from "../bridge";
@@ -12,6 +12,8 @@ import { StylePanel } from "../components/style/StylePanel";
 import { OptionsSheet } from "../components/style/OptionsSheet";
 import { slotUi } from "../components/style/options";
 import { ConnectAgent } from "../components/ConnectAgent";
+import { FormatPicker } from "../components/FormatPicker";
+import { ExportButton } from "../export/ExportButton";
 import { CaptionsPanel } from "../captions/CaptionsPanel";
 import { Timeline } from "../timeline/Timeline";
 import { SelectionOverlay } from "../timeline/SelectionOverlay";
@@ -35,8 +37,12 @@ function libraryOf(build: Build, byKey: Map<string, Brick>) {
 }
 
 /** Mirror the bricks the engine already understands into scene ops. */
-function buildToOps(build: Build, byKey: Map<string, Brick>): Op[] {
-  const ops: Op[] = [{ op: OpName.SetLibrary, library: libraryOf(build, byKey) }];
+function buildToOps(build: Build, byKey: Map<string, Brick>, format: VideoFormat): Op[] {
+  const [width, height] = FORMAT_SIZE[format];
+  const ops: Op[] = [
+    { op: OpName.SetSize, width, height },
+    { op: OpName.SetLibrary, library: libraryOf(build, byKey) },
+  ];
   const palette = byKey.get(build.palette);
   if (palette) ops.push({ op: OpName.SetPalette, palette: palette.payload as PalettePayload });
   const typography = byKey.get(build.typography)?.payload as { family?: string; body?: number; heading?: number } | undefined;
@@ -71,6 +77,7 @@ export function EditorScreen({ id }: { id: string }) {
   const status = useEditor((s) => s.engineStatus);
   const engineError = useEditor((s) => s.engineError);
   const agentConnected = useEditor((s) => s.agentConnected);
+  const [sceneW, sceneH] = useEditor((s) => s.sceneSize);
 
   const byKey = useMemo(() => new Map(bricks.map((b) => [b.key, b])), [bricks]);
   const nameOf = useCallback((key: string) => byKey.get(key)?.name ?? key, [byKey]);
@@ -86,7 +93,7 @@ export function EditorScreen({ id }: { id: string }) {
         revision.current = p.sceneRevision;
         await engineHost.mount(canvasRef.current, p.scene ? JSON.stringify(p.scene) : null);
         if (cancelled || !engineHost.ready) return;
-        engineHost.setBuildOps(buildToOps(p.build, new Map(b.map((x) => [x.key, x]))));
+        engineHost.setBuildOps(buildToOps(p.build, new Map(b.map((x) => [x.key, x])), p.format));
         agentBridge.start();
         agentBridge.setProject(id);
         engineHost.setAudio(p.audio ? mediaUrl(p.audio.url) : null);
@@ -127,7 +134,7 @@ export function EditorScreen({ id }: { id: string }) {
       const p = await api.setSlot(id, slot, value, applyKitDefaults);
       setProject(p);
       if (engineHost.ready) {
-        engineHost.setBuildOps(buildToOps(p.build, byKey));
+        engineHost.setBuildOps(buildToOps(p.build, byKey, p.format));
         agentBridge.sceneChanged();
       }
       const names = [value].flat().filter(Boolean).map((k) => nameOf(k as string));
@@ -141,6 +148,14 @@ export function EditorScreen({ id }: { id: string }) {
   const rename = async (name: string) => {
     if (!project || !name.trim() || name === project.name) return;
     setProject(await api.updateProject(id, { name: name.trim() }));
+  };
+  const changeFormat = async (format: VideoFormat) => {
+    if (!project || format === project.format) return;
+    const p = await api.updateProject(id, { format });
+    setProject(p);
+    engineHost.setBuildOps(buildToOps(p.build, byKey, p.format));
+    agentBridge.sceneChanged();
+    logActivity(ActivitySource.User, `Formato: ${format}`);
   };
   const saveBrief = async (brief: string) => {
     if (!project || brief === project.brief) return;
@@ -164,6 +179,7 @@ export function EditorScreen({ id }: { id: string }) {
           <span className={`size-2 rounded-full ${agentConnected ? "bg-emerald-400" : "bg-neutral-600"}`} />
           {agentConnected ? "Agente conectado" : "Esperando al agente"}
         </span>
+        {project && <ExportButton name={project.name} audioUrl={project.audio ? mediaUrl(project.audio.url) : null} />}
         <ConnectAgent projectId={id} />
       </TopBar>
 
@@ -171,7 +187,11 @@ export function EditorScreen({ id }: { id: string }) {
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-4">
           <div className="relative flex min-h-0 w-full flex-1 items-center justify-center">
-            <canvas ref={canvasRef} className="aspect-[9/16] h-full max-h-full max-w-full rounded-xl shadow-2xl shadow-black/50" />
+            <canvas
+              ref={canvasRef}
+              style={{ aspectRatio: `${sceneW} / ${sceneH}` }}
+              className={`max-h-full max-w-full rounded-xl shadow-2xl shadow-black/50 ${sceneW > sceneH ? "w-full" : "h-full"}`}
+            />
             <SelectionOverlay canvas={canvasRef} projectId={id} />
             {status === EngineStatus.Loading && !error && <p className="absolute text-sm text-neutral-400">Arrancando motor…</p>}
             {(error || status === EngineStatus.Failed) && (
@@ -213,6 +233,10 @@ export function EditorScreen({ id }: { id: string }) {
                     placeholder="Ej.: anuncio de 20 s de mi app de reservas para fisios, tono cercano"
                     className="resize-none rounded-lg bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-white/40"
                   />
+                </label>
+                <label className="flex flex-col gap-2">
+                  <span className="text-xs font-medium text-neutral-300">Formato</span>
+                  <FormatPicker value={project.format} onChange={(f) => void changeFormat(f)} />
                 </label>
                 <StylePanel build={project.build} byKey={byKey} onOpen={setOpenSlot} />
                 <CaptionsPanel project={project} onProject={setProject} />

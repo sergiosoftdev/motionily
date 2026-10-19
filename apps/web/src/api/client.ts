@@ -1,4 +1,4 @@
-import type { Brick, BrickSlot, Project, ProjectListItem, User } from "@motionily/protocol";
+import type { Brick, BrickSlot, Project, ProjectListItem, User, VideoFormat } from "@motionily/protocol";
 import { useSession } from "../session";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3100";
@@ -52,9 +52,9 @@ export const api = {
     call<Brick[]>(HttpMethod.Get, `/bricks?${new URLSearchParams(q as Record<string, string>)}`),
   projects: () => call<ProjectListItem[]>(HttpMethod.Get, "/projects"),
   project: (id: string) => call<Project>(HttpMethod.Get, `/projects/${id}`),
-  createProject: (name: string, motionStyle: string) =>
-    call<Project>(HttpMethod.Post, "/projects", { name, motionStyle }),
-  updateProject: (id: string, patch: { name?: string; brief?: string }) =>
+  createProject: (name: string, motionStyle: string, format: VideoFormat) =>
+    call<Project>(HttpMethod.Post, "/projects", { name, motionStyle, format }),
+  updateProject: (id: string, patch: { name?: string; brief?: string; format?: VideoFormat }) =>
     call<Project>(HttpMethod.Patch, `/projects/${id}`, patch),
   deleteProject: (id: string) => call<void>(HttpMethod.Delete, `/projects/${id}`),
   projectBricks: (id: string, slot?: BrickSlot) =>

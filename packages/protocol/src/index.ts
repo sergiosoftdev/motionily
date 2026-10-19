@@ -48,6 +48,8 @@ export const ServerMessageType = {
   LoadScene: "load_scene",
   /** The agent accepted this editor as the one showing its project. */
   Attached: "attached",
+  /** Render still frames so the agent can see the video. */
+  RenderFrames: "render_frames",
 } as const;
 export type ServerMessageType = (typeof ServerMessageType)[keyof typeof ServerMessageType];
 
@@ -55,7 +57,8 @@ export type ServerMessageType = (typeof ServerMessageType)[keyof typeof ServerMe
 export type ServerMessage =
   | { type: typeof ServerMessageType.ApplyOps; requestId: string; projectId: string; ops: Op[] }
   | { type: typeof ServerMessageType.LoadScene; requestId: string; projectId: string; scene: string }
-  | { type: typeof ServerMessageType.Attached; projectId: string };
+  | { type: typeof ServerMessageType.Attached; projectId: string }
+  | { type: typeof ServerMessageType.RenderFrames; requestId: string; projectId: string; times: number[] };
 
 export const EditorMessageType = {
   Hello: "hello",
@@ -74,6 +77,8 @@ export type EditorMessage =
       error?: string;
       scene?: string;
       summary?: string;
+      /** JPEG data URLs, for render_frames. */
+      images?: string[];
     }
   | { type: typeof EditorMessageType.SceneChanged; projectId: string; scene: string; summary: string };
 
@@ -91,6 +96,7 @@ export const OpName = {
   SetAudio: "set_audio",
   SetRenderStyle: "set_render_style",
   SetScenario: "set_scenario",
+  SetSize: "set_size",
 } as const;
 export type OpName = (typeof OpName)[keyof typeof OpName];
 
@@ -160,11 +166,28 @@ export type Build = {
   transition: string[];
 };
 
+export const VideoFormat = {
+  Vertical: "vertical_9_16",
+  Horizontal: "horizontal_16_9",
+  Square: "square_1_1",
+  Portrait: "portrait_4_5",
+} as const;
+export type VideoFormat = (typeof VideoFormat)[keyof typeof VideoFormat];
+
+/** Pixel size of each format (1080 on the short side). */
+export const FORMAT_SIZE: Record<VideoFormat, [number, number]> = {
+  vertical_9_16: [1080, 1920],
+  horizontal_16_9: [1920, 1080],
+  square_1_1: [1080, 1080],
+  portrait_4_5: [1080, 1350],
+};
+
 export type Project = {
   id: string;
   name: string;
   brief: string;
   build: Build;
+  format: VideoFormat;
   misfits: string[];
   scene: Record<string, unknown> | null;
   audio: { url: string; name: string; mime: string } | null;
@@ -172,6 +195,6 @@ export type Project = {
   updatedAt: string;
 };
 
-export type ProjectListItem = { _id: string; name: string; build: Build; updatedAt: string };
+export type ProjectListItem = { _id: string; name: string; build: Build; format?: VideoFormat; updatedAt: string };
 
 export type User = { id: string; email: string; name: string; avatarUrl: string | null; provider: string };

@@ -128,6 +128,22 @@ class EngineHost {
     this.changed();
   }
 
+  /** Every font file fetched so far, to hand to another engine (export). */
+  async loadedFontFiles(): Promise<{ family: string; weight: number; bytes: Uint8Array }[]> {
+    const typo = (JSON.parse(this.require().sceneJson()) as { typography?: { family: string } | null }).typography;
+    const files = [...fontFilesFor(DEFAULT_FONT_FAMILY), ...(typo ? fontFilesFor(typo.family) : [])];
+    return Promise.all(
+      files.map(async (f) => {
+        let bytes = this.fontCache.get(f.url);
+        if (!bytes) {
+          bytes = fetch(f.url).then((r) => r.arrayBuffer());
+          this.fontCache.set(f.url, bytes);
+        }
+        return { family: f.family, weight: f.weight, bytes: new Uint8Array(await bytes) };
+      }),
+    );
+  }
+
   /** Fetch a family's font files once and register them in the engine, then redraw. */
   async ensureFonts(family: string) {
     const files = fontFilesFor(family).filter((f) => !this.loadedFonts.has(f.url));
@@ -209,6 +225,25 @@ class EngineHost {
     if (!playing && !a.paused) a.pause();
   }
 
+  /** Small JPEG of the frame at each time, for the agent to look at. Restores the current frame. */
+  snapshots(times: number[], width = 360): string[] {
+    const canvas = this.canvas;
+    if (!canvas || !this.engine) return [];
+    const [sw, sh] = this.size;
+    const out = document.createElement("canvas");
+    out.width = width;
+    out.height = Math.round((width * sh) / sw);
+    const g = out.getContext("2d")!;
+    const images = times.map((t) => {
+      this.engine!.render(t);
+      // Copy in the same task as the render: a WebGPU canvas is cleared once presented.
+      g.drawImage(canvas, 0, 0, out.width, out.height);
+      return out.toDataURL("image/jpeg", 0.72);
+    });
+    this.draw();
+    return images;
+  }
+
   sceneSize(): [number, number] {
     return this.size;
   }
@@ -237,6 +272,7 @@ class EngineHost {
     this.size = [meta.width, meta.height];
     this.audioTrack = meta.audio ?? { start: 0, trim_in: 0, trim_out: null };
     useEditor.setState((s) => ({
+      sceneSize: [meta.width, meta.height],
       style: meta.style,
       captionStyle: meta.caption_style,
       duration: meta.duration,

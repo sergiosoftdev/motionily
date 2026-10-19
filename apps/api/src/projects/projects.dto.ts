@@ -11,16 +11,18 @@ import {
   Min,
   MinLength,
 } from "class-validator";
-import { FeedbackKind } from "./project.schema";
+import { FeedbackKind, VideoFormat } from "./project.schema";
 
 export class CreateProjectDto {
   @IsString() @MinLength(1) @MaxLength(80) name: string;
   /** Key of the motion style "box", e.g. "motion_style/startup". */
   @IsString() motionStyle: string;
   @IsOptional() @IsString() @MaxLength(4000) brief?: string;
+  @IsOptional() @IsEnum(VideoFormat) format?: VideoFormat;
 }
 
 export class UpdateProjectDto {
+  @IsOptional() @IsEnum(VideoFormat) format?: VideoFormat;
   @IsOptional() @IsString() @MinLength(1) @MaxLength(80) name?: string;
   @IsOptional() @IsString() @MaxLength(4000) brief?: string;
 }

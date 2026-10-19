@@ -150,6 +150,7 @@ export class ProjectsController {
       name: p.name,
       brief: p.brief,
       build: p.build,
+      format: p.format,
       misfits: await this.projects.misfits(p),
       scene: p.scene,
       audio: p.audio ? { url: `/media/${p.audio.file}`, name: p.audio.name, mime: p.audio.mime } : null,
