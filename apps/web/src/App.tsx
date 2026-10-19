@@ -1,5 +1,5 @@
 import { useSession } from "./session";
-import { RouteName, useRoute } from "./router";
+import { BrandTab, RouteName, useRoute } from "./router";
 import { AppShell } from "./shell/AppShell";
 import { LoginScreen } from "./screens/LoginScreen";
 import { ProjectsScreen } from "./screens/ProjectsScreen";
@@ -19,7 +19,12 @@ export function App() {
   return (
     <AppShell route={route}>
       {route.name === RouteName.Brand && <BrandScreen key={route.id} id={route.id} tab={route.tab} />}
-      {route.name === RouteName.NewVideo && <NewProjectScreen brandId={route.brandId} />}
+      {route.name === RouteName.NewVideo && (
+        <>
+          <BrandScreen id={route.brandId} tab={BrandTab.Videos} />
+          <NewProjectScreen brandId={route.brandId} />
+        </>
+      )}
       {route.name === RouteName.Prefabs && <PrefabsScreen />}
       {route.name === RouteName.Settings && <SettingsScreen />}
       {route.name === RouteName.Projects && <ProjectsScreen />}

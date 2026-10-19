@@ -5,6 +5,7 @@ import { CurrentUser, type AuthUser } from "../auth/auth";
 import { MEDIA_DIR, mediaName } from "../media";
 import { ProjectsService } from "../projects/projects.service";
 import { BrandsService } from "./brands.service";
+import { ConceptsRequestDto, ConceptsService } from "./concepts";
 import { AssetMetaDto, CreateBrandDto, UpdateBrandDto } from "./brands.dto";
 
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
@@ -15,7 +16,16 @@ export class BrandsController {
   constructor(
     private readonly brands: BrandsService,
     private readonly projects: ProjectsService,
+    private readonly concepts: ConceptsService,
   ) {}
+
+  /** Different ways to make a video from an idea, pitched by the agent before anything is built. */
+  @Post(":brandId/concepts")
+  @HttpCode(200)
+  async pitch(@CurrentUser() user: AuthUser, @Param("brandId") brandId: string, @Body() dto: ConceptsRequestDto) {
+    const kit = await this.full(user, brandId);
+    return { concepts: await this.concepts.pitch(dto, kit) };
+  }
 
   @Get()
   async list(@CurrentUser() user: AuthUser) {

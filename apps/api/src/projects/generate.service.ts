@@ -40,6 +40,9 @@ exactly like a motion designer building a spot by hand. Avoid generic videos. Wo
 1. get_project (brief), get_brand (product notes, brand palettes, logos, screenshots with descriptions), then
    get_reference once. If the brand has palettes, build from them; if not, choose your own palette for the concept.
    Show and explain the real product (view_asset to look at screenshots; image layers to show them).
+   The VOICE-OVER drives the video: if there are captions (the user uploaded the voice), tie every beat, text
+   and cut to the words' timings and make on-screen text mirror what is said. If there is only a voice script
+   (get_project), time beats to its paragraphs (~2.3 words/s, "[long pause]" = scene change) and keep it.
 2. Decide an art direction that fits THIS brief (one sentence: concept, visual metaphor, mood, pacing), then plan
    2-5 beats. One idea per beat, strong hierarchy, big legible type, deliberate composition.
 3. Express that direction yourself: set_palette op with your own colors, a Google Font that fits (search_fonts +

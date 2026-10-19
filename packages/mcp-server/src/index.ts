@@ -266,6 +266,19 @@ server.registerTool(
 );
 
 server.registerTool(
+  "set_voice_script",
+  {
+    description:
+      "Save the voice-over script (ElevenLabs v3 format: one tone tag like [warm] first, one paragraph per scene, '[long pause] [long pause]' between scenes, numbers in letters, last sentence = CTA). The user pastes it in ElevenLabs and uploads the mp3.",
+    inputSchema: { script: z.string().min(1).max(8000) },
+  },
+  guard(async ({ script }) => {
+    await api.update({ voiceScript: script });
+    return text("voice script saved");
+  }),
+);
+
+server.registerTool(
   "review_video",
   {
     description:
@@ -327,6 +340,8 @@ server.registerTool(
 function describeProject(p: Project): string {
   const lines = [`Project "${p.name}"`, `Brief: ${p.brief.trim() || "(empty — ask the user what the video is about)"}`, ""];
   lines.push(`Format: ${p.format}`);
+  if (p.voiceScript.trim()) lines.push(`Voice script (ElevenLabs; the video is built on it):\n${p.voiceScript.trim()}`);
+  lines.push(p.audio ? `Voice uploaded: ${p.audio.name} (captions carry word timings).` : "Voice: not uploaded yet.");
   lines.push("No presets exist: you design and animate everything yourself (palette, font, keyframes, cuts, 3D). See get_reference.");
   lines.push(p.scene ? `Scene: exists (rev ${p.sceneRevision}); see get_scene.` : "Scene: empty. Build the first cut with load_scene.");
   lines.push(bridge.connected ? "Editor: open (your edits render live)." : "Editor: NOT open on this project — ask the user to open it before editing.");

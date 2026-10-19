@@ -242,6 +242,7 @@ export function EditorScreen({ id }: { id: string }) {
                     className="resize-none rounded-lg bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-white/40"
                   />
                 </label>
+                {project.voiceScript.trim() && <VoiceScript script={project.voiceScript} hasVoice={!!project.audio} />}
                 <GeneratePanel projectId={id} hasScene={!!project.scene} />
                 <div className="flex flex-col gap-2">
                   <span className="text-xs font-medium text-neutral-300">Formato</span>
@@ -260,5 +261,28 @@ export function EditorScreen({ id }: { id: string }) {
         </aside>
       </div>
     </div>
+  );
+}
+
+/** The ElevenLabs script the video is built on: copy it, generate the voice, upload it below. */
+function VoiceScript({ script, hasVoice }: { script: string; hasVoice: boolean }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <section className="flex flex-col gap-2">
+      <div className="flex items-baseline justify-between">
+        <span className="text-sm font-semibold">Guion de la voz</span>
+        <button
+          type="button"
+          onClick={() => void navigator.clipboard.writeText(script).then(() => setCopied(true))}
+          className="text-xs text-neutral-400 hover:text-white"
+        >
+          {copied ? "Copiado" : "Copiar"}
+        </button>
+      </div>
+      <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg bg-neutral-900 px-3 py-2 font-mono text-[11px] leading-relaxed text-neutral-300">{script}</pre>
+      <span className="text-xs text-neutral-500">
+        {hasVoice ? "Voz subida: el agente ata el vídeo a sus palabras." : "Pégalo en ElevenLabs, descarga el mp3 y súbelo en «Voz y subtítulos». Luego, Generar."}
+      </span>
+    </section>
   );
 }

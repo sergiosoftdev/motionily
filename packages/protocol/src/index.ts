@@ -221,6 +221,8 @@ export type Project = {
   id: string;
   name: string;
   brief: string;
+  wantsScript: boolean;
+  voiceScript: string;
   build: Build;
   format: VideoFormat;
   /** Project (brand kit) the video belongs to. */

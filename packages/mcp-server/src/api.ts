@@ -29,7 +29,7 @@ export class ProjectApi {
     return this.call<{ token: string; user: User }>("POST", "/headless-token");
   }
 
-  update(patch: { format?: string }) {
+  update(patch: { format?: string; voiceScript?: string }) {
     return this.call<Project>("PATCH", "", patch);
   }
 

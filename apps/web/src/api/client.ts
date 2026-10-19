@@ -14,6 +14,9 @@ export const PrefabKind = { Object: "object", Character: "character", Space: "sp
 export type PrefabKind = (typeof PrefabKind)[keyof typeof PrefabKind];
 export type PrefabSummary = { name: string; kind: PrefabKind; description: string; parent?: string; version: number; updatedAt: string };
 
+export type ConceptBeat = { at: string; what: string };
+export type Concept = { title: string; hook: string; direction: string; beats: ConceptBeat[]; voiceover: string; prompt: string };
+export type ConceptsRequest = { idea: string; format: VideoFormat; count: number; steer?: string; avoid?: string[]; model?: string; effort?: string };
 export type GoogleFont = { family: string; category: string; weights: number[]; popularity: number };
 
 export class ApiError extends Error {
@@ -66,8 +69,9 @@ export const api = {
     call<Brick[]>(HttpMethod.Get, `/bricks?${new URLSearchParams(q as Record<string, string>)}`),
   projects: () => call<ProjectListItem[]>(HttpMethod.Get, "/projects"),
   project: (id: string) => call<Project>(HttpMethod.Get, `/projects/${id}`),
-  createProject: (name: string, brief: string, format: VideoFormat, brandId: string) =>
-    call<Project>(HttpMethod.Post, "/projects", { name, brief, format, brandId }),
+  createProject: (name: string, brief: string, format: VideoFormat, brandId: string, voiceScript = "") =>
+    call<Project>(HttpMethod.Post, "/projects", { name, brief, format, brandId, voiceScript, wantsScript: !!voiceScript }),
+  concepts: (brandId: string, req: ConceptsRequest) => call<{ concepts: Concept[] }>(HttpMethod.Post, `/brands/${brandId}/concepts`, req),
   brands: () => call<BrandSummary[]>(HttpMethod.Get, "/brands"),
   brand: (id: string) => call<BrandKit>(HttpMethod.Get, `/brands/${id}`),
   createBrand: (name: string) => call<BrandKit>(HttpMethod.Post, "/brands", { name }),

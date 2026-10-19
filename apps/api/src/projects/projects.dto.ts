@@ -19,6 +19,9 @@ export class CreateProjectDto {
   /** Optional starting point; by default the agent designs the look itself from the brief. */
   @IsOptional() @IsString() motionStyle?: string;
   @IsOptional() @IsString() @MaxLength(4000) brief?: string;
+  @IsOptional() @IsBoolean() wantsScript?: boolean;
+  /** ElevenLabs script chosen in the pitch; the video is built on it. */
+  @IsOptional() @IsString() @MaxLength(8000) voiceScript?: string;
   @IsOptional() @IsEnum(VideoFormat) format?: VideoFormat;
   /** Project (brand kit) to put the video in; defaults to the user's first project. */
   @IsOptional() @IsMongoId() brandId?: string;
@@ -28,6 +31,8 @@ export class UpdateProjectDto {
   @IsOptional() @IsEnum(VideoFormat) format?: VideoFormat;
   @IsOptional() @IsString() @MinLength(1) @MaxLength(80) name?: string;
   @IsOptional() @IsString() @MaxLength(4000) brief?: string;
+  @IsOptional() @IsBoolean() wantsScript?: boolean;
+  @IsOptional() @IsString() @MaxLength(8000) voiceScript?: string;
 }
 
 export class SetSlotDto {
