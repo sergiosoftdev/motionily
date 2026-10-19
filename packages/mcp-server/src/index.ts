@@ -21,6 +21,7 @@ import {
 } from "@motionily/protocol";
 import { EditorBridge } from "./bridge.js";
 import { HeadlessEditor } from "./headless.js";
+import { formatLayer, parseLines } from "./compact.js";
 import { ProjectApi } from "./api.js";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
@@ -41,6 +42,14 @@ if (process.env.MOTIONILY_HEADLESS !== "0") {
 }
 
 const server = new McpServer({ name: "motionily", version: "0.2.0" });
+
+// Each team role only sees the tools it needs: every tool description costs context on every turn.
+const onlyTools = process.env.MOTIONILY_TOOLS?.split(",").map((t) => t.trim()).filter(Boolean);
+if (onlyTools?.length) {
+  const register = server.registerTool.bind(server) as (...args: unknown[]) => unknown;
+  (server as unknown as { registerTool: (...args: unknown[]) => unknown }).registerTool = (name: unknown, ...rest: unknown[]) =>
+    onlyTools.includes(String(name)) ? register(name, ...rest) : undefined;
+}
 
 const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] });
 const fail = (t: string) => ({ ...text(t), isError: true });
@@ -226,6 +235,35 @@ server.registerTool(
   async () => text(REFERENCE),
 );
 
+/** Latest scene: live from the editor when open, else the autosave. */
+async function currentScene(): Promise<Record<string, unknown> | null> {
+  const live = bridge.lastScene;
+  return live ? (JSON.parse(live) as Record<string, unknown>) : (await api.project()).scene;
+}
+
+const layersOf = (scene: Record<string, unknown> | null) => (scene?.layers as Record<string, unknown>[] | undefined) ?? [];
+
+server.registerTool(
+  "add_layers",
+  {
+    description:
+      "Add or replace layers with COMPACT LINES (far cheaper than JSON). One layer per line: `id type start-end key=value… \"text\"`. Types rect|ellipse|text|image. Keys: x y w h (required w h) s(scale) r(rotation°) o(opacity) rad(radius) fill(slot or #rrggbb[aa]) g(group) size role align lh src fit. Values: number, tween `from>to@t0-t1[:ease]`, or keys `t:v[:ease],t:v…` (times from the layer start). Eases: l i o io b h. An existing id is replaced.",
+    inputSchema: { lines: z.string().min(1) },
+  },
+  guard(async ({ lines }) => {
+    let layers;
+    try {
+      layers = parseLines(lines);
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+    const existing = new Set(layersOf(await currentScene()).map((l) => String(l.id)));
+    const ops = layers.flatMap((layer) => [...(existing.has(String(layer.id)) ? [{ op: "remove_layer", id: layer.id }] : []), { op: "add_layer", layer }]);
+    const res = await bridge.applyOps(ops as Op[]);
+    return res.ok ? text(`${layers.length} layers ok`) : fail(res.error ?? "rejected");
+  }),
+);
+
 server.registerTool(
   "get_scene",
   {
@@ -236,7 +274,9 @@ server.registerTool(
     if (!full && bridge.connected && bridge.lastSummary) return text(bridge.lastSummary);
     const { scene } = await api.project();
     if (!scene) return text("Empty project: no scene yet. Start with load_scene.");
-    return text(full ? JSON.stringify(scene) : `${bridge.connected ? "" : "(editor closed) "}${JSON.stringify(scene).slice(0, 2000)}`);
+    if (!full) return text(`${bridge.connected ? "" : "(editor closed) "}${JSON.stringify(scene).slice(0, 2000)}`);
+    const { layers, ...rest } = scene as Record<string, unknown>;
+    return text(`${JSON.stringify(rest)}\nlayers (compact lines):\n${layersOf({ layers }).map(formatLayer).join("\n")}`);
   }),
 );
 
@@ -252,7 +292,7 @@ server.registerTool(
     const scene = live ? (JSON.parse(live) as Record<string, unknown>) : (await api.project()).scene;
     const layers = (scene?.layers as { id: string }[] | undefined) ?? [];
     const layer = layers.find((l) => l.id === id);
-    return layer ? text(JSON.stringify(layer)) : fail(`No layer '${id}'. Layers: ${layers.map((l) => l.id).join(", ") || "none"}`);
+    return layer ? text(formatLayer(layer as Record<string, unknown>)) : fail(`No layer '${id}'. Layers: ${layers.map((l) => l.id).join(", ") || "none"}`);
   }),
 );
 
@@ -269,7 +309,7 @@ server.registerTool(
     const layers = ((scene?.layers as { id: string; group?: string; start?: number; end?: number | null }[] | undefined) ?? []).filter((l) => l.group === group);
     if (!layers.length) return fail(`No group '${group}'.`);
     const start = Math.min(...layers.map((l) => l.start ?? 0));
-    return text(`group ${group}: ${layers.length} layers from ${start}s\n${layers.map((l) => JSON.stringify(l)).join("\n")}`);
+    return text(`group ${group}: ${layers.length} layers from ${start}s (compact lines; edit with add_layers)\n${layers.map((l) => formatLayer(l as Record<string, unknown>)).join("\n")}`);
   }),
 );
 

@@ -7,8 +7,8 @@ import { JwtService } from "@nestjs/jwt";
 import { Types } from "mongoose";
 import { TokenScope, type JwtPayload } from "../auth/auth";
 import { ProjectsService } from "./projects.service";
-import type { GenerateDto } from "./projects.dto";
-import type { AgentRunUsage } from "./project.schema";
+import { AgentEffort, type GenerateDto } from "./projects.dto";
+import { VideoFormat, type AgentRunUsage } from "./project.schema";
 
 export enum GenerateStatus {
   Idle = "idle",
@@ -75,6 +75,38 @@ const CRAFT = `MOTION DESIGN CRAFT (non-negotiable):
 - Rhythm: something meaningful changes every 0.5-1.5 s. Hold the key message ~1 s to be read.
 - Composition: strong grid, generous margins (≥ 8% of the frame), max 2 type sizes per beat + 1 small label.`;
 
+/** Mirrors FORMAT_SIZE in @motionily/protocol. */
+const FORMAT_SIZE: Record<VideoFormat, [number, number]> = {
+  [VideoFormat.Vertical]: [1080, 1920],
+  [VideoFormat.Horizontal]: [1920, 1080],
+  [VideoFormat.Square]: [1080, 1080],
+  [VideoFormat.Portrait]: [1080, 1350],
+};
+
+/** Everything a builder needs to write layers, inline (no get_reference round trip). */
+const COMPACT_REF = `WRITING LAYERS — add_layers with one line per layer (never JSON):
+  id type start-end key=value… "text"
+  type: rect | ellipse | text | image. Coordinates are scene pixels, x/y = CENTER, origin top-left. w and h required.
+  keys: x y w h s(scale) r(rotation°) o(opacity 0-1) rad(corner radius) fill g(group) size(text px) role(heading|body)
+        align(left|center|right) lh(line height) src(/media/… image) fit(cover|contain)
+  fill: palette slot background|surface|primary|accent|text, or #rrggbb / #rrggbbaa
+  value: number · tween from>to@t0-t1[:ease] · keys t:v[:ease],t:v,… (t = seconds from the layer's start)
+  eases: o ease_out · i ease_in · io ease_in_out (default) · b back (overshoot) · l linear · h hold
+  text: the box is w×h; type shrinks to fit. Same id again = replace that layer.
+examples:
+  hook_bg rect 0-3 g=hook x=540 y=960 w=1080 h=1920 fill=background
+  hook_line rect .2-3 g=hook x=540 y=1100 w=0>820@.2-.7:o h=6 fill=accent
+  hook_w1 text 0-3 g=hook x=540 y=860>820@0-.45:b w=900 h=170 o=0>1@0-.25 size=150 role=heading fill=text "Tu agenda"
+  hook_dot ellipse .5-3 g=hook x=860 y=700 w=60 h=60 s=0:0,.25:1.25:b,.4:1 fill=primary
+Other ops via apply_ops: {"op":"remove_layer","id":…} {"op":"remove_group","group":…} {"op":"set_palette","palette":{"background":"#…","surface":"#…","primary":"#…","accent":"#…","text":"#…"}} {"op":"set_duration","duration":12}`;
+
+/** MCP tools each role sees (each tool description costs context on every turn). */
+const ROLE_TOOLS = {
+  planner: ["get_project", "get_brand", "view_image", "view_asset", "search_fonts", "set_font", "apply_ops"],
+  builder: ["add_layers", "apply_ops", "render_frames", "view_asset", "view_image", "get_brand"],
+  finisher: ["review_video", "render_frames", "get_group", "add_layers", "apply_ops"],
+} as const;
+
 /** Plans the video and sets the look; builders do the heavy writing in parallel. */
 const PLANNER_GUIDE = `You are Motionily's art director. There are NO presets: everything is designed by the team.
 Your job is ONLY to plan and set the global look, fast. Do NOT build layers.
@@ -92,14 +124,18 @@ There are NO presets: write every animation as keyframes yourself. Work ONLY on 
 - Every layer you add has "group" set to your group and an id starting with your group name.
 - Your layers live inside your time span (start/end), plus up to 0.4 s of overlap for the transition out.
 - Never remove, edit or read other groups. Do not change palette, font, size or duration.
-- Use ONE apply_ops call with all your layers when possible (fewer turns = faster), then one render_frames
-  at 2 moments of your span; fix only if clearly broken. Do not run review_video.
+- Write ALL your layers in ONE add_layers call (fewer turns = cheaper and faster), then ONE render_frames at
+  2 moments of your span; fix only what is clearly broken with one more add_layers. Do not run review_video.
+- Product screenshots/logos: get_brand lists them; use their src in image layers.
+${COMPACT_REF}
 ${CRAFT}
 Reply with one short sentence when done.`;
 
 const FINISHER_GUIDE = `You are the finishing editor of a Motionily video built by a team in parallel.
 1. review_video. 2. Fix only what is wrong (overlaps between beats, off-frame, dead air, broken transitions,
-unreadable text) with small apply_ops. 3. Review again only if you changed a lot (max 2 rounds).
+unreadable text): get_group to read a group as compact lines, add_layers to fix. 3. Review again only if you
+changed a lot (max 2 rounds).
+${COMPACT_REF}
 Finish with a 2-3 sentence summary in Spanish: the art direction and what the video shows.
 ${CRAFT}`;
 
@@ -134,6 +170,8 @@ exactly like a motion designer building a spot by hand. Avoid generic videos. Wo
    Never hand back a video you have not reviewed.
 5. Check get_feedback at the end and apply it.
 ${CRAFT}
+Prefer add_layers (compact lines) over JSON for writing layers.
+${COMPACT_REF}
 Finish with a 2-3 sentence summary in Spanish: the art direction you chose and what the video shows.`;
 
 type Beat = { group: string; start: number; end: number; brief: string };
@@ -172,12 +210,12 @@ export class GenerateService {
     }
     const payload: JwtPayload = { sub: ownerId.toString(), email, scope: TokenScope.Agent, projectId: project.id };
     const token = await this.jwt.signAsync(payload, { expiresIn: "2h" });
-    const config = this.mcpConfig(project.id, token);
+    const config = (tools?: readonly string[]) => this.mcpConfig(project.id, token, tools);
 
     const run: Run = { processes: new Set(), status: GenerateStatus.Running, events: [], summary: null, usage: null };
     this.runs.set(project.id, run);
     const refs = references?.length ? ` The user attached reference images; look at each with view_image first: ${references.join(", ")}.` : "";
-    const opts = { config, model, effort };
+    const opts: AgentOpts = { config, model, effort, size: FORMAT_SIZE[project.format] ?? FORMAT_SIZE[VideoFormat.Vertical] };
 
     const work = instruction?.trim()
       ? this.single(run, `The user asks: "${instruction.trim()}". Apply it to the current video (read get_project and get_scene first; finish with review_video and fix what it shows).${refs}`, opts)
@@ -207,7 +245,7 @@ export class GenerateService {
   }
 
   private async single(run: Run, prompt: string, o: AgentOpts): Promise<AgentRunUsage> {
-    const r = await this.agent(run, prompt, AGENT_GUIDE, o, "");
+    const r = await this.agent(run, prompt, AGENT_GUIDE, o, "", undefined);
     run.summary = r.text;
     return usageFrom(r.result, "edit", o.model ?? null, o.effort ?? null);
   }
@@ -217,17 +255,19 @@ export class GenerateService {
     const results: ResultLine[] = [];
     const t0 = Date.now();
     this.push(run, GenerateEventKind.Text, "Planificando la dirección de arte y los planos…");
-    const planned = await this.agent(run, `Plan this video from its brief.${refs}`, PLANNER_GUIDE, o, "plan");
+    const planned = await this.agent(run, `Plan this video from its brief.${refs}`, PLANNER_GUIDE, o, "plan", ROLE_TOOLS.planner);
     results.push(planned.result);
     const plan = parsePlan(planned.text);
     this.push(run, GenerateEventKind.Text, `${plan.direction} — ${plan.beats.length} planos en paralelo: ${plan.beats.map((b) => b.group).join(", ")}`);
 
+    // The plan already did the thinking: builders and finisher execute it with low effort (thinking is output tokens).
+    const crew: AgentOpts = { ...o, effort: AgentEffort.Low };
     const overview = plan.beats.map((b) => `- ${b.group} ${b.start}-${b.end}s: ${b.brief}`).join("\n");
     const queue = [...plan.beats];
     const worker = async () => {
       for (let beat = queue.shift(); beat && run.status === GenerateStatus.Running; beat = queue.shift()) {
-        const prompt = `Art direction: ${plan.direction}\nRecurring motif: ${plan.motif ?? "—"}\nWhole video:\n${overview}\n\nYOUR BEAT: group "${beat.group}", ${beat.start}-${beat.end}s.\n${beat.brief}\nRead get_project once for palette/font/format, then build it.`;
-        const r = await this.agent(run, prompt, BUILDER_GUIDE, o, beat.group).catch((e: Error) => {
+        const prompt = `Art direction: ${plan.direction}\nRecurring motif: ${plan.motif ?? "—"}\nWhole video:\n${overview}\n\nYOUR BEAT: group "${beat.group}", ${beat.start}-${beat.end}s.\n${beat.brief}\nCanvas ${o.size[0]}x${o.size[1]} px. Palette and font are already set (use the slot names). Build it now.`;
+        const r = await this.agent(run, prompt, BUILDER_GUIDE, crew, beat.group, ROLE_TOOLS.builder).catch((e: Error) => {
           this.push(run, GenerateEventKind.Error, `${beat!.group}: ${e.message}`);
           return null;
         });
@@ -238,14 +278,14 @@ export class GenerateService {
     if (run.status !== GenerateStatus.Running) return sumUsage(results, t0, o);
 
     this.push(run, GenerateEventKind.Text, "Revisando el montaje completo…");
-    const finished = await this.agent(run, "Review and polish the whole video.", FINISHER_GUIDE, o, "review");
+    const finished = await this.agent(run, `Review and polish the whole video. Canvas ${o.size[0]}x${o.size[1]} px. Groups: ${plan.beats.map((b) => `${b.group} ${b.start}-${b.end}s`).join(", ")}.`, FINISHER_GUIDE, crew, "review", ROLE_TOOLS.finisher);
     results.push(finished.result);
     run.summary = finished.text;
     return sumUsage(results, t0, o);
   }
 
   /** One claude process; events are tagged with its role so the UI can show who is doing what. */
-  private agent(run: Run, prompt: string, guide: string, o: AgentOpts, role: string): Promise<{ text: string; result: ResultLine }> {
+  private agent(run: Run, prompt: string, guide: string, o: AgentOpts, role: string, tools: readonly string[] | undefined): Promise<{ text: string; result: ResultLine }> {
     // Fresh empty folder: the agent must not pick up any repo's CLAUDE.md or files.
     const cwd = mkdtempSync(join(tmpdir(), "motionily-agent-"));
     const child = spawn(
@@ -253,10 +293,13 @@ export class GenerateService {
       [
         "-p",
         prompt,
-        "--append-system-prompt",
+        // Our own lean system prompt and no built-in tools: ~5k tokens of base context instead of ~27k, on every turn.
+        "--system-prompt",
         guide,
+        "--tools",
+        "",
         "--mcp-config",
-        o.config,
+        o.config(tools),
         "--strict-mcp-config",
         "--allowedTools",
         `mcp__${MCP_SERVER}`,
@@ -290,7 +333,7 @@ export class GenerateService {
     });
   }
 
-  private mcpConfig(projectId: string, token: string) {
+  private mcpConfig(projectId: string, token: string, tools?: readonly string[]) {
     const mcpDir = resolve(process.env.MOTIONILY_MCP_DIR ?? join(process.cwd(), "../../packages/mcp-server"));
     const dir = mkdtempSync(join(tmpdir(), "motionily-mcp-"));
     const config = join(dir, "mcp.json");
@@ -301,7 +344,7 @@ export class GenerateService {
           [MCP_SERVER]: {
             command: join(mcpDir, "node_modules/.bin/tsx"),
             args: [join(mcpDir, "src/index.ts")],
-            env: { MOTIONILY_API: process.env.PUBLIC_API_URL ?? `http://localhost:${process.env.PORT ?? 3100}`, MOTIONILY_PROJECT: projectId, MOTIONILY_TOKEN: token },
+            env: { MOTIONILY_API: process.env.PUBLIC_API_URL ?? `http://localhost:${process.env.PORT ?? 3100}`, MOTIONILY_PROJECT: projectId, MOTIONILY_TOKEN: token, ...(tools ? { MOTIONILY_TOOLS: tools.join(",") } : {}) },
           },
         },
       }),
@@ -336,7 +379,7 @@ export class GenerateService {
   }
 }
 
-type AgentOpts = { config: string; model?: string; effort?: string };
+type AgentOpts = { config: (tools?: readonly string[]) => string; model?: string; effort?: string; size: [number, number] };
 
 function parsePlan(text: string): Plan {
   try {
