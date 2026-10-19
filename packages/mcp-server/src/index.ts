@@ -253,7 +253,7 @@ server.registerTool(
   "add_layers",
   {
     description:
-      "Add or replace layers with COMPACT LINES (far cheaper than JSON). One layer per line: `id type start-end key=value… \"text\"`. Types rect|ellipse|text|image. Keys: x y w h (required w h) s(scale) r(rotation°) o(opacity) rad(radius) fill(slot or #rrggbb[aa]) g(group) size role align lh src fit. Values: number, tween `from>to@t0-t1[:ease]`, or keys `t:v[:ease],t:v…` (times from the layer start). Eases: l i o io b h. An existing id is replaced.",
+      "Add or replace layers with COMPACT LINES (far cheaper than JSON): `id type start[-end] key=value… \"text or path data\" {json}`. Types rect|ellipse|text|image|path. Values: number, tween `from>to@t0-t1[:ease]`, keys `t:v[:ease],…`, or `(expression)`. Keys: x y w h s r o rad pivot parent fill grad stroke soft shadow glow blur blend matte vis rep size role align lh ls ts te to filled g src fit. A trailing {json} merges any field (e.g. text animators). Full syntax and recipes in get_reference. An existing id is replaced.",
     inputSchema: { lines: z.string().min(1) },
   },
   guard(async ({ lines }) => {

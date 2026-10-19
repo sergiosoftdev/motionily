@@ -75,19 +75,24 @@ const MAX_PARALLEL_BUILDERS = 4;
 const MAX_BEATS = 6;
 
 /** What makes motion graphics look professional instead of "a title and a box". Shared by every role. */
-const CRAFT = `MOTION DESIGN CRAFT (non-negotiable):
-- Density: 8-20 layers per beat. Build depth with 3 planes: background texture/shapes moving slowly, mid
-  elements, foreground accents. The background is never a flat static color for a whole beat.
-- Kinetic type: split headlines into one layer per word (or per line), stagger 0.05-0.12 s, entrances with
-  overshoot (ease back), mask-like reveals (a shape that slides away), scale punches on the key word.
-- Everything eases: no linear moves except loops. Pair motion: when something enters, something else reacts
-  (secondary motion, a bounce, a ring that expands, lines that draw).
-- Graphic language: lines that draw (thin rects scaling from 0), dots, rings, grids, arrows, counters, progress
-  bars, UI cards, icons built from shapes. Repeat one motif across beats so the video feels designed.
-- Transitions are designed, not cuts: full-frame color wipes, a shape that grows to fill the frame and becomes
-  the next background, match cuts on shapes, zoom-through.
-- Rhythm: something meaningful changes every 0.5-1.5 s. Hold the key message ~1 s to be read.
-- Composition: strong grid, generous margins (≥ 8% of the frame), max 2 type sizes per beat + 1 small label.`;
+const CRAFT = `MOTION DESIGN CRAFT (non-negotiable) — the engine is an After Effects: use it, never settle for flat.
+- Depth in 3 planes: a living background (soft gradient blobs drifting with expressions, never a flat color for
+  a whole beat), mid content (cards, UI, type), foreground accents (glows, particles, light trails).
+- Kinetic type: headlines animate per character or word with a text animator (expo_out, stagger 0.02-0.06 s),
+  key words in a gradient, reveals through a matte, scale punches on the key word, tight letter spacing (ls<0)
+  on big type.
+- Premium surfaces: white/glass cards with rounded corners, a soft COLORED drop shadow (tint of the palette, low
+  opacity, big blur), thin pastel outlines; real product screenshots inside device/card frames.
+- Graphic language: paths that draw on (trim) for connectors, underlines and icons; dashed curves; glowing light
+  trails (stroke + glow + blend add, best on dark); dot grids and particle fields with repeaters; counters,
+  progress bars, chips, cursors. Repeat one motif across beats.
+- Motion: everything eases (expo_out for UI, back/spring for pops, elastic sparingly); secondary motion (what
+  enters makes something react); subtle constant drift (wiggle) so nothing is dead; parallax by parenting layers to
+  invisible "camera" nulls and moving/scaling those; match cuts and wipes (a shape grows to become the next
+  background), never hard cuts.
+- Rhythm: something meaningful changes every 0.5-1.5 s; hold the key message ~1 s to be read.
+- Composition: strong grid, generous margins (≥ 8% of the frame), max 2 type sizes per beat + 1 small label.
+- Save tokens with expressions and repeaters instead of many hand-made keyframes/layers.`;
 
 /** Mirrors FORMAT_SIZE in @motionily/protocol. */
 const FORMAT_SIZE: Record<VideoFormat, [number, number]> = {
@@ -98,20 +103,34 @@ const FORMAT_SIZE: Record<VideoFormat, [number, number]> = {
 };
 
 /** Everything a builder needs to write layers, inline (no get_reference round trip). */
-const COMPACT_REF = `WRITING LAYERS — add_layers with one line per layer (never JSON):
-  id type start-end key=value… "text"
-  type: rect | ellipse | text | image. Coordinates are scene pixels, x/y = CENTER, origin top-left. w and h required.
-  keys: x y w h s(scale) r(rotation°) o(opacity 0-1) rad(corner radius) fill g(group) size(text px) role(heading|body)
-        align(left|center|right) lh(line height) src(/media/… image) fit(cover|contain)
-  fill: palette slot background|surface|primary|accent|text, or #rrggbb / #rrggbbaa
-  value: number · tween from>to@t0-t1[:ease] · keys t:v[:ease],t:v,… (t = seconds from the layer's start)
-  eases: o ease_out · i ease_in · io ease_in_out (default) · b back (overshoot) · l linear · h hold
-  text: the box is w×h; type shrinks to fit. Same id again = replace that layer.
-examples:
-  hook_bg rect 0-3 g=hook x=540 y=960 w=1080 h=1920 fill=background
-  hook_line rect .2-3 g=hook x=540 y=1100 w=0>820@.2-.7:o h=6 fill=accent
-  hook_w1 text 0-3 g=hook x=540 y=860>820@0-.45:b w=900 h=170 o=0>1@0-.25 size=150 role=heading fill=text "Tu agenda"
-  hook_dot ellipse .5-3 g=hook x=860 y=700 w=60 h=60 s=0:0,.25:1.25:b,.4:1 fill=primary
+const COMPACT_REF = `WRITING LAYERS — add_layers, one line per layer (never JSON):
+  id type start[-end] key=value… "text or path data" {optional JSON merged into the layer}
+  types: rect | ellipse | text | image | path. Scene pixels, x/y = CENTER, origin top-left. w,h required (not for path).
+  value: number · tween from>to@t0-t1[:ease] · keys t:v[:ease],t:v… (t from the layer start) · (expression)
+  eases: o i io b h · eo ei eio (expo; eo = premium UI) · el (elastic) · bo (bounce)
+  expressions: (540 + 40*sin(t*2)) (wiggle(2,8)) (spring(t,2.2,7)) (lerp(0,1,ease(t/0.6))) — vars t (layer s),
+    T (scene s), i/n (repeater copy/count); funcs sin cos noise rand wiggle spring ease ease_in ease_out back
+    elastic bounce clamp lerp smoothstep step min max abs floor fract mod pulse saw tri
+  transform: x y w h s(scale) r(rotation°) o(opacity) rad(corner) pivot=x,y parent=layer_id (inherits its transform)
+  paint: fill=slot|#rrggbb[aa] · grad=lin:ANGLE:color@pos,color@pos… | grad=rad:CX,CY:R:color@pos,… (up to 4 stops)
+    · stroke=WIDTH:COLOR[:DASH,GAP] · soft=FEATHER_PX (blobs: big soft ellipses = mesh gradient)
+  effects (in order): shadow=X,Y,BLUR,COLOR[,OPACITY] · glow=RADIUS[,STRENGTH[,COLOR]] · blur=RADIUS · blend=add|screen|multiply
+  matte=layer_id[:inv] (that layer's alpha masks this one; give the matte vis=0) · vis=0 hides a layer (nulls, mattes)
+  repeat: rep=COUNT:DX,DY[:cols=N][:rot=DEG][:sc=K][:op=K][:delay=S] (grids, particles, staggered lists)
+  text: size= role=heading|body align= lh= ls=LETTER_SPACING; per-unit animation via JSON:
+    {"animate":{"by":"char|word|line","stagger":0.03,"duration":0.5,"delay":0,"ease":"expo_out","from":{"x":0,"y":40,"scale":0.8,"rotation":0,"opacity":0}}}
+  path: "SVG path data" relative to x,y (M L H V C S Q T A Z) · ts= te= to= trim start/end/offset 0..1 (te=0>1@0-.8:o draws it on)
+    · filled=1 fills closed subpaths with fill/grad.
+  Same id again = replace that layer.
+recipes:
+  bg_a ellipse 0 x=(420+60*sin(t*0.6)) y=(260+40*cos(t*0.5)) w=1100 h=900 fill=#f7b9e0 soft=260 o=.85
+  card rect .3 x=960 y=560 w=820 h=420 rad=32 fill=surface s=.92>1@0-.7:eo o=0>1@0-.3 stroke=2:#ffd0dd shadow=0,30,70,#ff6f91,.35
+  key text 3.6 x=960 y=900 w=1500 h=180 size=140 role=heading ls=-4 grad=lin:0:text@0,text@.4,#ff3d5a@.46,#ffa23d@1 "is the problem" {"animate":{"by":"char","stagger":0.035,"from":{"y":70,"opacity":0,"scale":0.8}}}
+  link path 1.2 stroke=3:text:10,10 te=0>1@0-.9:o "M330 260 C480 260 520 420 560 470"
+  trail path 1.8 stroke=4:#ff8a5b ts=(max(0,(t-0.4)*1.4)) te=(min(1,t*1.6)) glow=18,1.6,#ff6f3c blend=add "M560 470 C600 520 640 560 700 560"
+  dots ellipse 0 x=160 y=140 w=6 h=6 fill=text o=(0.12+0.1*sin(T*2+i*0.7)) rep=60:145,160:cols=12
+  cam rect 0 vis=0 x=0 y=0 w=1 h=1 pivot=CENTER_X,CENTER_Y s=1>1.06@0-6:io   (a camera null: layers with parent=cam keep
+    their absolute x/y and get a slow push-in around the frame center; animate cam x/y/r for pans and tilts)
 Other ops via apply_ops: {"op":"remove_layer","id":…} {"op":"remove_group","group":…} {"op":"set_palette","palette":{"background":"#…","surface":"#…","primary":"#…","accent":"#…","text":"#…"}} {"op":"set_duration","duration":12}`;
 
 /** MCP tools each role sees (each tool description costs context on every turn). */

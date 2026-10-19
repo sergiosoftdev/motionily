@@ -28,6 +28,51 @@ Coordinates are scene pixels, origin top-left, y down.
   `back`, hold with `hold`. Reusable motion: `{"op":"define_anim","key":"my/rise","template":{"keys":{"opacity":[[0,0],[0.4,1]],"dy":[[0,60,"back"],[0.5,0]]}}}`
   then `"anims":[{"use":"my/rise","at":0.2}]` (opacity/scale multiply, dx/dy/rotation add). Only keys you defined.
 
+## Toolbox (After Effects-grade; prefer compact lines via add_layers)
+Everything below is a JSON field of any layer; add_layers has short keys for it (see its description).
+
+**Expressions** — any animatable number can be a string formula instead of a number/keyframes:
+`"x": "540 + 40*sin(t*2)"`, `"rotation": "wiggle(1.5, 4)"`, `"scale": "spring(t, 2.2, 7)"`,
+`"opacity": "0.2 + 0.1*sin(T*3 + i)"`. Variables: `t` layer seconds, `T` scene seconds, `i`/`n` repeater copy
+index/count, `pi`. Functions: sin cos tan asin acos atan atan2 abs sign floor ceil round fract sqrt pow exp log
+min max clamp lerp mix smoothstep step mod noise(x) rand(x) wiggle(freq,amp[,seed]) ease ease_in ease_out back
+elastic bounce spring(t[,freq,damping]) pulse(x,period) saw tri; operators + - * / % ^ < >.
+
+**Eases** per keyframe: linear, ease_in_out (default), ease_out, ease_in, back, hold, expo_out, expo_in,
+expo_in_out, elastic, bounce — or `"bezier":[x1,y1,x2,y2]` (CSS cubic-bezier) on the keyframe.
+
+**Paint**
+- `"fill"`: palette slot or `"#rrggbb"` / `"#rrggbbaa"` (also `[r,g,b,a]`).
+- `"gradient": {"kind":"linear","angle":0,"stops":[[0,"#0f1733"],[0.45,"#ff3d5a"],[1,"#ffa23d"]]}` (up to 4 stops;
+  angle in degrees, 0 = left→right) or `{"kind":"radial","center":[0.5,0.5],"radius":1,"stops":[…]}`. Works on
+  shapes, text (across the block, per letter) and paths.
+- `"stroke": {"width":3,"color":"text","dash":[10,10]}` — outline for shapes, line for paths.
+- `"soft": 240` — feathered edge in px: big soft ellipses layered = pastel mesh-gradient backgrounds and glows.
+
+**Effects** (`"effects": [...]`, applied in order on the layer's own pixels):
+`{"fx":"shadow","x":0,"y":30,"blur":70,"color":"#ff6f91","opacity":0.35}` · `{"fx":"glow","radius":18,"strength":1.6,"color":"#ff6f3c"}` ·
+`{"fx":"blur","radius":12}`. `"blend": "add" | "screen" | "multiply"` (add = light: glows, flares, trails on dark).
+`"matte": {"layer":"mask_id","mode":"alpha"|"alpha_inverted"}` masks this layer with another layer's alpha
+(reveals, text-through-shape); set `"visible": false` on the matte layer.
+
+**Structure**
+- `"parent": "layer_id"` — inherit position/rotation/scale; x/y become relative to the parent's center. Invisible
+  parents (`"visible": false`) are nulls: a "camera" null at x=0,y=0 with `"pivot":[cx,cy]` keeps children in
+  absolute coordinates and scales/pans them all (push-ins, parallax with several nulls at different speeds).
+- `"pivot": [px, py]` — point (relative to the center) the layer rotates/scales around.
+- `"repeat": {"count":60,"x":145,"y":160,"columns":12,"rotation":0,"scale":1,"opacity":1,"delay":0.02}` — copies
+  in a row/grid/radial burst; each copy can differ through expressions using `i`.
+
+**Paths** — `{"id":"link","type":"path","d":"M330 260 C480 260 520 420 560 470","stroke":{…},"trim_start":0,
+"trim_end":[{"t":0,"v":0,"ease":"ease_out"},{"t":0.9,"v":1}],"trim_offset":0,"filled":false}`. Coordinates are
+relative to the layer's x/y (default 0,0 = scene coordinates). SVG commands M L H V C S Q T A Z.
+
+**Text extras** — `"letter_spacing": -4`, and per-unit animation:
+`"animate": {"by":"char|word|line","stagger":0.035,"duration":0.5,"delay":0,"ease":"expo_out","reverse":false,
+"from":{"x":0,"y":60,"scale":0.8,"rotation":0,"opacity":0}}` (each unit eases from `from` to rest).
+
+See `examples/startup-look.scene.json` in the repo for a full scene using all of this.
+
 ## Groups (always)
 Give every layer a `group` naming the piece it belongs to (`"group":"dashboard"`, `"hook"`, `"cta"`…), one group
 per visual unit. The user selects whole groups in the editor and asks for changes to just that group, so a
