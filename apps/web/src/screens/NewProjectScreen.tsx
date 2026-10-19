@@ -5,6 +5,7 @@ import { Logo } from "../components/Logo";
 import { api, type Concept } from "../api/client";
 import { href, navigate, BrandTab, RouteName } from "../router";
 import { requestPipeline, VideoPipeline } from "../pipeline";
+import { AgentEffort, AgentModel, EFFORT_LABEL, loadPrefs, MODEL_LABEL, savePrefs, type AgentPrefs } from "../components/GeneratePanel";
 
 const Step = {
   Idea: "idea",
@@ -49,6 +50,12 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
   const [seen, setSeen] = useState<string[]>([]);
   const [steer, setSteer] = useState("");
   const [chosen, setChosen] = useState<Concept | null>(null);
+  const [prefs, setPrefs] = useState<AgentPrefs>(loadPrefs);
+  const updatePrefs = (p: Partial<AgentPrefs>) => {
+    const next = { ...prefs, ...p };
+    setPrefs(next);
+    savePrefs(next);
+  };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const back = href({ name: RouteName.Brand, id: brandId, tab: BrandTab.Videos });
@@ -57,7 +64,7 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
     setStep(Step.Thinking);
     setError(null);
     try {
-      const { concepts: next } = await api.concepts(brandId, { idea, format, count, steer: again ? steer : undefined, avoid: again ? seen : undefined });
+      const { concepts: next } = await api.concepts(brandId, { idea, format, count, steer: again ? steer : undefined, avoid: again ? seen : undefined, ...prefs });
       setConcepts(next);
       setSeen((s) => [...s, ...next.map((c) => c.title)]);
       setSteer("");
@@ -157,6 +164,7 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
                 </button>
               ))}
             </div>
+            <AgentPicker prefs={prefs} onChange={updatePrefs} />
             {error && <p className="text-sm text-red-400">{error}</p>}
             <Next label={`Proponer ${count === 1 ? "una idea" : `${count} ideas`}`} onClick={() => void pitch()} />
           </Panel>
@@ -232,6 +240,7 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
         {step === Step.Voice && chosen && (
           <Panel key={step} kicker="Paso 6" title="Pon la voz" hint="Pega el guion en ElevenLabs, genera y descarga el mp3. Súbelo aquí y Claude atará cada plano a tus palabras.">
             <VoiceDrop busy={busy} onFile={(f) => void finish(f)} />
+            <AgentPicker prefs={prefs} onChange={updatePrefs} label="Claude que montará el vídeo" />
             {error && <p className="text-sm text-red-400">{error}</p>}
             <button type="button" disabled={busy} onClick={() => void finish(null)} className="self-start text-sm text-neutral-500 underline-offset-4 hover:text-white hover:underline disabled:opacity-50">
               Generar sin voz (usará el guion para los tiempos)
@@ -382,6 +391,30 @@ function VoiceDrop({ busy, onFile }: { busy: boolean; onFile: (f: File) => void 
       <input ref={input} type="file" accept="audio/*,video/*" className="hidden" onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
       <span className="text-2xl font-semibold">{busy ? "Preparando tu vídeo…" : "Suelta aquí el mp3 de ElevenLabs"}</span>
       <span className="text-sm text-neutral-500">{busy ? "Subiendo la voz y abriendo el editor" : "o haz clic para elegirlo"}</span>
+    </div>
+  );
+}
+
+/** Which Claude model and effort the agent uses (shared with the editor's Generar). */
+function AgentPicker({ prefs, onChange, label = "Claude que pensará las ideas" }: { prefs: AgentPrefs; onChange: (p: Partial<AgentPrefs>) => void; label?: string }) {
+  const select = "rounded-xl bg-white/5 px-4 py-2.5 text-sm ring-1 ring-white/10 focus:outline-none focus:ring-white/30";
+  return (
+    <div className="flex flex-wrap items-center gap-3 text-sm text-neutral-400">
+      <span>{label}</span>
+      <select value={prefs.model} onChange={(e) => onChange({ model: e.target.value as AgentModel })} className={select} aria-label="Modelo">
+        {Object.values(AgentModel).map((m) => (
+          <option key={m} value={m}>
+            {MODEL_LABEL[m]}
+          </option>
+        ))}
+      </select>
+      <select value={prefs.effort} onChange={(e) => onChange({ effort: e.target.value as AgentEffort })} className={select} aria-label="Esfuerzo">
+        {Object.values(AgentEffort).map((x) => (
+          <option key={x} value={x}>
+            Esfuerzo: {EFFORT_LABEL[x]}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }

@@ -56,8 +56,8 @@ Time your beats to the speech. Fix words with `{"op":"set_captions","captions":{
 captions look yourself: build text layers from the words (timed to start/end) and hide the plain built-in
 line with `{"op":"set_captions","captions":{"words":[]}}` if it gets in the way.
 
-## 3D stage
-Procedural 3D drawn behind the 2D layers, toon-shaded with outlines. Units are meters, y up.
+## 3D stage (only when the brief or user asks for 3D)
+Motionily is motion graphics first: most videos are pure 2D layers. Procedural 3D drawn behind the 2D layers, toon-shaded with outlines. Units are meters, y up.
 ```
 {"op":"put_prop","prop":{"id":"fisio","prefab":"fisio","x":0.9,"z":-0.4,"rotation":-40,"action":"wave",
   "scale":[{"t":0,"v":0},{"t":0.4,"v":1,"ease":"back"}],"start":0,"end":null}}   // add or replace by id

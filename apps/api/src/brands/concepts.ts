@@ -42,8 +42,10 @@ export class ConceptsRequestDto {
 type BrandContext = { name: string; notes: string; palettes: unknown[]; assets: { kind: string; name: string; description: string }[] };
 
 const SYSTEM = `You are the creative director of Motionily, a tool where an AI agent builds motion-graphics videos
-by hand (no presets: it writes every keyframe, builds 3D procedurally, people are faceless black stickmen that only
-change clothes). Pitch genuinely different concepts for the user's idea: different metaphors, structures, tones and
+by hand (no presets: it writes every keyframe). Motionily is a MOTION GRAPHICS tool first: kinetic typography,
+shapes, color blocks, icons, UI/product screens animated in 2D. 3D (procedural sets, faceless black stickmen) is an
+occasional ingredient: use it in at most one concept and only when a scene with people/places truly carries the
+idea or the user asks for it. Most concepts must be pure 2D motion graphics. Pitch genuinely different concepts for the user's idea: different metaphors, structures, tones and
 visual worlds — never variations of one idea. Short-form rules: hook in the first 1.5 s (max 6 words), one idea
 per beat, end with a clear payoff/CTA. The video is built ON TOP of the voice-over, so the script comes first.
 "voiceover" is the script ready to paste in ElevenLabs v3:

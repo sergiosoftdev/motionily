@@ -48,7 +48,9 @@ exactly like a motion designer building a spot by hand. Avoid generic videos. Wo
 3. Express that direction yourself: set_palette op with your own colors, a Google Font that fits (search_fonts +
    set_font), hand-written keyframes on every element (or your own define_anim keys reused across layers),
    your own cuts and wipes between beats.
-   For places, people and objects use the 3D stage built PROCEDURALLY: list_prefabs first and reuse; otherwise
+   This is MOTION GRAPHICS first: build the video with 2D layers (kinetic type, shapes, color fields, masks made of
+   shapes, product screenshots, icons drawn with shapes). Do NOT use the 3D stage unless the brief explicitly asks
+   for 3D/characters in a scene or the user requests it. When 3D is asked for: list_prefabs first and reuse; otherwise
    design what the brief needs from primitives and save each piece with save_prefab so the user's library grows;
    place them with put_prop and give them behaviour with beats (go_to, sit_on, face, walk_to). People are ALWAYS
    stickman rigs. Move the camera with your own keyframes (set_camera) or set_shots for auto-framed moves.
