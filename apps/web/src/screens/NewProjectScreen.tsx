@@ -3,14 +3,13 @@ import { BrickSlot, VideoFormat, type Brick } from "@motionily/protocol";
 import { FormatPicker } from "../components/FormatPicker";
 import { api } from "../api/client";
 import { navigate, RouteName } from "../router";
-import { TopBar } from "./TopBar";
 import { OptionTile } from "../components/style/OptionCard";
 import { FitLevel } from "../components/style/options";
 
 type StylePayload = { defaults?: Partial<Record<BrickSlot, string | string[]>> };
 const INCLUDED: BrickSlot[] = [BrickSlot.Palette, BrickSlot.Typography, BrickSlot.RenderStyle, BrickSlot.Captions];
 
-export function NewProjectScreen() {
+export function NewProjectScreen({ brandId }: { brandId: string }) {
   const [catalog, setCatalog] = useState<Brick[]>([]);
   const [styleKey, setStyleKey] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -36,7 +35,7 @@ export function NewProjectScreen() {
     if (!style) return;
     setBusy(true);
     try {
-      const p = await api.createProject(name.trim() || `Vídeo ${style.name}`, style.key, format);
+      const p = await api.createProject(name.trim() || `Vídeo ${style.name}`, style.key, format, brandId);
       navigate({ name: RouteName.Editor, id: p.id });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -45,9 +44,8 @@ export function NewProjectScreen() {
   };
 
   return (
-    <div className="min-h-dvh">
-      <TopBar />
-      <main className="mx-auto flex max-w-4xl flex-col gap-8 px-5 py-10">
+    <div>
+      <main className="mx-auto flex max-w-4xl flex-col gap-8 px-8 py-10">
         <div>
           <h1 className="text-2xl font-bold">Nuevo vídeo</h1>
           <p className="mt-1 text-sm text-neutral-400">Elige un estilo para empezar. Podrás cambiar cualquier detalle después.</p>

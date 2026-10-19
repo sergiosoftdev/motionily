@@ -1,15 +1,39 @@
 import { useSyncExternalStore } from "react";
 
-/** Tiny hash router: #/projects, #/new, #/p/:id. Survives reloads, no dependency. */
-export const RouteName = { Projects: "projects", NewProject: "new", Editor: "editor" } as const;
+/**
+ * Tiny hash router. Survives reloads, no dependency.
+ * #/projects · #/b/:id[/kit] · #/b/:id/new · #/p/:id · #/prefabs · #/settings
+ */
+export const RouteName = {
+  Projects: "projects",
+  Brand: "brand",
+  NewVideo: "new",
+  Editor: "editor",
+  Prefabs: "prefabs",
+  Settings: "settings",
+} as const;
 export type RouteName = (typeof RouteName)[keyof typeof RouteName];
 
-export type Route = { name: typeof RouteName.Projects } | { name: typeof RouteName.NewProject } | { name: typeof RouteName.Editor; id: string };
+export const BrandTab = { Videos: "videos", Kit: "kit" } as const;
+export type BrandTab = (typeof BrandTab)[keyof typeof BrandTab];
+
+export type Route =
+  | { name: typeof RouteName.Projects }
+  | { name: typeof RouteName.Brand; id: string; tab: BrandTab }
+  | { name: typeof RouteName.NewVideo; brandId: string }
+  | { name: typeof RouteName.Editor; id: string }
+  | { name: typeof RouteName.Prefabs }
+  | { name: typeof RouteName.Settings };
 
 function parse(hash: string): Route {
-  const [, first, second] = hash.replace(/^#/, "").split("/");
+  const [, first, second, third] = hash.replace(/^#/, "").split("/");
   if (first === "p" && second) return { name: RouteName.Editor, id: second };
-  if (first === RouteName.NewProject) return { name: RouteName.NewProject };
+  if (first === "b" && second) {
+    if (third === RouteName.NewVideo) return { name: RouteName.NewVideo, brandId: second };
+    return { name: RouteName.Brand, id: second, tab: third === BrandTab.Kit ? BrandTab.Kit : BrandTab.Videos };
+  }
+  if (first === RouteName.Prefabs) return { name: RouteName.Prefabs };
+  if (first === RouteName.Settings) return { name: RouteName.Settings };
   return { name: RouteName.Projects };
 }
 
@@ -17,8 +41,14 @@ export function href(route: Route): string {
   switch (route.name) {
     case RouteName.Editor:
       return `#/p/${route.id}`;
-    case RouteName.NewProject:
-      return "#/new";
+    case RouteName.Brand:
+      return route.tab === BrandTab.Kit ? `#/b/${route.id}/kit` : `#/b/${route.id}`;
+    case RouteName.NewVideo:
+      return `#/b/${route.brandId}/new`;
+    case RouteName.Prefabs:
+      return "#/prefabs";
+    case RouteName.Settings:
+      return "#/settings";
     case RouteName.Projects:
       return "#/projects";
   }

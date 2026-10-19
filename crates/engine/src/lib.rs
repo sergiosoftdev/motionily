@@ -7,6 +7,7 @@
 //! `draw(pass, range)` for every consecutive run of that kind, so layer order is
 //! kept across kinds.
 
+mod image;
 mod polys;
 mod post;
 mod shapes;
@@ -14,8 +15,9 @@ mod text;
 mod three;
 
 use bytemuck::{Pod, Zeroable};
+use image::ImagePipeline;
 use polys::PolyPipeline;
-use scene::{DrawItem, DrawPoly, DrawShape, DrawStage, DrawText, Scene};
+use scene::{DrawImage, DrawItem, DrawPoly, DrawShape, DrawStage, DrawText, Scene};
 use post::{PostColors, PostPass};
 use shapes::ShapePipeline;
 use text::TextPipeline;
@@ -79,6 +81,7 @@ enum ItemKind {
     Shape,
     Text,
     Poly,
+    Image,
 }
 
 /// The frame's items split per pipeline, plus the ordered runs that interleave them.
@@ -87,6 +90,7 @@ struct Batches {
     shapes: Vec<DrawShape>,
     texts: Vec<DrawText>,
     polys: Vec<DrawPoly>,
+    images: Vec<DrawImage>,
     stage: Option<DrawStage>,
     runs: Vec<(ItemKind, Range<u32>)>,
 }
@@ -109,6 +113,10 @@ impl Batches {
                 DrawItem::Stage(stage) => {
                     b.stage = Some(stage);
                     continue;
+                }
+                DrawItem::Image(i) => {
+                    b.images.push(i);
+                    (ItemKind::Image, b.images.len() as u32 - 1)
                 }
                 DrawItem::Poly(p) => {
                     b.polys.push(p);
@@ -143,6 +151,7 @@ pub struct Renderer {
     shapes: ShapePipeline,
     text: TextPipeline,
     polys: PolyPipeline,
+    images: ImagePipeline,
     stage: StageRenderer,
     post: PostPass,
     pub adapter_info: String,
@@ -224,6 +233,7 @@ impl Renderer {
         let shapes = ShapePipeline::new(&ctx);
         let text = TextPipeline::new(&ctx);
         let polys = PolyPipeline::new(&ctx);
+        let images = ImagePipeline::new(&ctx);
         let post = PostPass::new(&device, config.format, config.width, config.height);
         let stage = StageRenderer::new(&device, &queue, config.format, [config.width, config.height]);
 
@@ -232,6 +242,7 @@ impl Renderer {
             shapes,
             text,
             polys,
+            images,
             stage,
             post,
             device,
@@ -258,6 +269,15 @@ impl Renderer {
     /// Register a model pack's shared texture (RGBA8).
     pub fn add_texture(&mut self, pack: &str, rgba: &[u8], width: u32, height: u32) {
         self.stage.add_texture(&self.device, &self.queue, pack, rgba, width, height);
+    }
+
+    /// Register an image (RGBA8) for image layers under its source key.
+    pub fn add_image(&mut self, key: &str, rgba: &[u8], width: u32, height: u32) {
+        self.images.add_image(&self.device, &self.queue, key, rgba, width, height);
+    }
+
+    pub fn has_image(&self, key: &str) -> bool {
+        self.images.has_image(key)
     }
 
     pub fn has_model(&self, key: &str) -> bool {
@@ -300,6 +320,7 @@ impl Renderer {
         self.shapes.prepare(&ctx, &batches.shapes);
         self.text.prepare(&ctx, &batches.texts);
         self.polys.prepare(&ctx, &batches.polys);
+        self.images.prepare(&ctx, &batches.images);
         self.stage.prepare(&self.device, &self.queue, batches.stage.as_ref(), scene.width as f32 / scene.height as f32, linearize > 0.5);
 
         let frame = match self.surface.get_current_texture() {
@@ -343,6 +364,7 @@ impl Renderer {
                     ItemKind::Shape => self.shapes.draw(&mut pass, range.clone()),
                     ItemKind::Text => self.text.draw(&mut pass, range.clone()),
                     ItemKind::Poly => self.polys.draw(&mut pass, range.clone()),
+                    ItemKind::Image => self.images.draw(&mut pass, range.clone()),
                 }
             }
         }

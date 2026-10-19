@@ -16,9 +16,9 @@ export class ProjectsService {
     private readonly bricks: BricksService,
   ) {}
 
-  list(ownerId: Types.ObjectId) {
+  list(ownerId: Types.ObjectId, brandId?: Types.ObjectId) {
     return this.projects
-      .find({ ownerId }, { name: 1, build: 1, format: 1, updatedAt: 1, createdAt: 1 })
+      .find(brandId ? { ownerId, brandId, hidden: { $ne: true } } : { ownerId, hidden: { $ne: true } }, { name: 1, build: 1, format: 1, brandId: 1, updatedAt: 1, createdAt: 1 })
       .sort({ updatedAt: -1 })
       .lean();
   }
@@ -38,7 +38,31 @@ export class ProjectsService {
     }
     const build = this.buildFromKit(kit.key, kit.payload as KitPayload);
     await this.assertBricksExist(build);
-    return this.projects.create({ ownerId, name: dto.name, brief: dto.brief ?? "", build, format: dto.format });
+    const brandId = dto.brandId ? new Types.ObjectId(dto.brandId) : undefined;
+    return this.projects.create({ ownerId, name: dto.name, brief: dto.brief ?? "", build, format: dto.format, brandId });
+  }
+
+  /** The user's hidden workshop video, where the agent edits prefabs with a live preview. */
+  async workshop(ownerId: Types.ObjectId, brandId: Types.ObjectId) {
+    const found = await this.projects.findOne({ ownerId, hidden: true });
+    if (found) return found;
+    const kit = await this.bricks.get("motion_style/cartoon");
+    const build = this.buildFromKit(kit.key, kit.payload as KitPayload);
+    return this.projects.create({ ownerId, brandId, name: "Taller de prefabs", hidden: true, build, brief: "Prefab workshop" });
+  }
+
+  /** Give videos without a project to `brandId`. */
+  async adoptOrphans(ownerId: Types.ObjectId, brandId: Types.ObjectId) {
+    await this.projects.updateMany({ ownerId, brandId: { $exists: false } }, { $set: { brandId } });
+  }
+
+  async countByBrand(ownerId: Types.ObjectId) {
+    const rows = await this.projects.aggregate<{ _id: Types.ObjectId; n: number }>([{ $match: { ownerId, hidden: { $ne: true } } }, { $group: { _id: "$brandId", n: { $sum: 1 } } }]);
+    return new Map(rows.filter((r) => r._id).map((r) => [r._id.toString(), r.n]));
+  }
+
+  countInBrand(ownerId: Types.ObjectId, brandId: string) {
+    return Types.ObjectId.isValid(brandId) ? this.projects.countDocuments({ ownerId, brandId: new Types.ObjectId(brandId) }) : Promise.resolve(0);
   }
 
   async update(ownerId: Types.ObjectId, id: string, dto: UpdateProjectDto) {

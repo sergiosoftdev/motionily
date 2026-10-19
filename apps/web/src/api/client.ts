@@ -4,6 +4,16 @@ import type { AgentPrefs, GenerateState } from "../components/GeneratePanel";
 
 export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3100";
 
+export const AssetKind = { Logo: "logo", Screenshot: "screenshot", Photo: "photo", Other: "other" } as const;
+export type AssetKind = (typeof AssetKind)[keyof typeof AssetKind];
+export type BrandPalette = { name: string; background: string; surface: string; primary: string; accent: string; text: string };
+export type BrandAsset = { id: string; kind: AssetKind; name: string; description: string; url: string; mime: string };
+export type BrandSummary = { id: string; name: string; notes: string; palettes: BrandPalette[]; videos: number };
+export type BrandKit = { id: string; name: string; notes: string; palettes: BrandPalette[]; assets: BrandAsset[] };
+export const PrefabKind = { Object: "object", Character: "character", Space: "space" } as const;
+export type PrefabKind = (typeof PrefabKind)[keyof typeof PrefabKind];
+export type PrefabSummary = { name: string; kind: PrefabKind; description: string; parent?: string; version: number; updatedAt: string };
+
 export type GoogleFont = { family: string; category: string; weights: number[]; popularity: number };
 
 export class ApiError extends Error {
@@ -39,8 +49,9 @@ async function call<T>(method: HttpMethod, path: string, body?: unknown): Promis
 /** Absolute URL for media the API serves (e.g. the project audio). */
 export const mediaUrl = (path: string) => `${API_URL}${path}`;
 
-async function upload<T>(path: string, file: File): Promise<T> {
+async function upload<T>(path: string, file: File, fields: Record<string, string> = {}): Promise<T> {
   const body = new FormData();
+  for (const [k, v] of Object.entries(fields)) body.append(k, v);
   body.append("file", file);
   const token = useSession.getState().token;
   const res = await fetch(`${API_URL}${path}`, { method: "POST", body, headers: token ? { Authorization: `Bearer ${token}` } : {} });
@@ -55,8 +66,28 @@ export const api = {
     call<Brick[]>(HttpMethod.Get, `/bricks?${new URLSearchParams(q as Record<string, string>)}`),
   projects: () => call<ProjectListItem[]>(HttpMethod.Get, "/projects"),
   project: (id: string) => call<Project>(HttpMethod.Get, `/projects/${id}`),
-  createProject: (name: string, motionStyle: string, format: VideoFormat) =>
-    call<Project>(HttpMethod.Post, "/projects", { name, motionStyle, format }),
+  createProject: (name: string, motionStyle: string, format: VideoFormat, brandId: string) =>
+    call<Project>(HttpMethod.Post, "/projects", { name, motionStyle, format, brandId }),
+  brands: () => call<BrandSummary[]>(HttpMethod.Get, "/brands"),
+  brand: (id: string) => call<BrandKit>(HttpMethod.Get, `/brands/${id}`),
+  createBrand: (name: string) => call<BrandKit>(HttpMethod.Post, "/brands", { name }),
+  updateBrand: (id: string, patch: { name?: string; notes?: string; palettes?: BrandPalette[] }) => call<BrandKit>(HttpMethod.Patch, `/brands/${id}`, patch),
+  deleteBrand: (id: string) => call<void>(HttpMethod.Delete, `/brands/${id}`),
+  brandVideos: (id: string) => call<ProjectListItem[]>(HttpMethod.Get, `/brands/${id}/videos`),
+  uploadAsset: (brandId: string, file: File, kind: AssetKind) => upload<BrandKit>(`/brands/${brandId}/assets`, file, { kind }),
+  updateAsset: (brandId: string, assetId: string, patch: { kind?: AssetKind; name?: string; description?: string }) =>
+    call<BrandKit>(HttpMethod.Patch, `/brands/${brandId}/assets/${assetId}`, patch),
+  deleteAsset: (brandId: string, assetId: string) => call<BrandKit>(HttpMethod.Delete, `/brands/${brandId}/assets/${assetId}`),
+  myPrefabs: () => call<PrefabSummary[]>(HttpMethod.Get, "/prefabs"),
+  myPrefabTrees: () => call<{ name: string; node: Record<string, unknown> }[]>(HttpMethod.Get, "/prefabs?full=1"),
+  clonePrefab: (name: string, newName: string) => call<unknown>(HttpMethod.Post, `/prefabs/${name}/clone`, { name: newName }),
+  prefab: (name: string) => call<PrefabSummary & { node: Record<string, unknown> }>(HttpMethod.Get, `/prefabs/${name}`),
+  prefabWorkshop: () => call<{ videoId: string }>(HttpMethod.Get, "/prefabs/-/workshop"),
+  createPrefab: (instruction: string, prefs?: AgentPrefs) =>
+    call<GenerateState & { videoId: string }>(HttpMethod.Post, "/prefabs/-/create", { instruction, ...prefs }),
+  editPrefab: (name: string, instruction: string, prefs?: AgentPrefs) =>
+    call<GenerateState & { videoId: string }>(HttpMethod.Post, `/prefabs/${name}/edit`, { instruction, ...prefs }),
+  deletePrefab: (name: string) => call<void>(HttpMethod.Delete, `/prefabs/${name}`),
   updateProject: (id: string, patch: { name?: string; brief?: string; format?: VideoFormat }) =>
     call<Project>(HttpMethod.Patch, `/projects/${id}`, patch),
   deleteProject: (id: string) => call<void>(HttpMethod.Delete, `/projects/${id}`),

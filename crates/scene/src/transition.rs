@@ -81,6 +81,11 @@ impl DrawItem {
                 text.max_width *= s;
                 text.max_height = text.max_height.map(|h| h * s);
             }
+            DrawItem::Image(img) => {
+                img.center = [origin[0] + (img.center[0] - origin[0]) * s, origin[1] + (img.center[1] - origin[1]) * s];
+                img.size = [img.size[0] * s, img.size[1] * s];
+                img.radius *= s;
+            }
             DrawItem::Poly(poly) => {
                 for p in &mut poly.points {
                     *p = [origin[0] + (p[0] - origin[0]) * s, origin[1] + (p[1] - origin[1]) * s];

@@ -27,7 +27,11 @@ export enum VideoFormat {
 @Schema({ timestamps: true })
 export class Project {
   @Prop({ type: Types.ObjectId, ref: "User", required: true, index: true }) ownerId: Types.ObjectId;
+  /** The project (brand kit) this video belongs to. */
+  @Prop({ type: Types.ObjectId, ref: "Brand", index: true }) brandId?: Types.ObjectId;
   @Prop({ required: true, trim: true }) name: string;
+  /** Internal videos (the prefab workshop) never show in lists. */
+  @Prop({ default: false }) hidden: boolean;
   /** What the video is about, in the user's words. The agent's main input. */
   @Prop({ default: "" }) brief: string;
   @Prop({ type: MongooseSchema.Types.Mixed, required: true }) build: Build;

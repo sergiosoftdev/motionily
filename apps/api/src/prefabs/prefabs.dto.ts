@@ -1,4 +1,5 @@
-import { IsEnum, IsObject, IsOptional, IsString, Matches, MaxLength } from "class-validator";
+import { IsEnum, IsObject, IsOptional, IsString, Matches, MaxLength, MinLength } from "class-validator";
+import { AgentEffort, AgentModel } from "../projects/projects.dto";
 import { PrefabKind } from "./prefab.schema";
 
 /** Prefab names are snake_case, like brick ids. */
@@ -13,4 +14,10 @@ export class SavePrefabDto {
 export class ClonePrefabDto {
   @Matches(PREFAB_NAME) name: string;
   @IsOptional() @IsString() @MaxLength(400) description?: string;
+}
+
+export class EditPrefabDto {
+  @IsString() @MinLength(2) @MaxLength(2000) instruction: string;
+  @IsOptional() @IsEnum(AgentModel) model?: AgentModel;
+  @IsOptional() @IsEnum(AgentEffort) effort?: AgentEffort;
 }

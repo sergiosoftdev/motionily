@@ -3,6 +3,7 @@ import type { CaptionStyle, Op, StylePreset } from "@motionily/protocol";
 import demoScene from "../../../../examples/demo.scene.json?raw";
 import { DEFAULT_FONT_FAMILY, fontFilesFor } from "./fonts";
 import { decodePng, modelUrl, packOf, packTextureUrl, type Pixels } from "./models";
+import { mediaUrl } from "../api/client";
 import { EngineStatus, useEditor } from "../store";
 
 type AudioTrack = { start: number; trim_in: number; trim_out: number | null };
@@ -29,11 +30,16 @@ class EngineHost {
   private modelCache = new Map<string, Promise<ArrayBuffer>>();
   private textureCache = new Map<string, Promise<Pixels | null>>();
   private loadingModels = new Set<string>();
+  private loadingImages = new Set<string>();
+  private imageCache = new Map<string, Promise<Pixels | null>>();
 
   /** Voice-over/music played in sync with the preview (not saved yet). */
   private audio: HTMLAudioElement | null = null;
   private audioTrack: AudioTrack = { start: 0, trim_in: 0, trim_out: null };
   private size: [number, number] = [1080, 1920];
+
+  /** Restart at the end instead of stopping (turntable previews). */
+  loop = false;
 
   styles: StylePreset[] = [];
   captionStyles: CaptionStyle[] = [];
@@ -65,6 +71,7 @@ class EngineHost {
       this.buildOps = [];
       this.loadedFonts.clear();
       this.loadingModels.clear();
+      this.loadingImages.clear();
       this.engine.loadScene(sceneJson ?? demoScene);
       void this.ensureFonts(DEFAULT_FONT_FAMILY);
       this.resizeObserver = new ResizeObserver(() => this.fitCanvas());
@@ -79,6 +86,7 @@ class EngineHost {
 
   unmount() {
     this.pause();
+    this.loop = false;
     this.setAudio(null);
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
@@ -176,6 +184,39 @@ class EngineHost {
     this.draw();
   }
 
+  private fetchImage(src: string) {
+    let p = this.imageCache.get(src);
+    if (!p) {
+      p = decodePng(src.startsWith("/media/") ? mediaUrl(src) : src).catch(() => null);
+      this.imageCache.set(src, p);
+    }
+    return p;
+  }
+
+  /** Decode every image the layers use (brand logos, screenshots) for the engine. */
+  async ensureImages() {
+    const engine = this.engine;
+    if (!engine) return;
+    const missing = engine.missingImages().filter((s) => !this.loadingImages.has(s));
+    if (missing.length === 0) return;
+    missing.forEach((s) => this.loadingImages.add(s));
+    await Promise.all(
+      missing.map(async (src) => {
+        const px = await this.fetchImage(src);
+        if (px && engine === this.engine) engine.addImage(src, px.rgba, px.width, px.height);
+      }),
+    );
+    this.draw();
+  }
+
+  /** Decoded images for another engine (export). */
+  async imageAssets(): Promise<({ src: string } & Pixels)[]> {
+    const scene = JSON.parse(this.require().sceneJson()) as { layers: { type: string; src?: string }[] };
+    const srcs = [...new Set(scene.layers.filter((l) => l.type === "image" && l.src).map((l) => l.src!))];
+    const out = await Promise.all(srcs.map(async (src) => ({ src, px: await this.fetchImage(src) })));
+    return out.filter((o): o is { src: string; px: Pixels } => o.px !== null).map((o) => ({ src: o.src, ...o.px }));
+  }
+
   /** Every model and pack texture the scene needs, for another engine (export). */
   async stageAssets(): Promise<{ models: { key: string; bytes: Uint8Array }[]; textures: ({ pack: string } & Pixels)[] }> {
     const scene = JSON.parse(this.require().sceneJson()) as { stage?: { props?: { model: string }[] } | null };
@@ -256,6 +297,12 @@ class EngineHost {
     const { time, duration } = useEditor.getState();
     const next = time + (now - this.lastTick) / 1000;
     this.lastTick = now;
+    if (next >= duration && this.loop) {
+      useEditor.setState({ time: 0 });
+      this.draw();
+      this.raf = requestAnimationFrame(this.tick);
+      return;
+    }
     if (next >= duration) {
       useEditor.setState({ time: duration });
       this.draw();
@@ -326,6 +373,7 @@ class EngineHost {
     this.syncMeta();
     this.draw();
     void this.ensureModels();
+    void this.ensureImages();
     this.listeners.forEach((fn) => fn());
   }
 

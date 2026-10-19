@@ -43,6 +43,7 @@ export async function exportVideo(opts: {
   shortSide: number;
   fonts: FontFile[];
   stage: { models: { key: string; bytes: Uint8Array }[]; textures: { pack: string; rgba: Uint8Array; width: number; height: number }[] };
+  images: { src: string; rgba: Uint8Array; width: number; height: number }[];
   audioUrl: string | null;
   onProgress: (ratio: number) => void;
   signal: AbortSignal;
@@ -67,6 +68,7 @@ export async function exportVideo(opts: {
     for (const f of opts.fonts) engine.addFont(f.family, f.weight, f.bytes);
     for (const m of opts.stage.models) engine.addModel(m.key, m.bytes);
     for (const t of opts.stage.textures) engine.addTexture(t.pack, t.rgba, t.width, t.height);
+    for (const i of opts.images) engine.addImage(i.src, i.rgba, i.width, i.height);
     engine.loadScene(opts.sceneJson);
 
     const output = new Output({ format: mp4 ? new Mp4OutputFormat() : new WebMOutputFormat(), target: new BufferTarget() });

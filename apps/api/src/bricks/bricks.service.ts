@@ -90,7 +90,9 @@ export class BricksService implements OnApplicationBootstrap {
           // Agent animations ship their own keyframes and Google Font typographies their family,
           // so the engine can use them right away.
           engine:
-            (dto.slot === BrickSlot.Animation && dto.payload?.keys) || (dto.slot === BrickSlot.Typography && dto.payload?.family)
+            (dto.slot === BrickSlot.Animation && dto.payload?.keys) ||
+            (dto.slot === BrickSlot.Typography && dto.payload?.family) ||
+            (dto.slot === BrickSlot.Palette && dto.payload?.primary)
               ? EngineSupport.Supported
               : EngineSupport.Planned,
           visibility: BrickVisibility.Private,

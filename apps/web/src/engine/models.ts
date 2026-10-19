@@ -5,7 +5,7 @@ export const packOf = (key: string) => key.split("/")[0] ?? key;
 
 export type Pixels = { rgba: Uint8Array; width: number; height: number };
 
-/** Decode a PNG to raw RGBA8 for the engine (no image decoder needed in WASM). */
+/** Decode an image (PNG/JPEG/WebP) to raw RGBA8 for the engine (no image decoder needed in WASM). */
 export async function decodePng(url: string): Promise<Pixels | null> {
   const res = await fetch(url);
   if (!res.ok) return null;

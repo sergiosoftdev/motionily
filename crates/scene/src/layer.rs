@@ -32,11 +32,39 @@ pub enum LayerContent {
         #[serde(default = "default_line_height")]
         line_height: f32,
     },
+    /// A picture (brand logo, product screenshot…) by URL/key, fitted into the layer box.
+    Image {
+        src: String,
+        #[serde(default)]
+        fit: ImageFit,
+    },
     /// Procedural character standing at the bottom of its box (`h` is its height).
     Character {
         #[serde(flatten)]
         spec: CharacterSpec,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImageFit {
+    /// Fill the box, cropping the overflow.
+    #[default]
+    Cover,
+    /// Show the whole image inside the box.
+    Contain,
+}
+
+/// One image for one frame. The engine crops/fits it once it knows the pixel size.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DrawImage {
+    pub src: String,
+    pub fit: ImageFit,
+    pub center: [f32; 2],
+    pub size: [f32; 2],
+    pub radius: f32,
+    pub rotation: f32,
+    pub opacity: f32,
 }
 
 fn default_line_height() -> f32 {
@@ -49,6 +77,7 @@ impl LayerContent {
         match self {
             LayerContent::Shape { shape } => crate::enum_name(shape),
             LayerContent::Text { text, .. } => format!("text \"{}\"", text.chars().take(40).collect::<String>()),
+            LayerContent::Image { src, .. } => format!("image {}", src.rsplit('/').next().unwrap_or(src)),
             LayerContent::Character { spec } => format!(
                 "character {}/{}/{} hair={}",
                 crate::enum_name(&spec.character),
@@ -156,6 +185,7 @@ pub enum DrawItem {
     Poly(DrawPoly),
     /// Several items from one layer (characters), drawn in order.
     Group(Vec<DrawItem>),
+    Image(DrawImage),
     /// The 3D stage (always first, behind everything).
     Stage(crate::DrawStage),
 }
@@ -196,6 +226,15 @@ impl Layer {
                 };
                 Some(DrawItem::Shape(DrawShape { center, size, radius, rotation, color }))
             }
+            LayerContent::Image { src, fit } => Some(DrawItem::Image(DrawImage {
+                src: src.clone(),
+                fit: *fit,
+                center,
+                size,
+                radius: self.radius.sample(lt) * scale,
+                rotation,
+                opacity: color.0[3],
+            })),
             LayerContent::Character { spec } => {
                 let feet = [center[0], center[1] + size[1] / 2.0];
                 Some(DrawItem::Group(draw_character(spec, feet, size[1], lt, color.0[3], ctx.palette)))
@@ -270,6 +309,7 @@ impl Layer {
     pub fn bounds(&self, lt: f32, ctx: &EvalCtx) -> Option<Bounds> {
         match self.resolve(lt, ctx, false)? {
             DrawItem::Shape(s) => Some(Bounds { center: s.center, size: s.size, rotation: s.rotation }),
+            DrawItem::Image(i) => Some(Bounds { center: i.center, size: i.size, rotation: i.rotation }),
             DrawItem::Text(t) => {
                 let scale = self.scale.sample(lt);
                 Some(Bounds { center: t.center, size: [t.max_width, self.h.sample(lt) * scale], rotation: t.rotation })

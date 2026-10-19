@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BrickSlot, EngineSupport, FORMAT_SIZE, OpName, type VideoFormat, type Brick, type Build, type Op, type PalettePayload, type Project } from "@motionily/protocol";
-import { api, ApiError, mediaUrl } from "../api/client";
+import { api, ApiError, mediaUrl, type BrandPalette } from "../api/client";
 import { engineHost } from "../engine/host";
 import { agentBridge } from "../bridge";
 import { ActivitySource, EngineStatus, logActivity, useEditor } from "../store";
 import { TopBar } from "./TopBar";
+import { BrandTab, href, RouteName } from "../router";
 import { Transport } from "../components/Transport";
 import { FeedbackBox } from "../components/FeedbackBox";
 import { ActivityLog } from "../components/ActivityLog";
@@ -78,6 +79,7 @@ export function EditorScreen({ id }: { id: string }) {
   const [project, setProject] = useState<Project | null>(null);
   const [bricks, setBricks] = useState<Brick[]>([]);
   const prefabs = useRef<PrefabRow[]>([]);
+  const [brandPalettes, setBrandPalettes] = useState<BrandPalette[]>([]);
   const [openSlot, setOpenSlot] = useState<BrickSlot | null>(null);
   const [tab, setTab] = useState<SidebarTab>(SidebarTab.Video);
   const [error, setError] = useState<string | null>(null);
@@ -220,6 +222,11 @@ export function EditorScreen({ id }: { id: string }) {
   return (
     <div className="flex h-dvh flex-col">
       <TopBar>
+        {project?.brandId && (
+          <a href={href({ name: RouteName.Brand, id: project.brandId, tab: BrandTab.Videos })} className="text-xs text-neutral-500 hover:text-white">
+            ← Proyecto
+          </a>
+        )}
         {project && (
           <input
             key={project.name}
@@ -309,6 +316,7 @@ export function EditorScreen({ id }: { id: string }) {
             <OptionsSheet
               projectId={id}
               onNewBrick={(b) => setBricks((bs) => [...bs.filter((x) => x.key !== b.key), b])}
+              brandPalettes={brandPalettes}
               slot={openSlot}
               build={project.build}
               bricks={bricks}

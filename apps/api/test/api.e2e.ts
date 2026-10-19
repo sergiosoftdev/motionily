@@ -265,3 +265,51 @@ describe("prefab library", () => {
     assert.equal(theirs.body.length, 0);
   });
 });
+
+describe("projects (brand kits) and their videos", () => {
+  it("groups videos, stores described assets and exposes the kit to the video's agent", async () => {
+    const auth = await login("brands@example.com");
+    const { body: brand } = await http.post("/brands").set(auth).send({ name: "Clinily", notes: "Software para fisios" }).expect(201);
+    await http
+      .patch(`/brands/${brand.id}`)
+      .set(auth)
+      .send({ palettes: [{ name: "Marca", background: "#ffffff", surface: "#f3f4f6", primary: "#16a34a", accent: "#22c55e", text: "#111827" }] })
+      .expect(200);
+    const png = Buffer.from("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0005fe02fea7d6a4c50000000049454e44ae426082", "hex");
+    const up = await http
+      .post(`/brands/${brand.id}/assets`)
+      .set(auth)
+      .field("kind", "screenshot")
+      .field("description", "Agenda semanal: arrastra citas para moverlas")
+      .attach("file", png, { filename: "agenda.png", contentType: "image/png" })
+      .expect(201);
+    assert.equal(up.body.assets[0].description, "Agenda semanal: arrastra citas para moverlas");
+    await http.post(`/brands/${brand.id}/assets`).set(auth).attach("file", Buffer.from("x"), { filename: "a.txt", contentType: "text/plain" }).expect(400);
+
+    const { body: video } = await http.post("/projects").set(auth).send({ name: "Spot agenda", motionStyle: "motion_style/startup", brandId: brand.id }).expect(201);
+    assert.equal(video.brandId, brand.id);
+    const vids = await http.get(`/brands/${brand.id}/videos`).set(auth).expect(200);
+    assert.equal(vids.body.length, 1);
+
+    const { body: t } = await http.post(`/projects/${video.id}/agent-token`).set(auth).expect(201);
+    const agent = { Authorization: `Bearer ${t.token as string}` };
+    const kit = await http.get(`/projects/${video.id}/brand`).set(agent).expect(200);
+    assert.equal(kit.body.name, "Clinily");
+    assert.equal(kit.body.palettes[0].primary, "#16a34a");
+    assert.match(kit.body.assets[0].url, /^\/media\//);
+    await http.patch(`/brands/${brand.id}`).set(agent).send({ name: "x" }).expect(403);
+
+    const other = await login("intruder@example.com");
+    await http.get(`/brands/${brand.id}`).set(other).expect(404);
+    await http.post("/projects").set(other).send({ name: "x", motionStyle: "motion_style/apple", brandId: brand.id }).expect(404);
+  });
+
+  it("adopts old videos into a default project", async () => {
+    const auth = await login("legacy@example.com");
+    const { body: v } = await http.post("/projects").set(auth).send({ name: "Viejo", motionStyle: "motion_style/apple" }).expect(201);
+    const brands = await http.get("/brands").set(auth).expect(200);
+    assert.equal(brands.body.length, 1);
+    assert.equal(brands.body[0].videos, 1);
+    assert.ok(v.brandId);
+  });
+});

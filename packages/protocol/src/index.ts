@@ -205,6 +205,8 @@ export type Project = {
   brief: string;
   build: Build;
   format: VideoFormat;
+  /** Project (brand kit) the video belongs to. */
+  brandId: string | null;
   misfits: string[];
   scene: Record<string, unknown> | null;
   audio: { url: string; name: string; mime: string } | null;
@@ -212,6 +214,6 @@ export type Project = {
   updatedAt: string;
 };
 
-export type ProjectListItem = { _id: string; name: string; build: Build; format?: VideoFormat; updatedAt: string };
+export type ProjectListItem = { _id: string; name: string; build: Build; format?: VideoFormat; brandId?: string; updatedAt: string };
 
 export type User = { id: string; email: string; name: string; avatarUrl: string | null; provider: string };

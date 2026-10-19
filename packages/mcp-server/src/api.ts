@@ -52,6 +52,22 @@ export class ProjectApi {
     return this.call<{ node: Record<string, unknown> }>("POST", `/prefabs/${from}/clone`, { name: to, description });
   }
 
+  brand() {
+    return this.call<{
+      name: string;
+      notes: string;
+      palettes: { name: string; background: string; surface: string; primary: string; accent: string; text: string }[];
+      assets: { id: string; kind: string; name: string; description: string; url: string; mime: string }[];
+    }>("GET", "/brand");
+  }
+
+  /** Raw bytes of a media file the API serves (brand images). */
+  async media(path: string) {
+    const res = await fetch(`${this.baseUrl}${path}`);
+    if (!res.ok) throw new Error(`image not found (${res.status})`);
+    return { bytes: Buffer.from(await res.arrayBuffer()), mime: res.headers.get("content-type") ?? "image/png" };
+  }
+
   consumeFeedback() {
     return this.call<Feedback[]>("POST", "/feedback/consume");
   }

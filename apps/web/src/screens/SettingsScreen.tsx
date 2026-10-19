@@ -1,0 +1,51 @@
+import { useState } from "react";
+import { useSession } from "../session";
+import { PageHeader } from "../shell/AppShell";
+import { AgentEffort, AgentModel, EFFORT_LABEL, loadPrefs, MODEL_LABEL, savePrefs, type AgentPrefs } from "../components/GeneratePanel";
+
+export function SettingsScreen() {
+  const user = useSession((s) => s.user);
+  const logout = useSession((s) => s.logout);
+  const [prefs, setPrefs] = useState<AgentPrefs>(loadPrefs);
+  const update = (p: Partial<AgentPrefs>) => {
+    const next = { ...prefs, ...p };
+    setPrefs(next);
+    savePrefs(next);
+  };
+
+  return (
+    <div className="mx-auto flex max-w-2xl flex-col gap-10 px-8 py-10">
+      <PageHeader title="Configuración" />
+      <section className="flex flex-col gap-2">
+        <h2 className="text-sm font-semibold">Cuenta</h2>
+        <p className="text-sm text-neutral-300">{user?.name}</p>
+        <p className="text-sm text-neutral-400">{user?.email} · acceso simulado de Google</p>
+        <button type="button" onClick={logout} className="self-start text-sm text-neutral-400 hover:text-white">
+          Cerrar sesión
+        </button>
+      </section>
+      <section className="flex flex-col gap-3">
+        <div>
+          <h2 className="text-sm font-semibold">Agente</h2>
+          <p className="text-xs text-neutral-500">Modelo y esfuerzo por defecto al generar vídeos o editar prefabs.</p>
+        </div>
+        <div className="flex gap-2">
+          <select value={prefs.model} onChange={(e) => update({ model: e.target.value as AgentModel })} className="rounded-lg bg-neutral-900 px-3 py-2 text-sm focus:outline-none" aria-label="Modelo">
+            {Object.values(AgentModel).map((m) => (
+              <option key={m} value={m}>
+                {MODEL_LABEL[m]}
+              </option>
+            ))}
+          </select>
+          <select value={prefs.effort} onChange={(e) => update({ effort: e.target.value as AgentEffort })} className="rounded-lg bg-neutral-900 px-3 py-2 text-sm focus:outline-none" aria-label="Esfuerzo">
+            {Object.values(AgentEffort).map((x) => (
+              <option key={x} value={x}>
+                Esfuerzo: {EFFORT_LABEL[x]}
+              </option>
+            ))}
+          </select>
+        </div>
+      </section>
+    </div>
+  );
+}

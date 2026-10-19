@@ -25,6 +25,8 @@ import { BrickSlot } from "../bricks/brick.enums";
 import { ProjectsService } from "./projects.service";
 import { BridgeHub } from "../bridge-hub";
 import { PrefabsService } from "../prefabs/prefabs.service";
+import { BrandsService } from "../brands/brands.service";
+import { brandView } from "../brands/brands.controller";
 import { ClonePrefabDto, PREFAB_NAME, SavePrefabDto } from "../prefabs/prefabs.dto";
 import { GenerateService } from "./generate.service";
 import { CreateFeedbackDto, CreateProjectDto, GenerateDto, SaveSceneDto, SetSlotDto, UpdateProjectDto } from "./projects.dto";
@@ -38,7 +40,16 @@ export class ProjectsController {
     private readonly jwt: JwtService,
     private readonly generator: GenerateService,
     private readonly prefabs: PrefabsService,
+    private readonly brands: BrandsService,
   ) {}
+
+  /** The brand kit of the project this video belongs to (agents read it to design on-brand). */
+  @Get(":id/brand")
+  async brand(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    const video = await this.projects.get(user.id, id);
+    const brand = video.brandId ? await this.brands.get(user.id, video.brandId.toString()) : await this.brands.ensureDefault(user.id);
+    return brandView(brand, await this.brands.listAssets(brand._id));
+  }
 
   // ── Prefabs: the user's reusable 3D library, reachable from any of their projects ──
 
@@ -102,6 +113,9 @@ export class ProjectsController {
 
   @Post()
   async create(@CurrentUser() user: AuthUser, @Body() dto: CreateProjectDto) {
+    // Every video lives in a project: the given one (if it is theirs) or their first.
+    const brand = dto.brandId ? await this.brands.get(user.id, dto.brandId) : await this.brands.ensureDefault(user.id);
+    dto.brandId = brand._id.toString();
     return this.view(await this.projects.create(user.id, dto));
   }
 
@@ -214,6 +228,7 @@ export class ProjectsController {
       brief: p.brief,
       build: p.build,
       format: p.format,
+      brandId: p.brandId?.toString() ?? null,
       misfits: await this.projects.misfits(p),
       scene: p.scene,
       audio: p.audio ? { url: `/media/${p.audio.file}`, name: p.audio.name, mime: p.audio.mime } : null,

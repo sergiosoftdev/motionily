@@ -19,7 +19,7 @@ mod text;
 mod transition;
 
 pub use anim::{Animated, Easing, Keyframe};
-pub use layer::{AnimRef, Bounds, DrawItem, DrawShape, EvalCtx, Layer, LayerContent, Shape};
+pub use layer::{AnimRef, Bounds, DrawImage, DrawItem, DrawShape, EvalCtx, ImageFit, Layer, LayerContent, Shape};
 pub use library::{AnimProp, AnimTemplate, Library, TemplateKey, TransitionKind, TransitionTemplate};
 pub use text::{AudioTrack, Captions, DrawText, TextAlign, TextRole, TextSpan, Typography, Word};
 pub use transition::TransitionRef;
@@ -189,6 +189,21 @@ impl Scene {
             return None;
         }
         l.bounds(t - l.start, &ctx)
+    }
+
+    /// Image sources the layers use (for the host to load).
+    pub fn image_sources(&self) -> Vec<String> {
+        let mut v: Vec<String> = self
+            .layers
+            .iter()
+            .filter_map(|l| match &l.content {
+                LayerContent::Image { src, .. } => Some(src.clone()),
+                _ => None,
+            })
+            .collect();
+        v.sort();
+        v.dedup();
+        v
     }
 
     /// One layer as JSON, for agents that only need to touch that object.

@@ -1,5 +1,6 @@
 import {
   Allow,
+  IsMongoId,
   IsBoolean,
   IsEnum,
   IsInt,
@@ -19,6 +20,8 @@ export class CreateProjectDto {
   @IsString() motionStyle: string;
   @IsOptional() @IsString() @MaxLength(4000) brief?: string;
   @IsOptional() @IsEnum(VideoFormat) format?: VideoFormat;
+  /** Project (brand kit) to put the video in; defaults to the user's first project. */
+  @IsOptional() @IsMongoId() brandId?: string;
 }
 
 export class UpdateProjectDto {

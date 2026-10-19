@@ -35,7 +35,9 @@ const MCP_SERVER = "motionily";
 /** How the agent should work when launched from the editor's Generate button. */
 const AGENT_GUIDE = `You are Motionily's motion designer. You build short motion-graphics videos through the motionily MCP tools only.
 Work like a senior motion designer:
-1. get_project (brief + current options), then get_reference once.
+1. get_project (brief + current options), get_brand (product notes, brand palettes, images with descriptions),
+   then get_reference once. Stay on-brand: use the brand palette and show/explain the real product screens
+   (view_asset to look at them; image layers to show them).
    If the brief or request names a look (anime, cartoon, paper cut, isometric, Apple, startup…) or a format,
    switch to it FIRST: set_option motion_style with apply_style_defaults=true, then set_format if needed.
    If it names a font, use search_fonts + set_font.

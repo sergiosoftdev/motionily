@@ -243,6 +243,46 @@ server.registerTool(
 );
 
 server.registerTool(
+  "get_brand",
+  {
+    description:
+      "The project's brand kit: what the product is (notes), brand palettes, and every logo/screenshot/photo with the user's description of what it shows and how it works. Read it before designing; use view_asset to look at an image.",
+    inputSchema: {},
+  },
+  guard(async () => {
+    const b = await api.brand();
+    const lines = [`Brand: ${b.name}`, `About: ${b.notes.trim() || "(no notes)"}`];
+    for (const p of b.palettes) lines.push(`Palette "${p.name}": bg ${p.background}, surface ${p.surface}, primary ${p.primary}, accent ${p.accent}, text ${p.text}`);
+    for (const a of b.assets) lines.push(`Asset ${a.id} | ${a.kind} | ${a.name} | src "${a.url}" | ${a.description || "(no description)"}`);
+    if (!b.assets.length) lines.push("No images yet.");
+    return text(lines.join("\n"));
+  }),
+);
+
+server.registerTool(
+  "view_asset",
+  {
+    description: "Look at one brand image (logo, product screenshot…) to understand it before recreating or showing it. Put it in the video as an image layer with its src.",
+    inputSchema: { id: z.string() },
+  },
+  async ({ id }) => {
+    try {
+      const asset = (await api.brand()).assets.find((a) => a.id === id);
+      if (!asset) return fail(`No asset '${id}'. See get_brand.`);
+      const img = await api.media(asset.url);
+      return {
+        content: [
+          { type: "text" as const, text: `${asset.name} (${asset.kind}): ${asset.description || "no description"}. Use src "${asset.url}" in an image layer.` },
+          { type: "image" as const, data: img.bytes.toString("base64"), mimeType: img.mime },
+        ],
+      };
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+  },
+);
+
+server.registerTool(
   "get_reference",
   { description: "Scene format and op reference. Read once before your first edit.", inputSchema: {} },
   async () => text(REFERENCE),

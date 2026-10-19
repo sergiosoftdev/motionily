@@ -32,6 +32,7 @@ export function ExportButton({ name, audioUrl }: { name: string; audioUrl: strin
         shortSide,
         fonts: await engineHost.loadedFontFiles(),
         stage: await engineHost.stageAssets(),
+        images: await engineHost.imageAssets(),
         audioUrl,
         onProgress: setProgress,
         signal: abort.current.signal,

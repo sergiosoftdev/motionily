@@ -3,11 +3,15 @@ import { BrickSlot, SLOT_CARDINALITY, SlotCardinality, type Brick, type Build } 
 import { OptionRow, OptionTile } from "./OptionCard";
 import { fitLevel, slotUi, VISUAL_SLOTS } from "./options";
 import { GoogleFontSearch } from "./GoogleFontSearch";
+import { Thumb } from "./Thumb";
+import { api, type BrandPalette } from "../../api/client";
 
 type Props = {
   projectId: string;
   /** A new project-only option was created (e.g. a Google Font); add it to the catalog. */
   onNewBrick: (brick: Brick) => void;
+  /** Palettes of the project's brand kit, offered first under Colors. */
+  brandPalettes: BrandPalette[];
   slot: BrickSlot;
   build: Build;
   bricks: Brick[];
@@ -17,7 +21,7 @@ type Props = {
 };
 
 /** Options for one setting. Recommended ones first; nothing is hidden or blocked. */
-export function OptionsSheet({ projectId, onNewBrick, slot, build, bricks, byKey, onPick, onClose }: Props) {
+export function OptionsSheet({ projectId, onNewBrick, brandPalettes, slot, build, bricks, byKey, onPick, onClose }: Props) {
   const ui = slotUi(slot);
   const cardinality = SLOT_CARDINALITY[slot];
   const current = build[slot];
@@ -64,6 +68,35 @@ export function OptionsSheet({ projectId, onNewBrick, slot, build, bricks, byKey
             onPick(b.key);
           }}
         />
+      )}
+      {slot === BrickSlot.Palette && brandPalettes.length > 0 && (
+        <div className="flex flex-col gap-2 px-3 pb-4">
+          <span className="px-2 text-[11px] font-medium text-neutral-500">De tu marca</span>
+          <div className="grid grid-cols-2 gap-1">
+            {brandPalettes.map((p) => (
+              <button
+                key={p.name}
+                type="button"
+                onClick={async () => {
+                  const { name, ...colors } = p;
+                  const brick = await api.createProjectBrick(projectId, {
+                    slot: BrickSlot.Palette,
+                    id: `brand_${name.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 30) || "palette"}`,
+                    name,
+                    description: "Paleta de la marca",
+                    payload: colors,
+                  });
+                  onNewBrick(brick);
+                  onPick(brick.key);
+                }}
+                className="flex flex-col gap-2 rounded-xl p-2 text-left hover:bg-neutral-900"
+              >
+                <Thumb palette={p} className="aspect-[4/3] w-full" />
+                <span className="px-0.5 text-sm font-medium">{p.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
       )}
       {slot !== BrickSlot.Typography && (
       <div className={`flex-1 overflow-y-auto px-3 pb-6 ${visual ? "grid auto-rows-min grid-cols-2 gap-1" : "flex flex-col gap-0.5"}`}>

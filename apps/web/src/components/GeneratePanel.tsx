@@ -20,8 +20,8 @@ export const AgentEffort = { Low: "low", Medium: "medium", High: "high", XHigh: 
 export type AgentEffort = (typeof AgentEffort)[keyof typeof AgentEffort];
 export type AgentPrefs = { model: AgentModel; effort: AgentEffort };
 
-const MODEL_LABEL: Record<AgentModel, string> = { fable: "Fable", opus: "Opus", sonnet: "Sonnet", haiku: "Haiku" };
-const EFFORT_LABEL: Record<AgentEffort, string> = { low: "Bajo", medium: "Medio", high: "Alto", xhigh: "Muy alto", max: "Máximo" };
+export const MODEL_LABEL: Record<AgentModel, string> = { fable: "Fable", opus: "Opus", sonnet: "Sonnet", haiku: "Haiku" };
+export const EFFORT_LABEL: Record<AgentEffort, string> = { low: "Bajo", medium: "Medio", high: "Alto", xhigh: "Muy alto", max: "Máximo" };
 
 export function loadPrefs(): AgentPrefs {
   try {
@@ -33,7 +33,7 @@ export function loadPrefs(): AgentPrefs {
   return { model: AgentModel.Opus, effort: AgentEffort.High };
 }
 
-function savePrefs(p: AgentPrefs) {
+export function savePrefs(p: AgentPrefs) {
   try {
     localStorage.setItem(PREFS_KEY, JSON.stringify(p));
   } catch {
@@ -55,6 +55,15 @@ export const TOOL_LABEL: Record<string, string> = {
   create_brick: "Crea una animación nueva",
   get_feedback: "Lee tus comentarios",
   set_option: "Cambia una opción del vídeo",
+  list_prefabs: "Revisa tu biblioteca 3D",
+  get_prefab: "Estudia un prefab",
+  save_prefab: "Construye y guarda un prefab",
+  clone_prefab: "Duplica un prefab",
+  list_templates: "Mira las plantillas",
+  apply_template: "Aplica una plantilla",
+  list_models: "Mira los modelos 3D",
+  get_brand: "Lee el kit de marca",
+  view_asset: "Mira una imagen de la marca",
   set_format: "Cambia el formato",
   ToolSearch: "Prepara sus herramientas",
 };

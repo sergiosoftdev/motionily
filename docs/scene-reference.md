@@ -38,6 +38,16 @@ Coordinates are scene pixels, origin top-left, y down.
 - `w`×`h` is the text box: the engine shrinks the type until it fits. When text sits on a card,
   give the text layer the card's position and size minus padding (~8%), so it can never spill out.
 
+## Images (brand logos, product screenshots)
+```json
+{ "id": "agenda", "type": "image", "src": "/media/….png", "fit": "cover|contain",
+  "anchor": "center", "w": 900, "h": 560, "radius": 28, "anims": [{"use":"animation/fade_up"}] }
+```
+- `src` comes from get_brand (the user's kit). Look at it first with view_asset.
+- `contain` for logos (never crop them), `cover` for photos. Round screenshots and put them on a
+  surface card or a device frame you build with shapes; zoom/pan with keyframed scale/x/y to walk
+  through features while text explains them (from the asset description).
+
 ## Captions
 The user uploads the voice-over and the editor transcribes it into `captions.words`
 (`{text,start,end,emphasis}`), drawn on the `caption` anchor in the user's caption style

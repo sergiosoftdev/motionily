@@ -95,6 +95,18 @@ impl Engine {
         self.renderer.add_texture(pack, rgba, width, height);
     }
 
+    /// Register a decoded image (RGBA8) for image layers.
+    #[wasm_bindgen(js_name = addImage)]
+    pub fn add_image(&mut self, key: &str, rgba: &[u8], width: u32, height: u32) {
+        self.renderer.add_image(key, rgba, width, height);
+    }
+
+    /// Image sources the layers use that are not loaded yet.
+    #[wasm_bindgen(js_name = missingImages)]
+    pub fn missing_images(&self) -> Vec<String> {
+        self.scene.image_sources().into_iter().filter(|s| !self.renderer.has_image(s)).collect()
+    }
+
     /// Model keys the current scene uses that are not loaded yet.
     #[wasm_bindgen(js_name = missingModels)]
     pub fn missing_models(&self) -> Vec<String> {
