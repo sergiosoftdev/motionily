@@ -67,7 +67,12 @@ Procedural 3D drawn behind the 2D layers, toon-shaded with outlines. Units are m
 {"op":"set_stage","stage":{"floor":"surface","props":[…],"shots":[…]}}  // whole set at once
 ```
 - Never use stock models or `set_stage_preset`; build what the brief describes and save it as prefabs.
-- Walk someone across: keyframe `x`/`z` with `action: "walk"`; turn them with `rotation`.
+- Interactions with `beats` on a prop (times from its start; walks auto-play "walk" and face where they go):
+  `"beats":[{"at":0.5,"duration":2,"go_to":"fisio","action":"wave"},
+            {"at":3,"duration":1.2,"sit_on":"camilla","seat_height":0.6},
+            {"at":5,"face":"fisio","action":"point"},
+            {"at":6,"duration":1.5,"walk_to":[2,1]}]`
+  Prefer beats over keyframing x/z by hand.
 - **Direct the camera with shots**: `{"op":"set_shots","shots":[
   {"start":0,"end":2.5,"kind":"reveal","target":"all"},
   {"start":2.5,"end":5,"kind":"push_in","target":"fisio","yaw":-30,"framing":0.8,"blend":0.4},

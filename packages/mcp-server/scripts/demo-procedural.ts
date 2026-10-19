@@ -48,7 +48,8 @@ await call("load_scene", { scene: JSON.stringify({ width: 1080, height: 1920, fp
 await call("apply_ops", { ops: [
   { op: "put_prop", prop: { id: "set", prefab: "consulta" } },
   { op: "put_prop", prop: { id: "fisio", prefab: "fisio", x: 1.25, z: -0.45, rotation: -50, action: "stressed", enter: "drop" } },
-  { op: "put_prop", prop: { id: "paciente", prefab: "paciente", x: [{ t: 0, v: -1.8 }, { t: 3, v: -0.3 }], z: 0.4, rotation: 90, action: "walk", enter: "pop", enter_delay: 0.3 } },
+  { op: "put_prop", prop: { id: "paciente", prefab: "paciente", x: -1.8, z: 0.6, enter: "pop", enter_delay: 0.3,
+    beats: [{ at: 0.4, duration: 2.2, go_to: "fisio", action: "wave" }, { at: 3.6, face: "fisio", action: "point" }] } },
   { op: "set_shots", shots: [
     { start: 0, end: 2.2, kind: "reveal", target: "all", yaw: 25, pitch: 28 },
     { start: 2.2, end: 4.2, kind: "push_in", target: "fisio", yaw: -25, framing: 0.9, blend: 0.4 },

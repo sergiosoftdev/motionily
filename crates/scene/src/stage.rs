@@ -4,7 +4,7 @@
 
 use crate::node3d::{DrawModelNode, DrawSolid, NodeCtx};
 use crate::{Action, Animated, ColorRef, Easing, Node3D, Palette, Rgba};
-use glam::{Mat4, Quat, Vec3};
+use glam::{Mat4, Quat, Vec2, Vec3};
 use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
@@ -127,6 +127,9 @@ pub struct StageProp {
     /// Seconds after `start` the entrance begins (to stagger props).
     #[serde(default)]
     pub enter_delay: f32,
+    /// Timed behaviour script (walk somewhere, sit on something, wave…), times relative to `start`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub beats: Vec<Beat>,
 }
 
 fn unit() -> Animated {
@@ -182,6 +185,87 @@ impl Default for ShotTarget {
 }
 
 pub const SHOT_ALL: &str = "all";
+
+/// One step of a prop's behaviour script.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Beat {
+    /// Seconds from the prop's start.
+    pub at: f32,
+    /// Seconds the move takes (walks); 0 = instant.
+    #[serde(default)]
+    pub duration: f32,
+    /// Action once this beat is reached (after walking). Default idle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<Action>,
+    /// Walk to [x, z].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub walk_to: Option<[f32; 2]>,
+    /// Walk to another prop and sit on it (y lifts to `seat_height`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sit_on: Option<String>,
+    /// Walk up to another prop and stop in front of it, facing it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub go_to: Option<String>,
+    /// Turn to face another prop.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub face: Option<String>,
+    #[serde(default = "seat_height")]
+    pub seat_height: f32,
+}
+
+fn seat_height() -> f32 {
+    0.0
+}
+
+/// Distance kept from a prop when walking up to it.
+const APPROACH_GAP: f32 = 0.7;
+
+/// Where a prop is and what it does at `lt`, after running its beats.
+struct Resolved {
+    pos: [f32; 3],
+    yaw: Option<f32>,
+    action: Option<Action>,
+}
+
+fn run_beats(p: &StageProp, lt: f32, others: &BTreeMap<&str, [f32; 2]>) -> Resolved {
+    let mut at = [p.x.sample(lt), p.z.sample(lt)];
+    let mut y_lift = 0.0;
+    let mut yaw = None;
+    let mut action = None;
+    for b in p.beats.iter().filter(|b| lt >= b.at) {
+        let target_of = |id: &String| others.get(id.as_str()).copied();
+        let dest = b
+            .walk_to
+            .or_else(|| b.sit_on.as_ref().and_then(target_of))
+            .or_else(|| {
+                b.go_to.as_ref().and_then(target_of).map(|o| {
+                    let d = Vec2::from(o) - Vec2::from(at);
+                    let len = d.length();
+                    if len <= APPROACH_GAP { at } else { (Vec2::from(at) + d * ((len - APPROACH_GAP) / len)).to_array() }
+                })
+            });
+        if let Some(dest) = dest {
+            let dir = Vec2::from(dest) - Vec2::from(at);
+            let k = if b.duration > 0.0 { ((lt - b.at) / b.duration).clamp(0.0, 1.0) } else { 1.0 };
+            if dir.length() > 1e-3 {
+                yaw = Some(dir.x.atan2(dir.y));
+            }
+            at = (Vec2::from(at) + dir * k).to_array();
+            if k < 1.0 {
+                action = Some(Action::Walk);
+                y_lift = 0.0;
+                break;
+            }
+        }
+        if let Some(face) = b.face.as_ref().and_then(|id| others.get(id.as_str())) {
+            let d = Vec2::from(*face) - Vec2::from(at);
+            yaw = Some(d.x.atan2(d.y));
+        }
+        y_lift = if b.sit_on.is_some() { b.seat_height } else { 0.0 };
+        action = Some(b.action.unwrap_or(if b.sit_on.is_some() { Action::Sit } else { Action::Idle }));
+    }
+    Resolved { pos: [at[0], p.y.sample(lt) + y_lift, at[1]], yaw, action }
+}
 
 /// One camera shot, like a director would call it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -272,6 +356,7 @@ impl Stage {
         let mut solids = Vec::new();
         let mut placed = Vec::new();
         let mut bounds: BTreeMap<String, Aabb> = BTreeMap::new();
+        let others: BTreeMap<&str, [f32; 2]> = self.props.iter().map(|p| (p.id.as_str(), [p.x.sample(t - p.start), p.z.sample(t - p.start)])).collect();
         let props = self
             .props
             .iter()
@@ -280,7 +365,8 @@ impl Stage {
                 let lt = t - p.start;
                 let k = ((lt - p.enter_delay) / ENTER_TIME).clamp(0.0, 1.0);
                 let s = p.scale.sample(lt);
-                let mut pos = [p.x.sample(lt), p.y.sample(lt), p.z.sample(lt)];
+                let beat = run_beats(p, lt, &others);
+                let mut pos = beat.pos;
                 let mut scale = [s, s, s];
                 match p.enter {
                     PropEnter::None => {}
@@ -291,12 +377,12 @@ impl Stage {
                 if scale.iter().any(|v| *v <= 0.001) {
                     return None;
                 }
-                let rotation = p.rotation.sample(lt).to_radians();
+                let rotation = beat.yaw.unwrap_or_else(|| p.rotation.sample(lt).to_radians());
                 // Procedural props: flatten their tree here; the engine only sees solids.
                 let tree = p.node.clone().or_else(|| p.prefab.as_ref().map(|name| Node3D { kind: crate::NodeKind::Prefab { prefab: name.clone() }, scale: [1.0; 3], ..Default::default() }));
                 if let Some(tree) = tree {
                     let base = Mat4::from_scale_rotation_translation(Vec3::from(scale), Quat::from_rotation_y(rotation), Vec3::from(pos));
-                    let action = p.action.as_deref().and_then(|a| serde_json::from_value::<Action>(serde_json::Value::String(a.to_owned())).ok());
+                    let action = beat.action.or_else(|| p.action.as_deref().and_then(|a| serde_json::from_value::<Action>(serde_json::Value::String(a.to_owned())).ok()));
                     let ctx = NodeCtx { palette, prefabs, time: lt, action };
                     let tint = p.tint.map_or(palette.surface, |c| c.resolve(palette));
                     let first = solids.len();
@@ -444,6 +530,25 @@ mod tests {
         assert!(mid_blend.target[0] > 0.1 && mid_blend.target[0] < 2.9, "blending between targets");
         let after = stage.draw(3.0, &p, &none).camera;
         assert!(after.target[0].abs() < 1e-4);
+    }
+
+    #[test]
+    fn beats_walk_then_sit() {
+        let stage: Stage = serde_json::from_str(
+            r#"{"props":[{"id":"silla","node":{"shape":"box","size":[0.5,0.5,0.5]},"x":2,"z":0},
+                {"id":"paciente","node":{"rig":{}},"beats":[{"at":1,"duration":2,"sit_on":"silla","seat_height":0.45}]}]}"#,
+        )
+        .unwrap();
+        let none = BTreeMap::new();
+        let others: BTreeMap<&str, [f32; 2]> = [("silla", [2.0, 0.0])].into();
+        let p = &stage.props[1];
+        let mid = run_beats(p, 2.0, &others);
+        assert_eq!(mid.action, Some(Action::Walk));
+        assert!((mid.pos[0] - 1.0).abs() < 1e-4);
+        let end = run_beats(p, 4.0, &others);
+        assert_eq!(end.action, Some(Action::Sit));
+        assert!((end.pos[0] - 2.0).abs() < 1e-4 && (end.pos[1] - 0.45).abs() < 1e-4);
+        let _ = stage.draw(2.0, &crate::StylePreset::Clean.palette(), &none);
     }
 
     #[test]

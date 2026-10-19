@@ -5,6 +5,7 @@ use crate::{Camera3D, CameraKind, ColorRef, PaletteSlot, PropEnter, ScenarioKind
 
 fn prop(id: &str, model: &str, x: f32, z: f32, rotation: f32) -> StageProp {
     StageProp {
+        beats: Vec::new(),
         id: id.to_owned(),
         model: model.to_owned(),
         prefab: None,
