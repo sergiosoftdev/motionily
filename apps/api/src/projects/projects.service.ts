@@ -79,6 +79,7 @@ export class ProjectsService {
     if (dto.brief !== undefined) project.brief = dto.brief;
     if (dto.wantsScript !== undefined) project.wantsScript = dto.wantsScript;
     if (dto.voiceScript !== undefined) project.voiceScript = dto.voiceScript;
+    if (dto.references !== undefined) project.references = dto.references;
     if (dto.format !== undefined) project.format = dto.format;
     return project.save();
   }

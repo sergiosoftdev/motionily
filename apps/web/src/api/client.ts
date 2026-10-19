@@ -92,7 +92,7 @@ export const api = {
   editPrefab: (name: string, instruction: string, prefs?: AgentPrefs) =>
     call<GenerateState & { videoId: string }>(HttpMethod.Post, `/prefabs/${name}/edit`, { instruction, ...prefs }),
   deletePrefab: (name: string) => call<void>(HttpMethod.Delete, `/prefabs/${name}`),
-  updateProject: (id: string, patch: { name?: string; brief?: string; format?: VideoFormat }) =>
+  updateProject: (id: string, patch: { name?: string; brief?: string; format?: VideoFormat; references?: string[] }) =>
     call<Project>(HttpMethod.Patch, `/projects/${id}`, patch),
   deleteProject: (id: string) => call<void>(HttpMethod.Delete, `/projects/${id}`),
   projectBricks: (id: string, slot?: BrickSlot) =>

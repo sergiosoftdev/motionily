@@ -41,6 +41,7 @@ export class UpdateProjectDto {
   @IsOptional() @IsString() @MaxLength(4000) brief?: string;
   @IsOptional() @IsBoolean() wantsScript?: boolean;
   @IsOptional() @IsString() @MaxLength(8000) voiceScript?: string;
+  @IsOptional() @IsArray() @ArrayMaxSize(MAX_REFERENCES) @Matches(MEDIA_PATH, { each: true }) references?: string[];
 }
 
 export class SetSlotDto {

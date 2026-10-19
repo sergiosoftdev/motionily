@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FORMAT_SIZE, OpName, type VideoFormat, type Brick, type Build, type Op, type Project } from "@motionily/protocol";
 import { api, ApiError, mediaUrl } from "../api/client";
+import { ReferenceStrip, useReferences } from "../components/References";
 import { engineHost } from "../engine/host";
 import { agentBridge } from "../bridge";
 import { ActivitySource, EngineStatus, logActivity, useEditor } from "../store";
@@ -230,18 +231,7 @@ export function EditorScreen({ id }: { id: string }) {
           <div className="flex-1 overflow-y-auto px-5 py-4">
             {project && tab === SidebarTab.Video && (
               <div className="flex flex-col gap-6">
-                <label className="flex flex-col gap-2">
-                  <span className="text-sm font-semibold">¿De qué va el vídeo?</span>
-                  <span className="-mt-1 text-xs text-neutral-500">Claude diseña el vídeo entero a partir de esto. Para cambiar algo concreto, clica en el objeto.</span>
-                  <textarea
-                    key={project.id}
-                    defaultValue={project.brief}
-                    onBlur={(e) => void saveBrief(e.target.value)}
-                    rows={4}
-                    placeholder="Ej.: anuncio de 20 s de mi app de reservas para fisios, tono cercano"
-                    className="resize-none rounded-lg bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-white/40"
-                  />
-                </label>
+                <BriefBox key={project.id} project={project} onBrief={(b) => void saveBrief(b)} onReferences={(references) => void api.updateProject(id, { references }).then(setProject)} />
                 {project.voiceScript.trim() && <VoiceScript script={project.voiceScript} hasVoice={!!project.audio} />}
                 <GeneratePanel projectId={id} hasScene={!!project.scene} runs={project.agentRuns} />
                 <div className="flex flex-col gap-2">
@@ -284,5 +274,28 @@ function VoiceScript({ script, hasVoice }: { script: string; hasVoice: boolean }
         {hasVoice ? "Voz subida: el agente ata el vídeo a sus palabras." : "Pégalo en ElevenLabs, descarga el mp3 y súbelo en «Voz y subtítulos». Luego, Generar."}
       </span>
     </section>
+  );
+}
+
+/** The brief plus its reference images (paste, drop or attach); both are what the agent builds from. */
+function BriefBox({ project, onBrief, onReferences }: { project: Project; onBrief: (brief: string) => void; onReferences: (refs: string[]) => void }) {
+  const refs = useReferences(project.references, onReferences);
+  return (
+    <div className="flex flex-col gap-2">
+      <label htmlFor="brief" className="text-sm font-semibold">
+        ¿De qué va el vídeo?
+      </label>
+      <span className="-mt-1 text-xs text-neutral-500">Claude diseña el vídeo entero a partir de esto. Pega imágenes de referencia con ⌘V. Para cambiar algo concreto, clica en el objeto.</span>
+      <textarea
+        id="brief"
+        defaultValue={project.brief}
+        onBlur={(e) => onBrief(e.target.value)}
+        rows={4}
+        placeholder="Ej.: anuncio de 20 s de mi app de reservas para fisios, tono cercano"
+        className="resize-none rounded-lg bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-white/40"
+        {...refs.handlers}
+      />
+      <ReferenceStrip r={refs} />
+    </div>
   );
 }
