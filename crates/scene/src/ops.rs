@@ -16,6 +16,10 @@ pub enum Op {
     SetSize { width: u32, height: u32 },
     AddLayer { layer: Layer },
     RemoveLayer { id: String },
+    /// Put layers in a group (or take them out with `null`): `{"op":"set_group","ids":["panel","chart"],"group":"dashboard"}`.
+    SetGroup { ids: Vec<String>, group: Option<String> },
+    /// Remove every layer of a group (to rebuild it).
+    RemoveGroup { group: String },
     /// Replace one animatable property (a number or a keyframe list).
     SetProp { id: String, prop: Prop, value: Animated },
     SetFill { id: String, fill: ColorRef },
@@ -155,6 +159,12 @@ impl Scene {
                 }
                 self.layers.push(layer.clone());
             }
+            Op::SetGroup { ids, group } => {
+                for id in ids {
+                    self.layer_mut(id).ok_or_else(|| OpError::UnknownLayer(id.clone()))?.group = group.clone();
+                }
+            }
+            Op::RemoveGroup { group } => self.layers.retain(|l| l.group.as_deref() != Some(group.as_str())),
             Op::RemoveLayer { id } => {
                 let before = self.layers.len();
                 self.layers.retain(|l| &l.id != id);

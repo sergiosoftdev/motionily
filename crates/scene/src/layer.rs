@@ -105,6 +105,9 @@ pub struct Layer {
     /// Named point of the composition (e.g. "hero"). When set, `x`/`y` are offsets from it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anchor: Option<String>,
+    /// Logical group ("dashboard", "cta"…): the user selects and edits it as one piece.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
     /// Center position in scene pixels (or offset from `anchor`).
     #[serde(default)]
     pub x: Animated,

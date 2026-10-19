@@ -32,6 +32,8 @@ type EditorState = {
   sceneSize: [number, number];
   /** Layer clicked in the preview or the timeline; comments go to it. */
   selectedLayerId: string | null;
+  /** Whole group selected (first click on a grouped layer); exclusive with selectedLayerId. */
+  selectedGroup: string | null;
 };
 
 let nextId = 0;
@@ -48,6 +50,7 @@ export const useEditor = create<EditorState>(() => ({
   captionStyle: null,
   activity: [],
   selectedLayerId: null,
+  selectedGroup: null,
   sceneSize: [1080, 1920],
 }));
 

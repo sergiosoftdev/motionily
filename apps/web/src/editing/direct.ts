@@ -19,13 +19,22 @@ export function shift(v: Animated | undefined, d: number): Animated {
 }
 
 /** Scales the whole value (every keyframe) by `k`. */
-export function scale(v: Animated | undefined, k: number, fallback: number): Animated {
+export function scale(
+  v: Animated | undefined,
+  k: number,
+  fallback: number,
+): Animated {
   if (Array.isArray(v)) return v.map((key) => ({ ...key, v: key.v * k }));
   return (v ?? fallback) * k;
 }
 
 /** Ops that move a layer by (dx, dy) scene pixels from its state in `base`. */
-export function moveOps(id: string, base: Record<string, unknown>, dx: number, dy: number): Op[] {
+export function moveOps(
+  id: string,
+  base: Record<string, unknown>,
+  dx: number,
+  dy: number,
+): Op[] {
   return [
     { op: OpName.SetProp, id, prop: "x", value: shift(base.x as Animated, dx) },
     { op: OpName.SetProp, id, prop: "y", value: shift(base.y as Animated, dy) },
@@ -33,10 +42,25 @@ export function moveOps(id: string, base: Record<string, unknown>, dx: number, d
 }
 
 /** Ops that resize a layer's box by factor `k` from `base` (text refits inside it). */
-export function resizeOps(id: string, base: Record<string, unknown>, k: number, size: [number, number]): Op[] {
+export function resizeOps(
+  id: string,
+  base: Record<string, unknown>,
+  k: number,
+  size: [number, number],
+): Op[] {
   return [
-    { op: OpName.SetProp, id, prop: "w", value: scale(base.w as Animated, k, size[0]) },
-    { op: OpName.SetProp, id, prop: "h", value: scale(base.h as Animated, k, size[1]) },
+    {
+      op: OpName.SetProp,
+      id,
+      prop: "w",
+      value: scale(base.w as Animated, k, size[0]),
+    },
+    {
+      op: OpName.SetProp,
+      id,
+      prop: "h",
+      value: scale(base.h as Animated, k, size[1]),
+    },
   ];
 }
 

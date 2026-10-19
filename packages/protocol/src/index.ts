@@ -136,6 +136,8 @@ export const OpName = {
   SetTiming: "set_timing",
   SetText: "set_text",
   RemoveLayer: "remove_layer",
+  RemoveGroup: "remove_group",
+  SetGroup: "set_group",
 } as const;
 export type OpName = (typeof OpName)[keyof typeof OpName];
 

@@ -94,7 +94,7 @@ export function EditorScreen({ id }: { id: string }) {
         engineHost.setBuildOps(buildToOps(p.build, new Map(b.map((x) => [x.key, x])), p.format, prefabs.current));
         agentBridge.setProject(id);
         engineHost.setAudio(p.audio ? mediaUrl(p.audio.url) : null);
-        useEditor.setState({ selectedLayerId: null });
+        useEditor.setState({ selectedLayerId: null, selectedGroup: null });
       })
       .catch((e: Error) => setError(e.message));
     return () => {

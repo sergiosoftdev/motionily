@@ -240,7 +240,8 @@ impl Scene {
             .map(|(n, _)| n)
             .collect();
             let uses: Vec<String> = l.anims.iter().map(|a| format!("{}@{}", a.key.trim_start_matches("animation/"), a.at)).collect();
-            let anchor = l.anchor.as_ref().map(|a| format!(" anchor={a}")).unwrap_or_default();
+            let anchor = l.anchor.as_ref().map(|a| format!(" anchor={a}")).unwrap_or_default()
+                + &l.group.as_ref().map(|g| format!(" group={g}")).unwrap_or_default();
             let _ = writeln!(
                 s,
                 "- {} {} {:.2}-{:.2}s at ({:.0},{:.0}){} {:.0}x{:.0} fill={} keys=[{}] uses=[{}]",
@@ -337,6 +338,7 @@ mod tests {
             end: Some(2.0),
             fill: ColorRef::default(),
             anchor: None,
+            group: None,
             x: 0.0.into(),
             y: 0.0.into(),
             w: 10.0.into(),

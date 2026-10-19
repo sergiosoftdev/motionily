@@ -79,6 +79,7 @@ exactly like a motion designer building a spot by hand. Avoid generic videos. Wo
    design what the brief needs from primitives and save each piece with save_prefab so the user's library grows;
    place them with put_prop and give them behaviour with beats (go_to, sit_on, face, walk_to). People are ALWAYS
    stickman rigs. Move the camera with your own keyframes (set_camera) or set_shots for auto-framed moves.
+   Put every layer in a named "group" (one per visual unit: hook, dashboard, cta…) so the user can edit pieces.
    MOTION IS THE PRODUCT: staggered entrances, emphasis on key words, characters always doing something, camera
    that moves with intent. Nothing should sit still for more than ~1.5 s.
 4. SELF-REVIEW with review_video (contact sheet + automatic checks). Fix every reported issue and anything a

@@ -28,6 +28,12 @@ Coordinates are scene pixels, origin top-left, y down.
   `back`, hold with `hold`. Reusable motion: `{"op":"define_anim","key":"my/rise","template":{"keys":{"opacity":[[0,0],[0.4,1]],"dy":[[0,60,"back"],[0.5,0]]}}}`
   then `"anims":[{"use":"my/rise","at":0.2}]` (opacity/scale multiply, dx/dy/rotation add). Only keys you defined.
 
+## Groups (always)
+Give every layer a `group` naming the piece it belongs to (`"group":"dashboard"`, `"hook"`, `"cta"`…), one group
+per visual unit. The user selects whole groups in the editor and asks for changes to just that group, so a
+redesign touches only those layers. `{"op":"set_group","ids":["a","b"],"group":"dashboard"}` ·
+`{"op":"remove_group","group":"dashboard"}` (then add the new layers with the same group) · `get_group`.
+
 ## Text
 ```json
 { "id": "title", "type": "text", "text": "Reserva en 10 segundos", "size": 96,

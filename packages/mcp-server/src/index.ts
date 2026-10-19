@@ -241,6 +241,23 @@ server.registerTool(
 );
 
 server.registerTool(
+  "get_group",
+  {
+    description:
+      "Every layer of a group (e.g. 'dashboard') as JSON, plus its time span. Use it when the user points at a group: redesign or tweak just those layers (remove_group + add_layer with the same group, or set_prop), not the whole video.",
+    inputSchema: { group: z.string() },
+  },
+  guard(async ({ group }) => {
+    const live = bridge.lastScene;
+    const scene = live ? (JSON.parse(live) as Record<string, unknown>) : (await api.project()).scene;
+    const layers = ((scene?.layers as { id: string; group?: string; start?: number; end?: number | null }[] | undefined) ?? []).filter((l) => l.group === group);
+    if (!layers.length) return fail(`No group '${group}'.`);
+    const start = Math.min(...layers.map((l) => l.start ?? 0));
+    return text(`group ${group}: ${layers.length} layers from ${start}s\n${layers.map((l) => JSON.stringify(l)).join("\n")}`);
+  }),
+);
+
+server.registerTool(
   "apply_ops",
   {
     description:
