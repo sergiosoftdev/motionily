@@ -14,6 +14,7 @@ import { ProjectsService } from "./projects/projects.service";
 import { GenerateService } from "./projects/generate.service";
 import { ProjectsController } from "./projects/projects.controller";
 import { MediaController } from "./media";
+import { FontsController } from "./fonts";
 
 @Module({
   imports: [
@@ -37,7 +38,7 @@ import { MediaController } from "./media";
       }),
     }),
   ],
-  controllers: [AuthController, BricksController, ProjectsController, MediaController],
+  controllers: [AuthController, BricksController, ProjectsController, MediaController, FontsController],
   providers: [BricksService, ProjectsService, GenerateService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
 })
 export class AppModule {}

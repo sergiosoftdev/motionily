@@ -86,6 +86,40 @@ server.registerTool(
 );
 
 server.registerTool(
+  "search_fonts",
+  {
+    description: "Search the whole Google Fonts catalog (most popular first). Category: Sans Serif, Serif, Display, Handwriting, Monospace.",
+    inputSchema: { query: z.string(), category: z.string().optional() },
+  },
+  guard(async ({ query, category }) => {
+    const fonts = await api.fonts(query, category);
+    return text(fonts.slice(0, 20).map((f) => `${f.family} | ${f.category} | ${f.weights.join(",")}`).join("\n") || "No fonts.");
+  }),
+);
+
+server.registerTool(
+  "set_font",
+  {
+    description: "Use any Google Font as the video's typography (exact family name from search_fonts). Picks body/heading weights near 500/700.",
+    inputSchema: { family: z.string() },
+  },
+  guard(async ({ family }) => {
+    const match = (await api.fonts(family)).find((f) => f.family.toLowerCase() === family.toLowerCase());
+    if (!match) return fail(`No Google font named '${family}'. Use search_fonts.`);
+    const near = (w: number) => match.weights.reduce((b, x) => (Math.abs(x - w) < Math.abs(b - w) ? x : b));
+    const brick = await api.createBrick({
+      slot: BrickSlot.Typography,
+      id: `gf_${match.family.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 36)}`,
+      name: match.family,
+      description: `${match.category} · Google Fonts`,
+      payload: { family: match.family, body: near(500), heading: near(700) },
+    });
+    await api.setSlot(BrickSlot.Typography, brick.key);
+    return text(`typography = ${match.family} (${near(500)}/${near(700)})`);
+  }),
+);
+
+server.registerTool(
   "set_format",
   {
     description: "Change the video frame: vertical_9_16, portrait_4_5, square_1_1 or horizontal_16_9 (1080p). Re-place layers afterwards (anchors adapt by themselves).",

@@ -47,7 +47,26 @@ export class CreateFeedbackDto {
   @IsOptional() @IsString() @MaxLength(80) layerId?: string;
 }
 
+/** Claude model aliases accepted by `claude --model`. */
+export enum AgentModel {
+  Fable = "fable",
+  Opus = "opus",
+  Sonnet = "sonnet",
+  Haiku = "haiku",
+}
+
+/** Values accepted by `claude --effort`. */
+export enum AgentEffort {
+  Low = "low",
+  Medium = "medium",
+  High = "high",
+  XHigh = "xhigh",
+  Max = "max",
+}
+
 export class GenerateDto {
   /** Optional request on top of the brief ("make the title bigger"). */
   @IsOptional() @IsString() @MaxLength(2000) instruction?: string;
+  @IsOptional() @IsEnum(AgentModel) model?: AgentModel;
+  @IsOptional() @IsEnum(AgentEffort) effort?: AgentEffort;
 }

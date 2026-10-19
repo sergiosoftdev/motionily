@@ -1,8 +1,10 @@
 import type { Brick, BrickSlot, Project, ProjectListItem, User, VideoFormat } from "@motionily/protocol";
 import { useSession } from "../session";
-import type { GenerateState } from "../components/GeneratePanel";
+import type { AgentPrefs, GenerateState } from "../components/GeneratePanel";
 
 export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3100";
+
+export type GoogleFont = { family: string; category: string; weights: number[]; popularity: number };
 
 export class ApiError extends Error {
   constructor(
@@ -67,8 +69,12 @@ export const api = {
     call<{ sceneRevision: number }>(HttpMethod.Put, `/projects/${id}/scene`, { scene, baseRevision }),
   addComment: (id: string, text: string, at: number, layerId?: string) =>
     call<unknown>(HttpMethod.Post, `/projects/${id}/feedback`, { kind: "comment", text, at, layerId }),
-  generate: (id: string, instruction?: string) =>
-    call<GenerateState>(HttpMethod.Post, `/projects/${id}/generate`, { instruction: instruction || undefined }),
+  googleFonts: (q: string, category?: string) =>
+    call<GoogleFont[]>(HttpMethod.Get, `/fonts?${new URLSearchParams({ q, ...(category ? { category } : {}) })}`),
+  createProjectBrick: (id: string, brick: { slot: BrickSlot; id: string; name: string; description?: string; payload?: Record<string, unknown> }) =>
+    call<Brick>(HttpMethod.Post, `/projects/${id}/bricks`, brick),
+  generate: (id: string, instruction?: string, prefs?: AgentPrefs) =>
+    call<GenerateState>(HttpMethod.Post, `/projects/${id}/generate`, { instruction: instruction || undefined, ...prefs }),
   generateStatus: (id: string) => call<GenerateState>(HttpMethod.Get, `/projects/${id}/generate`),
   stopGenerate: (id: string) => call<GenerateState>(HttpMethod.Delete, `/projects/${id}/generate`),
   uploadAudio: (id: string, file: File) => upload<Project>(`/projects/${id}/audio`, file),

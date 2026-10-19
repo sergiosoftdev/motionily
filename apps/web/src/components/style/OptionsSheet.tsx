@@ -2,8 +2,12 @@ import { useState } from "react";
 import { BrickSlot, SLOT_CARDINALITY, SlotCardinality, type Brick, type Build } from "@motionily/protocol";
 import { OptionRow, OptionTile } from "./OptionCard";
 import { fitLevel, slotUi, VISUAL_SLOTS } from "./options";
+import { GoogleFontSearch } from "./GoogleFontSearch";
 
 type Props = {
+  projectId: string;
+  /** A new project-only option was created (e.g. a Google Font); add it to the catalog. */
+  onNewBrick: (brick: Brick) => void;
   slot: BrickSlot;
   build: Build;
   bricks: Brick[];
@@ -13,7 +17,7 @@ type Props = {
 };
 
 /** Options for one setting. Recommended ones first; nothing is hidden or blocked. */
-export function OptionsSheet({ slot, build, bricks, byKey, onPick, onClose }: Props) {
+export function OptionsSheet({ projectId, onNewBrick, slot, build, bricks, byKey, onPick, onClose }: Props) {
   const ui = slotUi(slot);
   const cardinality = SLOT_CARDINALITY[slot];
   const current = build[slot];
@@ -50,6 +54,16 @@ export function OptionsSheet({ slot, build, bricks, byKey, onPick, onClose }: Pr
           <input type="checkbox" checked={applyDefaults} onChange={(e) => setApplyDefaults(e.target.checked)} className="accent-white" />
           Aplicar también sus colores, tipografía y animaciones
         </label>
+      )}
+      {slot === BrickSlot.Typography && (
+        <GoogleFontSearch
+          projectId={projectId}
+          current={(byKey.get(build.typography)?.payload as { family?: string } | undefined)?.family ?? ""}
+          onChosen={(b) => {
+            onNewBrick(b);
+            onPick(b.key);
+          }}
+        />
       )}
       <div className={`flex-1 overflow-y-auto px-3 pb-6 ${visual ? "grid auto-rows-min grid-cols-2 gap-1" : "flex flex-col gap-0.5"}`}>
         {cardinality === SlotCardinality.Optional && (

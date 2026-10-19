@@ -41,7 +41,7 @@ export class ProjectsController {
   @Post(":id/generate")
   generate(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: GenerateDto) {
     userOnly(user);
-    return this.generator.start(user.id, user.email, id, dto.instruction);
+    return this.generator.start(user.id, user.email, id, dto);
   }
 
   @Get(":id/generate")

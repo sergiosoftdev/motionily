@@ -28,6 +28,14 @@ export class ProjectApi {
     return this.call<Project>("PATCH", "", patch);
   }
 
+  /** Google Fonts catalog search (public endpoint). */
+  async fonts(q: string, category?: string) {
+    const url = `${this.baseUrl}/fonts?${new URLSearchParams({ q, ...(category ? { category } : {}) })}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`font search failed (${res.status})`);
+    return (await res.json()) as { family: string; category: string; weights: number[] }[];
+  }
+
   consumeFeedback() {
     return this.call<Feedback[]>("POST", "/feedback/consume");
   }

@@ -147,11 +147,18 @@ export function EditorScreen({ id }: { id: string }) {
     try {
       const p = await api.setSlot(id, slot, value, applyKitDefaults);
       setProject(p);
+      // A just-created option (e.g. a Google Font) may not be in our catalog yet.
+      let catalog = byKey;
+      if ([value].flat().some((k) => k && !byKey.has(k))) {
+        const fresh = await api.projectBricks(id);
+        setBricks(fresh);
+        catalog = new Map(fresh.map((b) => [b.key, b]));
+      }
       if (engineHost.ready) {
-        engineHost.setBuildOps(buildToOps(p.build, byKey, p.format));
+        engineHost.setBuildOps(buildToOps(p.build, catalog, p.format));
         agentBridge.sceneChanged();
       }
-      const names = [value].flat().filter(Boolean).map((k) => nameOf(k as string));
+      const names = [value].flat().filter(Boolean).map((k) => catalog.get(k as string)?.name ?? (k as string));
       logActivity(ActivitySource.User, `${slotUi(slot).label}: ${names.join(", ") || "vacío"}`);
       if (slot !== BrickSlot.Character && slot !== BrickSlot.Animation && slot !== BrickSlot.Transition) setOpenSlot(null);
     } catch (e) {
@@ -273,6 +280,8 @@ export function EditorScreen({ id }: { id: string }) {
           </div>
           {project && openSlot && (
             <OptionsSheet
+              projectId={id}
+              onNewBrick={(b) => setBricks((bs) => [...bs.filter((x) => x.key !== b.key), b])}
               slot={openSlot}
               build={project.build}
               bricks={bricks}

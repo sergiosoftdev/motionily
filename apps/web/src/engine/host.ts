@@ -115,8 +115,8 @@ class EngineHost {
   setBuildOps(ops: Op[]) {
     this.buildOps = ops;
     for (const op of ops) {
-      const family = (op.typography as { family?: string } | null | undefined)?.family;
-      if (family) void this.ensureFonts(family);
+      const t = op.typography as { family?: string; body?: number; heading?: number } | null | undefined;
+      if (t?.family) void this.ensureFonts(t.family, [t.body ?? 500, t.heading ?? 700]);
     }
     if (this.engine) this.applyOps(ops);
   }
@@ -130,8 +130,8 @@ class EngineHost {
 
   /** Every font file fetched so far, to hand to another engine (export). */
   async loadedFontFiles(): Promise<{ family: string; weight: number; bytes: Uint8Array }[]> {
-    const typo = (JSON.parse(this.require().sceneJson()) as { typography?: { family: string } | null }).typography;
-    const files = [...fontFilesFor(DEFAULT_FONT_FAMILY), ...(typo ? fontFilesFor(typo.family) : [])];
+    const typo = (JSON.parse(this.require().sceneJson()) as { typography?: { family: string; body: number; heading: number } | null }).typography;
+    const files = [...fontFilesFor(DEFAULT_FONT_FAMILY), ...(typo ? fontFilesFor(typo.family, [typo.body, typo.heading]) : [])];
     return Promise.all(
       files.map(async (f) => {
         let bytes = this.fontCache.get(f.url);
@@ -145,8 +145,8 @@ class EngineHost {
   }
 
   /** Fetch a family's font files once and register them in the engine, then redraw. */
-  async ensureFonts(family: string) {
-    const files = fontFilesFor(family).filter((f) => !this.loadedFonts.has(f.url));
+  async ensureFonts(family: string, weights?: number[]) {
+    const files = fontFilesFor(family, weights).filter((f) => !this.loadedFonts.has(f.url));
     if (files.length === 0) return;
     files.forEach((f) => this.loadedFonts.add(f.url));
     const engine = this.engine;

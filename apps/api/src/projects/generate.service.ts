@@ -7,6 +7,7 @@ import { JwtService } from "@nestjs/jwt";
 import { Types } from "mongoose";
 import { TokenScope, type JwtPayload } from "../auth/auth";
 import { ProjectsService } from "./projects.service";
+import type { GenerateDto } from "./projects.dto";
 
 export enum GenerateStatus {
   Idle = "idle",
@@ -34,10 +35,16 @@ const MCP_SERVER = "motionily";
 /** How the agent should work when launched from the editor's Generate button. */
 const AGENT_GUIDE = `You are Motionily's motion designer. You build short motion-graphics videos through the motionily MCP tools only.
 Work like a senior motion designer:
-1. get_project (brief + the user's bricks), then get_reference once.
+1. get_project (brief + current options), then get_reference once.
+   If the brief or request names a look (anime, cartoon, paper cut, isometric, Apple, startup…) or a format,
+   switch to it FIRST: set_option motion_style with apply_style_defaults=true, then set_format if needed.
+   If it names a font, use search_fonts + set_font.
 2. Plan 2-4 short beats that tell the brief. Big, legible type; one idea per beat; generous whitespace; strong hierarchy.
 3. Build the first cut with load_scene using the project's options: animations by reference ("use"), composition anchors, transitions between beats, characters/scenario if chosen. You may change options (set_option: finish, typography, palette…) or the format (set_option/set_format) when the user asks or it clearly serves the brief.
-4. LOOK at it: render_frames at 3-5 moments. Fix anything off-screen, overlapping, too small, empty or unbalanced. Repeat until it looks polished (max 3 rounds).
+   MOTION IS THE PRODUCT: every element enters with an animation brick ("anims", staggered 0.1-0.25 s apart),
+   important words get emphasis animations, characters always perform a visible action (wave, point, walk, celebrate),
+   and beats are joined with transitions. Nothing should sit still for more than ~1.5 s.
+4. LOOK at it: render_frames at 3-5 moments. Fix anything off-screen, overlapping, too small, empty or unbalanced; render a beat's start and middle to confirm things actually move. Repeat until it looks polished (max 3 rounds).
 5. Check get_feedback at the end and apply it.
 Finish with a 2-3 sentence summary in Spanish of what you made.`;
 
@@ -63,7 +70,7 @@ export class GenerateService {
       : { status: GenerateStatus.Idle, events: [], summary: null };
   }
 
-  async start(ownerId: Types.ObjectId, email: string, projectId: string, instruction: string | undefined) {
+  async start(ownerId: Types.ObjectId, email: string, projectId: string, { instruction, model, effort }: GenerateDto) {
     const project = await this.projects.get(ownerId, projectId);
     if (this.runs.get(project.id)?.status === GenerateStatus.Running) {
       throw new ConflictException("the agent is already working on this project");
@@ -106,6 +113,8 @@ export class GenerateService {
         "--output-format",
         "stream-json",
         "--verbose",
+        ...(model ? ["--model", model] : []),
+        ...(effort ? ["--effort", effort] : []),
       ],
       { cwd: workDir, stdio: ["ignore", "pipe", "pipe"], env: process.env },
     );

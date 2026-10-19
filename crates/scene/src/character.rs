@@ -183,12 +183,16 @@ fn limb(from: [f32; 2], angles: [f32; 2], lens: [f32; 2], facing: f32) -> ([f32;
     (mid, [mid[0] + d2[0] * lens[1], mid[1] + d2[1] * lens[1]])
 }
 
+/// Warm skin tone for characters with faces (chibi); stickmen stay ink-colored.
+const SKIN: Rgba = Rgba([0.96, 0.8, 0.68, 1.0]);
+
 /// Draw a character standing on `feet` (bottom center), `height` px tall, at time `t`.
 pub fn draw_character(spec: &CharacterSpec, feet: [f32; 2], height: f32, t: f32, opacity: f32, p: &Palette) -> Vec<DrawItem> {
     let pose = pose(spec.action, t);
     let f = if spec.facing < 0.0 { -1.0 } else { 1.0 };
     let o = outfit_colors(spec, p);
-    let skin = alpha(p.text, opacity);
+    let has_face = spec.character == CharacterKind::Chibi;
+    let skin = alpha(if has_face { SKIN } else { p.text }, opacity);
     let mut out = Vec::new();
 
     if spec.character == CharacterKind::Blob {
@@ -242,11 +246,12 @@ pub fn draw_character(spec: &CharacterSpec, feet: [f32; 2], height: f32, t: f32,
 
     // Head and hair.
     let hair = alpha(spec.hair_color.resolve(p), opacity);
-    if spec.hair == Hair::Long {
+    let hair_style = if chibi && spec.hair == Hair::None { Hair::Short } else { spec.hair };
+    if hair_style == Hair::Long {
         out.push(DrawItem::Shape(DrawShape { center: [head[0] - head_r * 0.25 * f, head[1] + head_r * 0.35], size: [head_r * 2.1, head_r * 2.4], radius: head_r, rotation: 0.0, color: hair }));
     }
     out.push(blob(head, [head_r * 2.0, head_r * 2.0], skin));
-    match spec.hair {
+    match hair_style {
         Hair::None => {}
         Hair::Short | Hair::Long => {
             out.push(DrawItem::Shape(DrawShape { center: [head[0] - head_r * 0.1 * f, head[1] - head_r * 0.55], size: [head_r * 2.15, head_r * 1.05], radius: head_r * 0.52, rotation: -0.12 * f, color: hair }));
@@ -257,9 +262,12 @@ pub fn draw_character(spec: &CharacterSpec, feet: [f32; 2], height: f32, t: f32,
         }
     }
     if chibi {
-        // Big friendly eyes.
-        for side in [-0.35, 0.35] {
-            out.push(blob([head[0] + (side + 0.25 * f) * head_r, head[1] + head_r * 0.15], [head_r * 0.28, head_r * 0.38], alpha(p.surface, opacity)));
+        // Big anime eyes with a highlight, and a small blush.
+        for side in [-0.38, 0.38] {
+            let eye = [head[0] + (side + 0.22 * f) * head_r, head[1] + head_r * 0.12];
+            out.push(blob(eye, [head_r * 0.26, head_r * 0.4], alpha(p.text, opacity)));
+            out.push(blob([eye[0] + head_r * 0.05, eye[1] - head_r * 0.1], [head_r * 0.1, head_r * 0.12], alpha(p.surface, opacity)));
+            out.push(blob([eye[0], eye[1] + head_r * 0.32], [head_r * 0.22, head_r * 0.08], alpha(darker(p.accent, 1.0), opacity * 0.45)));
         }
     }
 

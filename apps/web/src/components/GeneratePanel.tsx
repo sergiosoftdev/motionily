@@ -12,6 +12,34 @@ export type GenerateState = {
 };
 
 const POLL_MS = 1500;
+const PREFS_KEY = "motionily.agent";
+
+export const AgentModel = { Fable: "fable", Opus: "opus", Sonnet: "sonnet", Haiku: "haiku" } as const;
+export type AgentModel = (typeof AgentModel)[keyof typeof AgentModel];
+export const AgentEffort = { Low: "low", Medium: "medium", High: "high", XHigh: "xhigh", Max: "max" } as const;
+export type AgentEffort = (typeof AgentEffort)[keyof typeof AgentEffort];
+export type AgentPrefs = { model: AgentModel; effort: AgentEffort };
+
+const MODEL_LABEL: Record<AgentModel, string> = { fable: "Fable", opus: "Opus", sonnet: "Sonnet", haiku: "Haiku" };
+const EFFORT_LABEL: Record<AgentEffort, string> = { low: "Bajo", medium: "Medio", high: "Alto", xhigh: "Muy alto", max: "Máximo" };
+
+function loadPrefs(): AgentPrefs {
+  try {
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (raw) return JSON.parse(raw) as AgentPrefs;
+  } catch {
+    // Storage unavailable: defaults.
+  }
+  return { model: AgentModel.Opus, effort: AgentEffort.High };
+}
+
+function savePrefs(p: AgentPrefs) {
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify(p));
+  } catch {
+    // Not critical.
+  }
+}
 
 /** What each agent tool means, in the user's words. */
 const TOOL_LABEL: Record<string, string> = {
@@ -36,6 +64,12 @@ export function GeneratePanel({ projectId, hasScene }: { projectId: string; hasS
   const [state, setState] = useState<GenerateState | null>(null);
   const [instruction, setInstruction] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [prefs, setPrefs] = useState<AgentPrefs>(loadPrefs);
+  const updatePrefs = (p: Partial<AgentPrefs>) => {
+    const next = { ...prefs, ...p };
+    setPrefs(next);
+    savePrefs(next);
+  };
   const running = state?.status === GenerateStatus.Running;
 
   useEffect(() => {
@@ -52,7 +86,7 @@ export function GeneratePanel({ projectId, hasScene }: { projectId: string; hasS
   const start = async () => {
     setError(null);
     try {
-      setState(await api.generate(projectId, instruction));
+      setState(await api.generate(projectId, instruction, prefs));
       setInstruction("");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -72,6 +106,34 @@ export function GeneratePanel({ projectId, hasScene }: { projectId: string; hasS
           placeholder="Pide un cambio: «más ritmo», «título más grande»…"
           className="rounded-lg bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-white/40"
         />
+      )}
+      {!running && (
+        <div className="flex gap-2 text-xs">
+          <select
+            value={prefs.model}
+            onChange={(e) => updatePrefs({ model: e.target.value as AgentModel })}
+            aria-label="Modelo"
+            className="flex-1 rounded-lg bg-neutral-900 px-2 py-1.5 text-neutral-300 focus:outline-none"
+          >
+            {Object.values(AgentModel).map((m) => (
+              <option key={m} value={m}>
+                {MODEL_LABEL[m]}
+              </option>
+            ))}
+          </select>
+          <select
+            value={prefs.effort}
+            onChange={(e) => updatePrefs({ effort: e.target.value as AgentEffort })}
+            aria-label="Esfuerzo"
+            className="flex-1 rounded-lg bg-neutral-900 px-2 py-1.5 text-neutral-300 focus:outline-none"
+          >
+            {Object.values(AgentEffort).map((x) => (
+              <option key={x} value={x}>
+                Esfuerzo: {EFFORT_LABEL[x]}
+              </option>
+            ))}
+          </select>
+        </div>
       )}
       {running ? (
         <button

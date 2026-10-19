@@ -1,3 +1,5 @@
+import { API_URL } from "../api/client";
+
 /** Font files bundled in public/fonts (OFL), by family and weight. The engine renders text with these. */
 const FONT_FILES: Record<string, Record<number, string>> = {
   Inter: { 500: "Inter-500.ttf", 700: "Inter-700.ttf" },
@@ -12,8 +14,16 @@ export const DEFAULT_FONT_FAMILY = "Inter";
 
 export type FontFile = { family: string; weight: number; url: string };
 
-export function fontFilesFor(family: string): FontFile[] {
-  const files = FONT_FILES[family] ?? FONT_FILES[DEFAULT_FONT_FAMILY]!;
-  const resolved = FONT_FILES[family] ? family : DEFAULT_FONT_FAMILY;
-  return Object.entries(files).map(([w, file]) => ({ family: resolved, weight: Number(w), url: `/fonts/${file}` }));
+/**
+ * Files for a family: bundled ones when we ship them, otherwise any Google Font
+ * through the API (it converts to TTF and caches), at the weights the text uses.
+ */
+export function fontFilesFor(family: string, weights: number[] = [500, 700]): FontFile[] {
+  const bundled = FONT_FILES[family];
+  if (bundled) return Object.entries(bundled).map(([w, file]) => ({ family, weight: Number(w), url: `/fonts/${file}` }));
+  return [...new Set(weights)].map((weight) => ({
+    family,
+    weight,
+    url: `${API_URL}/fonts/file?${new URLSearchParams({ family, weight: String(weight) })}`,
+  }));
 }
