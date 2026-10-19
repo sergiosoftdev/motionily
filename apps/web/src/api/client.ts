@@ -17,7 +17,7 @@ export type PrefabSummary = { name: string; kind: PrefabKind; description: strin
 
 export type ConceptBeat = { at: string; what: string };
 export type Concept = { title: string; hook: string; direction: string; beats: ConceptBeat[]; voiceover: string; prompt: string };
-export type ConceptsRequest = { idea: string; format: VideoFormat; count: number; steer?: string; avoid?: string[]; model?: string; effort?: string; references?: string[] };
+export type ConceptsRequest = { idea: string; format: VideoFormat; count: number; steer?: string; avoid?: string[]; model?: string; effort?: string; references?: string[]; angle?: number };
 export type SoundRow = { name: string; category: string; description: string; duration: number; url: string; recipe: SoundRecipe };
 export type GoogleFont = { family: string; category: string; weights: number[]; popularity: number };
 

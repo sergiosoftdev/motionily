@@ -7,7 +7,7 @@ import { href, navigate, BrandTab, RouteName } from "../router";
 import { requestPipeline, VideoPipeline } from "../pipeline";
 import { ReferenceStrip, useReferences } from "../components/References";
 import { ModePicker } from "../components/ModePicker";
-import { AgentEffort, AgentModel, EFFORT_LABEL, loadPrefs, MODEL_LABEL, savePrefs, usageLine, type AgentPrefs } from "../components/GeneratePanel";
+import { AgentEffort, AgentModel, loadPrefs, savePrefs, type AgentPrefs } from "../components/GeneratePanel";
 
 const Step = {
   Idea: "idea",
@@ -69,6 +69,10 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
   const [count, setCount] = useState(3);
   const [concepts, setConcepts] = useState<Concept[]>([]);
   const [pitchCost, setPitchCost] = useState<string | null>(null);
+  /** Ideas still being written. */
+  const [pending, setPending] = useState(0);
+  /** Pitch with Opus (slower, deeper) instead of the quick Sonnet pass. */
+  const [deep, setDeep] = useState(false);
   const [seen, setSeen] = useState<string[]>([]);
   const [steer, setSteer] = useState("");
   const [chosen, setChosen] = useState<Concept | null>(null);
@@ -82,20 +86,40 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
   const [error, setError] = useState<string | null>(null);
   const back = href({ name: RouteName.Brand, id: brandId, tab: BrandTab.Videos });
 
+  /**
+   * One request per idea, all at once, each with its own angle: it takes as long as a single idea,
+   * and every card shows up as soon as it is ready.
+   */
   const pitch = async (again = false) => {
     setStep(Step.Thinking);
     setError(null);
-    try {
-      const { concepts: next, usage } = await api.concepts(brandId, { idea: fullIdea(), format, count, steer: again ? steer : undefined, avoid: again ? seen : undefined, references: refs.refs, model: prefs.model, effort: prefs.effort });
-      setConcepts(next);
-      setPitchCost(usage ? usageLine(usage) : null);
-      setSeen((s) => [...s, ...next.map((c) => c.title)]);
-      setSteer("");
-      setStep(Step.Pick);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setStep(Step.Count);
-    }
+    setConcepts([]);
+    setPending(count);
+    const agent = deep ? { model: AgentModel.Opus, effort: AgentEffort.Medium } : { model: AgentModel.Sonnet, effort: AgentEffort.Low };
+    const base = { idea: fullIdea(), format, count, steer: again ? steer : undefined, avoid: again ? seen : undefined, references: refs.refs, ...agent };
+    let cost = 0;
+    let failed = 0;
+    await Promise.all(
+      Array.from({ length: count }, (_, angle) =>
+        api
+          .concepts(brandId, { ...base, angle })
+          .then(({ concepts: [c], usage }) => {
+            cost += usage?.costUsd ?? 0;
+            if (!c) return;
+            setConcepts((cs) => [...cs, c]);
+            setSeen((s) => [...s, c.title]);
+            setStep(Step.Pick);
+          })
+          .catch((e: Error) => {
+            failed += 1;
+            setError(e.message);
+          })
+          .finally(() => setPending((n) => n - 1)),
+      ),
+    );
+    setPitchCost(cost ? `${cost.toFixed(2).replace(".", ",")} $` : null);
+    setSteer("");
+    if (failed === count) setStep(Step.Count);
   };
 
   const finish = async (voice: File | null) => {
@@ -209,7 +233,10 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
                 </button>
               ))}
             </div>
-            <AgentPicker prefs={prefs} onChange={updatePrefs} />
+            <label className="flex cursor-pointer items-center gap-3 text-sm text-neutral-400">
+              <input type="checkbox" checked={deep} onChange={(e) => setDeep(e.target.checked)} className="size-4 accent-white" />
+              Pensar más las ideas (Opus, más lento) — por defecto van rápidas (~20 s)
+            </label>
             {error && <p className="text-sm text-red-400">{error}</p>}
             <Next label={`Proponer ${count === 1 ? "una idea" : `${count} ideas`}`} onClick={() => void pitch()} />
           </Panel>
@@ -219,7 +246,7 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
 
         {step === Step.Pick && (
           <Panel key={`pick-${seen.length}`} kicker="Paso 4" title="Elige un enfoque" hint="Todas cuentan tu idea, cada una a su manera. Podrás retocar el guion en el siguiente paso.">
-            <div className={`grid gap-5 ${concepts.length > 1 ? "md:grid-cols-2" : ""} ${concepts.length > 4 ? "xl:grid-cols-3" : ""}`}>
+            <div className={`grid gap-5 ${count > 1 ? "md:grid-cols-2" : ""} ${count > 4 ? "xl:grid-cols-3" : ""}`}>
               {concepts.map((c, i) => (
                 <button
                   key={`${c.title}-${i}`}
@@ -241,6 +268,9 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
                         <span className="font-mono text-neutral-400">{b.at}</span> · {b.what}
                       </span>
                     ))}
+              {Array.from({ length: pending }, (_, i) => (
+                <ComposingCard key={`pending-${i}`} index={concepts.length + i} />
+              ))}
                   </span>
                   <span className="mt-auto pt-2 text-sm font-semibold text-white opacity-60 transition group-hover:opacity-100">Elegir esta →</span>
                 </button>
@@ -513,26 +543,3 @@ function VoiceDrop({ busy, onFile }: { busy: boolean; onFile: (f: File) => void 
   );
 }
 
-/** Which Claude model and effort the agent uses (shared with the editor's Generar). */
-function AgentPicker({ prefs, onChange, label = "Claude que pensará las ideas" }: { prefs: AgentPrefs; onChange: (p: Partial<AgentPrefs>) => void; label?: string }) {
-  const select = "rounded-xl bg-white/5 px-4 py-2.5 text-sm ring-1 ring-white/10 focus:outline-none focus:ring-white/30";
-  return (
-    <div className="flex flex-wrap items-center gap-3 text-sm text-neutral-400">
-      <span>{label}</span>
-      <select value={prefs.model} onChange={(e) => onChange({ model: e.target.value as AgentModel })} className={select} aria-label="Modelo">
-        {Object.values(AgentModel).map((m) => (
-          <option key={m} value={m}>
-            {MODEL_LABEL[m]}
-          </option>
-        ))}
-      </select>
-      <select value={prefs.effort} onChange={(e) => onChange({ effort: e.target.value as AgentEffort })} className={select} aria-label="Esfuerzo">
-        {Object.values(AgentEffort).map((x) => (
-          <option key={x} value={x}>
-            Esfuerzo: {EFFORT_LABEL[x]}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-}

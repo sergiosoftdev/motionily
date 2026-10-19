@@ -33,6 +33,8 @@ export class ConceptsRequestDto {
   @IsString() @MinLength(3) @MaxLength(4000) idea: string;
   @IsOptional() @IsEnum(VideoFormat) format?: VideoFormat;
   @IsInt() @Min(1) @Max(MAX_CONCEPTS) count: number;
+  /** When set, pitch only the concept for this angle (the client asks for each in parallel). */
+  @IsOptional() @IsInt() @Min(0) @Max(MAX_CONCEPTS - 1) angle?: number;
   /** "más humor", "menos texto"… applied to a new round. */
   @IsOptional() @IsString() @MaxLength(1000) steer?: string;
   /** Titles already shown, so a new round brings different ideas. */
@@ -42,6 +44,16 @@ export class ConceptsRequestDto {
   /** Reference images the user attached to the idea (media paths). */
   @IsOptional() @IsArray() @ArrayMaxSize(MAX_REFERENCES) @Matches(MEDIA_PATH, { each: true }) references?: string[];
 }
+
+/** Different directions so parallel pitches don't converge on the same idea. */
+const ANGLES = [
+  "humor: a relatable everyday situation told with comic timing",
+  "bold kinetic typography driven by the voice, punchy and rhythmic",
+  "the product in action: real screens/UI walked through step by step",
+  "data and proof: numbers, counters, before/after",
+  "a visual metaphor that carries the whole video",
+  "emotional micro-story of one person, from problem to relief",
+];
 
 type BrandContext = { name: string; notes: string; palettes: unknown[]; assets: { kind: string; name: string; description: string }[] };
 
@@ -78,23 +90,32 @@ export class ConceptsService {
       ...brand.assets.map((a) => `Asset (${a.kind}) "${a.name}": ${a.description || "no description"}`),
     ].filter(Boolean);
     const prompt = [
+      ...(dto.angle !== undefined
+        ? [
+            `MANDATORY ANGLE for this concept: ${ANGLES[dto.angle % ANGLES.length]}.`,
+            "Title, hook, structure, visuals and script must all come from this angle; other writers cover the other angles, so do not fall back to the obvious take.",
+          ]
+        : []),
       `Idea: ${dto.idea.trim()}`,
       `Format: ${dto.format ?? VideoFormat.Vertical}`,
       dto.steer?.trim() && `Steer this round: ${dto.steer.trim()}`,
       dto.avoid?.length && `Already pitched (bring different ones): ${dto.avoid.join(" | ")}`,
       ...kit,
       dto.references?.length && `The user attached ${dto.references.length} reference image(s): ${dto.references.map((_, i) => `ref-${i + 1}${extname(dto.references![i]!)}`).join(", ")} in the current folder. Read each one first and let them shape the concepts.`,
-      `Give exactly ${dto.count} concept(s).`,
+      dto.angle !== undefined
+        ? "Give exactly 1 concept."
+        : `Give exactly ${dto.count} concept(s), each with a different angle among: ${ANGLES.slice(0, dto.count).join(" | ")}.`,
     ]
       .filter(Boolean)
       .join("\n");
+    // Pitches should feel quick: Sonnet with low effort unless the user asks to think more.
     const model = dto.model ?? AgentModel.Sonnet;
     const effort = dto.effort ?? AgentEffort.Low;
     const { text: out, usage } = await this.run(prompt, model, effort, dto.references ?? []);
     const json = out.slice(out.indexOf("{"), out.lastIndexOf("}") + 1);
     try {
       const concepts = (JSON.parse(json) as { concepts: ConceptDto[] }).concepts;
-      return { concepts: concepts.slice(0, dto.count), usage: usage && usageFrom(usage, "pitch", model, effort) };
+      return { concepts: concepts.slice(0, dto.angle !== undefined ? 1 : dto.count), usage: usage && usageFrom(usage, "pitch", model, effort) };
     } catch {
       throw new BadGatewayException("the agent did not return valid concepts; try again");
     }
@@ -108,7 +129,8 @@ export class ConceptsService {
     return new Promise((resolve, reject) => {
       const child = spawn(
         process.env.CLAUDE_BIN ?? "claude",
-        ["-p", prompt, "--append-system-prompt", SYSTEM, "--strict-mcp-config", "--allowedTools", references.length ? "Read" : "", "--output-format", "json", "--model", model, "--effort", effort],
+        // Own lean system prompt: Claude Code's default one is ~20k tokens of coding instructions.
+        ["-p", prompt, "--system-prompt", SYSTEM, "--tools", references.length ? "Read" : "", "--strict-mcp-config", "--allowedTools", references.length ? "Read" : "", "--output-format", "json", "--model", model, "--effort", effort],
         { cwd, stdio: ["ignore", "pipe", "pipe"], env: process.env },
       );
       let out = "";
