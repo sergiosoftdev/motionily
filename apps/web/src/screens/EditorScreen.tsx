@@ -20,6 +20,8 @@ import { Timeline } from "../timeline/Timeline";
 import { SelectionOverlay } from "../timeline/SelectionOverlay";
 
 const SAVE_DEBOUNCE_MS = 800;
+/** Widest the preview gets, like a video player rather than a full-bleed canvas. */
+const PREVIEW_MAX_WIDTH = 960;
 
 const SidebarTab = { Video: "video", Feedback: "feedback" } as const;
 type SidebarTab = (typeof SidebarTab)[keyof typeof SidebarTab];
@@ -79,6 +81,25 @@ export function EditorScreen({ id }: { id: string }) {
   const engineError = useEditor((s) => s.engineError);
   const agentConnected = useEditor((s) => s.agentConnected);
   const [sceneW, sceneH] = useEditor((s) => s.sceneSize);
+  const stage = useRef<HTMLDivElement>(null);
+  const [preview, setPreview] = useState<{ width: number; height: number } | null>(null);
+
+  // Fit the frame inside the stage keeping its exact aspect ratio (CSS alone stretches it
+  // when both width and height are constrained). Wide formats stop at a player-like width.
+  useEffect(() => {
+    const el = stage.current;
+    if (!el) return;
+    const fit = () => {
+      const maxW = Math.min(el.clientWidth, PREVIEW_MAX_WIDTH);
+      const maxH = el.clientHeight;
+      const k = Math.min(maxW / sceneW, maxH / sceneH);
+      setPreview({ width: Math.floor(sceneW * k), height: Math.floor(sceneH * k) });
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [sceneW, sceneH]);
 
   const byKey = useMemo(() => new Map(bricks.map((b) => [b.key, b])), [bricks]);
   const nameOf = useCallback((key: string) => byKey.get(key)?.name ?? key, [byKey]);
@@ -214,11 +235,11 @@ export function EditorScreen({ id }: { id: string }) {
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-4">
-          <div className="relative flex min-h-0 w-full flex-1 items-center justify-center">
+          <div ref={stage} className="relative flex min-h-0 w-full flex-1 items-center justify-center">
             <canvas
               ref={canvasRef}
-              style={{ aspectRatio: `${sceneW} / ${sceneH}` }}
-              className={`max-h-full max-w-full rounded-xl shadow-2xl shadow-black/50 ${sceneW > sceneH ? "w-full" : "h-full"}`}
+              style={preview ?? { visibility: "hidden" }}
+              className="rounded-xl shadow-2xl shadow-black/50"
             />
             <SelectionOverlay canvas={canvasRef} projectId={id} />
             {status === EngineStatus.Loading && !error && <p className="absolute text-sm text-neutral-400">Arrancando motor…</p>}
