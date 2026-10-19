@@ -65,6 +65,7 @@ export function OptionsSheet({ projectId, onNewBrick, slot, build, bricks, byKey
           }}
         />
       )}
+      {slot !== BrickSlot.Typography && (
       <div className={`flex-1 overflow-y-auto px-3 pb-6 ${visual ? "grid auto-rows-min grid-cols-2 gap-1" : "flex flex-col gap-0.5"}`}>
         {cardinality === SlotCardinality.Optional && (
           <button
@@ -83,6 +84,7 @@ export function OptionsSheet({ projectId, onNewBrick, slot, build, bricks, byKey
           ),
         )}
       </div>
+      )}
     </div>
   );
 }

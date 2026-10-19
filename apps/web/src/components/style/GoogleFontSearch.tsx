@@ -52,7 +52,7 @@ export function GoogleFontSearch({ projectId, current, onChosen }: { projectId: 
   };
 
   return (
-    <div className="flex flex-col gap-2 px-2 pb-3">
+    <div className="flex min-h-0 flex-1 flex-col gap-2 px-2 pb-3">
       <input
         value={q}
         onChange={(e) => setQ(e.target.value)}
@@ -71,7 +71,7 @@ export function GoogleFontSearch({ projectId, current, onChosen }: { projectId: 
           </button>
         ))}
       </div>
-      <div className="flex max-h-72 flex-col overflow-y-auto">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {fonts.map((f) => (
           <button
             key={f.family}
