@@ -1,0 +1,79 @@
+// Per-layer effects on offscreen textures (premultiplied alpha): separable gaussian blur, and a
+// composite that puts a layer (or its shadow / glow) back on the scene, through a track matte.
+
+struct Params {
+    // Blur: texel step direction (x, y), sigma in texels, unused.
+    // Composite: mode (0 layer, 1 shadow, 2 glow), matte mode (0 none, 1 alpha, 2 inverted), strength, use color.
+    a: vec4<f32>,
+    // Composite: uv offset (shadow), unused, unused.
+    b: vec4<f32>,
+    // Composite: tint color (straight alpha).
+    color: vec4<f32>,
+    _pad: vec4<f32>,
+};
+
+@group(0) @binding(0) var src: texture_2d<f32>;
+@group(0) @binding(1) var matte: texture_2d<f32>;
+@group(0) @binding(2) var samp: sampler;
+@group(0) @binding(3) var<uniform> p: Params;
+
+struct VsOut {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+};
+
+@vertex
+fn vs(@builtin(vertex_index) vi: u32) -> VsOut {
+    // One triangle covering the screen.
+    let xy = vec2(f32((vi << 1u) & 2u), f32(vi & 2u));
+    var o: VsOut;
+    o.pos = vec4(xy * 2.0 - 1.0, 0.0, 1.0);
+    o.uv = vec2(xy.x, 1.0 - xy.y);
+    return o;
+}
+
+const TAPS: i32 = 16;
+
+@fragment
+fn fs_blur(in: VsOut) -> @location(0) vec4<f32> {
+    let sigma = max(p.a.z, 0.01);
+    // Spread the taps over ±3 sigma; bilinear filtering fills the gaps for large blurs.
+    let step = max(1.0, 3.0 * sigma / f32(TAPS));
+    let dir = p.a.xy * step;
+    var acc = vec4(0.0);
+    var wsum = 0.0;
+    for (var i = -TAPS; i <= TAPS; i++) {
+        let x = f32(i) * step;
+        let w = exp(-0.5 * x * x / (sigma * sigma));
+        acc += textureSampleLevel(src, samp, in.uv + dir * f32(i), 0.0) * w;
+        wsum += w;
+    }
+    return acc / wsum;
+}
+
+@fragment
+fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
+    let mode = i32(p.a.x + 0.5);
+    let matte_mode = i32(p.a.y + 0.5);
+    let uv = in.uv - p.b.xy;
+    var c = textureSampleLevel(src, samp, uv, 0.0);
+    if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) {
+        c = vec4(0.0);
+    }
+    if (mode == 1) {
+        // Shadow: the layer's alpha tinted.
+        let a = c.a * p.color.a;
+        c = vec4(p.color.rgb * a, a);
+    } else if (mode == 2) {
+        // Glow: the blurred layer (or tint) boosted; drawn with additive blending.
+        if (p.a.w > 0.5) {
+            c = vec4(p.color.rgb * c.a, c.a);
+        }
+        c = c * p.a.z;
+    }
+    if (matte_mode > 0) {
+        let m = textureSampleLevel(matte, samp, in.uv, 0.0).a;
+        c = c * select(m, 1.0 - m, matte_mode == 2);
+    }
+    return c;
+}

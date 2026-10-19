@@ -53,6 +53,12 @@ pub struct TextSpan {
 /// One block of text for one frame, in scene pixels. The engine lays it out.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DrawText {
+    /// Gradient across the text block (replaces span colors' RGB, keeps their alpha).
+    pub gradient: Option<crate::paint::DrawGradient>,
+    /// Per-character / word / line animation.
+    pub animator: Option<crate::paint::DrawTextAnim>,
+    /// Extra space between letters, in pixels.
+    pub letter_spacing: f32,
     pub spans: Vec<TextSpan>,
     /// Font size in scene pixels.
     pub size: f32,
@@ -194,6 +200,9 @@ pub(crate) fn caption_frame(scene: &Scene, palette: &Palette, t: f32) -> Option<
             .collect(),
     };
     Some(DrawText {
+        gradient: None,
+        animator: None,
+        letter_spacing: 0.0,
         spans,
         size: CAPTION_SIZE,
         weight: typo.heading,

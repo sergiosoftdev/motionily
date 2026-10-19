@@ -45,7 +45,7 @@ fn quad(points: [[f32; 2]; 4], color: Rgba) -> DrawItem {
 }
 
 fn rect(x: f32, y: f32, w: f32, h: f32, radius: f32, color: Rgba) -> DrawItem {
-    DrawItem::Shape(DrawShape { center: [x + w / 2.0, y + h / 2.0], size: [w, h], radius, rotation: 0.0, color })
+    DrawItem::Shape(DrawShape { center: [x + w / 2.0, y + h / 2.0], size: [w, h], radius, rotation: 0.0, color, style: Default::default() })
 }
 
 /// Isometric projection: world (x, y on the ground, z up) to screen, 30° axes.
@@ -83,7 +83,7 @@ pub fn draw_scenario(s: &Scenario, size: [f32; 2], t: f32, p: &Palette) -> Vec<D
         ScenarioKind::EmptyStudio => {
             // Infinite cyclorama: soft floor glow and a hint of the curve.
             out.push(rect(0.0, 0.0, w, h, 0.0, p.background));
-            out.push(DrawItem::Shape(DrawShape { center: [w / 2.0, h * 0.86], size: [w * 1.6, h * 0.5], radius: h * 0.25, rotation: 0.0, color: mix(p.background, p.surface, 0.6) }));
+            out.push(DrawItem::Shape(DrawShape { center: [w / 2.0, h * 0.86], size: [w * 1.6, h * 0.5], radius: h * 0.25, rotation: 0.0, color: mix(p.background, p.surface, 0.6), style: Default::default() }));
         }
         ScenarioKind::ClinicRoom => {
             let wall = mix(p.background, p.surface, 0.5);
@@ -99,7 +99,7 @@ pub fn draw_scenario(s: &Scenario, size: [f32; 2], t: f32, p: &Palette) -> Vec<D
             out.push(rect(w * 0.82, bed_y - h * 0.018, w * 0.1, h * 0.03, w * 0.015, p.surface));
             // Wall poster: body map.
             out.push(rect(w * 0.62, h * 0.14, w * 0.2, h * 0.26, w * 0.008, p.surface));
-            out.push(DrawItem::Shape(DrawShape { center: [w * 0.72, h * 0.2], size: [w * 0.05, w * 0.05], radius: w * 0.025, rotation: 0.0, color: shade(p.primary, 0.9) }));
+            out.push(DrawItem::Shape(DrawShape { center: [w * 0.72, h * 0.2], size: [w * 0.05, w * 0.05], radius: w * 0.025, rotation: 0.0, color: shade(p.primary, 0.9), style: Default::default() }));
             out.push(rect(w * 0.705, h * 0.225, w * 0.03, h * 0.12, w * 0.015, shade(p.primary, 0.9)));
         }
         ScenarioKind::Office => {
@@ -114,7 +114,7 @@ pub fn draw_scenario(s: &Scenario, size: [f32; 2], t: f32, p: &Palette) -> Vec<D
             out.push(rect(w * 0.4, floor_y - h * 0.0, w * 0.02, h * 0.02, 0.0, p.text));
             out.push(rect(w * 0.8, floor_y - h * 0.02, w * 0.1, h * 0.09, w * 0.02, shade(p.accent, 0.8)));
             for (dx, dy, r) in [(0.82, -0.08, 0.05), (0.88, -0.1, 0.045), (0.85, -0.13, 0.04)] {
-                out.push(DrawItem::Shape(DrawShape { center: [w * dx, floor_y + h * dy], size: [w * r * 2.0, w * r * 2.0], radius: w * r, rotation: 0.0, color: p.primary }));
+                out.push(DrawItem::Shape(DrawShape { center: [w * dx, floor_y + h * dy], size: [w * r * 2.0, w * r * 2.0], radius: w * r, rotation: 0.0, color: p.primary, style: Default::default() }));
             }
         }
         ScenarioKind::IsoCity => {

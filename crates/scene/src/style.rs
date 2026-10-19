@@ -88,6 +88,8 @@ pub enum PaletteSlot {
 pub enum ColorRef {
     Slot(PaletteSlot),
     Raw(Rgba),
+    /// "#rrggbb" or "#rrggbbaa".
+    Hex(HexColor),
 }
 
 impl Default for ColorRef {
@@ -99,7 +101,7 @@ impl Default for ColorRef {
 impl ColorRef {
     pub fn resolve(self, p: &Palette) -> Rgba {
         match self {
-            ColorRef::Raw(c) => c,
+            ColorRef::Raw(c) | ColorRef::Hex(HexColor(c)) => c,
             ColorRef::Slot(PaletteSlot::Background) => p.background,
             ColorRef::Slot(PaletteSlot::Surface) => p.surface,
             ColorRef::Slot(PaletteSlot::Primary) => p.primary,
@@ -131,8 +133,12 @@ pub struct HexColor(pub Rgba);
 
 impl Serialize for HexColor {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        let [r, g, b, _] = self.0 .0.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8);
-        s.serialize_str(&format!("#{r:02x}{g:02x}{b:02x}"))
+        let [r, g, b, a] = self.0 .0.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8);
+        if a == 255 {
+            s.serialize_str(&format!("#{r:02x}{g:02x}{b:02x}"))
+        } else {
+            s.serialize_str(&format!("#{r:02x}{g:02x}{b:02x}{a:02x}"))
+        }
     }
 }
 
@@ -140,11 +146,15 @@ impl<'de> Deserialize<'de> for HexColor {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let s = String::deserialize(d)?;
         let hex = s.strip_prefix('#').unwrap_or(&s);
-        if hex.len() != 6 {
-            return Err(serde::de::Error::custom(format!("expected #rrggbb, got '{s}'")));
+        if hex.len() != 6 && hex.len() != 8 {
+            return Err(serde::de::Error::custom(format!("expected #rrggbb or #rrggbbaa, got '{s}'")));
         }
-        let v = u32::from_str_radix(hex, 16).map_err(serde::de::Error::custom)?;
-        Ok(HexColor(Rgba::hex(v)))
+        let v = u32::from_str_radix(&hex[..6], 16).map_err(serde::de::Error::custom)?;
+        let mut c = Rgba::hex(v);
+        if hex.len() == 8 {
+            c.0[3] = u8::from_str_radix(&hex[6..], 16).map_err(serde::de::Error::custom)? as f32 / 255.0;
+        }
+        Ok(HexColor(c))
     }
 }
 

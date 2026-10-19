@@ -418,11 +418,14 @@ server.registerTool(
   {
     description:
       "LOOK at your work: small JPEG stills of the video at the given seconds (max 6). Use after every edit round to check layout, legibility, overlaps and that things are on screen; fix before telling the user it's done.",
-    inputSchema: { times: z.array(z.number().min(0)).min(1).max(6) },
+    inputSchema: {
+      times: z.array(z.number().min(0)).min(1).max(6),
+      width: z.number().int().min(360).max(1280).optional().describe("pixel width (default 360; up to 1280 to inspect detail — costs more)"),
+    },
   },
-  async ({ times }) => {
+  async ({ times, width }) => {
     try {
-      const res = await bridge.renderFrames(times);
+      const res = await bridge.renderFrames(times, width);
       if (!res.ok || !res.images?.length) return fail(res.error ?? "no frames");
       return {
         content: res.images.flatMap((url, i) => [

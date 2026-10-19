@@ -77,7 +77,7 @@ export type ServerMessage =
   | { type: typeof ServerMessageType.Attached; projectId: string }
   | { type: typeof ServerMessageType.Detached; projectId: string }
   | { type: typeof ServerMessageType.ProjectChanged; projectId: string }
-  | { type: typeof ServerMessageType.RenderFrames; requestId: string; projectId: string; times: number[] }
+  | { type: typeof ServerMessageType.RenderFrames; requestId: string; projectId: string; times: number[]; width?: number }
   | { type: typeof ServerMessageType.Review; requestId: string; projectId: string; frames: number };
 
 /** What the editor found when reviewing the whole video. */

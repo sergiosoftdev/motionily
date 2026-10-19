@@ -6,6 +6,9 @@
 //! change and makes undo, sync and feedback trivial.
 
 mod anim;
+pub mod expr;
+pub mod paint;
+pub mod path;
 mod character;
 mod scenario;
 mod stage;
@@ -19,7 +22,7 @@ mod text;
 mod transition;
 
 pub use anim::{Animated, Easing, Keyframe};
-pub use layer::{AnimRef, Bounds, DrawImage, DrawItem, DrawShape, EvalCtx, ImageFit, Layer, LayerContent, Shape};
+pub use layer::{Xform, PathData, AnimRef, Bounds, DrawImage, DrawItem, DrawShape, EvalCtx, ImageFit, Layer, LayerContent, Shape};
 pub use library::{AnimProp, AnimTemplate, Library, TemplateKey, TransitionKind, TransitionTemplate};
 pub use text::{AudioTrack, Captions, DrawText, TextAlign, TextRole, TextSpan, Typography, Word};
 pub use transition::TransitionRef;
@@ -33,6 +36,9 @@ pub use style::{RenderKind, RenderStyle, CaptionStyle, ColorRef, CustomPalette, 
 
 use serde::{Deserialize, Serialize};
 use std::fmt::Write;
+
+/// Parent chains deeper than this are cut (and cycles end there).
+const MAX_PARENT_DEPTH: u8 = 8;
 
 pub const SCENE_VERSION: u32 = 1;
 
@@ -169,15 +175,75 @@ impl Scene {
             .filter(|_| self.stage.is_none())
             .map(|s| draw_scenario(&s, ctx.scene_size, t, &palette))
             .unwrap_or_default());
-        items.extend(
-            self.layers
-                .iter()
-                .filter(|l| t >= l.start && t < l.end.unwrap_or(self.duration))
-                .filter_map(|l| l.draw(t - l.start, &ctx)),
-        );
+        expr::set_scene_time(t);
+        for l in self.layers.iter().filter(|l| l.visible && self.active(l, t)) {
+            let mut drawn = self.layer_items(l, t, &ctx);
+            if drawn.is_empty() {
+                continue;
+            }
+            let needs_fx = !l.effects.is_empty() || l.blend != paint::BlendMode::Normal || l.matte.is_some();
+            if needs_fx {
+                let lt = t - l.start;
+                let matte = l.matte.as_ref().and_then(|m| {
+                    let src = self.layers.iter().find(|x| x.id == m.layer)?;
+                    Some((if self.active(src, t) { self.layer_items(src, t, &ctx) } else { Vec::new() }, m.mode))
+                });
+                items.push(DrawItem::Fx(Box::new(paint::DrawFx {
+                    items: std::mem::take(&mut drawn),
+                    effects: l.effects.iter().map(|e| e.resolve(lt, &palette)).collect(),
+                    blend: l.blend,
+                    matte,
+                })));
+            } else {
+                items.append(&mut drawn);
+            }
+        }
         items.extend(text::caption_frame(self, &palette, t).map(DrawItem::Text));
         transition::apply(self, &palette, t, &mut items);
         items
+    }
+
+    fn active(&self, l: &Layer, t: f32) -> bool {
+        t >= l.start && t < l.end.unwrap_or(self.duration)
+    }
+
+    /// World transform a layer's `parent` chain gives it at scene time `t`.
+    fn parent_xform(&self, l: &Layer, t: f32, ctx: &EvalCtx, depth: u8) -> Xform {
+        let Some(pid) = &l.parent else { return Xform::default() };
+        let Some(p) = self.layers.iter().find(|x| &x.id == pid) else { return Xform::default() };
+        if depth > MAX_PARENT_DEPTH || p.id == l.id {
+            return Xform::default();
+        }
+        let up = self.parent_xform(p, t, ctx, depth + 1);
+        p.world(t - p.start, ctx, &up)
+    }
+
+    /// One layer's draw items at scene time `t`: all its repeater copies, inside its parent chain.
+    fn layer_items(&self, l: &Layer, t: f32, ctx: &EvalCtx) -> Vec<DrawItem> {
+        let lt = t - l.start;
+        let base = self.parent_xform(l, t, ctx, 0);
+        let Some(rep) = &l.repeat else {
+            return expr::with_vars(t, 0.0, 1.0, || l.draw_in(lt, ctx, &base)).into_iter().collect();
+        };
+        let n = rep.count.min(paint::MAX_REPEAT);
+        (0..n)
+            .filter_map(|i| {
+                let lt_i = lt - rep.delay * i as f32;
+                if lt_i < 0.0 {
+                    return None;
+                }
+                let (col, row) = rep.columns.filter(|c| *c > 0).map_or((i as f32, i as f32), |c| ((i % c) as f32, (i / c) as f32));
+                let offset = if rep.columns.is_some() { [col * rep.x, row * rep.y] } else { [i as f32 * rep.x, i as f32 * rep.y] };
+                let xf = Xform {
+                    offset,
+                    spin: (rep.rotation * i as f32).to_radians(),
+                    grow: rep.scale.powi(i as i32),
+                    opacity: base.opacity * rep.opacity.powi(i as i32),
+                    ..base
+                };
+                expr::with_vars(t, i as f32, n as f32, || l.draw_in(lt_i, ctx, &xf))
+            })
+            .collect()
     }
 
     /// Id of the top-most layer under scene point `(x, y)` at time `t`, for click-to-select.
@@ -363,24 +429,7 @@ mod tests {
     #[test]
     fn layers_outside_their_range_are_hidden() {
         let mut scene = Scene::default();
-        scene.layers.push(Layer {
-            id: "a".into(),
-            content: LayerContent::Shape { shape: Shape::Rect },
-            start: 1.0,
-            end: Some(2.0),
-            fill: ColorRef::default(),
-            anchor: None,
-            group: None,
-            x: 0.0.into(),
-            y: 0.0.into(),
-            w: 10.0.into(),
-            h: 10.0.into(),
-            scale: 1.0.into(),
-            rotation: Animated::default(),
-            opacity: 1.0.into(),
-            radius: Animated::default(),
-            anims: Vec::new(),
-        });
+        scene.layers.push(serde_json::from_str(r#"{"id":"a","type":"shape","shape":"rect","start":1,"end":2,"w":10,"h":10}"#).unwrap());
         assert!(scene.frame(0.5).is_empty());
         assert_eq!(scene.frame(1.5).len(), 1);
         assert!(scene.frame(2.0).is_empty());

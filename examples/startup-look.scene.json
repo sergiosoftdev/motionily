@@ -1,0 +1,55 @@
+{
+  "width": 1920, "height": 1080, "fps": 30, "duration": 8,
+  "palette": { "background": "#fbf7fb", "surface": "#ffffff", "primary": "#ff4d6d", "accent": "#ffb347", "text": "#0f1733" },
+  "layers": [
+    { "id": "bg_pink", "type": "shape", "shape": "ellipse", "x": "420 + 60*sin(t*0.6)", "y": "260 + 40*cos(t*0.5)", "w": 1100, "h": 900, "fill": "#f7b9e0", "soft": 260, "opacity": 0.85 },
+    { "id": "bg_peach", "type": "shape", "shape": "ellipse", "x": "1500 + 70*cos(t*0.45)", "y": "300 + 50*sin(t*0.7)", "w": 1100, "h": 900, "fill": "#ffd8b0", "soft": 280, "opacity": 0.9 },
+    { "id": "bg_cyan", "type": "shape", "shape": "ellipse", "x": "300 + 50*sin(t*0.4)", "y": "900", "w": 900, "h": 700, "fill": "#bfe9ff", "soft": 260, "opacity": 0.7 },
+    { "id": "bg_yellow", "type": "shape", "shape": "ellipse", "x": "1650", "y": "1000 + 40*sin(t*0.8)", "w": 1000, "h": 700, "fill": "#fff1a8", "soft": 260, "opacity": 0.8 },
+
+    { "id": "dots", "type": "shape", "shape": "ellipse", "start": 0, "x": 160, "y": 140, "w": 6, "h": 6, "fill": "#0f1733",
+      "opacity": "0.12 + 0.1*sin(T*2 + i*0.7)", "repeat": { "count": 60, "columns": 12, "x": 145, "y": 160 } },
+
+    { "id": "panel", "type": "shape", "shape": "rect", "start": 0.3, "x": 960, "y": 560, "w": 820, "h": 420, "radius": 32, "fill": "surface",
+      "scale": [{"t":0,"v":0.9,"ease":"expo_out"},{"t":0.8,"v":1}], "opacity": [{"t":0,"v":0},{"t":0.4,"v":1}],
+      "stroke": { "width": 2, "color": "#ffd0dd" },
+      "effects": [{ "fx": "shadow", "y": 30, "blur": 70, "color": "#ff6f91", "opacity": 0.35 }] },
+    { "id": "panel_title", "type": "text", "parent": "panel", "start": 0.6, "x": 0, "y": -150, "w": 700, "h": 60, "size": 34, "fill": "text", "text": "AI Ops Assistant",
+      "animate": { "by": "word", "stagger": 0.08, "from": { "y": 20, "opacity": 0 } } },
+    { "id": "panel_bubble", "type": "shape", "shape": "rect", "parent": "panel", "start": 0.9, "x": 60, "y": -40, "w": 600, "h": 110, "radius": 24,
+      "gradient": { "kind": "linear", "angle": 0, "stops": [[0, "#0d1b6e"], [1, "#2a3fb8"]] },
+      "scale": [{"t":0,"v":0.6,"bezier":[0.2,0.9,0.2,1]},{"t":0.6,"v":1}], "opacity": [{"t":0,"v":0},{"t":0.25,"v":1}] },
+    { "id": "panel_q", "type": "text", "parent": "panel", "start": 1.0, "x": 60, "y": -40, "w": 540, "h": 90, "size": 28, "fill": "#ffffff",
+      "text": "Which students are at risk this week?", "animate": { "by": "char", "stagger": 0.015, "duration": 0.3, "from": { "opacity": 0, "y": 8 } } },
+
+    { "id": "link_l", "type": "path", "start": 1.2, "x": 0, "y": 0, "d": "M 330 260 C 480 260 520 420 560 470",
+      "stroke": { "width": 3, "color": "#0f1733", "dash": [10, 10] }, "trim_end": [{"t":0,"v":0,"ease":"ease_out"},{"t":0.9,"v":1}] },
+    { "id": "link_r", "type": "path", "start": 1.4, "x": 0, "y": 0, "d": "M 1590 260 C 1440 260 1400 420 1360 470",
+      "stroke": { "width": 3, "color": "#0f1733", "dash": [10, 10] }, "trim_end": [{"t":0,"v":0,"ease":"ease_out"},{"t":0.9,"v":1}] },
+    { "id": "trail", "type": "path", "start": 1.8, "x": 0, "y": 0, "d": "M 560 470 C 600 520 640 560 700 560",
+      "stroke": { "width": 4, "color": "#ff8a5b" }, "trim_start": "max(0, (t-0.4)*1.4)", "trim_end": "min(1, t*1.6)",
+      "effects": [{ "fx": "glow", "radius": 18, "strength": 1.6, "color": "#ff6f3c" }], "blend": "add" },
+
+    { "id": "app_l", "type": "shape", "shape": "rect", "start": 0.8, "x": 270, "y": 260, "w": 150, "h": 150, "radius": 34,
+      "gradient": { "kind": "linear", "angle": 90, "stops": [[0, "#1b2a6b"], [1, "#0a1033"]] },
+      "scale": [{"t":0,"v":0,"ease":"back"},{"t":0.5,"v":1}],
+      "effects": [{ "fx": "shadow", "y": 20, "blur": 40, "color": "#1b2a6b", "opacity": 0.35 }] },
+    { "id": "app_r", "type": "shape", "shape": "rect", "start": 1.0, "x": 1650, "y": 260, "w": 150, "h": 150, "radius": 34,
+      "gradient": { "kind": "linear", "angle": 90, "stops": [[0, "#1b2a6b"], [1, "#0a1033"]] },
+      "scale": [{"t":0,"v":0,"ease":"back"},{"t":0.5,"v":1}],
+      "effects": [{ "fx": "shadow", "y": 20, "blur": 40, "color": "#1b2a6b", "opacity": 0.35 }] },
+    { "id": "app_l_icon", "type": "path", "parent": "app_l", "start": 1.1, "d": "M -34 -10 L 0 -30 L 34 -10 L 0 10 Z M -22 0 L -22 22 L 22 22 L 22 0",
+      "filled": true, "fill": "#ffffff", "stroke": { "width": 3, "color": "#ffffff" }, "trim_end": [{"t":0,"v":0},{"t":0.6,"v":1,"ease":"ease_out"}] },
+
+    { "id": "reveal_mask", "type": "shape", "shape": "rect", "start": 3.6, "visible": false, "x": [{"t":0,"v":360,"ease":"expo_out"},{"t":1.2,"v":960}], "y": 900, "w": [{"t":0,"v":0,"ease":"expo_out"},{"t":1.2,"v":1500}], "h": 200 },
+    { "id": "headline", "type": "text", "start": 3.6, "x": 960, "y": 900, "w": 1500, "h": 180, "size": 140, "role": "heading", "letter_spacing": -4,
+      "text": "is the problem", "fill": "text",
+      "gradient": { "kind": "linear", "angle": 0, "stops": [[0, "#0f1733"], [0.38, "#0f1733"], [0.45, "#ff3d5a"], [1, "#ffa23d"]] },
+      "matte": { "layer": "reveal_mask" },
+      "animate": { "by": "char", "stagger": 0.035, "duration": 0.6, "from": { "y": 70, "opacity": 0, "scale": 0.8 } } },
+
+    { "id": "pill", "type": "shape", "shape": "rect", "start": 5.2, "x": "960 + wiggle(1.5, 6)", "y": 760, "w": 380, "h": 70, "radius": 35, "fill": "primary",
+      "scale": "spring(t, 2.2, 7)", "effects": [{ "fx": "glow", "radius": 30, "strength": 0.9 }] },
+    { "id": "pill_text", "type": "text", "parent": "pill", "start": 5.35, "x": 0, "y": 0, "w": 360, "h": 50, "size": 28, "fill": "#ffffff", "text": "Book your demo" }
+  ]
+}

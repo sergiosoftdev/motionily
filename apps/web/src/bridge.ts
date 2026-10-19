@@ -13,6 +13,10 @@ import { engineHost } from "./engine/host";
 import { useSession } from "./session";
 import { ActivitySource, logActivity, useEditor } from "./store";
 
+/** Frames the agent asks to see: small by default (cheap), up to this width for detail checks. */
+const MIN_FRAME_WIDTH = 360;
+const MAX_FRAME_WIDTH = 1280;
+
 const RECONNECT_MS = 2000;
 
 /**
@@ -92,7 +96,7 @@ class AgentBridge {
         return;
       }
       case ServerMessageType.RenderFrames: {
-        const images = engineHost.snapshots(msg.times.slice(0, 6));
+        const images = engineHost.snapshots(msg.times.slice(0, 6), Math.min(MAX_FRAME_WIDTH, Math.max(MIN_FRAME_WIDTH, msg.width ?? MIN_FRAME_WIDTH)));
         logActivity(ActivitySource.Agent, `Mira ${images.length} fotogramas`);
         this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, images });
         return;

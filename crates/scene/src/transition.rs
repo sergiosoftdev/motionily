@@ -34,7 +34,7 @@ pub(crate) fn apply(scene: &Scene, palette: &Palette, t: f32, items: &mut Vec<Dr
         // 0 at the start of the transition, 0.5 at the cut, 1 at the end.
         let p = (t - (tr.at - half)) / (2.0 * half);
         let full = |cx: f32, width: f32, color: Rgba| {
-            DrawItem::Shape(DrawShape { center: [cx, h / 2.0], size: [width, h * 1.2], radius: 0.0, rotation: 0.0, color })
+            DrawItem::Shape(DrawShape { center: [cx, h / 2.0], size: [width, h * 1.2], radius: 0.0, rotation: 0.0, color, style: Default::default() })
         };
         match template.kind {
             TransitionKind::ShapeWipe => {
@@ -92,6 +92,19 @@ impl DrawItem {
                 }
             }
             DrawItem::Group(items) => items.iter_mut().for_each(|i| i.scale_about(origin, s)),
+            DrawItem::Path(path) => {
+                let f = |p: &mut [f32; 2]| *p = [origin[0] + (p[0] - origin[0]) * s, origin[1] + (p[1] - origin[1]) * s];
+                path.lines.iter_mut().chain(path.fills.iter_mut()).flatten().for_each(f);
+                f(&mut path.bounds.0);
+                f(&mut path.bounds.1);
+                path.stroke = path.stroke.map(|(w, c)| (w * s, c));
+            }
+            DrawItem::Fx(fx) => {
+                fx.items.iter_mut().for_each(|i| i.scale_about(origin, s));
+                if let Some((m, _)) = &mut fx.matte {
+                    m.iter_mut().for_each(|i| i.scale_about(origin, s));
+                }
+            }
             // Zoom the 3D camera in: shrink the view distance.
             DrawItem::Stage(stage) => {
                 let c = &mut stage.camera;

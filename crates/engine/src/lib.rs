@@ -7,7 +7,9 @@
 //! `draw(pass, range)` for every consecutive run of that kind, so layer order is
 //! kept across kinds.
 
+mod fx;
 mod image;
+mod paths;
 mod polys;
 mod post;
 mod shapes;
@@ -17,6 +19,9 @@ mod three;
 use bytemuck::{Pod, Zeroable};
 use image::ImagePipeline;
 use polys::PolyPipeline;
+use fx::{FxParams, FxPass, Tex};
+use paths::PathPipeline;
+use scene::paint::{DrawEffect, DrawFx, DrawPath};
 use scene::{DrawImage, DrawItem, DrawPoly, DrawShape, DrawStage, DrawText, Scene};
 use post::{PostColors, PostPass};
 use shapes::ShapePipeline;
@@ -82,58 +87,95 @@ enum ItemKind {
     Text,
     Poly,
     Image,
+    Path,
 }
 
-/// The frame's items split per pipeline, plus the ordered runs that interleave them.
+/// A stretch of the frame: consecutive items of one kind, or a layer drawn offscreen.
+enum Run {
+    Items(ItemKind, Range<u32>),
+    Fx(FxRun),
+}
+
+struct FxRun {
+    runs: Vec<Run>,
+    matte: Option<(Vec<Run>, scene::paint::MatteMode)>,
+    effects: Vec<DrawEffect>,
+    blend: scene::paint::BlendMode,
+}
+
+/// The frame's items split per pipeline (uploaded once), plus the ordered runs that draw them.
 #[derive(Default)]
 struct Batches {
     shapes: Vec<DrawShape>,
     texts: Vec<DrawText>,
     polys: Vec<DrawPoly>,
     images: Vec<DrawImage>,
+    paths: Vec<DrawPath>,
     stage: Option<DrawStage>,
-    runs: Vec<(ItemKind, Range<u32>)>,
+    runs: Vec<Run>,
 }
 
 impl Batches {
     fn build(items: Vec<DrawItem>) -> Self {
         let mut b = Batches::default();
-        b.push_all(items);
+        let mut runs = Vec::new();
+        b.push_all(items, &mut runs, true);
+        b.runs = runs;
         b
     }
 
-    fn push_all(&mut self, items: Vec<DrawItem>) {
-        let b = self;
+    /// `top`: offscreen layers are only honored at the top level (nested ones draw plainly).
+    fn push_all(&mut self, items: Vec<DrawItem>, runs: &mut Vec<Run>, top: bool) {
         for item in items {
             let (kind, index) = match item {
                 DrawItem::Group(children) => {
-                    b.push_all(children);
+                    self.push_all(children, runs, top);
                     continue;
                 }
                 DrawItem::Stage(stage) => {
-                    b.stage = Some(stage);
+                    self.stage = Some(stage);
+                    continue;
+                }
+                DrawItem::Fx(fx) => {
+                    let DrawFx { items, effects, blend, matte } = *fx;
+                    if top {
+                        let mut inner = Vec::new();
+                        self.push_all(items, &mut inner, false);
+                        let matte = matte.map(|(m, mode)| {
+                            let mut mr = Vec::new();
+                            self.push_all(m, &mut mr, false);
+                            (mr, mode)
+                        });
+                        runs.push(Run::Fx(FxRun { runs: inner, matte, effects, blend }));
+                    } else {
+                        self.push_all(items, runs, false);
+                    }
                     continue;
                 }
                 DrawItem::Image(i) => {
-                    b.images.push(i);
-                    (ItemKind::Image, b.images.len() as u32 - 1)
+                    self.images.push(i);
+                    (ItemKind::Image, self.images.len() as u32 - 1)
                 }
                 DrawItem::Poly(p) => {
-                    b.polys.push(p);
-                    (ItemKind::Poly, b.polys.len() as u32 - 1)
+                    self.polys.push(p);
+                    (ItemKind::Poly, self.polys.len() as u32 - 1)
                 }
-                DrawItem::Shape(s) => {
-                    b.shapes.push(s);
-                    (ItemKind::Shape, b.shapes.len() as u32 - 1)
+                DrawItem::Shape(sh) => {
+                    self.shapes.push(sh);
+                    (ItemKind::Shape, self.shapes.len() as u32 - 1)
                 }
                 DrawItem::Text(t) => {
-                    b.texts.push(t);
-                    (ItemKind::Text, b.texts.len() as u32 - 1)
+                    self.texts.push(t);
+                    (ItemKind::Text, self.texts.len() as u32 - 1)
+                }
+                DrawItem::Path(p) => {
+                    self.paths.push(p);
+                    (ItemKind::Path, self.paths.len() as u32 - 1)
                 }
             };
-            match b.runs.last_mut() {
-                Some((k, r)) if *k == kind && r.end == index => r.end += 1,
-                _ => b.runs.push((kind, index..index + 1)),
+            match runs.last_mut() {
+                Some(Run::Items(k, r)) if *k == kind && r.end == index => r.end += 1,
+                _ => runs.push(Run::Items(kind, index..index + 1)),
             }
         }
     }
@@ -152,8 +194,10 @@ pub struct Renderer {
     text: TextPipeline,
     polys: PolyPipeline,
     images: ImagePipeline,
+    paths: PathPipeline,
     stage: StageRenderer,
     post: PostPass,
+    fx: FxPass,
     pub adapter_info: String,
 }
 
@@ -234,7 +278,9 @@ impl Renderer {
         let text = TextPipeline::new(&ctx);
         let polys = PolyPipeline::new(&ctx);
         let images = ImagePipeline::new(&ctx);
+        let paths = PathPipeline::new(&ctx);
         let post = PostPass::new(&device, config.format, config.width, config.height);
+        let fx = FxPass::new(&device, config.format, config.width, config.height);
         let stage = StageRenderer::new(&device, &queue, config.format, [config.width, config.height]);
 
         let info = adapter.get_info();
@@ -243,8 +289,10 @@ impl Renderer {
             text,
             polys,
             images,
+            paths,
             stage,
             post,
+            fx,
             device,
             queue,
             surface,
@@ -297,6 +345,7 @@ impl Renderer {
         self.config.height = height;
         self.surface.configure(&self.device, &self.config);
         self.post.resize(&self.device, width, height);
+        self.fx.resize(&self.device, width, height);
         self.stage.resize(&self.device, [width, height]);
     }
 
@@ -321,6 +370,7 @@ impl Renderer {
         self.text.prepare(&ctx, &batches.texts);
         self.polys.prepare(&ctx, &batches.polys);
         self.images.prepare(&ctx, &batches.images);
+        self.paths.prepare(&ctx, &batches.paths);
         self.stage.prepare(&self.device, &self.queue, batches.stage.as_ref(), scene.width as f32 / scene.height as f32, linearize > 0.5);
 
         let frame = match self.surface.get_current_texture() {
@@ -342,36 +392,172 @@ impl Renderer {
             shadow: to_surface(palette.text).map(|c| c * 0.35),
         };
 
+        // Plan every offscreen pass first: they share one uniform buffer written before submit.
+        let px_per_scene = self.config.width as f32 / scene.width.max(1) as f32;
+        let texel = [1.0 / self.config.width.max(1) as f32, 1.0 / self.config.height.max(1) as f32];
+        self.fx.begin();
+        let plans: Vec<Option<FxPlan>> = batches
+            .runs
+            .iter()
+            .map(|r| match r {
+                Run::Fx(f) => Some(plan_fx(&mut self.fx, f, px_per_scene, texel, scene.width as f32, scene.height as f32, linearize > 0.5)),
+                Run::Items(..) => None,
+            })
+            .collect();
+        self.fx.upload(&self.device, &self.queue);
+
         let mut encoder = self.device.create_command_encoder(&Default::default());
         // 3D stage first (with depth); 2D layers then draw on top of it.
         let drew_stage = self.stage.render(&mut encoder, self.post.target());
-        {
-            // Scene pass: transparent canvas; the post pass adds background and finish.
-            let load = if drew_stage { wgpu::LoadOp::Load } else { wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT) };
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        let mut cleared = drew_stage;
+        let mut i = 0;
+        while i < batches.runs.len() {
+            // A stretch of plain runs goes in one scene pass.
+            let j = batches.runs[i..].iter().position(|r| matches!(r, Run::Fx(_))).map_or(batches.runs.len(), |k| i + k);
+            if j > i || !cleared {
+                let load = if cleared { wgpu::LoadOp::Load } else { wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT) };
+                cleared = true;
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("scene"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: self.post.target(),
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations { load, store: wgpu::StoreOp::Store },
+                    })],
+                    ..Default::default()
+                });
+                pass.set_bind_group(0, &self.bind_group, &[]);
+                self.draw_runs(&mut pass, &batches.runs[i..j]);
+            }
+            if j < batches.runs.len() {
+                if let (Run::Fx(f), Some(plan)) = (&batches.runs[j], &plans[j]) {
+                    self.render_fx(&mut encoder, f, plan);
+                }
+                i = j + 1;
+            } else {
+                i = j;
+            }
+        }
+        if !cleared {
+            // Empty scene: still clear the target.
+            let _ = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("scene"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: self.post.target(),
                     depth_slice: None,
                     resolve_target: None,
-                    ops: wgpu::Operations { load, store: wgpu::StoreOp::Store },
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
                 })],
                 ..Default::default()
             });
-            pass.set_bind_group(0, &self.bind_group, &[]);
-            for (kind, range) in &batches.runs {
-                match kind {
-                    ItemKind::Shape => self.shapes.draw(&mut pass, range.clone()),
-                    ItemKind::Text => self.text.draw(&mut pass, range.clone()),
-                    ItemKind::Poly => self.polys.draw(&mut pass, range.clone()),
-                    ItemKind::Image => self.images.draw(&mut pass, range.clone()),
-                }
-            }
         }
         self.post.run(&self.queue, &mut encoder, &view, scene.render_style, &colors, scene.width as f32, t);
         self.queue.submit([encoder.finish()]);
         self.queue.present(frame);
     }
+}
+
+impl Renderer {
+    /// Draw plain runs (offscreen layers nested here draw their items plainly).
+    fn draw_runs(&self, pass: &mut wgpu::RenderPass<'_>, runs: &[Run]) {
+        for run in runs {
+            match run {
+                Run::Items(kind, range) => match kind {
+                    ItemKind::Shape => self.shapes.draw(pass, range.clone()),
+                    ItemKind::Text => self.text.draw(pass, range.clone()),
+                    ItemKind::Poly => self.polys.draw(pass, range.clone()),
+                    ItemKind::Image => self.images.draw(pass, range.clone()),
+                    ItemKind::Path => self.paths.draw(pass, range.clone()),
+                },
+                Run::Fx(f) => self.draw_runs(pass, &f.runs),
+            }
+        }
+    }
+
+    /// Draw `runs` into an offscreen texture (cleared first).
+    fn draw_offscreen(&self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView, runs: &[Run]) {
+        let mut pass = FxPass::clear_pass(encoder, view, "fx layer");
+        pass.set_bind_group(0, &self.bind_group, &[]);
+        self.draw_runs(&mut pass, runs);
+    }
+
+    fn render_fx(&self, encoder: &mut wgpu::CommandEncoder, f: &FxRun, plan: &FxPlan) {
+        self.draw_offscreen(encoder, &self.fx.layer, &f.runs);
+        if let Some((m, _)) = &f.matte {
+            self.draw_offscreen(encoder, &self.fx.matte, m);
+        }
+        // Blur effects change the layer itself.
+        for (h, v) in &plan.blurs {
+            self.fx.blur(encoder, Tex::Layer, &self.fx.temp, *h);
+            self.fx.blur(encoder, Tex::Temp, &self.fx.layer, *v);
+        }
+        let target = self.post.target();
+        for (h, v, comp) in &plan.shadows {
+            self.fx.blur(encoder, Tex::Layer, &self.fx.temp, *h);
+            self.fx.blur(encoder, Tex::Temp, &self.fx.copy, *v);
+            self.fx.composite(encoder, Tex::Copy, target, scene::paint::BlendMode::Normal, *comp);
+        }
+        self.fx.composite(encoder, Tex::Layer, target, f.blend, plan.layer);
+        for (h, v, comp) in &plan.glows {
+            self.fx.blur(encoder, Tex::Layer, &self.fx.temp, *h);
+            self.fx.blur(encoder, Tex::Temp, &self.fx.copy, *v);
+            self.fx.composite(encoder, Tex::Copy, target, scene::paint::BlendMode::Add, *comp);
+        }
+    }
+}
+
+/// Uniform offsets for every pass of one offscreen layer.
+struct FxPlan {
+    /// (horizontal, vertical) blur passes applied to the layer in place.
+    blurs: Vec<(u32, u32)>,
+    /// (h blur, v blur, composite) per shadow.
+    shadows: Vec<(u32, u32, u32)>,
+    layer: u32,
+    glows: Vec<(u32, u32, u32)>,
+}
+
+fn plan_fx(fx: &mut FxPass, f: &FxRun, px_per_scene: f32, texel: [f32; 2], scene_w: f32, scene_h: f32, linear: bool) -> FxPlan {
+    let matte = fx::matte_code(f.matte.as_ref().map(|(_, m)| *m));
+    let blur_pair = |fx: &mut FxPass, radius_scene: f32| {
+        // Radius ~ 2 sigma, in texels of the offscreen target.
+        let sigma = (radius_scene * px_per_scene / 2.0).max(0.01);
+        let h = fx.push(FxParams { a: [texel[0], 0.0, sigma, 0.0], ..Default::default() });
+        let v = fx.push(FxParams { a: [0.0, texel[1], sigma, 0.0], ..Default::default() });
+        (h, v)
+    };
+    let tint = |c: scene::Rgba| {
+        let [r, g, b, a] = c.0;
+        if linear { [srgb_to_linear(r), srgb_to_linear(g), srgb_to_linear(b), a] } else { [r, g, b, a] }
+    };
+    let mut plan = FxPlan { blurs: Vec::new(), shadows: Vec::new(), layer: 0, glows: Vec::new() };
+    for e in &f.effects {
+        match *e {
+            DrawEffect::Blur { radius } if radius > 0.0 => plan.blurs.push(blur_pair(fx, radius)),
+            DrawEffect::Shadow { offset, blur, color } => {
+                let (h, v) = blur_pair(fx, blur);
+                let comp = fx.push(FxParams {
+                    a: [1.0, matte, 1.0, 1.0],
+                    b: [offset[0] / scene_w, offset[1] / scene_h, 0.0, 0.0],
+                    color: tint(color),
+                    ..Default::default()
+                });
+                plan.shadows.push((h, v, comp));
+            }
+            DrawEffect::Glow { radius, strength, color } => {
+                let (h, v) = blur_pair(fx, radius);
+                let comp = fx.push(FxParams {
+                    a: [2.0, matte, strength, if color.is_some() { 1.0 } else { 0.0 }],
+                    color: color.map_or([1.0; 4], tint),
+                    ..Default::default()
+                });
+                plan.glows.push((h, v, comp));
+            }
+            DrawEffect::Blur { .. } => {}
+        }
+    }
+    plan.layer = fx.push(FxParams { a: [0.0, matte, 1.0, 0.0], ..Default::default() });
+    plan
 }
 
 fn srgb_to_linear(c: f32) -> f32 {

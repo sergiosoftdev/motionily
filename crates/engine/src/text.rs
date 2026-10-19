@@ -337,8 +337,11 @@ impl TextPipeline {
         let total: f32 = heights.iter().sum();
         let mut top = item.center[1] - total / 2.0;
         let pivot = item.center;
+        // (quad index, char, word, line) of every glyph, for gradients and text animators.
+        let mut glyphs: Vec<(usize, usize, usize, usize)> = Vec::new();
+        let (mut char_i, mut word_i) = (0usize, 0usize);
 
-        for (line, h) in lines.iter().zip(&heights) {
+        for (line_i, (line, h)) in lines.iter().zip(&heights).enumerate() {
             let line_w: f32 = line.iter().map(|w| w.width).sum::<f32>() + space * line.len().saturating_sub(1) as f32;
             let mut x = match item.align {
                 TextAlign::Left => item.center[0] - item.max_width / 2.0,
@@ -370,6 +373,7 @@ impl TextPipeline {
                     let Some(g) = self.glyph(queue, font, ch, px_q as u32) else { continue };
                     let m = g.metrics;
                     if m.width > 0 && m.height > 0 {
+                        glyphs.push((out.len(), char_i, word_i, line_i));
                         out.push(Quad {
                             pos: [pen + m.xmin as f32 * k, baseline - (m.height as f32 + m.ymin as f32) * k],
                             size: [m.width as f32 * k, m.height as f32 * k],
@@ -380,11 +384,19 @@ impl TextPipeline {
                             _pad: 0.0,
                         });
                     }
-                    pen += m.advance_width * k;
+                    pen += m.advance_width * k + item.letter_spacing;
+                    char_i += 1;
                 }
+                word_i += 1;
                 x += w.width + space;
             }
             top += h;
+        }
+        if let Some(g) = &item.gradient {
+            recolor(out, &glyphs, g);
+        }
+        if let Some(a) = &item.animator {
+            animate(out, &glyphs, a, item.rotation);
         }
     }
 
@@ -396,7 +408,7 @@ impl TextPipeline {
             .flat_map(|(i, span)| {
                 span.text.split_whitespace().map(move |word| {
                     let px = item.size * span.scale;
-                    let width = word.chars().map(|c| f.metrics(c, px).advance_width).sum();
+                    let width = word.chars().map(|c| f.metrics(c, px).advance_width + item.letter_spacing).sum();
                     MeasuredWord { text: word.to_owned(), width, scale: span.scale, span: i }
                 })
             })
@@ -409,6 +421,62 @@ struct MeasuredWord {
     width: f32,
     scale: f32,
     span: usize,
+}
+
+/// Paint glyphs with a gradient laid over the whole text block.
+fn recolor(out: &mut [Quad], glyphs: &[(usize, usize, usize, usize)], g: &scene::paint::DrawGradient) {
+    let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
+    for &(q, ..) in glyphs {
+        let Quad { pos, size, .. } = out[q];
+        lo = [lo[0].min(pos[0]), lo[1].min(pos[1])];
+        hi = [hi[0].max(pos[0] + size[0]), hi[1].max(pos[1] + size[1])];
+    }
+    let span = [(hi[0] - lo[0]).max(1e-3), (hi[1] - lo[1]).max(1e-3)];
+    for &(q, ..) in glyphs {
+        let quad = &mut out[q];
+        let c = [quad.pos[0] + quad.size[0] / 2.0, quad.pos[1] + quad.size[1] / 2.0];
+        let col = g.color_at([(c[0] - lo[0]) / span[0], (c[1] - lo[1]) / span[1]]).0;
+        quad.color = [col[0], col[1], col[2], quad.color[3] * col[3]];
+    }
+}
+
+/// Text animator: every unit (char / word / line) eases from its offset pose to rest.
+fn animate(out: &mut [Quad], glyphs: &[(usize, usize, usize, usize)], a: &scene::paint::DrawTextAnim, block_rotation: f32) {
+    use scene::paint::TextUnit;
+    let (by, .., from, _) = a.anim;
+    let unit = |g: &(usize, usize, usize, usize)| match by {
+        TextUnit::Char => g.1,
+        TextUnit::Word => g.2,
+        TextUnit::Line => g.3,
+    };
+    let count = glyphs.iter().map(|g| unit(g) + 1).max().unwrap_or(0);
+    // Center of each unit, to scale and rotate it in place.
+    let mut boxes = vec![([f32::MAX; 2], [f32::MIN; 2]); count];
+    for g in glyphs {
+        let Quad { pos, size, .. } = out[g.0];
+        let b = &mut boxes[unit(g)];
+        b.0 = [b.0[0].min(pos[0]), b.0[1].min(pos[1])];
+        b.1 = [b.1[0].max(pos[0] + size[0]), b.1[1].max(pos[1] + size[1])];
+    }
+    for g in glyphs {
+        let u = unit(g);
+        let p = a.progress(u, count);
+        if p >= 1.0 {
+            continue;
+        }
+        let inv = 1.0 - p;
+        let s = from.scale + (1.0 - from.scale) * p;
+        let center = [(boxes[u].0[0] + boxes[u].1[0]) / 2.0, (boxes[u].0[1] + boxes[u].1[1]) / 2.0];
+        let q = &mut out[g.0];
+        q.pos = [center[0] + (q.pos[0] - center[0]) * s + from.x * inv, center[1] + (q.pos[1] - center[1]) * s + from.y * inv];
+        q.size = [q.size[0] * s, q.size[1] * s];
+        q.color[3] *= (from.opacity + (1.0 - from.opacity) * p).clamp(0.0, 1.0);
+        // Per-unit spin only when the block itself is not rotated (one rotation per quad).
+        if from.rotation != 0.0 && block_rotation == 0.0 {
+            q.pivot = [center[0] + from.x * inv, center[1] + from.y * inv];
+            q.rotation = (from.rotation * inv).to_radians();
+        }
+    }
 }
 
 fn span_color(c: Rgba) -> [f32; 4] {

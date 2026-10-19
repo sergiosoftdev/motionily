@@ -6,7 +6,9 @@
 //! with its own pipeline, keeping layer order.
 
 use crate::text::{DrawText, TextAlign, TextRole, TextSpan, Typography, DEFAULT_FAMILY};
+use crate::paint::{BlendMode, DrawPath, Effect, Gradient, Matte, Repeater, ShapeStyle, Stroke};
 use crate::{draw_character, AnimProp, Animated, CharacterSpec, ColorRef, DrawPoly, Library, Palette, Rgba};
+use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,6 +33,12 @@ pub enum LayerContent {
         align: TextAlign,
         #[serde(default = "default_line_height")]
         line_height: f32,
+        /// Per-character / word / line animation (kinetic type).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        animate: Option<crate::paint::TextAnimator>,
+        /// Extra letter spacing in pixels (negative tightens big headlines).
+        #[serde(default)]
+        letter_spacing: f32,
     },
     /// A picture (brand logo, product screenshot…) by URL/key, fitted into the layer box.
     Image {
@@ -43,6 +51,65 @@ pub enum LayerContent {
         #[serde(flatten)]
         spec: CharacterSpec,
     },
+    /// Vector path (SVG path data, relative to the layer position): lines, connectors, icons, light
+    /// trails. Filled with `fill` when closed, outlined with `stroke`; `trim_*` draw it on.
+    Path {
+        d: PathData,
+        #[serde(default)]
+        trim_start: Animated,
+        #[serde(default = "one")]
+        trim_end: Animated,
+        #[serde(default)]
+        trim_offset: Animated,
+        /// Fill closed subpaths with `fill` (false = stroke only).
+        #[serde(default)]
+        filled: bool,
+    },
+}
+
+/// SVG path data, parsed once.
+#[derive(Debug, Default)]
+pub struct PathData {
+    pub d: String,
+    parsed: OnceLock<Result<Vec<crate::path::Polyline>, String>>,
+}
+
+impl PathData {
+    pub fn new(d: String) -> Self {
+        PathData { d, parsed: OnceLock::new() }
+    }
+
+    pub fn lines(&self) -> &Result<Vec<crate::path::Polyline>, String> {
+        self.parsed.get_or_init(|| crate::path::parse(&self.d))
+    }
+}
+
+impl Clone for PathData {
+    fn clone(&self) -> Self {
+        PathData::new(self.d.clone())
+    }
+}
+
+impl PartialEq for PathData {
+    fn eq(&self, o: &Self) -> bool {
+        self.d == o.d
+    }
+}
+
+impl Serialize for PathData {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&self.d)
+    }
+}
+
+impl<'de> Deserialize<'de> for PathData {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let p = PathData::new(String::deserialize(d)?);
+        if let Err(e) = p.lines() {
+            return Err(serde::de::Error::custom(e));
+        }
+        Ok(p)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -78,6 +145,7 @@ impl LayerContent {
             LayerContent::Shape { shape } => crate::enum_name(shape),
             LayerContent::Text { text, .. } => format!("text \"{}\"", text.chars().take(40).collect::<String>()),
             LayerContent::Image { src, .. } => format!("image {}", src.rsplit('/').next().unwrap_or(src)),
+            LayerContent::Path { d, .. } => format!("path ({} chars)", d.d.len()),
             LayerContent::Character { spec } => format!(
                 "character {}/{}/{} hair={}",
                 crate::enum_name(&spec.character),
@@ -113,7 +181,9 @@ pub struct Layer {
     pub x: Animated,
     #[serde(default)]
     pub y: Animated,
+    #[serde(default)]
     pub w: Animated,
+    #[serde(default)]
     pub h: Animated,
     #[serde(default = "one")]
     pub scale: Animated,
@@ -128,6 +198,86 @@ pub struct Layer {
     /// Animation bricks applied on top of the layer's own values.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub anims: Vec<AnimRef>,
+    /// Gradient fill (replaces `fill`) for shapes, text and paths.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gradient: Option<Gradient>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stroke: Option<Stroke>,
+    /// Edge feather in pixels (shapes): big values make soft blobs for mesh-gradient backgrounds.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub soft: Animated,
+    /// Effect stack: blur, glow, shadow.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<Effect>,
+    #[serde(default, skip_serializing_if = "is_normal")]
+    pub blend: BlendMode,
+    /// Track matte: another layer's alpha masks this one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub matte: Option<Matte>,
+    /// false = not drawn by itself (matte sources, parents used as nulls).
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub visible: bool,
+    /// Inherit position, rotation and scale from another layer (x/y become relative to it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    /// Point (px, relative to the center) the layer rotates and scales around.
+    #[serde(default, skip_serializing_if = "is_origin")]
+    pub pivot: [f32; 2],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repeat: Option<Repeater>,
+}
+
+fn is_zero(a: &Animated) -> bool {
+    *a == Animated::Static(0.0)
+}
+fn is_normal(b: &BlendMode) -> bool {
+    *b == BlendMode::Normal
+}
+fn yes() -> bool {
+    true
+}
+fn is_true(b: &bool) -> bool {
+    *b
+}
+fn is_origin(p: &[f32; 2]) -> bool {
+    *p == [0.0, 0.0]
+}
+
+/// Where a layer sits in the world: parent transform and/or repeater copy.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Xform {
+    /// World position of the local origin.
+    pub origin: [f32; 2],
+    /// Radians.
+    pub rotation: f32,
+    pub scale: f32,
+    pub opacity: f32,
+    /// Extra local offset (repeater copies), applied before the parent transform.
+    pub offset: [f32; 2],
+    /// Local rotation added (repeater), radians.
+    pub spin: f32,
+    /// Local scale multiplied (repeater).
+    pub grow: f32,
+    /// True when a parent defines the origin (anchors are ignored then).
+    pub parented: bool,
+}
+
+impl Default for Xform {
+    fn default() -> Self {
+        Xform { origin: [0.0, 0.0], rotation: 0.0, scale: 1.0, opacity: 1.0, offset: [0.0, 0.0], spin: 0.0, grow: 1.0, parented: false }
+    }
+}
+
+impl Xform {
+    fn apply(&self, p: [f32; 2]) -> [f32; 2] {
+        let (s, c) = self.rotation.sin_cos();
+        [self.origin[0] + (p[0] * c - p[1] * s) * self.scale, self.origin[1] + (p[0] * s + p[1] * c) * self.scale]
+    }
+}
+
+fn rot(p: [f32; 2], a: f32) -> [f32; 2] {
+    let (s, c) = a.sin_cos();
+    [p[0] * c - p[1] * s, p[0] * s + p[1] * c]
 }
 
 /// `{"use":"animation/pop_in","at":0.2,"speed":1.5}`: play an animation brick on a layer.
@@ -178,6 +328,7 @@ pub struct DrawShape {
     pub radius: f32,
     pub rotation: f32,
     pub color: Rgba,
+    pub style: ShapeStyle,
 }
 
 /// Everything the renderer needs for one layer at one instant. One variant per pipeline.
@@ -191,43 +342,105 @@ pub enum DrawItem {
     Image(DrawImage),
     /// The 3D stage (always first, behind everything).
     Stage(crate::DrawStage),
+    Path(DrawPath),
+    /// A layer drawn offscreen for effects, blend modes or a matte.
+    Fx(Box<crate::paint::DrawFx>),
 }
 
 impl Layer {
     /// Resolve this layer at layer-local time `lt`. `None` when fully transparent.
     pub fn draw(&self, lt: f32, ctx: &EvalCtx) -> Option<DrawItem> {
-        self.resolve(lt, ctx, true)
+        self.resolve(lt, ctx, true, &Xform::default())
+    }
+
+    /// Resolve inside a parent / repeater transform.
+    pub fn draw_in(&self, lt: f32, ctx: &EvalCtx, xf: &Xform) -> Option<DrawItem> {
+        self.resolve(lt, ctx, true, xf)
+    }
+
+    /// This layer's own world transform at `lt` (what its children inherit).
+    pub fn world(&self, lt: f32, ctx: &EvalCtx, parent: &Xform) -> Xform {
+        let (center, _, rotation, scale) = self.place(lt, ctx, parent, true);
+        Xform { origin: center, rotation, scale, opacity: 1.0, offset: [0.0, 0.0], spin: 0.0, grow: 1.0, parented: true }
+    }
+
+    /// World center, size, rotation (rad) and total scale of the layer.
+    fn place(&self, lt: f32, ctx: &EvalCtx, xf: &Xform, animated: bool) -> ([f32; 2], [f32; 2], f32, f32) {
+        let anim = if animated { self.anim_offsets(lt, ctx.library) } else { AnimOffsets { opacity: 1.0, scale: 1.0, dx: 0.0, dy: 0.0, rotation: 0.0 } };
+        let scale = self.scale.sample(lt) * anim.scale * xf.grow;
+        let origin = if xf.parented {
+            [0.0, 0.0]
+        } else {
+            self.anchor
+                .as_ref()
+                .and_then(|a| ctx.library.anchor(a))
+                .map_or([0.0, 0.0], |[ax, ay]| [ax * ctx.scene_size[0], ay * ctx.scene_size[1]])
+        };
+        let local_rot = (self.rotation.sample(lt) + anim.rotation).to_radians() + xf.spin;
+        let mut center = [origin[0] + self.x.sample(lt) + anim.dx + xf.offset[0], origin[1] + self.y.sample(lt) + anim.dy + xf.offset[1]];
+        // Rotate/scale around the pivot instead of the center.
+        if self.pivot != [0.0, 0.0] {
+            let p = self.pivot;
+            let moved = rot([p[0] * scale, p[1] * scale], local_rot);
+            center = [center[0] + p[0] - moved[0], center[1] + p[1] - moved[1]];
+        }
+        let world = xf.apply(center);
+        let size = [self.w.sample(lt) * scale * xf.scale, self.h.sample(lt) * scale * xf.scale];
+        (world, size, local_rot + xf.rotation, scale * xf.scale)
     }
 
     /// `animated = false` gives the layer at rest (no animation bricks, never hidden):
     /// what selection outlines and hit-tests use, so an object is selectable mid-entrance.
-    fn resolve(&self, lt: f32, ctx: &EvalCtx, animated: bool) -> Option<DrawItem> {
-        let anim = if animated {
-            self.anim_offsets(lt, ctx.library)
-        } else {
-            AnimOffsets { opacity: 1.0, scale: 1.0, dx: 0.0, dy: 0.0, rotation: 0.0 }
-        };
-        let scale = self.scale.sample(lt) * anim.scale;
+    fn resolve(&self, lt: f32, ctx: &EvalCtx, animated: bool, xf: &Xform) -> Option<DrawItem> {
+        let anim_opacity = if animated { self.anim_offsets(lt, ctx.library).opacity } else { 1.0 };
+        let opacity = (self.opacity.sample(lt) * anim_opacity * xf.opacity).clamp(0.0, 1.0);
         let mut color = self.fill.resolve(ctx.palette);
-        color.0[3] *= (self.opacity.sample(lt) * anim.opacity).clamp(0.0, 1.0);
-        if animated && color.0[3] <= 0.0 {
+        color.0[3] *= opacity;
+        if animated && opacity <= 0.0 {
             return None;
         }
-        let origin = self
-            .anchor
-            .as_ref()
-            .and_then(|a| ctx.library.anchor(a))
-            .map_or([0.0, 0.0], |[ax, ay]| [ax * ctx.scene_size[0], ay * ctx.scene_size[1]]);
-        let center = [origin[0] + self.x.sample(lt) + anim.dx, origin[1] + self.y.sample(lt) + anim.dy];
-        let size = [self.w.sample(lt) * scale, self.h.sample(lt) * scale];
-        let rotation = (self.rotation.sample(lt) + anim.rotation).to_radians();
+        let (center, size, rotation, scale) = self.place(lt, ctx, xf, animated);
+        let gradient = self.gradient.as_ref().map(|g| g.resolve(lt, ctx.palette, opacity));
+        let stroke = self.stroke.as_ref().map(|s| {
+            let mut c = s.color.resolve(ctx.palette);
+            c.0[3] *= opacity;
+            (s.width.sample(lt) * scale, c)
+        });
         match &self.content {
             LayerContent::Shape { shape } => {
                 let radius = match shape {
                     Shape::Ellipse => size[0].min(size[1]) / 2.0,
                     Shape::Rect => self.radius.sample(lt) * scale,
                 };
-                Some(DrawItem::Shape(DrawShape { center, size, radius, rotation, color }))
+                let style = ShapeStyle { gradient, stroke, soft: self.soft.sample(lt).max(0.0) * scale, dash: self.stroke.as_ref().and_then(|s| s.dash) };
+                Some(DrawItem::Shape(DrawShape { center, size, radius, rotation, color, style }))
+            }
+            LayerContent::Path { d, trim_start, trim_end, trim_offset, filled } => {
+                let Ok(lines) = d.lines() else { return None };
+                let to_world = |p: [f32; 2]| {
+                    let q = rot([p[0] * scale, p[1] * scale], rotation);
+                    [center[0] + q[0], center[1] + q[1]]
+                };
+                let mut lo = [f32::MAX; 2];
+                let mut hi = [f32::MIN; 2];
+                for p in lines.iter().flat_map(|l| &l.points) {
+                    let w = to_world(*p);
+                    lo = [lo[0].min(w[0]), lo[1].min(w[1])];
+                    hi = [hi[0].max(w[0]), hi[1].max(w[1])];
+                }
+                let (ts, te) = (trim_start.sample(lt), trim_end.sample(lt));
+                let trimmed = crate::path::trim(lines, ts, te, trim_offset.sample(lt));
+                let full = (te - ts).abs() >= 0.9999;
+                Some(DrawItem::Path(DrawPath {
+                    lines: trimmed.into_iter().map(|l| l.into_iter().map(to_world).collect()).collect(),
+                    fills: if *filled && full { lines.iter().filter(|l| l.closed).map(|l| l.points.iter().copied().map(to_world).collect()).collect() } else { Vec::new() },
+                    fill: (*filled).then_some(color),
+                    stroke,
+                    stroke_end: None,
+                    dash: self.stroke.as_ref().and_then(|s| s.dash),
+                    bounds: (lo, hi),
+                    gradient,
+                }))
             }
             LayerContent::Image { src, fit } => Some(DrawItem::Image(DrawImage {
                 src: src.clone(),
@@ -242,11 +455,14 @@ impl Layer {
                 let feet = [center[0], center[1] + size[1] / 2.0];
                 Some(DrawItem::Group(draw_character(spec, feet, size[1], lt, color.0[3], ctx.palette)))
             }
-            LayerContent::Text { text, size: px, role, align, line_height } => {
+            LayerContent::Text { text, size: px, role, align, line_height, animate, letter_spacing } => {
                 let (family, weight) = ctx
                     .typography
                     .map_or((DEFAULT_FAMILY.to_owned(), 600), |t| (t.family.clone(), t.weight(*role)));
                 Some(DrawItem::Text(DrawText {
+                    gradient,
+                    animator: animate.as_ref().map(|a| a.resolve(lt)),
+                    letter_spacing: *letter_spacing * scale,
                     spans: vec![TextSpan { text: text.clone(), color, scale: 1.0, highlight: None }],
                     size: px * scale,
                     family,
@@ -310,14 +526,18 @@ impl Bounds {
 impl Layer {
     /// Where the layer is on screen at layer-local time `lt` (`None` if invisible).
     pub fn bounds(&self, lt: f32, ctx: &EvalCtx) -> Option<Bounds> {
-        match self.resolve(lt, ctx, false)? {
+        match self.resolve(lt, ctx, false, &Xform::default())? {
             DrawItem::Shape(s) => Some(Bounds { center: s.center, size: s.size, rotation: s.rotation }),
             DrawItem::Image(i) => Some(Bounds { center: i.center, size: i.size, rotation: i.rotation }),
             DrawItem::Text(t) => {
                 let scale = self.scale.sample(lt);
                 Some(Bounds { center: t.center, size: [t.max_width, self.h.sample(lt) * scale], rotation: t.rotation })
             }
-            DrawItem::Poly(_) | DrawItem::Group(_) | DrawItem::Stage(_) => {
+            DrawItem::Path(p) => {
+                let (lo, hi) = p.bounds;
+                Some(Bounds { center: [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0], size: [(hi[0] - lo[0]).max(8.0), (hi[1] - lo[1]).max(8.0)], rotation: 0.0 })
+            }
+            DrawItem::Poly(_) | DrawItem::Group(_) | DrawItem::Stage(_) | DrawItem::Fx(_) => {
                 let scale = self.scale.sample(lt);
                 let origin = self
                     .anchor

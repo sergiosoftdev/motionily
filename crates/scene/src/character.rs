@@ -178,12 +178,12 @@ fn bone(a: [f32; 2], b: [f32; 2], thick: f32, color: Rgba) -> DrawItem {
         size: [len + thick, thick],
         radius: thick / 2.0,
         rotation: dy.atan2(dx),
-        color,
+        color, style: Default::default(),
     })
 }
 
 fn blob(center: [f32; 2], size: [f32; 2], color: Rgba) -> DrawItem {
-    DrawItem::Shape(DrawShape { center, size, radius: size[0].min(size[1]) / 2.0, rotation: 0.0, color })
+    DrawItem::Shape(DrawShape { center, size, radius: size[0].min(size[1]) / 2.0, rotation: 0.0, color, style: Default::default() })
 }
 
 fn limb(from: [f32; 2], angles: [f32; 2], lens: [f32; 2], facing: f32) -> ([f32; 2], [f32; 2]) {
@@ -260,16 +260,16 @@ pub fn draw_character(spec: &CharacterSpec, feet: [f32; 2], height: f32, t: f32,
     let hair = alpha(spec.hair_color.resolve(p), opacity);
     let hair_style = if chibi && spec.hair == Hair::None { Hair::Short } else { spec.hair };
     if hair_style == Hair::Long {
-        out.push(DrawItem::Shape(DrawShape { center: [head[0] - head_r * 0.25 * f, head[1] + head_r * 0.35], size: [head_r * 2.1, head_r * 2.4], radius: head_r, rotation: 0.0, color: hair }));
+        out.push(DrawItem::Shape(DrawShape { center: [head[0] - head_r * 0.25 * f, head[1] + head_r * 0.35], size: [head_r * 2.1, head_r * 2.4], radius: head_r, rotation: 0.0, color: hair, style: Default::default() }));
     }
     out.push(blob(head, [head_r * 2.0, head_r * 2.0], skin));
     match hair_style {
         Hair::None => {}
         Hair::Short | Hair::Long => {
-            out.push(DrawItem::Shape(DrawShape { center: [head[0] - head_r * 0.1 * f, head[1] - head_r * 0.55], size: [head_r * 2.15, head_r * 1.05], radius: head_r * 0.52, rotation: -0.12 * f, color: hair }));
+            out.push(DrawItem::Shape(DrawShape { center: [head[0] - head_r * 0.1 * f, head[1] - head_r * 0.55], size: [head_r * 2.15, head_r * 1.05], radius: head_r * 0.52, rotation: -0.12 * f, color: hair, style: Default::default() }));
         }
         Hair::Bun => {
-            out.push(DrawItem::Shape(DrawShape { center: [head[0], head[1] - head_r * 0.6], size: [head_r * 2.05, head_r * 0.95], radius: head_r * 0.47, rotation: 0.0, color: hair }));
+            out.push(DrawItem::Shape(DrawShape { center: [head[0], head[1] - head_r * 0.6], size: [head_r * 2.05, head_r * 0.95], radius: head_r * 0.47, rotation: 0.0, color: hair, style: Default::default() }));
             out.push(blob([head[0] - head_r * 0.7 * f, head[1] - head_r * 0.95], [head_r * 0.9, head_r * 0.9], hair));
         }
     }

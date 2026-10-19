@@ -1,4 +1,4 @@
-//! Instanced SDF shapes (rounded rects, ellipses).
+//! Instanced SDF shapes (rounded rects, ellipses) with gradients, outlines and soft edges.
 
 use crate::{Ctx, ITEM_CAPACITY};
 use bytemuck::{Pod, Zeroable};
@@ -9,16 +9,46 @@ use wgpu::util::DeviceExt;
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Instance {
-    center: [f32; 2],
-    size: [f32; 2],
+    rect: [f32; 4],
     color: [f32; 4],
-    radius: f32,
-    rotation: f32,
+    params: [f32; 4],
+    stroke_color: [f32; 4],
+    grad: [f32; 4],
+    grad_center: [f32; 2],
+    stop_pos: [f32; 4],
+    stops: [[f32; 4]; 4],
+}
+
+/// Gradient fields shared by every instanced pipeline that supports gradients.
+pub(crate) fn gradient_fields(g: Option<&scene::paint::DrawGradient>) -> ([f32; 4], [f32; 2], [f32; 4], [[f32; 4]; 4]) {
+    let Some(g) = g else { return ([0.0; 4], [0.5, 0.5], [0.0; 4], [[0.0; 4]; 4]) };
+    let kind = match g.kind {
+        scene::paint::GradientKind::Linear => 1.0,
+        scene::paint::GradientKind::Radial => 2.0,
+    };
+    let mut pos = [1.0; 4];
+    let mut cols = [[0.0; 4]; 4];
+    for i in 0..g.count {
+        pos[i] = g.stops[i].0;
+        cols[i] = g.stops[i].1 .0;
+    }
+    ([kind, g.count as f32, g.angle, g.radius], g.center, pos, cols)
 }
 
 impl From<&DrawShape> for Instance {
     fn from(s: &DrawShape) -> Self {
-        Instance { center: s.center, size: s.size, color: s.color.0, radius: s.radius, rotation: s.rotation }
+        let (grad, grad_center, stop_pos, stops) = gradient_fields(s.style.gradient.as_ref());
+        let (sw, sc) = s.style.stroke.map_or((0.0, [0.0; 4]), |(w, c)| (w.max(0.0), c.0));
+        Instance {
+            rect: [s.center[0], s.center[1], s.size[0], s.size[1]],
+            color: s.color.0,
+            params: [s.radius, s.rotation, s.style.soft, sw],
+            stroke_color: sc,
+            grad,
+            grad_center,
+            stop_pos,
+            stops,
+        }
     }
 }
 
@@ -31,8 +61,9 @@ pub struct ShapePipeline {
 impl ShapePipeline {
     pub fn new(ctx: &Ctx) -> Self {
         let shader = ctx.device.create_shader_module(wgpu::include_wgsl!("shapes.wgsl"));
-        const ATTRS: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![
-            0 => Float32x2, 1 => Float32x2, 2 => Float32x4, 3 => Float32, 4 => Float32
+        const ATTRS: [wgpu::VertexAttribute; 11] = wgpu::vertex_attr_array![
+            0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x4, 4 => Float32x4, 5 => Float32x2,
+            6 => Float32x4, 7 => Float32x4, 8 => Float32x4, 9 => Float32x4, 10 => Float32x4
         ];
         let pipeline = ctx.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("shapes"),
