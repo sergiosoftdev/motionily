@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BrickSlot, EngineSupport, FORMAT_SIZE, OpName, type VideoFormat, type Brick, type Build, type Op, type Project } from "@motionily/protocol";
+import { FORMAT_SIZE, OpName, type VideoFormat, type Brick, type Build, type Op, type Project } from "@motionily/protocol";
 import { api, ApiError, mediaUrl } from "../api/client";
 import { engineHost } from "../engine/host";
 import { agentBridge } from "../bridge";
@@ -24,20 +24,12 @@ const PREVIEW_MAX_WIDTH = 960;
 const SidebarTab = { Video: "video", Feedback: "feedback" } as const;
 type SidebarTab = (typeof SidebarTab)[keyof typeof SidebarTab];
 
-/** Engine library from the project's bricks: every animation/transition it may use, plus the composition anchors. */
+/** Rows of the user's prefab library, as the API returns them. */
 type PrefabRow = { name: string; node: Record<string, unknown> };
 
-function libraryOf(build: Build, byKey: Map<string, Brick>, prefabRows: PrefabRow[]) {
-  const animations: Record<string, unknown> = {};
-  const transitions: Record<string, unknown> = {};
-  for (const b of byKey.values()) {
-    if (b.engine !== EngineSupport.Supported) continue;
-    if (b.slot === BrickSlot.Animation) animations[b.key] = { keys: b.payload.keys };
-    if (b.slot === BrickSlot.Transition) transitions[b.key] = { kind: b.payload.kind };
-  }
-  const anchors = (byKey.get(build.composition)?.payload.anchors as Record<string, [number, number]> | undefined) ?? {};
-  const prefabs = Object.fromEntries(prefabRows.map((p) => [p.name, p.node]));
-  return { animations, transitions, anchors, prefabs };
+function libraryOf(_build: Build, _byKey: Map<string, Brick>, prefabRows: PrefabRow[]) {
+  // Only the user's prefabs (made by the agent). Animations are always the agent's own work.
+  return { prefabs: Object.fromEntries(prefabRows.map((p) => [p.name, p.node])) };
 }
 
 /**

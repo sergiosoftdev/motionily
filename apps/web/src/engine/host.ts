@@ -1,6 +1,5 @@
 import init, { Engine, captionStyles, stylePalettes, stylePresets } from "./pkg/engine_wasm.js";
 import type { CaptionStyle, Op, ReviewReport, StylePreset } from "@motionily/protocol";
-import demoScene from "../../../../examples/demo.scene.json?raw";
 import { DEFAULT_FONT_FAMILY, fontFilesFor } from "./fonts";
 import { decodePng, modelUrl, packOf, packTextureUrl, type Pixels } from "./models";
 import { mediaUrl } from "../api/client";
@@ -10,6 +9,8 @@ type AudioTrack = { start: number; trim_in: number; trim_out: number | null };
 type ReviewLayer = { id: string; type: LayerType; start?: number; end?: number | null };
 const LayerType = { Shape: "shape", Text: "text", Image: "image", Character: "character" } as const;
 type LayerType = (typeof LayerType)[keyof typeof LayerType];
+/** A new video starts blank: the agent designs everything. */
+const EMPTY_SCENE = JSON.stringify({ width: 1080, height: 1920, fps: 30, duration: 6, layers: [] });
 const REVIEW_PROBE = 32;
 const BLANK_VARIANCE = 0.0004;
 const OFF_FRAME_TOLERANCE = 0.08;
@@ -59,7 +60,7 @@ class EngineHost {
   private wasmReady: Promise<unknown> | null = null;
   private resizeObserver: ResizeObserver | null = null;
 
-  /** Attach the engine to a canvas (one per editor screen) and load `sceneJson`, or the demo scene. */
+  /** Attach the engine to a canvas (one per editor screen) and load `sceneJson`, or a blank canvas for the agent. */
   async mount(canvas: HTMLCanvasElement, sceneJson?: string | null) {
     if (this.canvas === canvas) return;
     this.unmount();
@@ -83,7 +84,7 @@ class EngineHost {
       this.loadedFonts.clear();
       this.loadingModels.clear();
       this.loadingImages.clear();
-      this.engine.loadScene(sceneJson ?? demoScene);
+      this.engine.loadScene(sceneJson ?? EMPTY_SCENE);
       void this.ensureFonts(DEFAULT_FONT_FAMILY);
       this.resizeObserver = new ResizeObserver(() => this.fitCanvas());
       this.resizeObserver.observe(canvas);

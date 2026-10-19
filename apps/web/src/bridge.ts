@@ -3,12 +3,12 @@ import {
   BridgeRole,
   HEADLESS_PARAM,
   EditorMessageType,
-  OpName,
   ServerMessageType,
   type EditorMessage,
   type ServerMessage,
 } from "@motionily/protocol";
 import { API_URL } from "./api/client";
+import { presetViolation, scenePresetViolation } from "./agentRules";
 import { engineHost } from "./engine/host";
 import { useSession } from "./session";
 import { ActivitySource, logActivity, useEditor } from "./store";
@@ -102,21 +102,16 @@ class AgentBridge {
       switch (msg.type) {
         case ServerMessageType.ApplyOps:
           // The project's format owns the frame size; agents change it with set_format.
-          if (msg.ops.some((o) => o.op === OpName.SetSize)) {
-            throw new Error("set_size is not allowed: the frame size comes from the project format; use the set_format tool");
-          }
-          // 3D is procedural only: no stock sets or stock models from agents.
-          if (msg.ops.some((o) => o.op === OpName.SetStagePreset || (o.op === OpName.PutProp && (o.prop as { model?: string } | undefined)?.model))) {
-            throw new Error("stock 3D models and set_stage_preset are disabled: build procedurally (save_prefab + put_prop {prefab}) and people as stickman rigs");
+          {
+            const why = presetViolation(msg.ops);
+            if (why) throw new Error(why);
           }
           engineHost.applyOps(msg.ops);
           logActivity(ActivitySource.Agent, describeOps(msg.ops.map((o) => o.op)));
           break;
         case ServerMessageType.LoadScene: {
-          const stage = (JSON.parse(msg.scene) as { stage?: { props?: { model?: string }[] } }).stage;
-          if (stage?.props?.some((p) => p.model)) {
-            throw new Error("stock 3D models are disabled: build procedurally (prefabs + stickman rigs)");
-          }
+          const why = scenePresetViolation(JSON.parse(msg.scene) as Record<string, unknown>);
+          if (why) throw new Error(why);
           engineHost.loadScene(msg.scene);
           logActivity(ActivitySource.Agent, "Escena nueva");
           break;

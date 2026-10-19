@@ -232,12 +232,19 @@ impl Scene {
             Op::SetLibrary { library } => {
                 // Prefabs defined live (define_prefab: the agent just saved them) are newer than
                 // the editor's copy, so they win; the editor only adds the ones we don't have.
-                let mut prefabs = std::mem::take(&mut self.library.prefabs);
+                // Same for animations the agent defined itself: the editor only adds what is missing.
                 for (name, node) in &library.prefabs {
-                    prefabs.entry(name.clone()).or_insert_with(|| node.clone());
+                    self.library.prefabs.entry(name.clone()).or_insert_with(|| node.clone());
                 }
-                self.library = library.clone();
-                self.library.prefabs = prefabs;
+                for (k, v) in &library.animations {
+                    self.library.animations.entry(k.clone()).or_insert_with(|| v.clone());
+                }
+                for (k, v) in &library.transitions {
+                    self.library.transitions.entry(k.clone()).or_insert_with(|| v.clone());
+                }
+                for (k, v) in &library.anchors {
+                    self.library.anchors.entry(k.clone()).or_insert(*v);
+                }
             }
             Op::SetText { id, text } => {
                 let l = self.layer_mut(id).ok_or_else(|| OpError::UnknownLayer(id.clone()))?;

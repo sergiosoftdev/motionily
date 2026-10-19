@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Motionily MCP server: the agent's hands on one project.
- * The user picks bricks and writes a brief in the editor; the agent reads them,
+ * The user writes a brief in the editor; the agent designs and animates everything,
  * builds the video with small ops (rendered live in the editor) and iterates
  * on the user's feedback.
  */
@@ -12,13 +12,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import {
-  BrickSlot,
-  BrickVisibility,
-  EngineSupport,
   FeedbackKind,
   OpName,
   VideoFormat,
-  type Brick,
   type Feedback,
   type Op,
   type Project,
@@ -26,7 +22,6 @@ import {
 import { EditorBridge } from "./bridge.js";
 import { HeadlessEditor } from "./headless.js";
 import { ProjectApi } from "./api.js";
-import { TEMPLATES, TemplateId } from "./templates.js";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const REFERENCE = readFileSync(resolve(here, "../../../docs/scene-reference.md"), "utf8");
@@ -59,18 +54,16 @@ const guard =
     }
   };
 
-const SLOT_VALUES = Object.values(BrickSlot) as [BrickSlot, ...BrickSlot[]];
 
 server.registerTool(
   "get_project",
   {
     description:
-      "START HERE. The user's brief, the bricks they chose for every slot (style, palette, composition, animations…) and the current scene summary.",
+      "START HERE. The user's brief, the format and the current scene state.",
     inputSchema: {},
   },
   guard(async () => {
-    const [project, bricks] = await Promise.all([api.project(), api.bricks()]);
-    return text(describeProject(project, new Map(bricks.map((b) => [b.key, b]))));
+    return text(describeProject(await api.project()));
   }),
 );
 
@@ -128,38 +121,6 @@ server.registerTool(
     const copy = await api.clonePrefab(from, name, description);
     if (bridge.connected) await bridge.applyOps([{ op: OpName.DefinePrefab, name, node: copy.node }]);
     return text(`Cloned '${from}' as '${name}'.`);
-  }),
-);
-
-server.registerTool(
-  "list_templates",
-  {
-    description:
-      "2D typographic templates (kinetic titles). For 3D, build procedurally: prefabs, stickman rigs, set_shots.",
-    inputSchema: {},
-  },
-  async () => text(TEMPLATES.map((t) => `${t.id}: ${t.summary} Params: ${t.uses}`).join("\n")),
-);
-
-server.registerTool(
-  "apply_template",
-  {
-    description:
-      "Add one beat from a template at second `at` lasting `duration`. Chain several for a full video (one 3D set per video: the last set wins). Then tweak with apply_ops and check with render_frames.",
-    inputSchema: {
-      template: z.enum(Object.values(TemplateId) as [TemplateId, ...TemplateId[]]),
-      id: z.string().regex(/^[a-z0-9_-]{1,20}$/).describe("prefix for the beat's layer ids, e.g. b1"),
-      at: z.number().min(0),
-      duration: z.number().min(0.5).max(30),
-      title: z.string().max(120),
-      subtitle: z.string().max(160).optional(),
-      cta: z.string().max(40).optional(),
-    },
-  },
-  guard(async ({ template, ...params }) => {
-    const t = TEMPLATES.find((x) => x.id === template)!;
-    const res = await bridge.applyOps(t.build(params));
-    return res.ok ? text(res.summary ?? "ok") : fail(res.error ?? "rejected");
   }),
 );
 
@@ -247,32 +208,6 @@ server.registerTool(
   "get_reference",
   { description: "Scene format and op reference. Read once before your first edit.", inputSchema: {} },
   async () => text(REFERENCE),
-);
-
-server.registerTool(
-  "list_bricks",
-  {
-    description: "Brick catalog this project can use (official + ones you created), one line each. Filter by slot.",
-    inputSchema: { slot: z.enum(SLOT_VALUES).optional() },
-  },
-  guard(async ({ slot }) => {
-    const bricks = await api.bricks(slot);
-    return text(bricks.map(brickLine).join("\n") || "No bricks.");
-  }),
-);
-
-server.registerTool(
-  "get_brick",
-  {
-    description: "Full data of one brick (payload: colors, keyframe templates, kit defaults…).",
-    inputSchema: { key: z.string().describe('e.g. "animation/pop_in"') },
-  },
-  guard(async ({ key }) => {
-    const brick = (await api.bricks()).find((b) => b.key === key);
-    if (!brick) return fail(`No brick '${key}'. Use list_bricks.`);
-    const { slot, name, description, fits, engine, payload } = brick;
-    return text(JSON.stringify({ key, slot, name, description, fits, engine, payload }));
-  }),
 );
 
 server.registerTool(
@@ -377,35 +312,10 @@ server.registerTool(
 );
 
 server.registerTool(
-  "create_brick",
-  {
-    description:
-      "Save a brick that did not exist (e.g. a custom animation) as a private brick of this project, so it can be reused. Payload is free-form JSON (keyframe template, colors…).",
-    inputSchema: {
-      slot: z.enum(SLOT_VALUES),
-      id: z.string().regex(/^[a-z0-9_]{2,40}$/).describe("snake_case; key becomes slot/id"),
-      name: z.string().max(80),
-      description: z.string().max(400).optional(),
-      payload: z.record(z.string(), z.unknown()).optional(),
-    },
-  },
-  guard(async (brick) => {
-    const created = await api.createBrick(brick);
-    // Animations become usable right away: teach the live engine the new template.
-    if (brick.slot === BrickSlot.Animation && brick.payload?.keys && bridge.connected) {
-      const res = await bridge.applyOps([{ op: OpName.DefineAnim, key: created.key, template: { keys: brick.payload.keys } }]);
-      if (!res.ok) return fail(`Saved ${created.key}, but the engine rejected its keys: ${res.error}`);
-      return text(`Saved ${created.key}; use it with {"use":"${created.key}"}.`);
-    }
-    return text(`Saved ${created.key} (private to this project).`);
-  }),
-);
-
-server.registerTool(
   "get_feedback",
   {
     description:
-      "What the user said or changed since your last call: comments pinned to a second, and bricks they swapped. Check after every round of edits.",
+      "What the user said or changed since your last call: comments pinned to a second or to an object. Check after every round of edits.",
     inputSchema: {},
   },
   guard(async () => {
@@ -414,23 +324,13 @@ server.registerTool(
   }),
 );
 
-function describeProject(p: Project, byKey: Map<string, Brick>): string {
+function describeProject(p: Project): string {
   const lines = [`Project "${p.name}"`, `Brief: ${p.brief.trim() || "(empty — ask the user what the video is about)"}`, ""];
   lines.push(`Format: ${p.format}`);
-  lines.push("Look: none preset. You are the art director: choose palette (set_palette; start from the brand's palettes if any), Google Font (set_font), motion and finish yourself.");
-  lines.push("");
-  lines.push(
-    "Engine today: rect/ellipse layers; animate them by referencing animation bricks ({\"use\":\"animation/pop_in\",\"at\":0.3}) instead of hand keyframes; place them on composition anchors (anchor: hero/title/caption/accent); cut scenes with transition bricks (add_transition). Palette slots follow the palette brick. Text layers render in the typography brick font; captions (from the user\'s voice-over) render in their caption style — mark key words with set_emphasis. The render style brick (finish: soft shadows, toon outlines, paper cut…) is applied by the engine to the whole frame. REAL 3D built PROCEDURALLY: primitives + stickman rigs saved as prefabs in the user's library (list_prefabs, save_prefab), placed with put_prop {prefab}, filmed with set_shots. Do not use stock models or set_stage_preset.",
-  );
+  lines.push("No presets exist: you design and animate everything yourself (palette, font, keyframes, cuts, 3D). See get_reference.");
   lines.push(p.scene ? `Scene: exists (rev ${p.sceneRevision}); see get_scene.` : "Scene: empty. Build the first cut with load_scene.");
   lines.push(bridge.connected ? "Editor: open (your edits render live)." : "Editor: NOT open on this project — ask the user to open it before editing.");
   return lines.join("\n");
-}
-
-function brickLine(b: Brick): string {
-  const fits = b.fits.length ? ` fits=${b.fits.map((f) => f.split("/")[1]).join(",")}` : "";
-  const flags = `${b.engine === EngineSupport.Planned ? " planned" : ""}${b.visibility === BrickVisibility.Private ? " yours" : ""}`;
-  return `${b.key} | ${b.name} | ${b.description}${fits}${flags}`;
 }
 
 function feedbackLine(f: Feedback): string {

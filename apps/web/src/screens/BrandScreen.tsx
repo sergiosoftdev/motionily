@@ -98,7 +98,7 @@ function Videos({ brandId }: { brandId: string }) {
               {palette ? <Thumb palette={palette} className="aspect-video w-full" /> : <span className="block aspect-video w-full rounded-md bg-neutral-900" />}
               <span className="px-1 font-semibold">{v.name}</span>
               <span className="-mt-2 px-1 text-xs text-neutral-400">
-                {catalog.get(v.build.motion_style)?.name ?? "…"} · {new Date(v.updatedAt).toLocaleDateString("es-ES")}
+                {new Date(v.updatedAt).toLocaleDateString("es-ES")}
               </span>
             </a>
             <button
