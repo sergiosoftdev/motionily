@@ -2,6 +2,7 @@ import {
   BRIDGE_PATH,
   BridgeRole,
   EditorMessageType,
+  OpName,
   ServerMessageType,
   type EditorMessage,
   type ServerMessage,
@@ -89,6 +90,10 @@ class AgentBridge {
     try {
       switch (msg.type) {
         case ServerMessageType.ApplyOps:
+          // The project's format owns the frame size; agents change it with set_format.
+          if (msg.ops.some((o) => o.op === OpName.SetSize)) {
+            throw new Error("set_size is not allowed: the frame size comes from the project format; use the set_format tool");
+          }
           engineHost.applyOps(msg.ops);
           logActivity(ActivitySource.Agent, describeOps(msg.ops.map((o) => o.op)));
           break;

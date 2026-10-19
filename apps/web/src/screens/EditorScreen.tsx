@@ -170,6 +170,13 @@ export function EditorScreen({ id }: { id: string }) {
     engineHost.setBuildOps(buildToOps(p.build, byKey, p.format));
     agentBridge.sceneChanged();
     logActivity(ActivitySource.User, `Formato: ${format}`);
+    // A new frame shape needs a new layout, not a stretched one: let the agent recompose.
+    const [w, h] = FORMAT_SIZE[format];
+    if (p.scene && (p.scene.layers as unknown[] | undefined)?.length) {
+      void api
+        .generate(id, `The user switched the format to ${w}x${h}. Recompose every beat for this frame (positions, sizes, line breaks) keeping the content; check with render_frames.`)
+        .catch(() => undefined);
+    }
   };
   const saveBrief = async (brief: string) => {
     if (!project || brief === project.brief) return;
@@ -249,10 +256,10 @@ export function EditorScreen({ id }: { id: string }) {
                   />
                 </label>
                 <GeneratePanel projectId={id} hasScene={!!project.scene} />
-                <label className="flex flex-col gap-2">
+                <div className="flex flex-col gap-2">
                   <span className="text-xs font-medium text-neutral-300">Formato</span>
                   <FormatPicker value={project.format} onChange={(f) => void changeFormat(f)} />
-                </label>
+                </div>
                 <StylePanel build={project.build} byKey={byKey} onOpen={setOpenSlot} />
                 <CaptionsPanel project={project} onProject={setProject} />
               </div>

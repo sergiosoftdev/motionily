@@ -92,7 +92,7 @@ The editor fills `library` with the project's bricks; you reference them by key.
 {"op":"add_transition","transition":{"at":3,"use":"transition/flash_cut"}}
 {"op":"clear_transitions"}
 {"op":"set_duration","duration":8}
-{"op":"set_size","width":1080,"height":1920}
+// frame size: use the set_format tool (set_size is reserved for the editor)
 ```
 Errors name the failing op index; nothing is applied when one fails.
 
