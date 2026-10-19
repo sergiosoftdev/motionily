@@ -6,6 +6,7 @@ import { api, type Concept } from "../api/client";
 import { href, navigate, BrandTab, RouteName } from "../router";
 import { requestPipeline, VideoPipeline } from "../pipeline";
 import { ReferenceStrip, useReferences } from "../components/References";
+import { ModePicker } from "../components/ModePicker";
 import { AgentEffort, AgentModel, EFFORT_LABEL, loadPrefs, MODEL_LABEL, savePrefs, usageLine, type AgentPrefs } from "../components/GeneratePanel";
 
 const Step = {
@@ -285,7 +286,10 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
         {step === Step.Voice && chosen && (
           <Panel key={step} kicker="Paso 6" title="Pon la voz" hint="Pega el guion en ElevenLabs, genera y descarga el mp3. Súbelo aquí y Claude atará cada plano a tus palabras.">
             <VoiceDrop busy={busy} onFile={(f) => void finish(f)} />
-            <AgentPicker prefs={prefs} onChange={updatePrefs} label="Claude que montará el vídeo" />
+            <div className="flex max-w-xl flex-col gap-2">
+              <span className="text-sm text-neutral-400">¿Cómo lo montamos?</span>
+              <ModePicker prefs={prefs} onChange={updatePrefs} />
+            </div>
             {error && <p className="text-sm text-red-400">{error}</p>}
             <button type="button" disabled={busy} onClick={() => void finish(null)} className="self-start text-sm text-neutral-500 underline-offset-4 hover:text-white hover:underline disabled:opacity-50">
               Generar sin voz (usará el guion para los tiempos)

@@ -7,7 +7,7 @@ import { JwtService } from "@nestjs/jwt";
 import { Types } from "mongoose";
 import { TokenScope, type JwtPayload } from "../auth/auth";
 import { ProjectsService } from "./projects.service";
-import { AgentEffort, type GenerateDto } from "./projects.dto";
+import { AgentEffort, AgentModel, GenerateMode, type GenerateDto } from "./projects.dto";
 import { VideoFormat, type AgentRunUsage } from "./project.schema";
 
 export enum GenerateStatus {
@@ -189,6 +189,41 @@ Prefer add_layers (compact lines) over JSON for writing layers. Sound: list_soun
 ${COMPACT_REF}
 Finish with a 2-3 sentence summary in Spanish: the art direction you chose and what the video shows.`;
 
+type RoleModel = { model: AgentModel; effort: AgentEffort };
+type TeamSetup = { plan: RoleModel; build: RoleModel; review: RoleModel; reviewRounds: number };
+
+/**
+ * Who does what in each mode. Premium is all Opus thinking hard (best motion design, slowest and
+ * priciest); Economy is Sonnet executing a Sonnet plan.
+ */
+const TEAM: Record<Exclude<GenerateMode, GenerateMode.Custom>, TeamSetup> = {
+  [GenerateMode.Premium]: {
+    plan: { model: AgentModel.Opus, effort: AgentEffort.High },
+    build: { model: AgentModel.Opus, effort: AgentEffort.Medium },
+    review: { model: AgentModel.Opus, effort: AgentEffort.Medium },
+    reviewRounds: 3,
+  },
+  [GenerateMode.Balanced]: {
+    plan: { model: AgentModel.Opus, effort: AgentEffort.Medium },
+    build: { model: AgentModel.Sonnet, effort: AgentEffort.Medium },
+    review: { model: AgentModel.Sonnet, effort: AgentEffort.Medium },
+    reviewRounds: 2,
+  },
+  [GenerateMode.Economy]: {
+    plan: { model: AgentModel.Sonnet, effort: AgentEffort.Medium },
+    build: { model: AgentModel.Sonnet, effort: AgentEffort.Low },
+    review: { model: AgentModel.Sonnet, effort: AgentEffort.Low },
+    reviewRounds: 1,
+  },
+};
+
+function teamFor(mode: GenerateMode | undefined, model?: AgentModel, effort?: AgentEffort): TeamSetup {
+  if (mode && mode !== GenerateMode.Custom) return TEAM[mode];
+  const m = model ?? AgentModel.Sonnet;
+  const e = effort ?? AgentEffort.Medium;
+  return { plan: { model: m, effort: e }, build: { model: m, effort: e }, review: { model: m, effort: e }, reviewRounds: 2 };
+}
+
 type Beat = { group: string; start: number; end: number; brief: string };
 type Plan = { direction: string; motif?: string; beats: Beat[] };
 
@@ -218,7 +253,7 @@ export class GenerateService {
       : { status: GenerateStatus.Idle, events: [], summary: null, usage: null };
   }
 
-  async start(ownerId: Types.ObjectId, email: string, projectId: string, { instruction, model, effort, references }: GenerateDto) {
+  async start(ownerId: Types.ObjectId, email: string, projectId: string, { instruction, model, effort, references, mode }: GenerateDto) {
     const project = await this.projects.get(ownerId, projectId);
     if (this.runs.get(project.id)?.status === GenerateStatus.Running) {
       throw new ConflictException("the agent is already working on this project");
@@ -232,9 +267,11 @@ export class GenerateService {
     const refs = references?.length ? ` The user attached reference images; look at each with view_image first: ${references.join(", ")}.` : "";
     const opts: AgentOpts = { config, model, effort, size: FORMAT_SIZE[project.format] ?? FORMAT_SIZE[VideoFormat.Vertical] };
 
+    // Callers without a mode (prefab workshop, older clients) keep their explicit model/effort.
+    mode ??= model ? GenerateMode.Custom : GenerateMode.Balanced;
     const work = instruction?.trim()
-      ? this.single(run, `The user asks: "${instruction.trim()}". Apply it to the current video (read get_project and get_scene first; finish with review_video and fix what it shows).${refs}`, opts)
-      : this.team(run, refs, opts);
+      ? this.single(run, `The user asks: "${instruction.trim()}". Apply it to the current video (read get_project and get_scene first; finish with review_video and fix what it shows).${refs}`, { ...opts, ...teamFor(mode, model, effort).build })
+      : this.team(run, refs, opts, teamFor(mode, model, effort), mode);
     void work
       .then((usage) => {
         run.usage = usage;
@@ -266,7 +303,10 @@ export class GenerateService {
   }
 
   /** Plan, build beats in parallel, finish. Wall time ≈ planner + slowest beat + finisher. */
-  private async team(run: Run, refs: string, o: AgentOpts): Promise<AgentRunUsage> {
+  private async team(run: Run, refs: string, base: AgentOpts, team: TeamSetup, mode: GenerateMode): Promise<AgentRunUsage> {
+    // The cost log names the mode rather than one model (each role may run a different one).
+    const label: AgentOpts = { ...base, model: `modo ${mode}`, effort: undefined };
+    const o: AgentOpts = { ...base, ...team.plan };
     const results: ResultLine[] = [];
     const t0 = Date.now();
     this.push(run, GenerateEventKind.Phase, GeneratePhase.Plan);
@@ -278,7 +318,7 @@ export class GenerateService {
     this.push(run, GenerateEventKind.Phase, GeneratePhase.Build);
 
     // The plan already did the thinking: builders and finisher execute it with low effort (thinking is output tokens).
-    const crew: AgentOpts = { ...o, effort: AgentEffort.Low };
+    const crew: AgentOpts = { ...base, ...team.build };
     const overview = plan.beats.map((b) => `- ${b.group} ${b.start}-${b.end}s: ${b.brief}`).join("\n");
     const queue = [...plan.beats];
     const worker = async () => {
@@ -293,13 +333,13 @@ export class GenerateService {
       }
     };
     await Promise.all(Array.from({ length: Math.min(MAX_PARALLEL_BUILDERS, plan.beats.length) }, worker));
-    if (run.status !== GenerateStatus.Running) return sumUsage(results, t0, o);
+    if (run.status !== GenerateStatus.Running) return sumUsage(results, t0, label);
 
     this.push(run, GenerateEventKind.Phase, GeneratePhase.Review);
-    const finished = await this.agent(run, `Review and polish the whole video. Canvas ${o.size[0]}x${o.size[1]} px. Groups: ${plan.beats.map((b) => `${b.group} ${b.start}-${b.end}s`).join(", ")}.`, FINISHER_GUIDE, crew, "review", ROLE_TOOLS.finisher);
+    const finished = await this.agent(run, `Review and polish the whole video. Canvas ${o.size[0]}x${o.size[1]} px. Groups: ${plan.beats.map((b) => `${b.group} ${b.start}-${b.end}s`).join(", ")}.`, FINISHER_GUIDE.replace("(max 2 rounds)", `(max ${team.reviewRounds} rounds)`), { ...base, ...team.review }, "review", ROLE_TOOLS.finisher);
     results.push(finished.result);
     run.summary = finished.text;
-    return sumUsage(results, t0, o);
+    return sumUsage(results, t0, label);
   }
 
   /** One claude process; events are tagged with its role so the UI can show who is doing what. */

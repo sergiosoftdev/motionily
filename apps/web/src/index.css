@@ -97,3 +97,32 @@
 @media (prefers-reduced-motion: reduce) {
   .ws-hammer, .ws-bob, .ws-brick, .ws-sweep, .ws-shout, .ws-spark { animation: none; }
 }
+
+/* Build overlay: blueprint over the canvas while the team works. */
+@keyframes bp-grid { from { background-position: 0 0, 0 0; } to { background-position: 48px 48px, 48px 48px; } }
+@keyframes bp-draw { 0% { stroke-dashoffset: var(--len, 600); opacity: 1; } 55%, 85% { stroke-dashoffset: 0; opacity: 1; } 100% { stroke-dashoffset: 0; opacity: 0; } }
+@keyframes bp-measure { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes bp-measure-y { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes bp-scan { 0% { left: -10%; } 100% { left: 105%; } }
+@keyframes bp-stripes { from { background-position: 0 0; } to { background-position: 28px 0; } }
+@keyframes bp-hop { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+@keyframes bp-fade-in { from { opacity: 0; } to { opacity: 1; } }
+.bp-grid {
+  background-image: linear-gradient(rgb(147 197 253 / 0.13) 1px, transparent 1px), linear-gradient(90deg, rgb(147 197 253 / 0.13) 1px, transparent 1px);
+  background-size: 24px 24px;
+  animation: bp-grid 6s linear infinite;
+}
+.bp-draw { stroke-dasharray: var(--len, 600); animation: bp-draw 3.2s cubic-bezier(0.6, 0, 0.3, 1) infinite; animation-delay: var(--d, 0s); }
+.bp-measure { transform-origin: left; animation: bp-measure 1.1s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.bp-measure-y { transform-origin: top; animation: bp-measure-y 1.1s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.bp-scan { animation: bp-scan 2.2s ease-in-out infinite; }
+.bp-stripes {
+  background-image: repeating-linear-gradient(135deg, rgb(52 211 153 / 0.9) 0 7px, rgb(16 185 129 / 0.55) 7px 14px);
+  background-size: 28px 100%;
+  animation: bp-stripes 0.6s linear infinite;
+}
+.bp-hop { animation: bp-hop 0.5s ease-in-out infinite; }
+.bp-fade-in { animation: bp-fade-in 0.6s ease both; }
+@media (prefers-reduced-motion: reduce) {
+  .bp-grid, .bp-draw, .bp-scan, .bp-stripes, .bp-hop { animation: none; }
+}

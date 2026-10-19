@@ -1,8 +1,10 @@
 import type { AgentRunUsage } from "@motionily/protocol";
 import { GENERATE_EVENT, takePipeline, VideoPipeline } from "../pipeline";
 import { useEffect, useRef, useState } from "react";
+import { useEditor } from "../store";
 import { ReferenceStrip, useReferences } from "./References";
 import { AgentWorkshop } from "./AgentWorkshop";
+import { ModePicker, type GenerationMode } from "./ModePicker";
 import { api } from "../api/client";
 
 export const GenerateStatus = { Idle: "idle", Running: "running", Done: "done", Failed: "failed", Stopped: "stopped" } as const;
@@ -52,7 +54,7 @@ export const AgentModel = { Fable: "fable", Opus: "opus", Sonnet: "sonnet", Haik
 export type AgentModel = (typeof AgentModel)[keyof typeof AgentModel];
 export const AgentEffort = { Low: "low", Medium: "medium", High: "high", XHigh: "xhigh", Max: "max" } as const;
 export type AgentEffort = (typeof AgentEffort)[keyof typeof AgentEffort];
-export type AgentPrefs = { model: AgentModel; effort: AgentEffort };
+export type AgentPrefs = { model: AgentModel; effort: AgentEffort; mode?: GenerationMode };
 
 export const MODEL_LABEL: Record<AgentModel, string> = { fable: "Fable", opus: "Opus", sonnet: "Sonnet", haiku: "Haiku" };
 export const EFFORT_LABEL: Record<AgentEffort, string> = { low: "Bajo", medium: "Medio", high: "Alto", xhigh: "Muy alto", max: "Máximo" };
@@ -152,6 +154,12 @@ export function GeneratePanel({ projectId, hasScene, runs = [] }: { projectId: s
 
   startRef.current = start;
 
+  // The canvas overlay shows the build too.
+  useEffect(() => {
+    useEditor.setState({ agentRun: state });
+  }, [state]);
+  useEffect(() => () => useEditor.setState({ agentRun: null }), []);
+
   const steps = (state?.events ?? []).filter((e) => e.kind !== GenerateEventKind.Text).slice(-6);
   const lastThought = [...(state?.events ?? [])].reverse().find((e) => e.kind === GenerateEventKind.Text);
 
@@ -168,34 +176,7 @@ export function GeneratePanel({ projectId, hasScene, runs = [] }: { projectId: s
         />
       )}
       {hasScene && !running && <ReferenceStrip r={refs} />}
-      {!running && (
-        <div className="flex gap-2 text-xs">
-          <select
-            value={prefs.model}
-            onChange={(e) => updatePrefs({ model: e.target.value as AgentModel })}
-            aria-label="Modelo"
-            className="flex-1 rounded-lg bg-neutral-900 px-2 py-1.5 text-neutral-300 focus:outline-none"
-          >
-            {Object.values(AgentModel).map((m) => (
-              <option key={m} value={m}>
-                {MODEL_LABEL[m]}
-              </option>
-            ))}
-          </select>
-          <select
-            value={prefs.effort}
-            onChange={(e) => updatePrefs({ effort: e.target.value as AgentEffort })}
-            aria-label="Esfuerzo"
-            className="flex-1 rounded-lg bg-neutral-900 px-2 py-1.5 text-neutral-300 focus:outline-none"
-          >
-            {Object.values(AgentEffort).map((x) => (
-              <option key={x} value={x}>
-                Esfuerzo: {EFFORT_LABEL[x]}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
+      {!running && <ModePicker prefs={prefs} onChange={updatePrefs} />}
       {running ? (
         <button
           type="button"

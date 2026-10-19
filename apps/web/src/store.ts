@@ -1,3 +1,4 @@
+import type { GenerateState } from "./components/GeneratePanel";
 import { create } from "zustand";
 import type { CaptionStyle, StylePreset } from "@motionily/protocol";
 
@@ -34,6 +35,8 @@ type EditorState = {
   selectedLayerId: string | null;
   /** Whole group selected (first click on a grouped layer); exclusive with selectedLayerId. */
   selectedGroup: string | null;
+  /** Live state of the agent run (shared by the side panel and the canvas overlay). */
+  agentRun: GenerateState | null;
 };
 
 let nextId = 0;
@@ -51,6 +54,7 @@ export const useEditor = create<EditorState>(() => ({
   activity: [],
   selectedLayerId: null,
   selectedGroup: null,
+  agentRun: null,
   sceneSize: [1080, 1920],
 }));
 

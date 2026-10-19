@@ -16,6 +16,7 @@ import { ExportButton } from "../export/ExportButton";
 import { GeneratePanel } from "../components/GeneratePanel";
 import { CaptionsPanel } from "../captions/CaptionsPanel";
 import { Timeline } from "../timeline/Timeline";
+import { BuildOverlay } from "../timeline/BuildOverlay";
 import { SelectionOverlay } from "../timeline/SelectionOverlay";
 
 const SAVE_DEBOUNCE_MS = 800;
@@ -201,6 +202,7 @@ export function EditorScreen({ id }: { id: string }) {
               style={preview ?? { visibility: "hidden" }}
               className="rounded-xl shadow-2xl shadow-black/50"
             />
+            <BuildOverlay canvas={canvasRef} />
             <SelectionOverlay canvas={canvasRef} projectId={id} />
             {status === EngineStatus.Loading && !error && <p className="absolute text-sm text-neutral-400">Arrancando motor…</p>}
             {(error || status === EngineStatus.Failed) && (

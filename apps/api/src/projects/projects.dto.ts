@@ -81,11 +81,20 @@ export enum AgentEffort {
   Max = "max",
 }
 
+/** How much model the team gets: quality vs cost. "custom" uses model/effort for every role. */
+export enum GenerateMode {
+  Premium = "premium",
+  Balanced = "balanced",
+  Economy = "economy",
+  Custom = "custom",
+}
+
 export class GenerateDto {
   /** Optional request on top of the brief ("make the title bigger"). */
   @IsOptional() @IsString() @MaxLength(2000) instruction?: string;
   @IsOptional() @IsEnum(AgentModel) model?: AgentModel;
   @IsOptional() @IsEnum(AgentEffort) effort?: AgentEffort;
+  @IsOptional() @IsEnum(GenerateMode) mode?: GenerateMode;
   /** Images pasted with the request. */
   @IsOptional() @IsArray() @ArrayMaxSize(MAX_REFERENCES) @Matches(MEDIA_PATH, { each: true }) references?: string[];
 }

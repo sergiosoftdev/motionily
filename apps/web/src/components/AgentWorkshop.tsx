@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { GenerateEventKind, TOOL_LABEL, type GenerateState } from "./GeneratePanel";
 
 /** Phases the API reports for a full build (mirrors GeneratePhase). */
-const Phase = { Plan: "plan", Build: "build", Review: "review" } as const;
+export const Phase = { Plan: "plan", Build: "build", Review: "review" } as const;
 type Phase = (typeof Phase)[keyof typeof Phase];
 const PHASES: { id: Phase; label: string }[] = [
   { id: Phase.Plan, label: "Dirección de arte" },
@@ -26,10 +26,10 @@ const GAG_MS = 3400;
 const TAG = /^\[([^\]]+)\] (.*)$/;
 const MAX_BRICKS = 12;
 
-type Lane = { group: string; start: number; end: number; tools: number; last: string | null; done: boolean };
+export type Lane = { group: string; start: number; end: number; tools: number; last: string | null; done: boolean };
 
 /** Reads the event stream into phases and one lane per beat. */
-function readState(state: GenerateState) {
+export function readState(state: GenerateState) {
   let phase: Phase | null = null;
   let lanes: Lane[] = [];
   let direction: string | null = null;
