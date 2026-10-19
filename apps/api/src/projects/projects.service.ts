@@ -8,6 +8,8 @@ import type { CreateFeedbackDto, CreateProjectDto, SaveSceneDto, SetSlotDto, Upd
 
 type KitPayload = { defaults?: Partial<Build> };
 
+const NEUTRAL_BASE = "motion_style/apple";
+
 @Injectable()
 export class ProjectsService {
   constructor(
@@ -32,7 +34,8 @@ export class ProjectsService {
 
   /** Opening the box: the motion style fills every slot with its default bricks. */
   async create(ownerId: Types.ObjectId, dto: CreateProjectDto) {
-    const kit = await this.bricks.get(dto.motionStyle);
+    // A neutral base the agent replaces with its own art direction.
+    const kit = await this.bricks.get(dto.motionStyle ?? NEUTRAL_BASE);
     if (kit.slot !== BrickSlot.MotionStyle) {
       throw new BadRequestException(`'${dto.motionStyle}' is not a motion style`);
     }

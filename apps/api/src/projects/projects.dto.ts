@@ -16,8 +16,8 @@ import { FeedbackKind, VideoFormat } from "./project.schema";
 
 export class CreateProjectDto {
   @IsString() @MinLength(1) @MaxLength(80) name: string;
-  /** Key of the motion style "box", e.g. "motion_style/startup". */
-  @IsString() motionStyle: string;
+  /** Optional starting point; by default the agent designs the look itself from the brief. */
+  @IsOptional() @IsString() motionStyle?: string;
   @IsOptional() @IsString() @MaxLength(4000) brief?: string;
   @IsOptional() @IsEnum(VideoFormat) format?: VideoFormat;
   /** Project (brand kit) to put the video in; defaults to the user's first project. */

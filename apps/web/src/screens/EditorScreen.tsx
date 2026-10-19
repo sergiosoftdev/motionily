@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BrickSlot, EngineSupport, FORMAT_SIZE, OpName, type VideoFormat, type Brick, type Build, type Op, type PalettePayload, type Project } from "@motionily/protocol";
-import { api, ApiError, mediaUrl, type BrandPalette } from "../api/client";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { BrickSlot, EngineSupport, FORMAT_SIZE, OpName, type VideoFormat, type Brick, type Build, type Op, type Project } from "@motionily/protocol";
+import { api, ApiError, mediaUrl } from "../api/client";
 import { engineHost } from "../engine/host";
 import { agentBridge } from "../bridge";
 import { ActivitySource, EngineStatus, logActivity, useEditor } from "../store";
@@ -9,9 +9,6 @@ import { BrandTab, href, RouteName } from "../router";
 import { Transport } from "../components/Transport";
 import { FeedbackBox } from "../components/FeedbackBox";
 import { ActivityLog } from "../components/ActivityLog";
-import { StylePanel } from "../components/style/StylePanel";
-import { OptionsSheet } from "../components/style/OptionsSheet";
-import { slotUi } from "../components/style/options";
 import { ConnectAgent } from "../components/ConnectAgent";
 import { FormatPicker } from "../components/FormatPicker";
 import { ExportButton } from "../export/ExportButton";
@@ -43,33 +40,16 @@ function libraryOf(build: Build, byKey: Map<string, Brick>, prefabRows: PrefabRo
   return { animations, transitions, anchors, prefabs };
 }
 
-/** Mirror the bricks the engine already understands into scene ops. */
+/**
+ * What the editor imposes on every scene: the frame size (from the format) and the helper library
+ * (animations, transitions, prefabs). The look (palette, type, finish) belongs to the scene the agent designs.
+ */
 function buildToOps(build: Build, byKey: Map<string, Brick>, format: VideoFormat, prefabs: PrefabRow[]): Op[] {
   const [width, height] = FORMAT_SIZE[format];
   const ops: Op[] = [
     { op: OpName.SetSize, width, height },
     { op: OpName.SetLibrary, library: libraryOf(build, byKey, prefabs) },
   ];
-  const palette = byKey.get(build.palette);
-  if (palette) ops.push({ op: OpName.SetPalette, palette: palette.payload as PalettePayload });
-  const typography = byKey.get(build.typography)?.payload as { family?: string; body?: number; heading?: number } | undefined;
-  if (typography?.family) {
-    ops.push({ op: OpName.SetTypography, typography: { family: typography.family, body: typography.body ?? 500, heading: typography.heading ?? 700 } });
-  }
-  // Render style brick ids are the engine's finish names (flat, paper_cut…).
-  const renderBrick = byKey.get(build.render_style);
-  if (renderBrick?.engine === EngineSupport.Supported) {
-    ops.push({ op: OpName.SetRenderStyle, render_style: { kind: build.render_style.split("/")[1], amount: 1 } });
-  }
-  // Scenario brick ids are the engine's backdrop names (clinic_room, iso_city…).
-  const scenario = build.scenario ? byKey.get(build.scenario) : undefined;
-  ops.push({
-    op: OpName.SetScenario,
-    scenario: scenario?.engine === EngineSupport.Supported ? { kind: scenario.key.split("/")[1] } : null,
-  });
-  const captionId = build.captions.split("/")[1];
-  const engineCaption = engineHost.captionStyles.find((c) => c === captionId);
-  if (engineCaption) ops.push({ op: OpName.SetCaptionStyle, caption_style: engineCaption });
   return ops;
 }
 
@@ -79,8 +59,6 @@ export function EditorScreen({ id }: { id: string }) {
   const [project, setProject] = useState<Project | null>(null);
   const [bricks, setBricks] = useState<Brick[]>([]);
   const prefabs = useRef<PrefabRow[]>([]);
-  const [brandPalettes, setBrandPalettes] = useState<BrandPalette[]>([]);
-  const [openSlot, setOpenSlot] = useState<BrickSlot | null>(null);
   const [tab, setTab] = useState<SidebarTab>(SidebarTab.Video);
   const [error, setError] = useState<string | null>(null);
   const status = useEditor((s) => s.engineStatus);
@@ -108,7 +86,6 @@ export function EditorScreen({ id }: { id: string }) {
   }, [sceneW, sceneH]);
 
   const byKey = useMemo(() => new Map(bricks.map((b) => [b.key, b])), [bricks]);
-  const nameOf = useCallback((key: string) => byKey.get(key)?.name ?? key, [byKey]);
 
   // Load project + its catalog, then start the engine on its scene.
   useEffect(() => {
@@ -171,29 +148,6 @@ export function EditorScreen({ id }: { id: string }) {
       clearTimeout(timer);
     };
   }, [id]);
-
-  const pick = async (slot: BrickSlot, value: string | string[] | null, applyKitDefaults?: boolean) => {
-    try {
-      const p = await api.setSlot(id, slot, value, applyKitDefaults);
-      setProject(p);
-      // A just-created option (e.g. a Google Font) may not be in our catalog yet.
-      let catalog = byKey;
-      if ([value].flat().some((k) => k && !byKey.has(k))) {
-        const fresh = await api.projectBricks(id);
-        setBricks(fresh);
-        catalog = new Map(fresh.map((b) => [b.key, b]));
-      }
-      if (engineHost.ready) {
-        engineHost.setBuildOps(buildToOps(p.build, catalog, p.format, prefabs.current));
-        agentBridge.sceneChanged();
-      }
-      const names = [value].flat().filter(Boolean).map((k) => catalog.get(k as string)?.name ?? (k as string));
-      logActivity(ActivitySource.User, `${slotUi(slot).label}: ${names.join(", ") || "vacío"}`);
-      if (slot !== BrickSlot.Character && slot !== BrickSlot.Animation && slot !== BrickSlot.Transition) setOpenSlot(null);
-    } catch (e) {
-      logActivity(ActivitySource.System, e instanceof Error ? e.message : String(e));
-    }
-  };
 
   const rename = async (name: string) => {
     if (!project || !name.trim() || name === project.name) return;
@@ -286,7 +240,7 @@ export function EditorScreen({ id }: { id: string }) {
               <div className="flex flex-col gap-6">
                 <label className="flex flex-col gap-2">
                   <span className="text-sm font-semibold">¿De qué va el vídeo?</span>
-                  <span className="-mt-1 text-xs text-neutral-500">El agente lo monta a partir de esto y del estilo que elijas.</span>
+                  <span className="-mt-1 text-xs text-neutral-500">Claude diseña el vídeo entero a partir de esto. Para cambiar algo concreto, clica en el objeto.</span>
                   <textarea
                     key={project.id}
                     defaultValue={project.brief}
@@ -301,7 +255,6 @@ export function EditorScreen({ id }: { id: string }) {
                   <span className="text-xs font-medium text-neutral-300">Formato</span>
                   <FormatPicker value={project.format} onChange={(f) => void changeFormat(f)} />
                 </div>
-                <StylePanel build={project.build} byKey={byKey} onOpen={setOpenSlot} />
                 <CaptionsPanel project={project} onProject={setProject} />
               </div>
             )}
@@ -312,19 +265,6 @@ export function EditorScreen({ id }: { id: string }) {
               </div>
             )}
           </div>
-          {project && openSlot && (
-            <OptionsSheet
-              projectId={id}
-              onNewBrick={(b) => setBricks((bs) => [...bs.filter((x) => x.key !== b.key), b])}
-              brandPalettes={brandPalettes}
-              slot={openSlot}
-              build={project.build}
-              bricks={bricks}
-              byKey={byKey}
-              onPick={(value, rebox) => void pick(openSlot, value, rebox)}
-              onClose={() => setOpenSlot(null)}
-            />
-          )}
         </aside>
       </div>
     </div>

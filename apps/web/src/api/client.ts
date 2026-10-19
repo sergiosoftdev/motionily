@@ -66,8 +66,8 @@ export const api = {
     call<Brick[]>(HttpMethod.Get, `/bricks?${new URLSearchParams(q as Record<string, string>)}`),
   projects: () => call<ProjectListItem[]>(HttpMethod.Get, "/projects"),
   project: (id: string) => call<Project>(HttpMethod.Get, `/projects/${id}`),
-  createProject: (name: string, motionStyle: string, format: VideoFormat, brandId: string) =>
-    call<Project>(HttpMethod.Post, "/projects", { name, motionStyle, format, brandId }),
+  createProject: (name: string, brief: string, format: VideoFormat, brandId: string) =>
+    call<Project>(HttpMethod.Post, "/projects", { name, brief, format, brandId }),
   brands: () => call<BrandSummary[]>(HttpMethod.Get, "/brands"),
   brand: (id: string) => call<BrandKit>(HttpMethod.Get, `/brands/${id}`),
   createBrand: (name: string) => call<BrandKit>(HttpMethod.Post, "/brands", { name }),

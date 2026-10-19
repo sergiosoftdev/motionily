@@ -131,7 +131,14 @@ class EngineHost {
   /** Throws with the engine's validation message if any op is invalid. */
   applyOps(ops: Op[]) {
     this.require().applyOps(JSON.stringify(ops));
+    for (const op of ops) this.fontsFor(op.typography);
     this.changed();
+  }
+
+  /** Load the Google Font a typography (from an op or a scene) asks for. */
+  private fontsFor(typography: unknown) {
+    const t = typography as { family?: string; body?: number; heading?: number } | null | undefined;
+    if (t?.family) void this.ensureFonts(t.family, [t.body ?? 500, t.heading ?? 700]);
   }
 
   /** Ops derived from the user's bricks (palette…). Re-applied on every scene load so an agent can't drop them. */
@@ -139,16 +146,13 @@ class EngineHost {
 
   setBuildOps(ops: Op[]) {
     this.buildOps = ops;
-    for (const op of ops) {
-      const t = op.typography as { family?: string; body?: number; heading?: number } | null | undefined;
-      if (t?.family) void this.ensureFonts(t.family, [t.body ?? 500, t.heading ?? 700]);
-    }
     if (this.engine) this.applyOps(ops);
   }
 
   loadScene(json: string) {
     const engine = this.require();
     engine.loadScene(json);
+    this.fontsFor((JSON.parse(json) as { typography?: unknown }).typography);
     if (this.buildOps.length) engine.applyOps(JSON.stringify(this.buildOps));
     this.changed();
   }

@@ -74,23 +74,6 @@ server.registerTool(
   }),
 );
 
-server.registerTool(
-  "set_option",
-  {
-    description:
-      "Change a project option (the same settings the user has in the editor): motion_style, palette, composition, typography, render_style (finish: flat, soft_depth…), captions, scenario (null for none), character/animation/transition (lists). Use keys from list_bricks. The editor updates live.",
-    inputSchema: {
-      slot: z.enum(SLOT_VALUES),
-      value: z.union([z.string(), z.array(z.string()), z.null()]),
-      apply_style_defaults: z.boolean().optional().describe("motion_style only: also switch every other option to that style's defaults"),
-    },
-  },
-  guard(async ({ slot, value, apply_style_defaults }) => {
-    const p = await api.setSlot(slot, value, apply_style_defaults);
-    return text(`${slot} = ${JSON.stringify(p.build[slot])}`);
-  }),
-);
-
 const PREFAB_NAME = /^[a-z0-9_]{2,40}$/;
 const PrefabKindEnum = z.enum(["object", "character", "space"]);
 
@@ -202,14 +185,8 @@ server.registerTool(
     const match = (await api.fonts(family)).find((f) => f.family.toLowerCase() === family.toLowerCase());
     if (!match) return fail(`No Google font named '${family}'. Use search_fonts.`);
     const near = (w: number) => match.weights.reduce((b, x) => (Math.abs(x - w) < Math.abs(b - w) ? x : b));
-    const brick = await api.createBrick({
-      slot: BrickSlot.Typography,
-      id: `gf_${match.family.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 36)}`,
-      name: match.family,
-      description: `${match.category} · Google Fonts`,
-      payload: { family: match.family, body: near(500), heading: near(700) },
-    });
-    await api.setSlot(BrickSlot.Typography, brick.key);
+    const res = await bridge.applyOps([{ op: "set_typography", typography: { family: match.family, body: near(500), heading: near(700) } }]);
+    if (!res.ok) return fail(res.error ?? "rejected");
     return text(`typography = ${match.family} (${near(500)}/${near(700)})`);
   }),
 );
@@ -440,18 +417,7 @@ server.registerTool(
 function describeProject(p: Project, byKey: Map<string, Brick>): string {
   const lines = [`Project "${p.name}"`, `Brief: ${p.brief.trim() || "(empty — ask the user what the video is about)"}`, ""];
   lines.push(`Format: ${p.format}`);
-  lines.push("Options (the user's starting point; change them with set_option when the user asks or when it clearly serves the brief):");
-  for (const slot of SLOT_VALUES) {
-    const keys = [p.build[slot]].flat().filter((k): k is string => typeof k === "string");
-    const names = keys.map((k) => {
-      const b = byKey.get(k);
-      if (!b) return k;
-      const extra = slot === BrickSlot.Palette ? ` ${JSON.stringify(b.payload)}` : "";
-      return `${b.name} (${k})${b.engine === EngineSupport.Planned ? " [not rendered yet: use as intent]" : ""}${extra}`;
-    });
-    lines.push(`- ${slot}: ${names.join("; ") || "—"}`);
-  }
-  if (p.misfits.length) lines.push(`Misfits (user chose them anyway): ${p.misfits.join(", ")}`);
+  lines.push("Look: none preset. You are the art director: choose palette (set_palette; start from the brand's palettes if any), Google Font (set_font), motion and finish yourself.");
   lines.push("");
   lines.push(
     "Engine today: rect/ellipse layers; animate them by referencing animation bricks ({\"use\":\"animation/pop_in\",\"at\":0.3}) instead of hand keyframes; place them on composition anchors (anchor: hero/title/caption/accent); cut scenes with transition bricks (add_transition). Palette slots follow the palette brick. Text layers render in the typography brick font; captions (from the user\'s voice-over) render in their caption style — mark key words with set_emphasis. The render style brick (finish: soft shadows, toon outlines, paper cut…) is applied by the engine to the whole frame. REAL 3D built PROCEDURALLY: primitives + stickman rigs saved as prefabs in the user's library (list_prefabs, save_prefab), placed with put_prop {prefab}, filmed with set_shots. Do not use stock models or set_stage_preset.",

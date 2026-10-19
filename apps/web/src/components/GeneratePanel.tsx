@@ -61,12 +61,33 @@ export const TOOL_LABEL: Record<string, string> = {
   clone_prefab: "Duplica un prefab",
   list_templates: "Mira las plantillas",
   apply_template: "Aplica una plantilla",
-  list_models: "Mira los modelos 3D",
+  review_video: "Revisa el vídeo entero",
   get_brand: "Lee el kit de marca",
   view_asset: "Mira una imagen de la marca",
   set_format: "Cambia el formato",
   ToolSearch: "Prepara sus herramientas",
 };
+
+const AUTOGEN_KEY = "motionily.autogen";
+
+/** Ask the editor to start generating as soon as it opens this project (new videos). */
+export function requestAutoGenerate(projectId: string) {
+  try {
+    sessionStorage.setItem(AUTOGEN_KEY, projectId);
+  } catch {
+    // Storage blocked: the user presses Generar themselves.
+  }
+}
+
+function takeAutoGenerate(projectId: string): boolean {
+  try {
+    if (sessionStorage.getItem(AUTOGEN_KEY) !== projectId) return false;
+    sessionStorage.removeItem(AUTOGEN_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** The main action of the editor: let the agent build or change the video, no terminal needed. */
 export function GeneratePanel({ projectId, hasScene }: { projectId: string; hasScene: boolean }) {
@@ -90,6 +111,11 @@ export function GeneratePanel({ projectId, hasScene }: { projectId: string; hasS
       alive = false;
       clearInterval(timer);
     };
+  }, [projectId]);
+
+  useEffect(() => {
+    if (takeAutoGenerate(projectId)) void start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
   const start = async () => {
