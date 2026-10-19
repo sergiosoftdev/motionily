@@ -6,7 +6,8 @@ import { BadGatewayException, Injectable } from "@nestjs/common";
 import { Type } from "class-transformer";
 import { IsArray, IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from "class-validator";
 import { AgentEffort, AgentModel } from "../projects/projects.dto";
-import { VideoFormat } from "../projects/project.schema";
+import { VideoFormat, type AgentRunUsage } from "../projects/project.schema";
+import { usageFrom } from "../projects/generate.service";
 
 export const MAX_CONCEPTS = 6;
 const CONCEPT_TIMEOUT_MS = 180_000;
@@ -66,7 +67,7 @@ All text in Spanish.`;
 /** Asks Claude (no tools, one shot) for N different ways to make a video. */
 @Injectable()
 export class ConceptsService {
-  async pitch(dto: ConceptsRequestDto, brand: BrandContext): Promise<ConceptDto[]> {
+  async pitch(dto: ConceptsRequestDto, brand: BrandContext): Promise<{ concepts: ConceptDto[]; usage: AgentRunUsage | null }> {
     const kit = [
       `Brand/project: ${brand.name}`,
       brand.notes && `About the product: ${brand.notes}`,
@@ -83,17 +84,19 @@ export class ConceptsService {
     ]
       .filter(Boolean)
       .join("\n");
-    const out = await this.run(prompt, dto.model ?? AgentModel.Sonnet, dto.effort ?? AgentEffort.Low);
+    const model = dto.model ?? AgentModel.Sonnet;
+    const effort = dto.effort ?? AgentEffort.Low;
+    const { text: out, usage } = await this.run(prompt, model, effort);
     const json = out.slice(out.indexOf("{"), out.lastIndexOf("}") + 1);
     try {
       const concepts = (JSON.parse(json) as { concepts: ConceptDto[] }).concepts;
-      return concepts.slice(0, dto.count);
+      return { concepts: concepts.slice(0, dto.count), usage: usage && usageFrom(usage, "pitch", model, effort) };
     } catch {
       throw new BadGatewayException("the agent did not return valid concepts; try again");
     }
   }
 
-  private run(prompt: string, model: AgentModel, effort: AgentEffort): Promise<string> {
+  private run(prompt: string, model: AgentModel, effort: AgentEffort): Promise<{ text: string; usage: Parameters<typeof usageFrom>[0] | null }> {
     // Empty folder: no repo CLAUDE.md or tools leak into the pitch.
     const cwd = mkdtempSync(join(tmpdir(), "motionily-pitch-"));
     return new Promise((resolve, reject) => {
@@ -111,9 +114,10 @@ export class ConceptsService {
         clearTimeout(timer);
         if (code !== 0) return reject(new BadGatewayException(`claude failed: ${err.trim().slice(0, 300) || `exit ${code}`}`));
         try {
-          resolve((JSON.parse(out) as { result: string }).result);
+          const r = JSON.parse(out) as Parameters<typeof usageFrom>[0] & { result: string };
+          resolve({ text: r.result, usage: r });
         } catch {
-          resolve(out);
+          resolve({ text: out, usage: null });
         }
       });
     });

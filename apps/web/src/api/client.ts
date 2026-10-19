@@ -1,4 +1,4 @@
-import type { Brick, BrickSlot, Project, ProjectListItem, User, VideoFormat } from "@motionily/protocol";
+import type { AgentRunUsage, Brick, BrickSlot, Project, ProjectListItem, User, VideoFormat } from "@motionily/protocol";
 import { useSession } from "../session";
 import type { AgentPrefs, GenerateState } from "../components/GeneratePanel";
 
@@ -71,7 +71,7 @@ export const api = {
   project: (id: string) => call<Project>(HttpMethod.Get, `/projects/${id}`),
   createProject: (name: string, brief: string, format: VideoFormat, brandId: string, voiceScript = "") =>
     call<Project>(HttpMethod.Post, "/projects", { name, brief, format, brandId, voiceScript, wantsScript: !!voiceScript }),
-  concepts: (brandId: string, req: ConceptsRequest) => call<{ concepts: Concept[] }>(HttpMethod.Post, `/brands/${brandId}/concepts`, req),
+  concepts: (brandId: string, req: ConceptsRequest) => call<{ concepts: Concept[]; usage: AgentRunUsage | null }>(HttpMethod.Post, `/brands/${brandId}/concepts`, req),
   brands: () => call<BrandSummary[]>(HttpMethod.Get, "/brands"),
   brand: (id: string) => call<BrandKit>(HttpMethod.Get, `/brands/${id}`),
   createBrand: (name: string) => call<BrandKit>(HttpMethod.Post, "/brands", { name }),

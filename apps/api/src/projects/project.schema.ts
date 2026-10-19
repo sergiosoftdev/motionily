@@ -17,6 +17,22 @@ export type Build = {
 };
 
 /** Frame shape of the video. Size is 1080 px on the short side. */
+/** Tokens and cost of one agent run, from claude's final stream-json result. */
+export type AgentRunUsage = {
+  at: string;
+  /** "generate" for a full build, "edit" for an instruction on top. */
+  kind: string;
+  model: string | null;
+  effort: string | null;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  turns: number;
+  durationMs: number;
+};
+
 export enum VideoFormat {
   Vertical = "vertical_9_16",
   Horizontal = "horizontal_16_9",
@@ -46,6 +62,8 @@ export class Project {
   @Prop({ type: MongooseSchema.Types.Mixed, default: null }) audio: { file: string; name: string; mime: string } | null;
   /** Bumped on every scene save; clients send it back to avoid overwriting newer edits. */
   @Prop({ default: 0 }) sceneRevision: number;
+  /** What each agent run cost (newest last), to see where tokens go. */
+  @Prop({ type: [MongooseSchema.Types.Mixed], default: [] }) agentRuns: AgentRunUsage[];
 }
 
 export type ProjectDocument = HydratedDocument<Project>;

@@ -3,7 +3,7 @@ import { InjectModel } from "@nestjs/mongoose";
 import { Model, Types } from "mongoose";
 import { BricksService } from "../bricks/bricks.service";
 import { BrickSlot, SLOT_CARDINALITY, SlotCardinality } from "../bricks/brick.enums";
-import { Build, Feedback, FeedbackKind, Project, ProjectDocument } from "./project.schema";
+import { Build, Feedback, FeedbackKind, Project, ProjectDocument, type AgentRunUsage } from "./project.schema";
 import type { CreateFeedbackDto, CreateProjectDto, SaveSceneDto, SetSlotDto, UpdateProjectDto } from "./projects.dto";
 
 type KitPayload = { defaults?: Partial<Build> };
@@ -23,6 +23,11 @@ export class ProjectsService {
       .find(brandId ? { ownerId, brandId, hidden: { $ne: true } } : { ownerId, hidden: { $ne: true } }, { name: 1, build: 1, format: 1, brandId: 1, updatedAt: 1, createdAt: 1 })
       .sort({ updatedAt: -1 })
       .lean();
+  }
+
+  /** Append one agent run's usage (keeps the last 50). */
+  async logAgentRun(id: string, usage: AgentRunUsage) {
+    await this.projects.updateOne({ _id: id }, { $push: { agentRuns: { $each: [usage], $slice: -50 } } });
   }
 
   async get(ownerId: Types.ObjectId, id: string): Promise<ProjectDocument> {

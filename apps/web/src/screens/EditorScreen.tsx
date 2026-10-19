@@ -243,7 +243,7 @@ export function EditorScreen({ id }: { id: string }) {
                   />
                 </label>
                 {project.voiceScript.trim() && <VoiceScript script={project.voiceScript} hasVoice={!!project.audio} />}
-                <GeneratePanel projectId={id} hasScene={!!project.scene} />
+                <GeneratePanel projectId={id} hasScene={!!project.scene} runs={project.agentRuns} />
                 <div className="flex flex-col gap-2">
                   <span className="text-xs font-medium text-neutral-300">Formato</span>
                   <FormatPicker value={project.format} onChange={(f) => void changeFormat(f)} />

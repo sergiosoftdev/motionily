@@ -8,6 +8,7 @@ import { Types } from "mongoose";
 import { TokenScope, type JwtPayload } from "../auth/auth";
 import { ProjectsService } from "./projects.service";
 import type { GenerateDto } from "./projects.dto";
+import type { AgentRunUsage } from "./project.schema";
 
 export enum GenerateStatus {
   Idle = "idle",
@@ -27,7 +28,31 @@ export enum GenerateEventKind {
 
 export type GenerateEvent = { at: string; kind: GenerateEventKind; text: string };
 
-type Run = { process: ChildProcess | null; status: GenerateStatus; events: GenerateEvent[]; summary: string | null };
+type Run = { process: ChildProcess | null; status: GenerateStatus; events: GenerateEvent[]; summary: string | null; usage: AgentRunUsage | null };
+
+/** The fields of claude's final `result` line we care about. */
+type ResultLine = {
+  total_cost_usd?: number;
+  num_turns?: number;
+  duration_ms?: number;
+  usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
+};
+
+export function usageFrom(r: ResultLine, kind: string, model: string | null, effort: string | null): AgentRunUsage {
+  return {
+    at: new Date().toISOString(),
+    kind,
+    model,
+    effort,
+    costUsd: r.total_cost_usd ?? 0,
+    inputTokens: r.usage?.input_tokens ?? 0,
+    outputTokens: r.usage?.output_tokens ?? 0,
+    cacheReadTokens: r.usage?.cache_read_input_tokens ?? 0,
+    cacheWriteTokens: r.usage?.cache_creation_input_tokens ?? 0,
+    turns: r.num_turns ?? 0,
+    durationMs: r.duration_ms ?? 0,
+  };
+}
 
 const MAX_EVENTS = 200;
 const MCP_SERVER = "motionily";
@@ -81,8 +106,8 @@ export class GenerateService {
   status(projectId: string) {
     const run = this.runs.get(projectId);
     return run
-      ? { status: run.status, events: run.events, summary: run.summary }
-      : { status: GenerateStatus.Idle, events: [], summary: null };
+      ? { status: run.status, events: run.events, summary: run.summary, usage: run.usage }
+      : { status: GenerateStatus.Idle, events: [], summary: null, usage: null };
   }
 
   async start(ownerId: Types.ObjectId, email: string, projectId: string, { instruction, model, effort }: GenerateDto) {
@@ -133,7 +158,8 @@ export class GenerateService {
       ],
       { cwd: workDir, stdio: ["ignore", "pipe", "pipe"], env: process.env },
     );
-    const run: Run = { process: child, status: GenerateStatus.Running, events: [], summary: null };
+    const run: Run = { process: child, status: GenerateStatus.Running, events: [], summary: null, usage: null };
+    const kind = instruction?.trim() ? "edit" : "generate";
     this.runs.set(project.id, run);
     const push = (kind: GenerateEventKind, text: string) => {
       run.events.push({ at: new Date().toISOString(), kind, text });
@@ -145,7 +171,13 @@ export class GenerateService {
       buffered += chunk.toString();
       const lines = buffered.split("\n");
       buffered = lines.pop() ?? "";
-      for (const line of lines) this.onLine(line, run, push);
+      for (const line of lines) {
+        const result = this.onLine(line, run, push);
+        if (result) {
+          run.usage = usageFrom(result, kind, model ?? null, effort ?? null);
+          void this.projects.logAgentRun(project.id, run.usage);
+        }
+      }
     });
     let stderr = "";
     child.stderr!.on("data", (c: Buffer) => (stderr = (stderr + c.toString()).slice(-2000)));
@@ -173,12 +205,13 @@ export class GenerateService {
   }
 
   /** One stream-json line from claude: keep tool calls and text the user can follow. */
-  private onLine(line: string, run: Run, push: (k: GenerateEventKind, t: string) => void) {
-    let msg: { type?: string; subtype?: string; result?: string; message?: { content?: { type: string; text?: string; name?: string }[] } };
+  /** Returns the final result line (with usage) when this is it. */
+  private onLine(line: string, run: Run, push: (k: GenerateEventKind, t: string) => void): ResultLine | null {
+    let msg: ResultLine & { type?: string; subtype?: string; result?: string; message?: { content?: { type: string; text?: string; name?: string }[] } };
     try {
       msg = JSON.parse(line);
     } catch {
-      return;
+      return null;
     }
     if (msg.type === "assistant") {
       for (const c of msg.message?.content ?? []) {
@@ -189,7 +222,9 @@ export class GenerateService {
     if (msg.type === "result") {
       run.summary = msg.result?.trim() ?? null;
       if (msg.subtype && msg.subtype !== "success") push(GenerateEventKind.Error, msg.subtype);
+      return msg;
     }
+    return null;
   }
 }
 

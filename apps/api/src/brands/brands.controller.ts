@@ -24,7 +24,7 @@ export class BrandsController {
   @HttpCode(200)
   async pitch(@CurrentUser() user: AuthUser, @Param("brandId") brandId: string, @Body() dto: ConceptsRequestDto) {
     const kit = await this.full(user, brandId);
-    return { concepts: await this.concepts.pitch(dto, kit) };
+    return this.concepts.pitch(dto, kit);
   }
 
   @Get()

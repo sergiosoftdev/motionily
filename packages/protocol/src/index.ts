@@ -217,6 +217,20 @@ export const FORMAT_SIZE: Record<VideoFormat, [number, number]> = {
   portrait_4_5: [1080, 1350],
 };
 
+export type AgentRunUsage = {
+  at: string;
+  kind: string;
+  model: string | null;
+  effort: string | null;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  turns: number;
+  durationMs: number;
+};
+
 export type Project = {
   id: string;
   name: string;
@@ -231,6 +245,8 @@ export type Project = {
   scene: Record<string, unknown> | null;
   audio: { url: string; name: string; mime: string } | null;
   sceneRevision: number;
+  /** Tokens and cost of each agent run on this video (newest last). */
+  agentRuns: AgentRunUsage[];
   updatedAt: string;
 };
 

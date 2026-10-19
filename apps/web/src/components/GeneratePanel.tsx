@@ -1,3 +1,4 @@
+import type { AgentRunUsage } from "@motionily/protocol";
 import { GENERATE_EVENT, takePipeline, VideoPipeline } from "../pipeline";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
@@ -10,7 +11,37 @@ export type GenerateState = {
   status: GenerateStatus;
   events: { at: string; kind: GenerateEventKind; text: string }[];
   summary: string | null;
+  usage: AgentRunUsage | null;
 };
+
+const tokens = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n));
+const dollars = (n: number) => `${n.toFixed(2).replace(".", ",")} $`;
+
+/** One line of what a run cost: cost, output, fresh input, cached input, turns, time. */
+export function usageLine(u: AgentRunUsage) {
+  return `${dollars(u.costUsd)} · ${tokens(u.outputTokens)} escritos · ${tokens(u.inputTokens + u.cacheWriteTokens)} leídos + ${tokens(u.cacheReadTokens)} en caché · ${u.turns} pasos · ${Math.round(u.durationMs / 1000)} s`;
+}
+
+/** Total spent on a video across every agent run. */
+export function UsageSummary({ runs }: { runs: AgentRunUsage[] }) {
+  if (!runs.length) return null;
+  const total = runs.reduce((s, r) => s + r.costUsd, 0);
+  const last = runs[runs.length - 1]!;
+  return (
+    <details className="text-xs text-neutral-500">
+      <summary className="cursor-pointer hover:text-neutral-300">
+        Coste del vídeo: {dollars(total)} en {runs.length} {runs.length === 1 ? "ejecución" : "ejecuciones"} · última: {usageLine(last)}
+      </summary>
+      <ol className="mt-2 flex flex-col gap-1">
+        {runs.map((r, i) => (
+          <li key={i}>
+            <span className="text-neutral-400">{r.kind === "edit" ? "Cambio" : "Generar"}</span> {r.model ?? ""} {r.effort ?? ""} · {usageLine(r)}
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
+}
 
 const POLL_MS = 1500;
 const PREFS_KEY = "motionily.agent";
@@ -70,7 +101,7 @@ export const TOOL_LABEL: Record<string, string> = {
 };
 
 /** The main action of the editor: let the agent build or change the video, no terminal needed. */
-export function GeneratePanel({ projectId, hasScene }: { projectId: string; hasScene: boolean }) {
+export function GeneratePanel({ projectId, hasScene, runs = [] }: { projectId: string; hasScene: boolean; runs?: AgentRunUsage[] }) {
   const [state, setState] = useState<GenerateState | null>(null);
   const [instruction, setInstruction] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -183,6 +214,7 @@ export function GeneratePanel({ projectId, hasScene }: { projectId: string; hasS
         </div>
       )}
       {!running && state?.summary && state.status === GenerateStatus.Done && <p className="text-xs text-neutral-400">{state.summary}</p>}
+      <UsageSummary runs={state?.usage && !runs.some((r) => r.at === state.usage!.at) ? [...runs, state.usage] : runs} />
       {!running && state?.status === GenerateStatus.Failed && (
         <p className="text-xs text-red-400">{state.events.filter((e) => e.kind === GenerateEventKind.Error).at(-1)?.text ?? "El agente falló."}</p>
       )}

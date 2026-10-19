@@ -5,7 +5,7 @@ import { Logo } from "../components/Logo";
 import { api, type Concept } from "../api/client";
 import { href, navigate, BrandTab, RouteName } from "../router";
 import { requestPipeline, VideoPipeline } from "../pipeline";
-import { AgentEffort, AgentModel, EFFORT_LABEL, loadPrefs, MODEL_LABEL, savePrefs, type AgentPrefs } from "../components/GeneratePanel";
+import { AgentEffort, AgentModel, EFFORT_LABEL, loadPrefs, MODEL_LABEL, savePrefs, usageLine, type AgentPrefs } from "../components/GeneratePanel";
 
 const Step = {
   Idea: "idea",
@@ -47,6 +47,7 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
   const [format, setFormat] = useState<VideoFormat>(VideoFormat.Vertical);
   const [count, setCount] = useState(3);
   const [concepts, setConcepts] = useState<Concept[]>([]);
+  const [pitchCost, setPitchCost] = useState<string | null>(null);
   const [seen, setSeen] = useState<string[]>([]);
   const [steer, setSteer] = useState("");
   const [chosen, setChosen] = useState<Concept | null>(null);
@@ -64,8 +65,9 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
     setStep(Step.Thinking);
     setError(null);
     try {
-      const { concepts: next } = await api.concepts(brandId, { idea, format, count, steer: again ? steer : undefined, avoid: again ? seen : undefined, ...prefs });
+      const { concepts: next, usage } = await api.concepts(brandId, { idea, format, count, steer: again ? steer : undefined, avoid: again ? seen : undefined, ...prefs });
       setConcepts(next);
+      setPitchCost(usage ? usageLine(usage) : null);
       setSeen((s) => [...s, ...next.map((c) => c.title)]);
       setSteer("");
       setStep(Step.Pick);
@@ -201,6 +203,7 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
                 </button>
               ))}
             </div>
+            {pitchCost && <p className="text-xs text-neutral-600">Estas propuestas: {pitchCost}</p>}
             <div className="flex flex-col gap-3 sm:flex-row">
               <input
                 value={steer}
