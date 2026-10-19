@@ -99,7 +99,6 @@ export const TOOL_LABEL: Record<string, string> = {
   add_layers: "Dibuja capas",
   get_group: "Lee un grupo",
   view_image: "Mira una referencia",
-  render_frames: "Mira cómo queda",
   get_brand: "Lee el kit de marca",
   view_asset: "Mira una imagen de la marca",
   set_format: "Cambia el formato",
