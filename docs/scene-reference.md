@@ -90,7 +90,7 @@ The editor fills `library` with the project's bricks; you reference them by key.
 - **Animations**: `"anims": [{"use":"animation/pop_in","at":0.3,"speed":1,"intensity":1}]` on any layer.
   `at` is seconds from the layer start. Before `at` the layer rests on the animation's first
   values (e.g. invisible for fade_up), after it on its last ones. Stack several refs freely.
-- **Anchors**: `"anchor":"hero"` (or title/caption/accent…, see `library.anchors` in the summary);
+- **Anchors**: `center`, `top`, `bottom` always exist; the composition adds its own (`"anchor":"hero"` (or title/caption/accent…, see `library.anchors` in the summary);
   then `x`/`y` are small offsets from that point. Use anchors so the composition brick decides layout.
 - **Scene cuts**: `{"op":"add_transition","transition":{"at":3,"use":"transition/shape_wipe","duration":0.6}}`.
   Show different layers before and after `at` with `start`/`end`.

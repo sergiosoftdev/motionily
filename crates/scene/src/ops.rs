@@ -320,7 +320,7 @@ impl Scene {
     }
 
     fn check_anchor(&self, anchor: &str) -> Result<(), OpError> {
-        if self.library.anchors.contains_key(anchor) {
+        if self.library.anchor(anchor).is_some() {
             return Ok(());
         }
         Err(OpError::UnknownBrick { key: anchor.to_owned(), available: self.library.anchors.keys().cloned().collect() })

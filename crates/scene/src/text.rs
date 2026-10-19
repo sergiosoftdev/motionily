@@ -141,7 +141,7 @@ pub(crate) fn caption_frame(scene: &Scene, palette: &Palette, t: f32) -> Option<
         t >= first.start && t < last.end + PHRASE_LINGER
     })?;
     let (w, h) = (scene.width as f32, scene.height as f32);
-    let anchor = scene.library.anchors.get("caption").copied().unwrap_or([0.5, 0.82]);
+    let anchor = scene.library.anchor("caption").unwrap_or([0.5, 0.82]);
     let typo = scene.typography.clone().unwrap_or(Typography { family: DEFAULT_FAMILY.into(), body: 500, heading: 700 });
     let faded = |c: Rgba, a: f32| Rgba([c.0[0], c.0[1], c.0[2], c.0[3] * a]);
     let spoken = |wd: &Word| t >= wd.start;

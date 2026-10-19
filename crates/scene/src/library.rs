@@ -120,7 +120,18 @@ pub struct Library {
     pub anchors: BTreeMap<String, [f32; 2]>,
 }
 
+/// Anchors every scene has regardless of the composition brick (for templates).
+pub const BUILTIN_ANCHORS: [(&str, [f32; 2]); 3] = [("center", [0.5, 0.5]), ("top", [0.5, 0.17]), ("bottom", [0.5, 0.84])];
+
 impl Library {
+    /// Composition anchor, falling back to the built-in ones.
+    pub fn anchor(&self, name: &str) -> Option<[f32; 2]> {
+        self.anchors
+            .get(name)
+            .copied()
+            .or_else(|| BUILTIN_ANCHORS.iter().find(|(n, _)| *n == name).map(|(_, p)| *p))
+    }
+
     pub fn is_empty(&self) -> bool {
         self.animations.is_empty() && self.transitions.is_empty() && self.anchors.is_empty()
     }

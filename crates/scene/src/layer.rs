@@ -183,7 +183,7 @@ impl Layer {
         let origin = self
             .anchor
             .as_ref()
-            .and_then(|a| ctx.library.anchors.get(a))
+            .and_then(|a| ctx.library.anchor(a))
             .map_or([0.0, 0.0], |[ax, ay]| [ax * ctx.scene_size[0], ay * ctx.scene_size[1]]);
         let center = [origin[0] + self.x.sample(lt) + anim.dx, origin[1] + self.y.sample(lt) + anim.dy];
         let size = [self.w.sample(lt) * scale, self.h.sample(lt) * scale];
@@ -279,7 +279,7 @@ impl Layer {
                 let origin = self
                     .anchor
                     .as_ref()
-                    .and_then(|a| ctx.library.anchors.get(a))
+                    .and_then(|a| ctx.library.anchor(a))
                     .map_or([0.0, 0.0], |[ax, ay]| [ax * ctx.scene_size[0], ay * ctx.scene_size[1]]);
                 Some(Bounds {
                     center: [origin[0] + self.x.sample(lt), origin[1] + self.y.sample(lt)],

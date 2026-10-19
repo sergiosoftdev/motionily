@@ -25,6 +25,7 @@ import {
 } from "@motionily/protocol";
 import { EditorBridge } from "./bridge.js";
 import { ProjectApi } from "./api.js";
+import { TEMPLATES, TemplateId } from "./templates.js";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const REFERENCE = readFileSync(resolve(here, "../../../docs/scene-reference.md"), "utf8");
@@ -84,6 +85,39 @@ server.registerTool(
   guard(async ({ slot, value, apply_style_defaults }) => {
     const p = await api.setSlot(slot, value, apply_style_defaults);
     return text(`${slot} = ${JSON.stringify(p.build[slot])}`);
+  }),
+);
+
+server.registerTool(
+  "list_templates",
+  {
+    description:
+      "Hand-designed scene templates (3D set + camera move + characters + type + motion). Prefer them over building beats from scratch: they look professional. Fill them with apply_template.",
+    inputSchema: {},
+  },
+  async () => text(TEMPLATES.map((t) => `${t.id}: ${t.summary} Params: ${t.uses}`).join("\n")),
+);
+
+server.registerTool(
+  "apply_template",
+  {
+    description:
+      "Add one beat from a template at second `at` lasting `duration`. Chain several for a full video (one 3D set per video: the last set wins). Then tweak with apply_ops and check with render_frames.",
+    inputSchema: {
+      template: z.enum(Object.values(TemplateId) as [TemplateId, ...TemplateId[]]),
+      id: z.string().regex(/^[a-z0-9_-]{1,20}$/).describe("prefix for the beat's layer ids, e.g. b1"),
+      at: z.number().min(0),
+      duration: z.number().min(0.5).max(30),
+      title: z.string().max(120),
+      subtitle: z.string().max(160).optional(),
+      cta: z.string().max(40).optional(),
+      model: z.string().optional().describe("hero model/character key from list_models"),
+    },
+  },
+  guard(async ({ template, ...params }) => {
+    const t = TEMPLATES.find((x) => x.id === template)!;
+    const res = await bridge.applyOps(t.build(params));
+    return res.ok ? text(res.summary ?? "ok") : fail(res.error ?? "rejected");
   }),
 );
 
