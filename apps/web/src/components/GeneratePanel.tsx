@@ -2,11 +2,12 @@ import type { AgentRunUsage } from "@motionily/protocol";
 import { GENERATE_EVENT, takePipeline, VideoPipeline } from "../pipeline";
 import { useEffect, useRef, useState } from "react";
 import { ReferenceStrip, useReferences } from "./References";
+import { AgentWorkshop } from "./AgentWorkshop";
 import { api } from "../api/client";
 
 export const GenerateStatus = { Idle: "idle", Running: "running", Done: "done", Failed: "failed", Stopped: "stopped" } as const;
 export type GenerateStatus = (typeof GenerateStatus)[keyof typeof GenerateStatus];
-export const GenerateEventKind = { Tool: "tool", Text: "text", Error: "error" } as const;
+export const GenerateEventKind = { Tool: "tool", Text: "text", Error: "error", Phase: "phase", Plan: "plan", Done: "done" } as const;
 export type GenerateEventKind = (typeof GenerateEventKind)[keyof typeof GenerateEventKind];
 export type GenerateState = {
   status: GenerateStatus;
@@ -95,6 +96,10 @@ export const TOOL_LABEL: Record<string, string> = {
   list_templates: "Mira las plantillas",
   apply_template: "Aplica una plantilla",
   review_video: "Revisa el vídeo entero",
+  add_layers: "Dibuja capas",
+  get_group: "Lee un grupo",
+  view_image: "Mira una referencia",
+  render_frames: "Mira cómo queda",
   get_brand: "Lee el kit de marca",
   view_asset: "Mira una imagen de la marca",
   set_format: "Cambia el formato",
@@ -205,7 +210,8 @@ export function GeneratePanel({ projectId, hasScene, runs = [] }: { projectId: s
           {hasScene ? (instruction.trim() ? "Aplicar cambio" : "Volver a generar") : "Generar vídeo"}
         </button>
       )}
-      {running && (
+      {running && state && state.events.some((e) => e.kind === GenerateEventKind.Phase) && <AgentWorkshop state={state} />}
+      {running && !state?.events.some((e) => e.kind === GenerateEventKind.Phase) && (
         <div className="flex flex-col gap-1.5 text-xs">
           <span className="flex items-center gap-2 text-neutral-300">
             <span className="size-2 animate-pulse rounded-full bg-emerald-400" /> El agente está trabajando…

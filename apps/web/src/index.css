@@ -80,3 +80,20 @@
 @media (prefers-reduced-motion: reduce) {
   .comp, .comp-caret { animation: none; }
 }
+
+/* Agent workshop: stickman crew at work. */
+@keyframes ws-hammer { 0%, 100% { transform: rotate(-35deg); } 45% { transform: rotate(40deg); } 55% { transform: rotate(30deg); } }
+@keyframes ws-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.5px); } }
+@keyframes ws-brick { from { transform: translateY(-14px) rotate(-20deg); opacity: 0; } 70% { transform: translateY(1px) rotate(3deg); opacity: 1; } to { transform: none; opacity: 1; } }
+@keyframes ws-sweep { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(calc(var(--ws-w, 200px) - 28px)); } }
+@keyframes ws-shout { 0%, 100% { transform: scale(1); opacity: 0.25; } 50% { transform: scale(1.4); opacity: 0.9; } }
+@keyframes ws-spark { 0% { transform: translate(0, 0) scale(1); opacity: 1; } 100% { transform: translate(var(--sx, 6px), -8px) scale(0); opacity: 0; } }
+.ws-hammer { animation: ws-hammer 0.55s cubic-bezier(0.5, 0, 0.3, 1) infinite; transform-origin: 2px 2px; }
+.ws-bob { animation: ws-bob 0.55s ease-in-out infinite; }
+.ws-brick { animation: ws-brick 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.ws-sweep { animation: ws-sweep 2.4s ease-in-out infinite; }
+.ws-shout { animation: ws-shout 1s ease-in-out infinite; transform-origin: left center; }
+.ws-spark { animation: ws-spark 0.55s ease-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .ws-hammer, .ws-bob, .ws-brick, .ws-sweep, .ws-shout, .ws-spark { animation: none; }
+}

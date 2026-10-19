@@ -24,6 +24,18 @@ export enum GenerateEventKind {
   /** The agent said something. */
   Text = "text",
   Error = "error",
+  /** Team phase started: text is a GeneratePhase. */
+  Phase = "phase",
+  /** The plan: text is JSON [{group,start,end}]. */
+  Plan = "plan",
+  /** A role finished: text is the role (beat group, "plan" or "review"). */
+  Done = "done",
+}
+
+export enum GeneratePhase {
+  Plan = "plan",
+  Build = "build",
+  Review = "review",
 }
 
 export type GenerateEvent = { at: string; kind: GenerateEventKind; text: string };
@@ -254,11 +266,13 @@ export class GenerateService {
   private async team(run: Run, refs: string, o: AgentOpts): Promise<AgentRunUsage> {
     const results: ResultLine[] = [];
     const t0 = Date.now();
-    this.push(run, GenerateEventKind.Text, "Planificando la dirección de arte y los planos…");
+    this.push(run, GenerateEventKind.Phase, GeneratePhase.Plan);
     const planned = await this.agent(run, `Plan this video from its brief.${refs}`, PLANNER_GUIDE, o, "plan", ROLE_TOOLS.planner);
     results.push(planned.result);
     const plan = parsePlan(planned.text);
-    this.push(run, GenerateEventKind.Text, `${plan.direction} — ${plan.beats.length} planos en paralelo: ${plan.beats.map((b) => b.group).join(", ")}`);
+    this.push(run, GenerateEventKind.Text, plan.direction);
+    this.push(run, GenerateEventKind.Plan, JSON.stringify(plan.beats.map(({ group, start, end }) => ({ group, start, end }))));
+    this.push(run, GenerateEventKind.Phase, GeneratePhase.Build);
 
     // The plan already did the thinking: builders and finisher execute it with low effort (thinking is output tokens).
     const crew: AgentOpts = { ...o, effort: AgentEffort.Low };
@@ -272,12 +286,13 @@ export class GenerateService {
           return null;
         });
         if (r) results.push(r.result);
+        this.push(run, GenerateEventKind.Done, beat.group);
       }
     };
     await Promise.all(Array.from({ length: Math.min(MAX_PARALLEL_BUILDERS, plan.beats.length) }, worker));
     if (run.status !== GenerateStatus.Running) return sumUsage(results, t0, o);
 
-    this.push(run, GenerateEventKind.Text, "Revisando el montaje completo…");
+    this.push(run, GenerateEventKind.Phase, GeneratePhase.Review);
     const finished = await this.agent(run, `Review and polish the whole video. Canvas ${o.size[0]}x${o.size[1]} px. Groups: ${plan.beats.map((b) => `${b.group} ${b.start}-${b.end}s`).join(", ")}.`, FINISHER_GUIDE, crew, "review", ROLE_TOOLS.finisher);
     results.push(finished.result);
     run.summary = finished.text;
