@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 
 /**
  * Tiny hash router. Survives reloads, no dependency.
- * #/projects · #/b/:id[/kit] · #/b/:id/new · #/p/:id · #/prefabs · #/settings
+ * #/projects · #/b/:id[/kit] · #/b/:id/new · #/p/:id · #/prefabs · #/sounds · #/settings
  */
 export const RouteName = {
   Projects: "projects",
@@ -10,6 +10,7 @@ export const RouteName = {
   NewVideo: "new",
   Editor: "editor",
   Prefabs: "prefabs",
+  Sounds: "sounds",
   Settings: "settings",
 } as const;
 export type RouteName = (typeof RouteName)[keyof typeof RouteName];
@@ -23,6 +24,7 @@ export type Route =
   | { name: typeof RouteName.NewVideo; brandId: string }
   | { name: typeof RouteName.Editor; id: string }
   | { name: typeof RouteName.Prefabs }
+  | { name: typeof RouteName.Sounds }
   | { name: typeof RouteName.Settings };
 
 function parse(hash: string): Route {
@@ -33,6 +35,7 @@ function parse(hash: string): Route {
     return { name: RouteName.Brand, id: second, tab: third === BrandTab.Kit ? BrandTab.Kit : BrandTab.Videos };
   }
   if (first === RouteName.Prefabs) return { name: RouteName.Prefabs };
+  if (first === RouteName.Sounds) return { name: RouteName.Sounds };
   if (first === RouteName.Settings) return { name: RouteName.Settings };
   return { name: RouteName.Projects };
 }
@@ -47,6 +50,8 @@ export function href(route: Route): string {
       return `#/b/${route.brandId}/new`;
     case RouteName.Prefabs:
       return "#/prefabs";
+    case RouteName.Sounds:
+      return "#/sounds";
     case RouteName.Settings:
       return "#/settings";
     case RouteName.Projects:

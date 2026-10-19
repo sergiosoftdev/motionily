@@ -17,6 +17,8 @@ import { MediaController, ReferencesController } from "./media";
 import { Brand, BrandAsset, BrandAssetSchema, BrandSchema } from "./brands/brand.schema";
 import { BrandsService } from "./brands/brands.service";
 import { BrandsController } from "./brands/brands.controller";
+import { SoundsController } from "./sounds/sounds.controller";
+import { Sound, SoundSchema } from "./sounds/sound.schema";
 import { ConceptsService } from "./brands/concepts";
 import { Prefab, PrefabSchema } from "./prefabs/prefab.schema";
 import { PrefabsService } from "./prefabs/prefabs.service";
@@ -36,6 +38,7 @@ import { FontsController } from "./fonts";
       { name: Project.name, schema: ProjectSchema },
       { name: Feedback.name, schema: FeedbackSchema },
       { name: Prefab.name, schema: PrefabSchema },
+      { name: Sound.name, schema: SoundSchema },
       { name: Brand.name, schema: BrandSchema },
       { name: BrandAsset.name, schema: BrandAssetSchema },
     ]),
@@ -48,7 +51,7 @@ import { FontsController } from "./fonts";
       }),
     }),
   ],
-  controllers: [AuthController, BricksController, ProjectsController, MediaController, ReferencesController, FontsController, BrandsController, PrefabsController],
+  controllers: [AuthController, BricksController, ProjectsController, MediaController, ReferencesController, FontsController, BrandsController, PrefabsController, SoundsController],
   providers: [BricksService, ProjectsService, GenerateService, PrefabsService, BrandsService, ConceptsService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
 })
 export class AppModule {}

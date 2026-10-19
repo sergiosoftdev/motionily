@@ -1,5 +1,6 @@
 import type { AgentRunUsage, Brick, BrickSlot, Project, ProjectListItem, User, VideoFormat } from "@motionily/protocol";
 import { useSession } from "../session";
+import type { SoundRecipe } from "../audio/synth";
 import type { AgentPrefs, GenerateState } from "../components/GeneratePanel";
 
 export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3100";
@@ -17,6 +18,7 @@ export type PrefabSummary = { name: string; kind: PrefabKind; description: strin
 export type ConceptBeat = { at: string; what: string };
 export type Concept = { title: string; hook: string; direction: string; beats: ConceptBeat[]; voiceover: string; prompt: string };
 export type ConceptsRequest = { idea: string; format: VideoFormat; count: number; steer?: string; avoid?: string[]; model?: string; effort?: string; references?: string[] };
+export type SoundRow = { name: string; category: string; description: string; duration: number; url: string; recipe: SoundRecipe };
 export type GoogleFont = { family: string; category: string; weights: number[]; popularity: number };
 
 export class ApiError extends Error {
@@ -112,6 +114,17 @@ export const api = {
   prefabs: (id: string) => call<{ name: string; node: Record<string, unknown> }[]>(HttpMethod.Get, `/projects/${id}/prefabs?full=1`),
   generate: (id: string, instruction?: string, prefs?: AgentPrefs, references: string[] = []) =>
     call<GenerateState>(HttpMethod.Post, `/projects/${id}/generate`, { instruction: instruction || undefined, ...prefs, references: references.length ? references : undefined }),
+  sounds: () => call<SoundRow[]>(HttpMethod.Get, "/sounds"),
+  saveSound: (s: { name: string; category: string; description: string; recipe: SoundRecipe; duration: number }, wav: Blob) =>
+    upload<SoundRow[]>("/sounds", new File([wav], `${s.name}.wav`, { type: "audio/wav" }), {
+      name: s.name,
+      category: s.category,
+      description: s.description,
+      recipe: JSON.stringify(s.recipe),
+      duration: String(s.duration),
+    }),
+  deleteSound: (name: string) => call<void>(HttpMethod.Delete, `/sounds/${name}`),
+  designSound: (description: string) => call<{ name: string; category: string; description: string; recipe: SoundRecipe }>(HttpMethod.Post, "/sounds/-/design", { description }),
   /** A reference image pasted into a prompt; returns its media path. */
   uploadReference: (file: File) => upload<{ url: string }>("/references", file),
   generateStatus: (id: string) => call<GenerateState>(HttpMethod.Get, `/projects/${id}/generate`),

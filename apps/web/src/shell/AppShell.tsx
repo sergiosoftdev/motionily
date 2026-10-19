@@ -6,6 +6,7 @@ import { useSession } from "../session";
 const NAV: { route: Route; label: string; icon: string; match: RouteName[] }[] = [
   { route: { name: RouteName.Projects }, label: "Proyectos", icon: "M3 7h18M3 12h18M3 17h12", match: [RouteName.Projects, RouteName.Brand, RouteName.NewVideo] },
   { route: { name: RouteName.Prefabs }, label: "Prefabs", icon: "M12 3 3 8l9 5 9-5-9-5zM3 8v8l9 5 9-5V8", match: [RouteName.Prefabs] },
+  { route: { name: RouteName.Sounds }, label: "Sonidos", icon: "M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2", match: [RouteName.Sounds] },
   { route: { name: RouteName.Settings }, label: "Configuración", icon: "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM4 12h2M18 12h2M12 4v2M12 18v2", match: [RouteName.Settings] },
 ];
 

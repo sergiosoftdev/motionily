@@ -7,6 +7,7 @@ import { BrandScreen } from "./screens/BrandScreen";
 import { NewProjectScreen } from "./screens/NewProjectScreen";
 import { EditorScreen } from "./screens/EditorScreen";
 import { PrefabsScreen } from "./screens/PrefabsScreen";
+import { SoundsScreen } from "./screens/SoundsScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 
 export function App() {
@@ -22,6 +23,7 @@ export function App() {
     <AppShell route={route}>
       {route.name === RouteName.Brand && <BrandScreen key={route.id} id={route.id} tab={route.tab} />}
       {route.name === RouteName.Prefabs && <PrefabsScreen />}
+      {route.name === RouteName.Sounds && <SoundsScreen />}
       {route.name === RouteName.Settings && <SettingsScreen />}
       {route.name === RouteName.Projects && <ProjectsScreen />}
     </AppShell>
