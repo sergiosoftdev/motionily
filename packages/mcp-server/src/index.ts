@@ -207,7 +207,7 @@ function describeProject(p: Project, byKey: Map<string, Brick>): string {
   if (p.misfits.length) lines.push(`Misfits (user chose them anyway): ${p.misfits.join(", ")}`);
   lines.push("");
   lines.push(
-    "Engine today: rect/ellipse layers; animate them by referencing animation bricks ({\"use\":\"animation/pop_in\",\"at\":0.3}) instead of hand keyframes; place them on composition anchors (anchor: hero/title/caption/accent); cut scenes with transition bricks (add_transition). Palette slots follow the palette brick. Text layers render in the typography brick font; captions (from the user\'s voice-over) render in their caption style — mark key words with set_emphasis. 3D and render styles are not rendered yet.",
+    "Engine today: rect/ellipse layers; animate them by referencing animation bricks ({\"use\":\"animation/pop_in\",\"at\":0.3}) instead of hand keyframes; place them on composition anchors (anchor: hero/title/caption/accent); cut scenes with transition bricks (add_transition). Palette slots follow the palette brick. Text layers render in the typography brick font; captions (from the user\'s voice-over) render in their caption style — mark key words with set_emphasis. The render style brick (finish: soft shadows, toon outlines, paper cut…) is applied by the engine to the whole frame. 3D is not rendered yet.",
   );
   lines.push(p.scene ? `Scene: exists (rev ${p.sceneRevision}); see get_scene.` : "Scene: empty. Build the first cut with load_scene.");
   lines.push(bridge.connected ? "Editor: open (your edits render live)." : "Editor: NOT open on this project — ask the user to open it before editing.");

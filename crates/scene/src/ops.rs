@@ -1,4 +1,4 @@
-use crate::{AudioTrack, Captions, LayerContent, Typography, AnimRef, AnimTemplate, Animated, CaptionStyle, ColorRef, CustomPalette, Layer, Library, Scene, StylePreset, TransitionRef};
+use crate::{RenderStyle, AudioTrack, Captions, LayerContent, Typography, AnimRef, AnimTemplate, Animated, CaptionStyle, ColorRef, CustomPalette, Layer, Library, Scene, StylePreset, TransitionRef};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -38,6 +38,8 @@ pub enum Op {
     SetTypography { typography: Option<Typography> },
     /// Replace the whole captions track (`null` removes captions).
     SetCaptions { captions: Option<Captions> },
+    /// Finish of the whole frame from the render style brick (`null` = flat).
+    SetRenderStyle { render_style: Option<RenderStyle> },
     /// Place/trim the project's audio on the timeline (`null` = not used).
     SetAudio { audio: Option<AudioTrack> },
     /// Mark caption words (by index) as key words, or unmark them.
@@ -207,6 +209,12 @@ impl Scene {
                 }
             }
             Op::SetTypography { typography } => self.typography = typography.clone(),
+            Op::SetRenderStyle { render_style } => {
+                if render_style.is_some_and(|r| !(0.0..=3.0).contains(&r.amount)) {
+                    return Err(OpError::Invalid("render style amount must be between 0 and 3"));
+                }
+                self.render_style = *render_style;
+            }
             Op::SetAudio { audio } => {
                 if let Some(a) = audio {
                     if a.start < 0.0 || a.trim_in < 0.0 || a.trim_out.is_some_and(|o| o <= a.trim_in) {

@@ -19,7 +19,7 @@ pub use library::{AnimProp, AnimTemplate, Library, TemplateKey, TransitionKind, 
 pub use text::{AudioTrack, Captions, DrawText, TextAlign, TextRole, TextSpan, Typography, Word};
 pub use transition::TransitionRef;
 pub use ops::{Op, OpError, Prop};
-pub use style::{CaptionStyle, ColorRef, CustomPalette, HexColor, Palette, PaletteSlot, Rgba, StylePreset};
+pub use style::{RenderKind, RenderStyle, CaptionStyle, ColorRef, CustomPalette, HexColor, Palette, PaletteSlot, Rgba, StylePreset};
 
 use serde::{Deserialize, Serialize};
 use std::fmt::Write;
@@ -50,6 +50,9 @@ pub struct Scene {
     /// Font from the typography brick. Missing: the engine's default font.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub typography: Option<Typography>,
+    /// Finish of the whole frame (render style brick).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub render_style: Option<RenderStyle>,
     /// Placement and trim of the project's audio file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio: Option<AudioTrack>,
@@ -80,6 +83,7 @@ impl Default for Scene {
             layers: Vec::new(),
             library: Library::default(),
             typography: None,
+            render_style: None,
             audio: None,
             captions: None,
             transitions: Vec::new(),
@@ -214,6 +218,9 @@ impl Scene {
                 animated.join(","),
                 uses.join(",")
             );
+        }
+        if let Some(r) = &self.render_style {
+            let _ = writeln!(s, "finish: {} x{}", enum_name(&r.kind), r.amount);
         }
         if let Some(a) = &self.audio {
             let out = a.trim_out.map(|o| format!("{o:.2}")).unwrap_or_else(|| "end".into());

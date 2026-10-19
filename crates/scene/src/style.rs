@@ -169,3 +169,33 @@ impl From<CustomPalette> for Palette {
         }
     }
 }
+
+/// Finish applied to the whole frame by the engine's post-processing pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RenderKind {
+    #[default]
+    Flat,
+    SoftDepth,
+    ToonOutline,
+    CelAnime,
+    PaperCut,
+    IsoFlat,
+}
+
+impl RenderKind {
+    pub const ALL: [RenderKind; 6] =
+        [Self::Flat, Self::SoftDepth, Self::ToonOutline, Self::CelAnime, Self::PaperCut, Self::IsoFlat];
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct RenderStyle {
+    pub kind: RenderKind,
+    /// Strength of the effect (shadow distance, outline width…). 1 = as designed.
+    #[serde(default = "unit_amount")]
+    pub amount: f32,
+}
+
+fn unit_amount() -> f32 {
+    1.0
+}

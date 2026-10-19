@@ -43,6 +43,11 @@ function buildToOps(build: Build, byKey: Map<string, Brick>): Op[] {
   if (typography?.family) {
     ops.push({ op: OpName.SetTypography, typography: { family: typography.family, body: typography.body ?? 500, heading: typography.heading ?? 700 } });
   }
+  // Render style brick ids are the engine's finish names (flat, paper_cut…).
+  const renderBrick = byKey.get(build.render_style);
+  if (renderBrick?.engine === EngineSupport.Supported) {
+    ops.push({ op: OpName.SetRenderStyle, render_style: { kind: build.render_style.split("/")[1], amount: 1 } });
+  }
   const captionId = build.captions.split("/")[1];
   const engineCaption = engineHost.captionStyles.find((c) => c === captionId);
   if (engineCaption) ops.push({ op: OpName.SetCaptionStyle, caption_style: engineCaption });

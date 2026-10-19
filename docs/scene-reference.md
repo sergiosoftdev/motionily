@@ -44,6 +44,11 @@ The user uploads the voice-over and the editor transcribes it into `captions.wor
 - mark key words (by index) so highlight/pop styles stress them: `{"op":"set_emphasis","words":[3,9],"emphasis":true}`
 - time your scenes and text to the speech (see the captions line in the summary).
 
+## Finish
+The user's render style brick sets `render_style` (flat, soft_depth, toon_outline, cel_anime,
+paper_cut, iso_flat): shadows, outlines, halftone, paper grain… applied to the whole frame.
+Design flat shapes and let the finish do the rest; don't fake shadows with extra layers.
+
 ## Bricks in the scene (prefer these over hand keyframes)
 The editor fills `library` with the project's bricks; you reference them by key.
 - **Animations**: `"anims": [{"use":"animation/pop_in","at":0.3,"speed":1,"intensity":1}]` on any layer.

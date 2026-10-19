@@ -7,11 +7,13 @@
 //! `draw(pass, range)` for every consecutive run of that kind, so layer order is
 //! kept across kinds.
 
+mod post;
 mod shapes;
 mod text;
 
 use bytemuck::{Pod, Zeroable};
 use scene::{DrawItem, DrawShape, DrawText, Scene};
+use post::{PostColors, PostPass};
 use shapes::ShapePipeline;
 use text::TextPipeline;
 use std::ops::Range;
@@ -116,6 +118,7 @@ pub struct Renderer {
     bind_group: wgpu::BindGroup,
     shapes: ShapePipeline,
     text: TextPipeline,
+    post: PostPass,
     pub adapter_info: String,
 }
 
@@ -194,11 +197,13 @@ impl Renderer {
         };
         let shapes = ShapePipeline::new(&ctx);
         let text = TextPipeline::new(&ctx);
+        let post = PostPass::new(&device, config.format, config.width, config.height);
 
         let info = adapter.get_info();
         Ok(Renderer {
             shapes,
             text,
+            post,
             device,
             queue,
             surface,
@@ -227,6 +232,7 @@ impl Renderer {
         self.config.width = width;
         self.config.height = height;
         self.surface.configure(&self.device, &self.config);
+        self.post.resize(&self.device, width, height);
     }
 
     /// Draw `scene` at time `t` (seconds) into the surface.
@@ -257,26 +263,27 @@ impl Renderer {
             }
         };
         let view = frame.texture.create_view(&Default::default());
-        let [r, g, b, _] = scene.palette().background.0;
-        let clear = if linearize > 0.5 { [r, g, b].map(srgb_to_linear) } else { [r, g, b] };
+        let palette = scene.palette();
+        let to_surface = |c: scene::Rgba| {
+            let [r, g, b, _] = c.0;
+            if linearize > 0.5 { [r, g, b].map(srgb_to_linear) } else { [r, g, b] }
+        };
+        let colors = PostColors {
+            background: to_surface(palette.background),
+            ink: to_surface(palette.text),
+            shadow: to_surface(palette.text).map(|c| c * 0.35),
+        };
 
         let mut encoder = self.device.create_command_encoder(&Default::default());
         {
+            // Scene pass: transparent canvas; the post pass adds background and finish.
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("frame"),
+                label: Some("scene"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
+                    view: self.post.target(),
                     depth_slice: None,
                     resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: clear[0] as f64,
-                            g: clear[1] as f64,
-                            b: clear[2] as f64,
-                            a: 1.0,
-                        }),
-                        store: wgpu::StoreOp::Store,
-                    },
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
                 })],
                 ..Default::default()
             });
@@ -288,6 +295,7 @@ impl Renderer {
                 }
             }
         }
+        self.post.run(&self.queue, &mut encoder, &view, scene.render_style, &colors, scene.width as f32, t);
         self.queue.submit([encoder.finish()]);
         self.queue.present(frame);
     }

@@ -93,6 +93,6 @@ engine WASM (Rust/wgpu)  ◀────── WebSocket (ops en vivo) ───
    seleccionarlo y comentar sobre él: el agente recibe la referencia y lee solo esa
    capa (`get_layer`), sin cargar el proyecto entero.
 5. ✅ **Texto y subtítulos** — cosmic-text + atlas, estilos de captions.
-6. **Render styles** — shaders toon/contorno, papel recortado, clay sobre 2D.
+6. ✅ **Render styles** — shaders toon/contorno, papel recortado, clay sobre 2D.
 7. **3D** — glTF, escenarios y personajes con esqueleto, isométrico.
 8. **Producto** — Google OAuth real, export MP4, Tauri, pagos.
