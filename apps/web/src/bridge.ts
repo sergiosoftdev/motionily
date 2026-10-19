@@ -1,41 +1,56 @@
 import {
-  BRIDGE_PORT,
+  BRIDGE_PATH,
+  BridgeRole,
   EditorMessageType,
   ServerMessageType,
   type EditorMessage,
   type ServerMessage,
 } from "@motionily/protocol";
+import { API_URL } from "./api/client";
 import { engineHost } from "./engine/host";
+import { useSession } from "./session";
 import { ActivitySource, logActivity, useEditor } from "./store";
 
 const RECONNECT_MS = 2000;
 
 /**
- * Editor side of the agent link. The MCP server forwards agent ops here; the
+ * Editor side of the agent link, through the API hub. Agents send ops here; the
  * Rust engine validates and applies them and we answer with the new summary.
  */
 class AgentBridge {
   private ws: WebSocket | null = null;
   private projectId: string | null = null;
+  private retry: ReturnType<typeof setTimeout> | undefined;
+  /** Called when the agent changes project settings, so the editor reloads them. */
+  onProjectChanged: (() => void) | null = null;
 
-  /** The project open in the editor. Agents for other projects are ignored. */
+  /** Connect for the project open in the editor (`null` disconnects). */
   setProject(id: string | null) {
+    if (id === this.projectId) return;
     this.projectId = id;
+    clearTimeout(this.retry);
+    this.ws?.close();
+    this.ws = null;
     useEditor.setState({ agentConnected: false });
-    this.hello();
+    if (id) this.connect();
   }
 
-  start() {
-    if (this.ws) return;
-    const ws = new WebSocket(`ws://127.0.0.1:${BRIDGE_PORT}`);
+  private connect() {
+    const token = useSession.getState().token;
+    const projectId = this.projectId;
+    if (!token || !projectId) return;
+    const url = new URL(BRIDGE_PATH, API_URL.replace(/^http/, "ws"));
+    url.search = new URLSearchParams({ role: BridgeRole.Editor, project: projectId, token }).toString();
+    const ws = new WebSocket(url);
     this.ws = ws;
     ws.onopen = () => this.hello();
     ws.onmessage = (e) => this.handle(JSON.parse(e.data) as ServerMessage);
     ws.onclose = () => {
+      if (this.ws !== ws) return;
       if (useEditor.getState().agentConnected) logActivity(ActivitySource.System, "Agente desconectado");
       useEditor.setState({ agentConnected: false });
       this.ws = null;
-      setTimeout(() => this.start(), RECONNECT_MS);
+      this.retry = setTimeout(() => this.connect(), RECONNECT_MS);
     };
   }
 
@@ -46,27 +61,30 @@ class AgentBridge {
   }
 
   private hello() {
-    if (!this.projectId || !engineHost.ready || this.ws?.readyState !== WebSocket.OPEN) return;
+    if (!this.projectId || !engineHost.ready) return;
     this.send({ type: EditorMessageType.Hello, projectId: this.projectId, scene: engineHost.sceneJson(), summary: engineHost.summary() });
   }
 
   private handle(msg: ServerMessage) {
-    if (msg.type === ServerMessageType.Attached) {
-      if (msg.projectId === this.projectId) {
+    switch (msg.type) {
+      case ServerMessageType.Attached:
+        if (!useEditor.getState().agentConnected) logActivity(ActivitySource.System, "Agente conectado");
         useEditor.setState({ agentConnected: true });
-        logActivity(ActivitySource.System, "Agente conectado");
+        return;
+      case ServerMessageType.Detached:
+        if (useEditor.getState().agentConnected) logActivity(ActivitySource.System, "Agente desconectado");
+        useEditor.setState({ agentConnected: false });
+        return;
+      case ServerMessageType.ProjectChanged:
+        logActivity(ActivitySource.Agent, "Cambia las opciones del vídeo");
+        this.onProjectChanged?.();
+        return;
+      case ServerMessageType.RenderFrames: {
+        const images = engineHost.snapshots(msg.times.slice(0, 6));
+        logActivity(ActivitySource.Agent, `Mira ${images.length} fotogramas`);
+        this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, images });
+        return;
       }
-      return;
-    }
-    if (msg.projectId !== this.projectId) {
-      this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error: "The editor is showing another project." });
-      return;
-    }
-    if (msg.type === ServerMessageType.RenderFrames) {
-      const images = engineHost.snapshots(msg.times.slice(0, 6));
-      logActivity(ActivitySource.Agent, `Mira ${images.length} fotogramas`);
-      this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, images });
-      return;
     }
     try {
       switch (msg.type) {

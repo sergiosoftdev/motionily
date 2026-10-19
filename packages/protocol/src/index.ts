@@ -4,7 +4,15 @@
  * package only describes the messages that move ops, scenes and feedback.
  */
 
-export const BRIDGE_PORT = 7420;
+/** WebSocket path on the API where editors and agents meet (see apps/api/src/bridge-hub.ts). */
+export const BRIDGE_PATH = "/bridge";
+
+export const BridgeRole = { Editor: "editor", Agent: "agent" } as const;
+export type BridgeRole = (typeof BridgeRole)[keyof typeof BridgeRole];
+
+/** Hub -> agent: whether the project's editor is open. */
+export const HubMessageType = { EditorOpen: "editor_open", EditorClosed: "editor_closed" } as const;
+export type HubMessage = { type: (typeof HubMessageType)[keyof typeof HubMessageType] };
 
 export const StylePreset = {
   Clean: "clean",
@@ -46,8 +54,12 @@ export type Feedback = {
 export const ServerMessageType = {
   ApplyOps: "apply_ops",
   LoadScene: "load_scene",
-  /** The agent accepted this editor as the one showing its project. */
+  /** An agent is connected to this editor's project. */
   Attached: "attached",
+  /** The last agent of this project left. */
+  Detached: "detached",
+  /** Project settings (options, format) changed on the server; reload them. */
+  ProjectChanged: "project_changed",
   /** Render still frames so the agent can see the video. */
   RenderFrames: "render_frames",
 } as const;
@@ -58,6 +70,8 @@ export type ServerMessage =
   | { type: typeof ServerMessageType.ApplyOps; requestId: string; projectId: string; ops: Op[] }
   | { type: typeof ServerMessageType.LoadScene; requestId: string; projectId: string; scene: string }
   | { type: typeof ServerMessageType.Attached; projectId: string }
+  | { type: typeof ServerMessageType.Detached; projectId: string }
+  | { type: typeof ServerMessageType.ProjectChanged; projectId: string }
   | { type: typeof ServerMessageType.RenderFrames; requestId: string; projectId: string; times: number[] };
 
 export const EditorMessageType = {

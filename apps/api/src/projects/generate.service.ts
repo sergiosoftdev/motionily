@@ -1,0 +1,170 @@
+import { ChildProcess, spawn } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { ConflictException, Injectable, Logger } from "@nestjs/common";
+import { JwtService } from "@nestjs/jwt";
+import { Types } from "mongoose";
+import { TokenScope, type JwtPayload } from "../auth/auth";
+import { ProjectsService } from "./projects.service";
+
+export enum GenerateStatus {
+  Idle = "idle",
+  Running = "running",
+  Done = "done",
+  Failed = "failed",
+  Stopped = "stopped",
+}
+
+export enum GenerateEventKind {
+  /** The agent called a Motionily tool. */
+  Tool = "tool",
+  /** The agent said something. */
+  Text = "text",
+  Error = "error",
+}
+
+export type GenerateEvent = { at: string; kind: GenerateEventKind; text: string };
+
+type Run = { process: ChildProcess | null; status: GenerateStatus; events: GenerateEvent[]; summary: string | null };
+
+const MAX_EVENTS = 200;
+const MCP_SERVER = "motionily";
+
+/** How the agent should work when launched from the editor's Generate button. */
+const AGENT_GUIDE = `You are Motionily's motion designer. You build short motion-graphics videos through the motionily MCP tools only.
+Work like a senior motion designer:
+1. get_project (brief + the user's bricks), then get_reference once.
+2. Plan 2-4 short beats that tell the brief. Big, legible type; one idea per beat; generous whitespace; strong hierarchy.
+3. Build the first cut with load_scene using the project's options: animations by reference ("use"), composition anchors, transitions between beats, characters/scenario if chosen. You may change options (set_option: finish, typography, palette…) or the format (set_option/set_format) when the user asks or it clearly serves the brief.
+4. LOOK at it: render_frames at 3-5 moments. Fix anything off-screen, overlapping, too small, empty or unbalanced. Repeat until it looks polished (max 3 rounds).
+5. Check get_feedback at the end and apply it.
+Finish with a 2-3 sentence summary in Spanish of what you made.`;
+
+/**
+ * Runs Claude Code headless (`claude -p`) for a project, with the Motionily MCP
+ * server preconfigured and scoped to that project. Uses the local Claude login;
+ * a hosted version would swap this for the Agent SDK with an API key.
+ */
+@Injectable()
+export class GenerateService {
+  private readonly logger = new Logger(GenerateService.name);
+  private runs = new Map<string, Run>();
+
+  constructor(
+    private readonly projects: ProjectsService,
+    private readonly jwt: JwtService,
+  ) {}
+
+  status(projectId: string) {
+    const run = this.runs.get(projectId);
+    return run
+      ? { status: run.status, events: run.events, summary: run.summary }
+      : { status: GenerateStatus.Idle, events: [], summary: null };
+  }
+
+  async start(ownerId: Types.ObjectId, email: string, projectId: string, instruction: string | undefined) {
+    const project = await this.projects.get(ownerId, projectId);
+    if (this.runs.get(project.id)?.status === GenerateStatus.Running) {
+      throw new ConflictException("the agent is already working on this project");
+    }
+    const payload: JwtPayload = { sub: ownerId.toString(), email, scope: TokenScope.Agent, projectId: project.id };
+    const token = await this.jwt.signAsync(payload, { expiresIn: "2h" });
+
+    const mcpDir = resolve(process.env.MOTIONILY_MCP_DIR ?? join(process.cwd(), "../../packages/mcp-server"));
+    // Fresh empty folder: the agent must not pick up any repo's CLAUDE.md or files.
+    const workDir = mkdtempSync(join(tmpdir(), "motionily-agent-"));
+    const config = join(workDir, "mcp.json");
+    writeFileSync(
+      config,
+      JSON.stringify({
+        mcpServers: {
+          [MCP_SERVER]: {
+            command: join(mcpDir, "node_modules/.bin/tsx"),
+            args: [join(mcpDir, "src/index.ts")],
+            env: { MOTIONILY_API: process.env.PUBLIC_API_URL ?? `http://localhost:${process.env.PORT ?? 3100}`, MOTIONILY_PROJECT: project.id, MOTIONILY_TOKEN: token },
+          },
+        },
+      }),
+    );
+
+    const prompt = instruction?.trim()
+      ? `The user asks: "${instruction.trim()}". Apply it to the current video (read get_project and get_scene first; render_frames to check).`
+      : "Build the video for this project from its brief and bricks.";
+    const child = spawn(
+      process.env.CLAUDE_BIN ?? "claude",
+      [
+        "-p",
+        prompt,
+        "--append-system-prompt",
+        AGENT_GUIDE,
+        "--mcp-config",
+        config,
+        "--strict-mcp-config",
+        "--allowedTools",
+        `mcp__${MCP_SERVER}`,
+        "--output-format",
+        "stream-json",
+        "--verbose",
+      ],
+      { cwd: workDir, stdio: ["ignore", "pipe", "pipe"], env: process.env },
+    );
+    const run: Run = { process: child, status: GenerateStatus.Running, events: [], summary: null };
+    this.runs.set(project.id, run);
+    const push = (kind: GenerateEventKind, text: string) => {
+      run.events.push({ at: new Date().toISOString(), kind, text });
+      if (run.events.length > MAX_EVENTS) run.events.shift();
+    };
+
+    let buffered = "";
+    child.stdout!.on("data", (chunk: Buffer) => {
+      buffered += chunk.toString();
+      const lines = buffered.split("\n");
+      buffered = lines.pop() ?? "";
+      for (const line of lines) this.onLine(line, run, push);
+    });
+    let stderr = "";
+    child.stderr!.on("data", (c: Buffer) => (stderr = (stderr + c.toString()).slice(-2000)));
+    child.on("error", (e) => {
+      push(GenerateEventKind.Error, `No se pudo lanzar Claude Code: ${e.message}`);
+      run.status = GenerateStatus.Failed;
+    });
+    child.on("close", (code) => {
+      run.process = null;
+      if (run.status !== GenerateStatus.Running) return;
+      run.status = code === 0 ? GenerateStatus.Done : GenerateStatus.Failed;
+      if (code !== 0) push(GenerateEventKind.Error, stderr.trim().split("\n").slice(-3).join(" ") || `claude terminó con código ${code}`);
+    });
+    this.logger.log(`agent started for project ${project.id}`);
+    return this.status(project.id);
+  }
+
+  stop(projectId: string) {
+    const run = this.runs.get(projectId);
+    if (run?.process) {
+      run.status = GenerateStatus.Stopped;
+      run.process.kill("SIGTERM");
+    }
+    return this.status(projectId);
+  }
+
+  /** One stream-json line from claude: keep tool calls and text the user can follow. */
+  private onLine(line: string, run: Run, push: (k: GenerateEventKind, t: string) => void) {
+    let msg: { type?: string; subtype?: string; result?: string; message?: { content?: { type: string; text?: string; name?: string }[] } };
+    try {
+      msg = JSON.parse(line);
+    } catch {
+      return;
+    }
+    if (msg.type === "assistant") {
+      for (const c of msg.message?.content ?? []) {
+        if (c.type === "tool_use" && c.name) push(GenerateEventKind.Tool, c.name.replace(`mcp__${MCP_SERVER}__`, ""));
+        if (c.type === "text" && c.text?.trim()) push(GenerateEventKind.Text, c.text.trim());
+      }
+    }
+    if (msg.type === "result") {
+      run.summary = msg.result?.trim() ?? null;
+      if (msg.subtype && msg.subtype !== "success") push(GenerateEventKind.Error, msg.subtype);
+    }
+  }
+}

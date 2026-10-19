@@ -42,8 +42,8 @@ export function ConnectAgent({ projectId }: { projectId: string }) {
 
   return (
     <>
-      <button type="button" onClick={() => void show()} className="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-neutral-900 hover:bg-neutral-200">
-        Conectar agente
+      <button type="button" onClick={() => void show()} className="rounded-lg px-3 py-1.5 text-xs text-neutral-400 hover:bg-neutral-900 hover:text-white">
+        Usar en Claude Code
       </button>
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" onClick={() => setOpen(false)}>

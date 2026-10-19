@@ -188,7 +188,7 @@ describe("agent loop", () => {
 });
 
 describe("agent tokens", () => {
-  it("reach only their project and cannot swap the user's bricks", async () => {
+  it("reach only their project and can change its options but not delete it", async () => {
     const auth = await login("tokens@example.com");
     const { body: p } = await http.post("/projects").set(auth).send({ name: "P", motionStyle: "motion_style/apple" });
     const { body: q } = await http.post("/projects").set(auth).send({ name: "Q", motionStyle: "motion_style/apple" });
@@ -206,7 +206,10 @@ describe("agent tokens", () => {
 
     await http.get(`/projects/${q.id}`).set(agent).expect(403);
     await http.get("/projects").set(agent).expect(403);
-    await http.put(`/projects/${p.id}/build/palette`).set(agent).send({ value: "palette/sunset" }).expect(403);
+    await http.put(`/projects/${p.id}/build/palette`).set(agent).send({ value: "palette/sunset" }).expect(200);
+    await http.patch(`/projects/${p.id}`).set(agent).send({ format: "square_1_1" }).expect(200);
+    const fb = await http.post(`/projects/${p.id}/feedback/consume`).set(agent).expect(200);
+    assert.equal(fb.body.length, 0, "agent changes are not echoed back as user feedback");
     await http.delete(`/projects/${p.id}`).set(agent).expect(403);
     await http.post(`/projects/${p.id}/agent-token`).set(agent).expect(403);
   });

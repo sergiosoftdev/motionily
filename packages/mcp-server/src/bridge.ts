@@ -1,41 +1,48 @@
 import { randomUUID } from "node:crypto";
-import { WebSocketServer, type WebSocket } from "ws";
+import { WebSocket } from "ws";
 import {
+  BRIDGE_PATH,
+  BridgeRole,
   EditorMessageType,
+  HubMessageType,
   ServerMessageType,
   type EditorMessage,
+  type HubMessage,
   type Op,
   type ServerMessage,
 } from "@motionily/protocol";
 
-const REQUEST_TIMEOUT_MS = 10_000;
+const REQUEST_TIMEOUT_MS = 15_000;
+const RECONNECT_MS = 2_000;
 
 type ResultMessage = Extract<EditorMessage, { type: typeof EditorMessageType.Result }>;
 type Pending = { resolve: (msg: ResultMessage) => void; timer: NodeJS.Timeout };
+type Request = Extract<ServerMessage, { requestId: string }>;
 
 /**
- * Live link to the editor that has this project open. The editor holds the
- * Rust engine: it validates and applies every op, renders it, and autosaves
- * the scene to the API. We only forward ops and keep the latest summary.
+ * Live link to the editor showing this project, through the API's bridge hub.
+ * The editor holds the engine: it validates and applies every op, renders it,
+ * and autosaves the scene. Several agents can work at once without port clashes.
  */
 export class EditorBridge {
   private socket: WebSocket | null = null;
+  private editorOpen = false;
   private pending = new Map<string, Pending>();
   private summary = "";
   private scene: string | null = null;
 
   constructor(
-    port: number,
+    apiUrl: string,
+    token: string,
     private readonly projectId: string,
   ) {
-    const wss = new WebSocketServer({ port, host: "127.0.0.1" });
-    wss.on("connection", (ws) => this.attach(ws));
-    // stdout belongs to MCP; logs go to stderr.
-    console.error(`[motionily] editor bridge on ws://127.0.0.1:${port} for project ${projectId}`);
+    const url = new URL(BRIDGE_PATH, apiUrl.replace(/^http/, "ws"));
+    url.search = new URLSearchParams({ role: BridgeRole.Agent, token }).toString();
+    this.connect(url.toString());
   }
 
   get connected(): boolean {
-    return this.socket !== null;
+    return this.socket?.readyState === WebSocket.OPEN && this.editorOpen;
   }
 
   get lastSummary(): string {
@@ -59,27 +66,37 @@ export class EditorBridge {
     return this.request({ type: ServerMessageType.LoadScene, requestId: randomUUID(), projectId: this.projectId, scene });
   }
 
-  private attach(ws: WebSocket) {
-    ws.on("message", (raw) => this.onMessage(ws, JSON.parse(String(raw)) as EditorMessage));
-    ws.on("close", () => {
+  private connect(url: string) {
+    const ws = new WebSocket(url);
+    ws.on("open", () => {
+      this.socket = ws;
+      // stdout belongs to MCP; logs go to stderr.
+      console.error(`[motionily] connected to the editor hub for project ${this.projectId}`);
+    });
+    ws.on("message", (raw) => this.onMessage(JSON.parse(String(raw)) as EditorMessage | HubMessage));
+    ws.on("error", () => undefined);
+    ws.on("close", (code) => {
       if (this.socket === ws) this.socket = null;
+      this.editorOpen = false;
+      if (code === 4401) {
+        console.error("[motionily] the agent token was rejected; get a new one with 'Conectar agente'.");
+        return;
+      }
+      setTimeout(() => this.connect(url), RECONNECT_MS);
     });
   }
 
-  private onMessage(ws: WebSocket, msg: EditorMessage) {
+  private onMessage(msg: EditorMessage | HubMessage) {
     switch (msg.type) {
+      case HubMessageType.EditorOpen:
+        this.editorOpen = true;
+        return;
+      case HubMessageType.EditorClosed:
+        this.editorOpen = false;
+        return;
       case EditorMessageType.Hello:
       case EditorMessageType.SceneChanged:
-        // Only the editor showing our project counts; other tabs are ignored.
-        if (msg.projectId !== this.projectId) {
-          if (this.socket === ws) this.socket = null;
-          return;
-        }
-        if (this.socket !== ws) {
-          this.socket?.close();
-          this.socket = ws;
-          ws.send(JSON.stringify({ type: ServerMessageType.Attached, projectId: this.projectId } satisfies ServerMessage));
-        }
+        this.editorOpen = true;
         this.summary = msg.summary;
         this.scene = msg.scene;
         return;
@@ -96,12 +113,10 @@ export class EditorBridge {
     }
   }
 
-  private request(msg: Exclude<ServerMessage, { type: typeof ServerMessageType.Attached }>) {
+  private request(msg: Request) {
     const ws = this.socket;
-    if (!ws) {
-      return Promise.reject(
-        new Error("The editor is not showing this project. Ask the user to open it in Motionily and retry."),
-      );
+    if (!ws || !this.editorOpen) {
+      return Promise.reject(new Error("The editor is not open on this project. Ask the user to open it in Motionily and retry."));
     }
     return new Promise<ResultMessage>((resolve, reject) => {
       const timer = setTimeout(() => {

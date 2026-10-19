@@ -1,7 +1,8 @@
 import type { Brick, BrickSlot, Project, ProjectListItem, User, VideoFormat } from "@motionily/protocol";
 import { useSession } from "../session";
+import type { GenerateState } from "../components/GeneratePanel";
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3100";
+export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3100";
 
 export class ApiError extends Error {
   constructor(
@@ -66,5 +67,9 @@ export const api = {
     call<{ sceneRevision: number }>(HttpMethod.Put, `/projects/${id}/scene`, { scene, baseRevision }),
   addComment: (id: string, text: string, at: number, layerId?: string) =>
     call<unknown>(HttpMethod.Post, `/projects/${id}/feedback`, { kind: "comment", text, at, layerId }),
+  generate: (id: string, instruction?: string) =>
+    call<GenerateState>(HttpMethod.Post, `/projects/${id}/generate`, { instruction: instruction || undefined }),
+  generateStatus: (id: string) => call<GenerateState>(HttpMethod.Get, `/projects/${id}/generate`),
+  stopGenerate: (id: string) => call<GenerateState>(HttpMethod.Delete, `/projects/${id}/generate`),
   uploadAudio: (id: string, file: File) => upload<Project>(`/projects/${id}/audio`, file),
 };

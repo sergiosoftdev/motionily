@@ -12,12 +12,12 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import {
-  BRIDGE_PORT,
   BrickSlot,
   BrickVisibility,
   EngineSupport,
   FeedbackKind,
   OpName,
+  VideoFormat,
   type Brick,
   type Feedback,
   type Op,
@@ -35,8 +35,9 @@ if (!token || !projectId) {
   console.error("[motionily] MOTIONILY_TOKEN and MOTIONILY_PROJECT are required. Get them from 'Conectar agente' in the editor.");
   process.exit(1);
 }
-const api = new ProjectApi(process.env.MOTIONILY_API ?? "http://localhost:3100", token, projectId);
-const bridge = new EditorBridge(Number(process.env.MOTIONILY_PORT ?? BRIDGE_PORT), projectId);
+const apiUrl = process.env.MOTIONILY_API ?? "http://localhost:3100";
+const api = new ProjectApi(apiUrl, token, projectId);
+const bridge = new EditorBridge(apiUrl, token, projectId);
 
 const server = new McpServer({ name: "motionily", version: "0.2.0" });
 
@@ -64,6 +65,35 @@ server.registerTool(
   guard(async () => {
     const [project, bricks] = await Promise.all([api.project(), api.bricks()]);
     return text(describeProject(project, new Map(bricks.map((b) => [b.key, b]))));
+  }),
+);
+
+server.registerTool(
+  "set_option",
+  {
+    description:
+      "Change a project option (the same settings the user has in the editor): motion_style, palette, composition, typography, render_style (finish: flat, soft_depth…), captions, scenario (null for none), character/animation/transition (lists). Use keys from list_bricks. The editor updates live.",
+    inputSchema: {
+      slot: z.enum(SLOT_VALUES),
+      value: z.union([z.string(), z.array(z.string()), z.null()]),
+      apply_style_defaults: z.boolean().optional().describe("motion_style only: also switch every other option to that style's defaults"),
+    },
+  },
+  guard(async ({ slot, value, apply_style_defaults }) => {
+    const p = await api.setSlot(slot, value, apply_style_defaults);
+    return text(`${slot} = ${JSON.stringify(p.build[slot])}`);
+  }),
+);
+
+server.registerTool(
+  "set_format",
+  {
+    description: "Change the video frame: vertical_9_16, portrait_4_5, square_1_1 or horizontal_16_9 (1080p). Re-place layers afterwards (anchors adapt by themselves).",
+    inputSchema: { format: z.enum(Object.values(VideoFormat) as [VideoFormat, ...VideoFormat[]]) },
+  },
+  guard(async ({ format }) => {
+    await api.update({ format });
+    return text(`format = ${format}`);
   }),
 );
 
@@ -217,7 +247,8 @@ server.registerTool(
 
 function describeProject(p: Project, byKey: Map<string, Brick>): string {
   const lines = [`Project "${p.name}"`, `Brief: ${p.brief.trim() || "(empty — ask the user what the video is about)"}`, ""];
-  lines.push("Bricks chosen by the user (respect them; never swap, you may suggest):");
+  lines.push(`Format: ${p.format}`);
+  lines.push("Options (the user's starting point; change them with set_option when the user asks or when it clearly serves the brief):");
   for (const slot of SLOT_VALUES) {
     const keys = [p.build[slot]].flat().filter((k): k is string => typeof k === "string");
     const names = keys.map((k) => {

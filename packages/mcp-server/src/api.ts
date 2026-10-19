@@ -20,6 +20,14 @@ export class ProjectApi {
     return this.call<Brick>("POST", "/bricks", brick);
   }
 
+  setSlot(slot: BrickSlot, value: string | string[] | null, applyKitDefaults?: boolean) {
+    return this.call<Project>("PUT", `/build/${slot}`, { value, applyKitDefaults });
+  }
+
+  update(patch: { format?: string }) {
+    return this.call<Project>("PATCH", "", patch);
+  }
+
   consumeFeedback() {
     return this.call<Feedback[]>("POST", "/feedback/consume");
   }

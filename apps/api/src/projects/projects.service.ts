@@ -55,7 +55,7 @@ export class ProjectsService {
   }
 
   /** Snap a brick (or several) into one slot. Records the choice as feedback for the agent. */
-  async setSlot(ownerId: Types.ObjectId, id: string, slot: BrickSlot, dto: SetSlotDto) {
+  async setSlot(ownerId: Types.ObjectId, id: string, slot: BrickSlot, dto: SetSlotDto, recordFeedback = true) {
     if (!Object.values(BrickSlot).includes(slot)) throw new BadRequestException(`unknown slot '${slot}'`);
     const project = await this.get(ownerId, id);
     const value = normalizeSlotValue(slot, dto.value);
@@ -74,7 +74,7 @@ export class ProjectsService {
     project.build = build;
     project.markModified("build");
     await project.save();
-    await this.feedback.create({ projectId: project._id, kind: FeedbackKind.BrickChosen, slot, value });
+    if (recordFeedback) await this.feedback.create({ projectId: project._id, kind: FeedbackKind.BrickChosen, slot, value });
     return project;
   }
 

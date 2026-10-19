@@ -46,3 +46,8 @@ export class CreateFeedbackDto {
   @IsOptional() @IsNumber() @Min(0) at?: number;
   @IsOptional() @IsString() @MaxLength(80) layerId?: string;
 }
+
+export class GenerateDto {
+  /** Optional request on top of the brief ("make the title bigger"). */
+  @IsOptional() @IsString() @MaxLength(2000) instruction?: string;
+}

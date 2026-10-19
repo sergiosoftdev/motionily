@@ -23,7 +23,9 @@ import { BricksService } from "../bricks/bricks.service";
 import { CreateBrickDto, ListBricksQuery } from "../bricks/bricks.dto";
 import { BrickSlot } from "../bricks/brick.enums";
 import { ProjectsService } from "./projects.service";
-import { CreateFeedbackDto, CreateProjectDto, SaveSceneDto, SetSlotDto, UpdateProjectDto } from "./projects.dto";
+import { BridgeHub } from "../bridge-hub";
+import { GenerateService } from "./generate.service";
+import { CreateFeedbackDto, CreateProjectDto, GenerateDto, SaveSceneDto, SetSlotDto, UpdateProjectDto } from "./projects.dto";
 import type { ProjectDocument } from "./project.schema";
 
 @Controller("projects")
@@ -32,7 +34,28 @@ export class ProjectsController {
     private readonly projects: ProjectsService,
     private readonly bricks: BricksService,
     private readonly jwt: JwtService,
+    private readonly generator: GenerateService,
   ) {}
+
+  /** "Generar": run the agent on this project from the editor, no terminal needed. */
+  @Post(":id/generate")
+  generate(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: GenerateDto) {
+    userOnly(user);
+    return this.generator.start(user.id, user.email, id, dto.instruction);
+  }
+
+  @Get(":id/generate")
+  async generateStatus(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    const project = await this.projects.get(user.id, id);
+    return this.generator.status(project.id);
+  }
+
+  @Delete(":id/generate")
+  async stopGenerate(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    userOnly(user);
+    const project = await this.projects.get(user.id, id);
+    return this.generator.stop(project.id);
+  }
 
   @Get()
   list(@CurrentUser() user: AuthUser) {
@@ -51,8 +74,9 @@ export class ProjectsController {
 
   @Patch(":id")
   async update(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpdateProjectDto) {
-    userOnly(user);
-    return this.view(await this.projects.update(user.id, id, dto));
+    const project = await this.projects.update(user.id, id, dto);
+    if (user.scope === TokenScope.Agent) BridgeHub.instance?.notifyProjectChanged(project.id);
+    return this.view(project);
   }
 
   @Delete(":id")
@@ -69,9 +93,10 @@ export class ProjectsController {
     @Param("slot") slot: BrickSlot,
     @Body() dto: SetSlotDto,
   ) {
-    // Bricks are the user's choice; the agent may suggest, never swap.
-    userOnly(user);
-    return this.view(await this.projects.setSlot(user.id, id, slot, dto));
+    // Agents may change options too; only the user's own choices are reported back as feedback.
+    const project = await this.projects.setSlot(user.id, id, slot, dto, user.scope === TokenScope.User);
+    if (user.scope === TokenScope.Agent) BridgeHub.instance?.notifyProjectChanged(project.id);
+    return this.view(project);
   }
 
   /** A token the user pastes into their agent (MCP). It can only touch this project. */

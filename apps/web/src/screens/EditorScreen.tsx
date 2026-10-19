@@ -14,6 +14,7 @@ import { slotUi } from "../components/style/options";
 import { ConnectAgent } from "../components/ConnectAgent";
 import { FormatPicker } from "../components/FormatPicker";
 import { ExportButton } from "../export/ExportButton";
+import { GeneratePanel } from "../components/GeneratePanel";
 import { CaptionsPanel } from "../captions/CaptionsPanel";
 import { Timeline } from "../timeline/Timeline";
 import { SelectionOverlay } from "../timeline/SelectionOverlay";
@@ -94,7 +95,6 @@ export function EditorScreen({ id }: { id: string }) {
         await engineHost.mount(canvasRef.current, p.scene ? JSON.stringify(p.scene) : null);
         if (cancelled || !engineHost.ready) return;
         engineHost.setBuildOps(buildToOps(p.build, new Map(b.map((x) => [x.key, x])), p.format));
-        agentBridge.start();
         agentBridge.setProject(id);
         engineHost.setAudio(p.audio ? mediaUrl(p.audio.url) : null);
         useEditor.setState({ selectedLayerId: null });
@@ -104,6 +104,20 @@ export function EditorScreen({ id }: { id: string }) {
       cancelled = true;
       agentBridge.setProject(null);
       engineHost.unmount();
+    };
+  }, [id]);
+
+  // The agent changed options or format: reload the project and re-apply them to the engine.
+  useEffect(() => {
+    agentBridge.onProjectChanged = () => {
+      void Promise.all([api.project(id), api.projectBricks(id)]).then(([p, b]) => {
+        setProject(p);
+        setBricks(b);
+        if (engineHost.ready) engineHost.setBuildOps(buildToOps(p.build, new Map(b.map((x) => [x.key, x])), p.format));
+      });
+    };
+    return () => {
+      agentBridge.onProjectChanged = null;
     };
   }, [id]);
 
@@ -234,6 +248,7 @@ export function EditorScreen({ id }: { id: string }) {
                     className="resize-none rounded-lg bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-white/40"
                   />
                 </label>
+                <GeneratePanel projectId={id} hasScene={!!project.scene} />
                 <label className="flex flex-col gap-2">
                   <span className="text-xs font-medium text-neutral-300">Formato</span>
                   <FormatPicker value={project.format} onChange={(f) => void changeFormat(f)} />
