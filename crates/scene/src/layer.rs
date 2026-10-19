@@ -161,11 +161,21 @@ pub enum DrawItem {
 impl Layer {
     /// Resolve this layer at layer-local time `lt`. `None` when fully transparent.
     pub fn draw(&self, lt: f32, ctx: &EvalCtx) -> Option<DrawItem> {
-        let anim = self.anim_offsets(lt, ctx.library);
+        self.resolve(lt, ctx, true)
+    }
+
+    /// `animated = false` gives the layer at rest (no animation bricks, never hidden):
+    /// what selection outlines and hit-tests use, so an object is selectable mid-entrance.
+    fn resolve(&self, lt: f32, ctx: &EvalCtx, animated: bool) -> Option<DrawItem> {
+        let anim = if animated {
+            self.anim_offsets(lt, ctx.library)
+        } else {
+            AnimOffsets { opacity: 1.0, scale: 1.0, dx: 0.0, dy: 0.0, rotation: 0.0 }
+        };
         let scale = self.scale.sample(lt) * anim.scale;
         let mut color = self.fill.resolve(ctx.palette);
         color.0[3] *= (self.opacity.sample(lt) * anim.opacity).clamp(0.0, 1.0);
-        if color.0[3] <= 0.0 {
+        if animated && color.0[3] <= 0.0 {
             return None;
         }
         let origin = self
@@ -255,7 +265,7 @@ impl Bounds {
 impl Layer {
     /// Where the layer is on screen at layer-local time `lt` (`None` if invisible).
     pub fn bounds(&self, lt: f32, ctx: &EvalCtx) -> Option<Bounds> {
-        match self.draw(lt, ctx)? {
+        match self.resolve(lt, ctx, false)? {
             DrawItem::Shape(s) => Some(Bounds { center: s.center, size: s.size, rotation: s.rotation }),
             DrawItem::Text(t) => {
                 let scale = self.scale.sample(lt);

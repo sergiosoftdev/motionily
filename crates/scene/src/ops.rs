@@ -377,7 +377,7 @@ mod brick_tests {
         let s = scene();
         assert_eq!(s.pick(2.0, 550.0, 480.0).as_deref(), Some("t"));
         assert_eq!(s.pick(2.0, 10.0, 10.0), None);
-        assert_eq!(s.pick(0.1, 550.0, 480.0), None, "invisible before its animation");
+        assert_eq!(s.pick(0.1, 550.0, 480.0).as_deref(), Some("t"), "selectable even before its entrance animation");
     }
 
     #[test]

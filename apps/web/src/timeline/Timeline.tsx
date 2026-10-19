@@ -157,7 +157,8 @@ export function Timeline({ audioUrl }: { audioUrl: string | null }) {
               onPointerDown={(e) => e.stopPropagation()}
               onClick={() => {
                 useEditor.setState({ selectedLayerId: l.id });
-                if (time < start || time >= end) engineHost.seek(start);
+                // Land a bit after the start, once entrance animations have revealed it.
+                if (time < start || time >= end) engineHost.seek(Math.min(start + 0.6, (start + end) / 2));
               }}
               className={`absolute inset-y-0.5 overflow-hidden rounded-md px-2 text-left whitespace-nowrap ${
                 isSel ? "bg-white text-neutral-900" : "bg-neutral-800 text-neutral-300 hover:bg-neutral-700"
