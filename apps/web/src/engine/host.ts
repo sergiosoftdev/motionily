@@ -2,6 +2,7 @@ import init, { Engine, captionStyles, stylePalettes, stylePresets } from "./pkg/
 import type { CaptionStyle, Op, StylePreset } from "@motionily/protocol";
 import demoScene from "../../../../examples/demo.scene.json?raw";
 import { DEFAULT_FONT_FAMILY, fontFilesFor } from "./fonts";
+import { decodePng, modelUrl, packOf, packTextureUrl, type Pixels } from "./models";
 import { EngineStatus, useEditor } from "../store";
 
 type AudioTrack = { start: number; trim_in: number; trim_out: number | null };
@@ -24,6 +25,10 @@ class EngineHost {
   /** Font files already handed to the current engine, by url. */
   private loadedFonts = new Set<string>();
   private fontCache = new Map<string, Promise<ArrayBuffer>>();
+  /** 3D models and pack textures, fetched once and shared with export engines. */
+  private modelCache = new Map<string, Promise<ArrayBuffer>>();
+  private textureCache = new Map<string, Promise<Pixels | null>>();
+  private loadingModels = new Set<string>();
 
   /** Voice-over/music played in sync with the preview (not saved yet). */
   private audio: HTMLAudioElement | null = null;
@@ -59,6 +64,7 @@ class EngineHost {
       this.engine = engine;
       this.buildOps = [];
       this.loadedFonts.clear();
+      this.loadingModels.clear();
       this.engine.loadScene(sceneJson ?? demoScene);
       void this.ensureFonts(DEFAULT_FONT_FAMILY);
       this.resizeObserver = new ResizeObserver(() => this.fitCanvas());
@@ -126,6 +132,61 @@ class EngineHost {
     engine.loadScene(json);
     if (this.buildOps.length) engine.applyOps(JSON.stringify(this.buildOps));
     this.changed();
+  }
+
+  private fetchModel(key: string) {
+    let p = this.modelCache.get(key);
+    if (!p) {
+      p = fetch(modelUrl(key)).then((r) => {
+        if (!r.ok) throw new Error(`model ${key} not found`);
+        return r.arrayBuffer();
+      });
+      this.modelCache.set(key, p);
+    }
+    return p;
+  }
+
+  private fetchTexture(pack: string) {
+    let p = this.textureCache.get(pack);
+    if (!p) {
+      p = decodePng(packTextureUrl(pack)).catch(() => null);
+      this.textureCache.set(pack, p);
+    }
+    return p;
+  }
+
+  /** Load every model the scene's 3D stage uses (and their pack textures), then redraw. */
+  async ensureModels() {
+    const engine = this.engine;
+    if (!engine) return;
+    const missing = engine.missingModels().filter((k) => !this.loadingModels.has(k));
+    if (missing.length === 0) return;
+    missing.forEach((k) => this.loadingModels.add(k));
+    const packs = new Set(missing.map(packOf));
+    await Promise.all([
+      ...missing.map(async (key) => {
+        const bytes = await this.fetchModel(key).catch(() => null);
+        if (bytes && engine === this.engine) engine.addModel(key, new Uint8Array(bytes));
+      }),
+      ...[...packs].map(async (pack) => {
+        const px = await this.fetchTexture(pack);
+        if (px && engine === this.engine) engine.addTexture(pack, px.rgba, px.width, px.height);
+      }),
+    ]);
+    this.draw();
+  }
+
+  /** Every model and pack texture the scene needs, for another engine (export). */
+  async stageAssets(): Promise<{ models: { key: string; bytes: Uint8Array }[]; textures: ({ pack: string } & Pixels)[] }> {
+    const scene = JSON.parse(this.require().sceneJson()) as { stage?: { props?: { model: string }[] } | null };
+    const keys = [...new Set((scene.stage?.props ?? []).map((p) => p.model))];
+    const models = (await Promise.all(keys.map(async (key) => ({ key, bytes: new Uint8Array(await this.fetchModel(key).catch(() => new ArrayBuffer(0))) })))).filter(
+      (m) => m.bytes.length > 0,
+    );
+    const textures = (await Promise.all([...new Set(keys.map(packOf))].map(async (pack) => ({ pack, px: await this.fetchTexture(pack) }))))
+      .filter((t): t is { pack: string; px: Pixels } => t.px !== null)
+      .map((t) => ({ pack: t.pack, ...t.px }));
+    return { models, textures };
   }
 
   /** Every font file fetched so far, to hand to another engine (export). */
@@ -264,6 +325,7 @@ class EngineHost {
   private changed() {
     this.syncMeta();
     this.draw();
+    void this.ensureModels();
     this.listeners.forEach((fn) => fn());
   }
 

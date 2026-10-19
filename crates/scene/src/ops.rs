@@ -1,4 +1,4 @@
-use crate::{Action, Hair, Outfit, Scenario, RenderStyle, AudioTrack, Captions, LayerContent, Typography, AnimRef, AnimTemplate, Animated, CaptionStyle, ColorRef, CustomPalette, Layer, Library, Scene, StylePreset, TransitionRef};
+use crate::{Camera3D, StageProp, Stage, Action, Hair, Outfit, Scenario, RenderStyle, AudioTrack, Captions, LayerContent, Typography, AnimRef, AnimTemplate, Animated, CaptionStyle, ColorRef, CustomPalette, Layer, Library, Scene, StylePreset, TransitionRef};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -38,6 +38,15 @@ pub enum Op {
     SetTypography { typography: Option<Typography> },
     /// Replace the whole captions track (`null` removes captions).
     SetCaptions { captions: Option<Captions> },
+    /// Replace the 3D stage (`null` = none).
+    SetStage { stage: Option<Stage> },
+    /// Add a 3D prop, or replace the one with the same id.
+    PutProp { prop: StageProp },
+    RemoveProp { id: String },
+    SetCamera { camera: Camera3D },
+    /// Build a 3D set from a scenario brick (clinic_room, office, empty_studio, iso_city),
+    /// keeping any characters already on stage.
+    SetStagePreset { kind: crate::ScenarioKind },
     /// Backdrop from the scenario brick (`null` = none).
     SetScenario { scenario: Option<Scenario> },
     /// Change a character's look or what it is doing; omitted fields stay.
@@ -226,6 +235,24 @@ impl Scene {
             }
             Op::SetTypography { typography } => self.typography = typography.clone(),
             Op::SetScenario { scenario } => self.scenario = *scenario,
+            Op::SetStage { stage } => self.stage = stage.clone(),
+            Op::PutProp { prop } => {
+                let stage = self.stage.get_or_insert_with(Stage::default);
+                match stage.props.iter_mut().find(|p| p.id == prop.id) {
+                    Some(existing) => *existing = prop.clone(),
+                    None => stage.props.push(prop.clone()),
+                }
+            }
+            Op::RemoveProp { id } => {
+                let stage = self.stage.as_mut().ok_or(OpError::Invalid("there is no 3D stage"))?;
+                let before = stage.props.len();
+                stage.props.retain(|p| &p.id != id);
+                if stage.props.len() == before {
+                    return Err(OpError::UnknownLayer(id.clone()));
+                }
+            }
+            Op::SetStagePreset { kind } => self.stage = Some(crate::merge_preset(*kind, self.stage.as_ref())),
+            Op::SetCamera { camera } => self.stage.get_or_insert_with(Stage::default).camera = camera.clone(),
             Op::SetCharacter { id, outfit, action, hair, hair_color, facing } => {
                 let l = self.layer_mut(id).ok_or_else(|| OpError::UnknownLayer(id.clone()))?;
                 let LayerContent::Character { spec } = &mut l.content else {

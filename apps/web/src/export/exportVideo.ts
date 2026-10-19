@@ -42,6 +42,7 @@ export async function exportVideo(opts: {
   /** Output height for vertical/square, width for horizontal: 1080 or 720. */
   shortSide: number;
   fonts: FontFile[];
+  stage: { models: { key: string; bytes: Uint8Array }[]; textures: { pack: string; rgba: Uint8Array; width: number; height: number }[] };
   audioUrl: string | null;
   onProgress: (ratio: number) => void;
   signal: AbortSignal;
@@ -64,6 +65,8 @@ export async function exportVideo(opts: {
   try {
     engine.resize(width, height);
     for (const f of opts.fonts) engine.addFont(f.family, f.weight, f.bytes);
+    for (const m of opts.stage.models) engine.addModel(m.key, m.bytes);
+    for (const t of opts.stage.textures) engine.addTexture(t.pack, t.rgba, t.width, t.height);
     engine.loadScene(opts.sceneJson);
 
     const output = new Output({ format: mp4 ? new Mp4OutputFormat() : new WebMOutputFormat(), target: new BufferTarget() });

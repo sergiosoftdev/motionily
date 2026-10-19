@@ -8,6 +8,8 @@
 mod anim;
 mod character;
 mod scenario;
+mod stage;
+mod stage_presets;
 mod layer;
 mod library;
 mod ops;
@@ -21,6 +23,8 @@ pub use library::{AnimProp, AnimTemplate, Library, TemplateKey, TransitionKind, 
 pub use text::{AudioTrack, Captions, DrawText, TextAlign, TextRole, TextSpan, Typography, Word};
 pub use transition::TransitionRef;
 pub use character::{draw_character, pose, Action, CharacterKind, CharacterSpec, Hair, Outfit, Pose};
+pub use stage_presets::{merge_preset, preset as stage_preset};
+pub use stage::{Camera3D, CameraKind, DrawCamera, DrawProp, DrawStage, PropEnter, Stage, StageProp};
 pub use scenario::{draw_scenario, iso, DrawPoly, Scenario, ScenarioKind};
 pub use ops::{Op, OpError, Prop};
 pub use style::{RenderKind, RenderStyle, CaptionStyle, ColorRef, CustomPalette, HexColor, Palette, PaletteSlot, Rgba, StylePreset};
@@ -54,6 +58,9 @@ pub struct Scene {
     /// Font from the typography brick. Missing: the engine's default font.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub typography: Option<Typography>,
+    /// 3D stage (camera + glTF props) drawn behind every layer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage: Option<Stage>,
     /// Backdrop drawn behind every layer (scenario brick).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scenario: Option<Scenario>,
@@ -90,6 +97,7 @@ impl Default for Scene {
             layers: Vec::new(),
             library: Library::default(),
             typography: None,
+            stage: None,
             scenario: None,
             render_style: None,
             audio: None,
@@ -131,10 +139,12 @@ impl Scene {
             library: &self.library,
             scene_size: [self.width as f32, self.height as f32],
         };
-        let mut items: Vec<DrawItem> = self
+        let mut items: Vec<DrawItem> = self.stage.iter().map(|s| DrawItem::Stage(s.draw(t, &palette))).collect();
+        items.extend(self
             .scenario
+            .filter(|_| self.stage.is_none())
             .map(|s| draw_scenario(&s, ctx.scene_size, t, &palette))
-            .unwrap_or_default();
+            .unwrap_or_default());
         items.extend(
             self.layers
                 .iter()
@@ -230,6 +240,14 @@ impl Scene {
                 animated.join(","),
                 uses.join(",")
             );
+        }
+        if let Some(st) = &self.stage {
+            let props: Vec<String> = st
+                .props
+                .iter()
+                .map(|p| format!("{}={}{}", p.id, p.model, p.action.as_ref().map(|a| format!(":{a}")).unwrap_or_default()))
+                .collect();
+            let _ = writeln!(s, "stage: camera={} props=[{}]", enum_name(&st.camera.kind), props.join(", "));
         }
         if let Some(sc) = &self.scenario {
             let _ = writeln!(s, "scenario: {}", enum_name(&sc.kind));

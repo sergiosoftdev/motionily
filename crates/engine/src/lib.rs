@@ -11,13 +11,15 @@ mod polys;
 mod post;
 mod shapes;
 mod text;
+mod three;
 
 use bytemuck::{Pod, Zeroable};
 use polys::PolyPipeline;
-use scene::{DrawItem, DrawPoly, DrawShape, DrawText, Scene};
+use scene::{DrawItem, DrawPoly, DrawShape, DrawStage, DrawText, Scene};
 use post::{PostColors, PostPass};
 use shapes::ShapePipeline;
 use text::TextPipeline;
+use three::StageRenderer;
 use std::ops::Range;
 
 /// Initial per-pipeline instance capacity; buffers grow as needed.
@@ -85,6 +87,7 @@ struct Batches {
     shapes: Vec<DrawShape>,
     texts: Vec<DrawText>,
     polys: Vec<DrawPoly>,
+    stage: Option<DrawStage>,
     runs: Vec<(ItemKind, Range<u32>)>,
 }
 
@@ -101,6 +104,10 @@ impl Batches {
             let (kind, index) = match item {
                 DrawItem::Group(children) => {
                     b.push_all(children);
+                    continue;
+                }
+                DrawItem::Stage(stage) => {
+                    b.stage = Some(stage);
                     continue;
                 }
                 DrawItem::Poly(p) => {
@@ -136,6 +143,7 @@ pub struct Renderer {
     shapes: ShapePipeline,
     text: TextPipeline,
     polys: PolyPipeline,
+    stage: StageRenderer,
     post: PostPass,
     pub adapter_info: String,
 }
@@ -217,12 +225,14 @@ impl Renderer {
         let text = TextPipeline::new(&ctx);
         let polys = PolyPipeline::new(&ctx);
         let post = PostPass::new(&device, config.format, config.width, config.height);
+        let stage = StageRenderer::new(&device, &queue, config.format, [config.width, config.height]);
 
         let info = adapter.get_info();
         Ok(Renderer {
             shapes,
             text,
             polys,
+            stage,
             post,
             device,
             queue,
@@ -240,6 +250,20 @@ impl Renderer {
         })
     }
 
+    /// Register a glTF binary (GLB) model under `key`, e.g. "characters/character-female-b".
+    pub fn add_model(&mut self, key: &str, bytes: &[u8]) -> Result<(), String> {
+        self.stage.add_model(&self.device, key, bytes)
+    }
+
+    /// Register a model pack's shared texture (RGBA8).
+    pub fn add_texture(&mut self, pack: &str, rgba: &[u8], width: u32, height: u32) {
+        self.stage.add_texture(&self.device, &self.queue, pack, rgba, width, height);
+    }
+
+    pub fn has_model(&self, key: &str) -> bool {
+        self.stage.has_model(key)
+    }
+
     /// Register a TTF/OTF font for text layers and captions.
     pub fn add_font(&mut self, family: &str, weight: u16, bytes: &[u8]) -> Result<(), String> {
         self.text.add_font(family, weight, bytes)
@@ -253,6 +277,7 @@ impl Renderer {
         self.config.height = height;
         self.surface.configure(&self.device, &self.config);
         self.post.resize(&self.device, width, height);
+        self.stage.resize(&self.device, [width, height]);
     }
 
     /// Draw `scene` at time `t` (seconds) into the surface.
@@ -275,6 +300,7 @@ impl Renderer {
         self.shapes.prepare(&ctx, &batches.shapes);
         self.text.prepare(&ctx, &batches.texts);
         self.polys.prepare(&ctx, &batches.polys);
+        self.stage.prepare(&self.device, &self.queue, batches.stage.as_ref(), scene.width as f32 / scene.height as f32, linearize > 0.5);
 
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(f) | wgpu::CurrentSurfaceTexture::Suboptimal(f) => f,
@@ -296,15 +322,18 @@ impl Renderer {
         };
 
         let mut encoder = self.device.create_command_encoder(&Default::default());
+        // 3D stage first (with depth); 2D layers then draw on top of it.
+        let drew_stage = self.stage.render(&mut encoder, self.post.target());
         {
             // Scene pass: transparent canvas; the post pass adds background and finish.
+            let load = if drew_stage { wgpu::LoadOp::Load } else { wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT) };
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("scene"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: self.post.target(),
                     depth_slice: None,
                     resolve_target: None,
-                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
+                    ops: wgpu::Operations { load, store: wgpu::StoreOp::Store },
                 })],
                 ..Default::default()
             });

@@ -28,6 +28,8 @@ import { ProjectApi } from "./api.js";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const REFERENCE = readFileSync(resolve(here, "../../../docs/scene-reference.md"), "utf8");
+type ModelInfo = { key: string; category: string; size: number[]; origin: number[]; clips?: string[] };
+const MODELS = (JSON.parse(readFileSync(resolve(here, "../../../apps/web/public/models/manifest.json"), "utf8")) as { models: ModelInfo[] }).models;
 
 const token = process.env.MOTIONILY_TOKEN;
 const projectId = process.env.MOTIONILY_PROJECT;
@@ -83,6 +85,24 @@ server.registerTool(
     const p = await api.setSlot(slot, value, apply_style_defaults);
     return text(`${slot} = ${JSON.stringify(p.build[slot])}`);
   }),
+);
+
+server.registerTool(
+  "list_models",
+  {
+    description:
+      "3D models you can put on the stage (put_prop): characters (with animation clips), furniture, buildings, shop items. Sizes in meters (w,h,d); origin = min corner, most furniture extends towards -z from its origin. Filter by category or text.",
+    inputSchema: { category: z.string().optional(), query: z.string().optional() },
+  },
+  async ({ category, query }) => {
+    const q = query?.toLowerCase();
+    const rows = MODELS.filter((m) => (!category || m.category === category) && (!q || m.key.toLowerCase().includes(q)));
+    const clips = rows.find((m) => m.clips)?.clips;
+    return text(
+      rows.map((m) => `${m.key} | ${m.category} | size ${m.size.join("x")} | origin ${m.origin.join(",")}`).join("\n") +
+        (clips ? `\ncharacter clips: ${clips.join(", ")}` : ""),
+    );
+  },
 );
 
 server.registerTool(
@@ -296,7 +316,7 @@ function describeProject(p: Project, byKey: Map<string, Brick>): string {
   if (p.misfits.length) lines.push(`Misfits (user chose them anyway): ${p.misfits.join(", ")}`);
   lines.push("");
   lines.push(
-    "Engine today: rect/ellipse layers; animate them by referencing animation bricks ({\"use\":\"animation/pop_in\",\"at\":0.3}) instead of hand keyframes; place them on composition anchors (anchor: hero/title/caption/accent); cut scenes with transition bricks (add_transition). Palette slots follow the palette brick. Text layers render in the typography brick font; captions (from the user\'s voice-over) render in their caption style — mark key words with set_emphasis. The render style brick (finish: soft shadows, toon outlines, paper cut…) is applied by the engine to the whole frame. Characters (type character: stickman/blob/chibi with outfits, hair and actions) and scenario backdrops (clinic room, office, studio, iso city) render too.",
+    "Engine today: rect/ellipse layers; animate them by referencing animation bricks ({\"use\":\"animation/pop_in\",\"at\":0.3}) instead of hand keyframes; place them on composition anchors (anchor: hero/title/caption/accent); cut scenes with transition bricks (add_transition). Palette slots follow the palette brick. Text layers render in the typography brick font; captions (from the user\'s voice-over) render in their caption style — mark key words with set_emphasis. The render style brick (finish: soft shadows, toon outlines, paper cut…) is applied by the engine to the whole frame. REAL 3D: a stage with an animated camera and glTF props (list_models: animated characters, furniture, buildings) with toon shading — build any set you want with put_prop, or start from set_stage_preset (clinic_room, office, empty_studio, iso_city). Flat 2D characters (type character) also exist.",
   );
   lines.push(p.scene ? `Scene: exists (rev ${p.sceneRevision}); see get_scene.` : "Scene: empty. Build the first cut with load_scene.");
   lines.push(bridge.connected ? "Editor: open (your edits render live)." : "Editor: NOT open on this project — ask the user to open it before editing.");

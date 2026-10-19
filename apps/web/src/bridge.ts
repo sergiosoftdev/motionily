@@ -71,6 +71,8 @@ class AgentBridge {
       case ServerMessageType.Attached:
         if (!useEditor.getState().agentConnected) logActivity(ActivitySource.System, "Agente conectado");
         useEditor.setState({ agentConnected: true });
+        // A new agent must start from what is on screen right now, not a cached copy.
+        this.hello();
         return;
       case ServerMessageType.Detached:
         if (useEditor.getState().agentConnected) logActivity(ActivitySource.System, "Agente desconectado");

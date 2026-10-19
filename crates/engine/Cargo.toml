@@ -9,3 +9,5 @@ scene.workspace = true
 wgpu.workspace = true
 bytemuck.workspace = true
 fontdue.workspace = true
+gltf.workspace = true
+glam.workspace = true

@@ -179,6 +179,11 @@ export function EditorScreen({ id }: { id: string }) {
         engineHost.setBuildOps(buildToOps(p.build, catalog, p.format));
         agentBridge.sceneChanged();
       }
+      // Picking a scenario builds its 3D set (characters already on stage stay).
+      if (slot === BrickSlot.Scenario && typeof value === "string" && engineHost.ready) {
+        engineHost.applyOps([{ op: OpName.SetStagePreset, kind: value.split("/")[1] }]);
+        agentBridge.sceneChanged();
+      }
       const names = [value].flat().filter(Boolean).map((k) => catalog.get(k as string)?.name ?? (k as string));
       logActivity(ActivitySource.User, `${slotUi(slot).label}: ${names.join(", ") || "vacío"}`);
       if (slot !== BrickSlot.Character && slot !== BrickSlot.Animation && slot !== BrickSlot.Transition) setOpenSlot(null);

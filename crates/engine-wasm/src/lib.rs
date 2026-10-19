@@ -83,6 +83,33 @@ impl Engine {
         self.scene.duration
     }
 
+    /// Register a GLB model for the 3D stage.
+    #[wasm_bindgen(js_name = addModel)]
+    pub fn add_model(&mut self, key: &str, bytes: &[u8]) -> Result<(), JsError> {
+        self.renderer.add_model(key, bytes).map_err(|e| JsError::new(&e))
+    }
+
+    /// Register the shared texture of a model pack (RGBA8 pixels).
+    #[wasm_bindgen(js_name = addTexture)]
+    pub fn add_texture(&mut self, pack: &str, rgba: &[u8], width: u32, height: u32) {
+        self.renderer.add_texture(pack, rgba, width, height);
+    }
+
+    /// Model keys the current scene uses that are not loaded yet.
+    #[wasm_bindgen(js_name = missingModels)]
+    pub fn missing_models(&self) -> Vec<String> {
+        let mut keys: Vec<String> = self
+            .scene
+            .stage
+            .iter()
+            .flat_map(|s| s.props.iter().map(|p| p.model.clone()))
+            .filter(|k| !self.renderer.has_model(k))
+            .collect();
+        keys.sort();
+        keys.dedup();
+        keys
+    }
+
     /// Register a font file (TTF/OTF bytes) under a family and weight.
     #[wasm_bindgen(js_name = addFont)]
     pub fn add_font(&mut self, family: &str, weight: u16, bytes: &[u8]) -> Result<(), JsError> {

@@ -156,6 +156,8 @@ pub enum DrawItem {
     Poly(DrawPoly),
     /// Several items from one layer (characters), drawn in order.
     Group(Vec<DrawItem>),
+    /// The 3D stage (always first, behind everything).
+    Stage(crate::DrawStage),
 }
 
 impl Layer {
@@ -272,7 +274,7 @@ impl Layer {
                 let scale = self.scale.sample(lt);
                 Some(Bounds { center: t.center, size: [t.max_width, self.h.sample(lt) * scale], rotation: t.rotation })
             }
-            DrawItem::Poly(_) | DrawItem::Group(_) => {
+            DrawItem::Poly(_) | DrawItem::Group(_) | DrawItem::Stage(_) => {
                 let scale = self.scale.sample(lt);
                 let origin = self
                     .anchor

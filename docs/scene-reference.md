@@ -46,6 +46,26 @@ The user uploads the voice-over and the editor transcribes it into `captions.wor
 - mark key words (by index) so highlight/pop styles stress them: `{"op":"set_emphasis","words":[3,9],"emphasis":true}`
 - time your scenes and text to the speech (see the captions line in the summary).
 
+## 3D stage (real 3D)
+A camera and glTF props drawn behind every 2D layer, toon-shaded with outlines. Use it for sets,
+people and objects; put titles/captions on top as 2D layers.
+```
+{"op":"set_stage_preset","kind":"clinic_room|office|empty_studio|iso_city"}   // ready-made set (keeps characters)
+{"op":"put_prop","prop":{"id":"fisio","model":"characters/character-female-b","x":0.9,"y":0,"z":-0.4,
+  "rotation":-40,"scale":1,"action":"interact-left","enter":"pop|drop|rise|none","enter_delay":0.2,
+  "start":0,"end":null,"tint":"primary"}}                                      // add or replace by id
+{"op":"remove_prop","id":"fisio"}
+{"op":"set_camera","camera":{"kind":"perspective|isometric","yaw":30,"pitch":25,"distance":6,
+  "target_x":0,"target_y":0.4,"target_z":-0.5,"fov":32}}                      // every number can be keyframes
+{"op":"set_stage","stage":{"camera":{…},"floor":"surface","props":[…]}}       // full custom set
+```
+- Units are meters, y up. Characters are ~0.72 m tall; tables ~0.38; a wall piece is 1 m wide × 1.29 m.
+- `list_models` gives every model with its size, origin and (characters) animation clips:
+  idle, walk, sprint, jump, sit, emote-yes, emote-no, pick-up, interact-left/right, wheelchair-*…
+- Walk someone across: keyframe `x`/`z` and use `action: "walk"`; turn them with `rotation`.
+- Camera moves sell 3D: slow orbits (keyframe `yaw`), push-ins (`distance`), isometric for diagrams.
+- You are not limited to the presets: compose your own sets from any models.
+
 ## Characters and scenarios
 ```json
 { "id": "doctora", "type": "character", "character": "stickman_plain|stickman_outfit|blob|chibi",

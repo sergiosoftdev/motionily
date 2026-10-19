@@ -77,8 +77,12 @@ export class BridgeHub {
     if (this.agents.get(projectId)?.size) ws.send(JSON.stringify({ type: MsgType.Attached, projectId }));
     ws.on("message", (raw) => {
       const text = String(raw);
-      const type = (JSON.parse(text) as { type?: string }).type;
-      if (type === MsgType.Hello || type === MsgType.SceneChanged) this.lastScene.set(projectId, text);
+      const msg = JSON.parse(text) as { type?: string; ok?: boolean; scene?: string; summary?: string };
+      if (msg.type === MsgType.Hello || msg.type === MsgType.SceneChanged) this.lastScene.set(projectId, text);
+      // Results of agent edits carry the new scene too: keep the cache current for late joiners.
+      if (msg.type === MsgType.Result && msg.ok && msg.scene && msg.summary) {
+        this.lastScene.set(projectId, JSON.stringify({ type: MsgType.SceneChanged, projectId, scene: msg.scene, summary: msg.summary }));
+      }
       this.toAgents(projectId, text);
     });
     ws.on("close", () => {

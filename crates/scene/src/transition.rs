@@ -87,6 +87,13 @@ impl DrawItem {
                 }
             }
             DrawItem::Group(items) => items.iter_mut().for_each(|i| i.scale_about(origin, s)),
+            // Zoom the 3D camera in: shrink the view distance.
+            DrawItem::Stage(stage) => {
+                let c = &mut stage.camera;
+                let k = 1.0 / s;
+                c.eye = std::array::from_fn(|i| c.target[i] + (c.eye[i] - c.target[i]) * k);
+                c.ortho *= k;
+            }
         }
     }
 }
