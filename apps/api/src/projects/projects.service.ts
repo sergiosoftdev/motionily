@@ -25,6 +25,23 @@ export class ProjectsService {
       .lean();
   }
 
+  setLiveRun(id: string, liveRun: { status: string; startedAt: string; pids: number[] } | null) {
+    return this.projects.updateOne({ _id: id }, { $set: { liveRun } });
+  }
+
+  trackPid(id: string, pid: number, add: boolean) {
+    return this.projects.updateOne({ _id: id }, add ? { $addToSet: { "liveRun.pids": pid } } : { $pull: { "liveRun.pids": pid } });
+  }
+
+  liveRuns() {
+    // Running, or interrupted with agents that may not have died yet.
+    return this.projects.find({ $or: [{ "liveRun.status": "running" }, { "liveRun.pids.0": { $exists: true } }] }, { liveRun: 1 }).lean();
+  }
+
+  async liveRunOf(id: string) {
+    return (await this.projects.findById(id, { liveRun: 1 }).lean())?.liveRun ?? null;
+  }
+
   /** Append one agent run's usage (keeps the last 50). */
   async logAgentRun(id: string, usage: AgentRunUsage) {
     await this.projects.updateOne({ _id: id }, { $push: { agentRuns: { $each: [usage], $slice: -50 } } });

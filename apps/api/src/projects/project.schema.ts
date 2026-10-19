@@ -66,6 +66,11 @@ export class Project {
   @Prop({ default: 0 }) sceneRevision: number;
   /** What each agent run cost (newest last), to see where tokens go. */
   @Prop({ type: [MongooseSchema.Types.Mixed], default: [] }) agentRuns: AgentRunUsage[];
+  /**
+   * The agent team working on this video right now, persisted so an API restart can neither hide a
+   * running team (and let a second one start) nor leave its claude processes orphaned.
+   */
+  @Prop({ type: MongooseSchema.Types.Mixed, default: null }) liveRun: { status: string; startedAt: string; pids: number[] } | null;
 }
 
 export type ProjectDocument = HydratedDocument<Project>;

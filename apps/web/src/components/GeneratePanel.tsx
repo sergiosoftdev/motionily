@@ -7,7 +7,7 @@ import { AgentWorkshop } from "./AgentWorkshop";
 import { ModePicker, type GenerationMode } from "./ModePicker";
 import { api } from "../api/client";
 
-export const GenerateStatus = { Idle: "idle", Running: "running", Done: "done", Failed: "failed", Stopped: "stopped" } as const;
+export const GenerateStatus = { Idle: "idle", Running: "running", Done: "done", Failed: "failed", Stopped: "stopped", Interrupted: "interrupted" } as const;
 export type GenerateStatus = (typeof GenerateStatus)[keyof typeof GenerateStatus];
 export const GenerateEventKind = { Tool: "tool", Text: "text", Error: "error", Phase: "phase", Plan: "plan", Done: "done" } as const;
 export type GenerateEventKind = (typeof GenerateEventKind)[keyof typeof GenerateEventKind];
@@ -201,6 +201,11 @@ export function GeneratePanel({ projectId, hasScene, runs = [] }: { projectId: s
         <button type="button" onClick={() => void start()} className="rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-neutral-900 hover:bg-neutral-200">
           {hasScene ? (instruction.trim() ? "Aplicar cambio" : "Volver a generar") : "Generar vídeo"}
         </button>
+      )}
+      {state?.status === GenerateStatus.Interrupted && (
+        <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+          La generación se cortó porque se reinició el servidor (sus agentes se pararon, no siguen gastando). Pulsa Generar para retomarla.
+        </p>
       )}
       {running && resumed && (
         <p className="rounded-lg bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200">

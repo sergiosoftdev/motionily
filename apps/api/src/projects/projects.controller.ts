@@ -96,7 +96,7 @@ export class ProjectsController {
   @Get(":id/generate")
   async generateStatus(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     const project = await this.projects.get(user.id, id);
-    return this.generator.status(project.id);
+    return this.generator.statusOf(project.id);
   }
 
   @Delete(":id/generate")

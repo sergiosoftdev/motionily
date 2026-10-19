@@ -1,8 +1,8 @@
-import { ChildProcess, spawn } from "node:child_process";
+import { ChildProcess, execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { ConflictException, Injectable, Logger } from "@nestjs/common";
+import { ConflictException, Injectable, Logger, type OnApplicationShutdown, type OnModuleInit } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { Types } from "mongoose";
 import { TokenScope, type JwtPayload } from "../auth/auth";
@@ -16,6 +16,8 @@ export enum GenerateStatus {
   Done = "done",
   Failed = "failed",
   Stopped = "stopped",
+  /** The API restarted mid-run; its agents were stopped. */
+  Interrupted = "interrupted",
 }
 
 export enum GenerateEventKind {
@@ -40,7 +42,7 @@ export enum GeneratePhase {
 
 export type GenerateEvent = { at: string; kind: GenerateEventKind; text: string };
 
-type Run = { processes: Set<ChildProcess>; status: GenerateStatus; events: GenerateEvent[]; summary: string | null; usage: AgentRunUsage | null };
+type Run = { projectId?: string; processes: Set<ChildProcess>; status: GenerateStatus; events: GenerateEvent[]; summary: string | null; usage: AgentRunUsage | null };
 
 /** The fields of claude's final `result` line we care about. */
 type ResultLine = {
@@ -236,8 +238,22 @@ type Plan = { direction: string; motif?: string; beats: Beat[] };
  * beats, builders write each beat at the same time, and a finisher reviews the cut.
  * Requests on top of an existing video use a single agent.
  */
+/** Is this pid a live claude process (and not some unrelated process that reused the pid)? */
+function isClaude(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+  try {
+    return execFileSync("ps", ["-p", String(pid), "-o", "command="]).toString().includes("claude");
+  } catch {
+    return false;
+  }
+}
+
 @Injectable()
-export class GenerateService {
+export class GenerateService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger(GenerateService.name);
   private runs = new Map<string, Run>();
 
@@ -245,6 +261,28 @@ export class GenerateService {
     private readonly projects: ProjectsService,
     private readonly jwt: JwtService,
   ) {}
+
+  /** After a restart: agents a previous API process left behind are stopped and their runs marked interrupted. */
+  async onModuleInit() {
+    for (const p of await this.projects.liveRuns()) {
+      const pids = p.liveRun?.pids ?? [];
+      for (const pid of pids) if (isClaude(pid)) process.kill(pid, "SIGKILL");
+      await this.projects.setLiveRun(String(p._id), { status: GenerateStatus.Interrupted, startedAt: p.liveRun!.startedAt, pids: [] });
+      this.logger.warn(`run on ${String(p._id)} interrupted by a restart (${pids.length} agents stopped)`);
+    }
+  }
+
+  /** Hot reload / shutdown: never leave claude processes burning tokens with nobody tracking them. */
+  async onApplicationShutdown() {
+    for (const [projectId, run] of this.runs) {
+      if (run.status !== GenerateStatus.Running) continue;
+      run.status = GenerateStatus.Interrupted;
+      // Keep the pids: if the kill doesn't land before we exit, the next boot finishes the job.
+      const pids = [...run.processes].flatMap((p) => (p.pid ? [p.pid] : []));
+      for (const p of run.processes) p.kill("SIGKILL");
+      await this.projects.setLiveRun(projectId, { status: GenerateStatus.Interrupted, startedAt: new Date().toISOString(), pids }).catch(() => undefined);
+    }
+  }
 
   isRunning(projectId: string) {
     return this.runs.get(projectId)?.status === GenerateStatus.Running;
@@ -257,9 +295,22 @@ export class GenerateService {
       : { status: GenerateStatus.Idle, events: [], summary: null, usage: null };
   }
 
+  /** Status including runs this API process doesn't hold in memory (e.g. interrupted by a restart). */
+  async statusOf(projectId: string) {
+    if (this.runs.has(projectId)) return this.status(projectId);
+    const live = await this.projects.liveRunOf(projectId);
+    if (live?.status === GenerateStatus.Interrupted) return { status: GenerateStatus.Interrupted, events: [], summary: null, usage: null };
+    return this.status(projectId);
+  }
+
   async start(ownerId: Types.ObjectId, email: string, projectId: string, { instruction, model, effort, references, mode }: GenerateDto) {
     const project = await this.projects.get(ownerId, projectId);
     if (this.runs.get(project.id)?.status === GenerateStatus.Running) {
+      throw new ConflictException("the agent is already working on this project");
+    }
+    // A team started by another API process (before a restart) may still be alive: never run two.
+    const live = await this.projects.liveRunOf(project.id);
+    if (live?.status === GenerateStatus.Running && live.pids.some(isClaude)) {
       throw new ConflictException("the agent is already working on this project");
     }
     const payload: JwtPayload = { sub: ownerId.toString(), email, scope: TokenScope.Agent, projectId: project.id };
@@ -268,6 +319,8 @@ export class GenerateService {
 
     const run: Run = { processes: new Set(), status: GenerateStatus.Running, events: [], summary: null, usage: null };
     this.runs.set(project.id, run);
+    await this.projects.setLiveRun(project.id, { status: GenerateStatus.Running, startedAt: new Date().toISOString(), pids: [] });
+    run.projectId = project.id;
     const refs = references?.length ? ` The user attached reference images; look at each with view_image first: ${references.join(", ")}.` : "";
     const opts: AgentOpts = { config, model, effort, size: FORMAT_SIZE[project.format] ?? FORMAT_SIZE[VideoFormat.Vertical] };
 
@@ -281,11 +334,13 @@ export class GenerateService {
         run.usage = usage;
         void this.projects.logAgentRun(project.id, usage);
         if (run.status === GenerateStatus.Running) run.status = GenerateStatus.Done;
+        void this.projects.setLiveRun(project.id, null);
       })
       .catch((e: Error) => {
         if (run.status !== GenerateStatus.Running) return;
         this.push(run, GenerateEventKind.Error, e.message);
         run.status = GenerateStatus.Failed;
+        void this.projects.setLiveRun(project.id, null);
       });
     this.logger.log(`agent started for project ${project.id}`);
     return this.status(project.id);
@@ -297,6 +352,7 @@ export class GenerateService {
       run.status = GenerateStatus.Stopped;
       for (const p of run.processes) p.kill("SIGTERM");
     }
+    void this.projects.setLiveRun(projectId, null);
     return this.status(projectId);
   }
 
@@ -374,6 +430,7 @@ export class GenerateService {
       { cwd, stdio: ["ignore", "pipe", "pipe"], env: process.env },
     );
     run.processes.add(child);
+    if (child.pid && run.projectId) void this.projects.trackPid(run.projectId, child.pid, true);
     const tag = role ? `[${role}] ` : "";
     return new Promise((resolvePromise, reject) => {
       let buffered = "";
@@ -389,6 +446,7 @@ export class GenerateService {
       child.on("error", (e) => reject(new Error(`No se pudo lanzar Claude Code: ${e.message}`)));
       child.on("close", (code) => {
         run.processes.delete(child);
+        if (child.pid && run.projectId) void this.projects.trackPid(run.projectId, child.pid, false);
         if (code === 0 && final) return resolvePromise({ text: final.result?.trim() ?? "", result: final });
         reject(new Error(stderr.trim().split("\n").slice(-3).join(" ") || `claude terminó con código ${code}`));
       });

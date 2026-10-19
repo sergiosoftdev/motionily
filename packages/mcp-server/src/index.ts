@@ -241,6 +241,9 @@ async function currentScene(): Promise<Record<string, unknown> | null> {
   return live ? (JSON.parse(live) as Record<string, unknown>) : (await api.project()).scene;
 }
 
+/** How often an MCP server checks whether its claude parent died. */
+const ORPHAN_CHECK_MS = 5_000;
+
 /** Default level for effects so they sit under a voice-over. */
 const SFX_GAIN = 0.7;
 
@@ -470,3 +473,13 @@ function feedbackLine(f: Feedback): string {
 }
 
 await server.connect(new StdioServerTransport());
+
+// Our client (claude) is gone when stdin closes or we get reparented: shut down instead of
+// lingering forever with a bridge connection and maybe a headless Chrome.
+const exit = () => void (bridge.headless?.close() ?? Promise.resolve()).finally(() => process.exit(0));
+process.stdin.on("end", exit);
+process.stdin.on("close", exit);
+const parent = process.ppid;
+setInterval(() => {
+  if (process.ppid !== parent) exit();
+}, ORPHAN_CHECK_MS).unref();
