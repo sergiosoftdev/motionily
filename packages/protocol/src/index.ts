@@ -51,6 +51,9 @@ export type Feedback = {
   createdAt: string;
 };
 
+/** Query param marking the agent's headless editor (web page and bridge URL). */
+export const HEADLESS_PARAM = "headless";
+
 export const ServerMessageType = {
   ApplyOps: "apply_ops",
   LoadScene: "load_scene",
@@ -62,6 +65,8 @@ export const ServerMessageType = {
   ProjectChanged: "project_changed",
   /** Render still frames so the agent can see the video. */
   RenderFrames: "render_frames",
+  /** Self-review: contact sheet of the whole video plus automatic checks. */
+  Review: "review",
 } as const;
 export type ServerMessageType = (typeof ServerMessageType)[keyof typeof ServerMessageType];
 
@@ -72,7 +77,18 @@ export type ServerMessage =
   | { type: typeof ServerMessageType.Attached; projectId: string }
   | { type: typeof ServerMessageType.Detached; projectId: string }
   | { type: typeof ServerMessageType.ProjectChanged; projectId: string }
-  | { type: typeof ServerMessageType.RenderFrames; requestId: string; projectId: string; times: number[] };
+  | { type: typeof ServerMessageType.RenderFrames; requestId: string; projectId: string; times: number[] }
+  | { type: typeof ServerMessageType.Review; requestId: string; projectId: string; frames: number };
+
+/** What the editor found when reviewing the whole video. */
+export type ReviewReport = {
+  duration: number;
+  /** Seconds of each frame in the contact sheet, left to right, top to bottom. */
+  times: number[];
+  /** One JPEG data URL with every sampled frame in a grid. */
+  sheet: string;
+  issues: string[];
+};
 
 export const EditorMessageType = {
   Hello: "hello",
@@ -93,6 +109,7 @@ export type EditorMessage =
       summary?: string;
       /** JPEG data URLs, for render_frames. */
       images?: string[];
+      review?: ReviewReport;
     }
   | { type: typeof EditorMessageType.SceneChanged; projectId: string; scene: string; summary: string };
 

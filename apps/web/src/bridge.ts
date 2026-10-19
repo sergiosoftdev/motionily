@@ -1,6 +1,7 @@
 import {
   BRIDGE_PATH,
   BridgeRole,
+  HEADLESS_PARAM,
   EditorMessageType,
   OpName,
   ServerMessageType,
@@ -42,6 +43,8 @@ class AgentBridge {
     if (!token || !projectId) return;
     const url = new URL(BRIDGE_PATH, API_URL.replace(/^http/, "ws"));
     url.search = new URLSearchParams({ role: BridgeRole.Editor, project: projectId, token }).toString();
+    // The agent's invisible editor never kicks out a real one.
+    if (new URLSearchParams(location.search).has(HEADLESS_PARAM)) url.searchParams.set(HEADLESS_PARAM, "1");
     const ws = new WebSocket(url);
     this.ws = ws;
     ws.onopen = () => this.hello();
@@ -82,6 +85,12 @@ class AgentBridge {
         logActivity(ActivitySource.Agent, "Cambia las opciones del vídeo");
         this.onProjectChanged?.();
         return;
+      case ServerMessageType.Review: {
+        const review = engineHost.review(msg.frames);
+        logActivity(ActivitySource.Agent, `Revisa el vídeo (${review.issues.length} avisos)`);
+        this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, review });
+        return;
+      }
       case ServerMessageType.RenderFrames: {
         const images = engineHost.snapshots(msg.times.slice(0, 6));
         logActivity(ActivitySource.Agent, `Mira ${images.length} fotogramas`);

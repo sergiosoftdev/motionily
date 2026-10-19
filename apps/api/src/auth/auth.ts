@@ -20,12 +20,16 @@ export enum TokenScope {
   User = "user",
   /** One project only, handed to an agent (MCP). */
   Agent = "agent",
+  /** The agent's headless editor: reads anything of the account, writes only its project. */
+  Editor = "editor",
 }
 
 export type JwtPayload = { sub: string; email: string; scope?: TokenScope; projectId?: string };
 export type AuthUser = { id: Types.ObjectId; email: string; scope: TokenScope; projectId?: string };
 
 type AuthedRequest = {
+  method?: string;
+  url?: string;
   headers: Record<string, string | undefined>;
   params?: Record<string, string>;
   user?: AuthUser;
@@ -58,6 +62,13 @@ export class JwtAuthGuard implements CanActivate {
     // Agent tokens only reach their own project.
     if (req.user.scope === TokenScope.Agent && req.params?.id !== req.user.projectId) {
       throw new ForbiddenException("agent token is limited to its project");
+    }
+    if (req.user.scope === TokenScope.Editor) {
+      const own = `/projects/${req.user.projectId}`;
+      const path = (req.url ?? "").split("?")[0];
+      const onOwn = path === own || path.startsWith(`${own}/`);
+      if (path.startsWith("/projects/") && req.params?.id && !onOwn) throw new ForbiddenException("editor token is limited to its project");
+      if (req.method !== "GET" && !onOwn) throw new ForbiddenException("editor token can only change its project");
     }
     return true;
   }

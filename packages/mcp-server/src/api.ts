@@ -1,4 +1,4 @@
-import type { Brick, BrickSlot, Feedback, Project } from "@motionily/protocol";
+import type { Brick, BrickSlot, Feedback, Project, User } from "@motionily/protocol";
 
 /** Motionily API client for one project, with an agent-scoped token. */
 export class ProjectApi {
@@ -22,6 +22,11 @@ export class ProjectApi {
 
   setSlot(slot: BrickSlot, value: string | string[] | null, applyKitDefaults?: boolean) {
     return this.call<Project>("PUT", `/build/${slot}`, { value, applyKitDefaults });
+  }
+
+  /** Session for the agent's headless editor. */
+  headlessSession() {
+    return this.call<{ token: string; user: User }>("POST", "/headless-token");
   }
 
   update(patch: { format?: string }) {

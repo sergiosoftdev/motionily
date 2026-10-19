@@ -25,6 +25,8 @@ const MsgType = {
 } as const;
 
 export const BRIDGE_PATH = "/bridge";
+/** Mirrors HEADLESS_PARAM in @motionily/protocol. */
+const HEADLESS_PARAM = "headless";
 
 /**
  * Routes live messages between the editor that shows a project and the agents
@@ -61,17 +63,27 @@ export class BridgeHub {
     if (role === BridgeRole.Agent && payload.scope === TokenScope.Agent && payload.projectId) {
       return this.addAgent(ws, payload.projectId);
     }
-    if (role === BridgeRole.Editor && (payload.scope ?? TokenScope.User) === TokenScope.User) {
+    const scope = payload.scope ?? TokenScope.User;
+    if (role === BridgeRole.Editor && (scope === TokenScope.User || scope === TokenScope.Editor)) {
       const projectId = url.searchParams.get("project") ?? "";
+      if (scope === TokenScope.Editor && payload.projectId !== projectId) return ws.close(4403, "editor token is for another project");
+      const headless = url.searchParams.has(HEADLESS_PARAM);
+      if (headless && this.editors.has(projectId)) return ws.close(4409, "a real editor is open");
       const owns = await this.projects.get(new Types.ObjectId(payload.sub), projectId).then(() => true, () => false);
       if (!owns) return ws.close(4404, "project not found");
-      return this.addEditor(ws, projectId);
+      return this.addEditor(ws, projectId, headless);
     }
     ws.close(4400, "bad role");
   }
 
-  private addEditor(ws: WebSocket, projectId: string) {
-    this.editors.get(projectId)?.close(4409, "editor opened elsewhere");
+  private headless = new Set<WebSocket>();
+
+  private addEditor(ws: WebSocket, projectId: string, headless: boolean) {
+    const previous = this.editors.get(projectId);
+    // A real editor replaces the agent's invisible one quietly; agents keep working.
+    previous?.close(4409, previous && this.headless.has(previous) ? "replaced by the user's editor" : "editor opened elsewhere");
+    if (headless) this.headless.add(ws);
+    ws.on("close", () => this.headless.delete(ws));
     this.editors.set(projectId, ws);
     this.toAgents(projectId, JSON.stringify({ type: MsgType.EditorOpen }));
     if (this.agents.get(projectId)?.size) ws.send(JSON.stringify({ type: MsgType.Attached, projectId }));

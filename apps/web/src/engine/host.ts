@@ -1,5 +1,5 @@
 import init, { Engine, captionStyles, stylePalettes, stylePresets } from "./pkg/engine_wasm.js";
-import type { CaptionStyle, Op, StylePreset } from "@motionily/protocol";
+import type { CaptionStyle, Op, ReviewReport, StylePreset } from "@motionily/protocol";
 import demoScene from "../../../../examples/demo.scene.json?raw";
 import { DEFAULT_FONT_FAMILY, fontFilesFor } from "./fonts";
 import { decodePng, modelUrl, packOf, packTextureUrl, type Pixels } from "./models";
@@ -7,6 +7,17 @@ import { mediaUrl } from "../api/client";
 import { EngineStatus, useEditor } from "../store";
 
 type AudioTrack = { start: number; trim_in: number; trim_out: number | null };
+type ReviewLayer = { id: string; type: LayerType; start?: number; end?: number | null };
+const LayerType = { Shape: "shape", Text: "text", Image: "image", Character: "character" } as const;
+type LayerType = (typeof LayerType)[keyof typeof LayerType];
+const REVIEW_PROBE = 32;
+const BLANK_VARIANCE = 0.0004;
+const OFF_FRAME_TOLERANCE = 0.08;
+const TEXT_OVERLAP = 0.15;
+const STILL_DIFF = 0.004;
+/** Consecutive unchanged samples that count as dead air. */
+const STILL_RUN = 3;
+
 type SceneMeta = { style: StylePreset; caption_style: CaptionStyle; duration: number; width: number; height: number; audio?: AudioTrack | null };
 
 /** Audio drift (s) tolerated before re-syncing it to the video clock. */
@@ -350,6 +361,93 @@ class EngineHost {
     });
     this.draw();
     return images;
+  }
+
+  /**
+   * Self-review for the agent: renders `frames` evenly spaced frames into one contact sheet
+   * and flags visible problems (layers off frame, overlapping text, dead stretches, blank frames).
+   */
+  review(frames: number): ReviewReport {
+    const canvas = this.canvas;
+    const duration = this.duration();
+    if (!canvas || !this.engine) return { duration, times: [], sheet: "", issues: ["engine not ready"] };
+    const [sw, sh] = this.size;
+    const n = Math.max(4, Math.min(24, frames));
+    const times = Array.from({ length: n }, (_, i) => +((duration * (i + 0.5)) / n).toFixed(2));
+    const cols = n <= 8 ? 4 : 6;
+    const cellW = 240;
+    const cellH = Math.round((cellW * sh) / sw);
+    const labelH = 18;
+    const sheet = document.createElement("canvas");
+    sheet.width = cols * cellW;
+    sheet.height = Math.ceil(n / cols) * (cellH + labelH);
+    const g = sheet.getContext("2d")!;
+    g.fillStyle = "#111";
+    g.fillRect(0, 0, sheet.width, sheet.height);
+    g.font = "12px sans-serif";
+    // Tiny grayscale copies to compare frames.
+    const probe = document.createElement("canvas");
+    probe.width = REVIEW_PROBE;
+    probe.height = REVIEW_PROBE;
+    const pg = probe.getContext("2d", { willReadFrequently: true })!;
+    const probes: Float32Array[] = [];
+    // Same problem across frames is reported once, with when it happens.
+    const found = new Map<string, number[]>();
+    const flag = (what: string, t: number) => found.set(what, [...(found.get(what) ?? []), t]);
+    const layers = (JSON.parse(this.sceneJson()) as { layers?: ReviewLayer[] }).layers ?? [];
+
+    times.forEach((t, i) => {
+      this.engine!.render(t);
+      const x = (i % cols) * cellW;
+      const y = Math.floor(i / cols) * (cellH + labelH);
+      g.drawImage(canvas, x, y + labelH, cellW, cellH);
+      g.fillStyle = "#ddd";
+      g.fillText(`${i + 1} · ${t}s`, x + 4, y + 13);
+      pg.drawImage(canvas, 0, 0, REVIEW_PROBE, REVIEW_PROBE);
+      const px = pg.getImageData(0, 0, REVIEW_PROBE, REVIEW_PROBE).data;
+      const lum = new Float32Array(REVIEW_PROBE * REVIEW_PROBE);
+      for (let k = 0; k < lum.length; k++) lum[k] = (px[k * 4]! * 0.3 + px[k * 4 + 1]! * 0.59 + px[k * 4 + 2]! * 0.11) / 255;
+      probes.push(lum);
+      const mean = lum.reduce((a, b) => a + b, 0) / lum.length;
+      const variance = lum.reduce((a, b) => a + (b - mean) ** 2, 0) / lum.length;
+      if (variance < BLANK_VARIANCE) flag("blank frame: nothing visible", t);
+
+      const boxes = layers
+        .filter((l) => t >= (l.start ?? 0) && (l.end == null || t < l.end))
+        .flatMap((l) => {
+          const b = this.engine!.layerBounds(l.id, t);
+          if (!b) return [];
+          const [cx = 0, cy = 0, w = 0, h = 0] = b;
+          return [{ l, x0: cx - w / 2, y0: cy - h / 2, x1: cx + w / 2, y1: cy + h / 2, area: w * h }];
+        });
+      for (const b of boxes) {
+        if (b.area <= 0 || b.l.type === LayerType.Shape) continue;
+        const inside = Math.max(0, Math.min(b.x1, sw) - Math.max(b.x0, 0)) * Math.max(0, Math.min(b.y1, sh) - Math.max(b.y0, 0));
+        if (inside / b.area < 1 - OFF_FRAME_TOLERANCE) flag(`${b.l.type} '${b.l.id}' goes off frame`, t);
+      }
+      const texts = boxes.filter((b) => b.l.type === LayerType.Text);
+      for (let a = 0; a < texts.length; a++)
+        for (let c = a + 1; c < texts.length; c++) {
+          const p = texts[a]!;
+          const q = texts[c]!;
+          const ov = Math.max(0, Math.min(p.x1, q.x1) - Math.max(p.x0, q.x0)) * Math.max(0, Math.min(p.y1, q.y1) - Math.max(p.y0, q.y0));
+          if (ov / Math.min(p.area, q.area) > TEXT_OVERLAP) flag(`text '${p.l.id}' and '${q.l.id}' overlap`, t);
+        }
+    });
+
+    const issues = [...found].map(([what, ts]) => `${what} (${ts.length > 1 ? `${ts[0]}s-${ts[ts.length - 1]}s` : `${ts[0]}s`})`);
+    const diff = (a: Float32Array, b: Float32Array) => a.reduce((s, v, k) => s + Math.abs(v - b[k]!), 0) / a.length;
+    const deltas = probes.slice(1).map((p, i) => diff(probes[i]!, p));
+    if (deltas.every((d) => d < STILL_DIFF)) issues.push("the whole video looks static: nothing visibly moves between frames");
+    else {
+      let run = 0;
+      deltas.forEach((d, i) => {
+        run = d < STILL_DIFF ? run + 1 : 0;
+        if (run === STILL_RUN) issues.push(`nothing moves from ${times[i + 1 - STILL_RUN]}s to ${times[i + 1]}s (dead air)`);
+      });
+    }
+    this.draw();
+    return { duration, times, sheet: sheet.toDataURL("image/jpeg", 0.8), issues };
   }
 
   sceneSize(): [number, number] {

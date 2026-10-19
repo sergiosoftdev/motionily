@@ -97,7 +97,7 @@ engine WASM (Rust/wgpu)  ◀────── WebSocket (ops en vivo) ───
 7. ✅ **3D (2.5D procedural)** — glTF, escenarios y personajes con esqueleto, isométrico.
 8. **Producto** — Google OAuth real, export MP4, Tauri, pagos.
 
-## Pendiente: autorrevisión visual del agente (pedido 2026-10-19)
+## Hecho: autorrevisión visual del agente (pedido y hecho 2026-10-19)
 El MCP debe poder revisar el vídeo solo, sin humano: Playwright headless abre el editor, renderiza
 fotogramas/tiras (contact sheet) y clips cortos, y se los devuelve a Claude como imágenes para detectar
 fallos visibles (texto cortado o solapado, personajes fuera de plano, animaciones que no se mueven,
@@ -105,3 +105,6 @@ saltos, colisiones, cámara mal encuadrada) y corregirlos en bucle hasta que que
 - Tool `review_video`: contact sheet por plano + checks automáticos (bounds de texto, props fuera de cámara, frames idénticos).
 - Funciona aunque no haya editor abierto (navegador headless propio en la API).
 - Bucle en GenerateService: generar, revisar, corregir (máx N rondas).
+- v1 hecha: `review_video` (hoja de contactos + checks: fuera de encuadre, texto solapado, tramos muertos,
+  fotogramas vacíos), editor headless con Playwright cuando no hay editor abierto (token scope `editor`),
+  bucle de revisión en la guía de Generar. Pendiente: checks 3D (personajes fuera de plano/cortados), clips cortos.

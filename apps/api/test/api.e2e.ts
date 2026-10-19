@@ -213,6 +213,25 @@ describe("agent tokens", () => {
     await http.delete(`/projects/${p.id}`).set(agent).expect(403);
     await http.post(`/projects/${p.id}/agent-token`).set(agent).expect(403);
   });
+
+  it("gives the agent's headless editor read access but writes only on its project", async () => {
+    const auth = await login("headless@example.com");
+    const { body: p } = await http.post("/projects").set(auth).send({ name: "P", motionStyle: "motion_style/apple" });
+    const { body: q } = await http.post("/projects").set(auth).send({ name: "Q", motionStyle: "motion_style/apple" });
+    const { body: t } = await http.post(`/projects/${p.id}/agent-token`).set(auth).expect(201);
+    const { body: h } = await http.post(`/projects/${p.id}/headless-token`).set({ Authorization: `Bearer ${t.token as string}` }).expect(201);
+    const editor = { Authorization: `Bearer ${h.token as string}` };
+    assert.equal(h.user.email, "headless@example.com");
+
+    await http.get(`/projects/${p.id}`).set(editor).expect(200);
+    await http.get("/bricks").set(editor).expect(200);
+    await http.get(`/projects/${q.id}`).set(editor).expect(403);
+    await http.patch(`/projects/${p.id}`).set(editor).send({ format: "square_1_1" }).expect(200);
+    await http.patch(`/projects/${q.id}`).set(editor).send({ format: "square_1_1" }).expect(403);
+    await http.post("/projects").set(editor).send({ name: "X", motionStyle: "motion_style/apple" }).expect(403);
+    await http.delete(`/projects/${p.id}`).set(editor).expect(403);
+    await http.post(`/projects/${p.id}/agent-token`).set(editor).expect(403);
+  });
 });
 
 describe("audio and targeted feedback", () => {

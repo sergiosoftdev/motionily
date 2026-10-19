@@ -160,6 +160,14 @@ export class ProjectsController {
     return { token: await this.jwt.signAsync(payload, { expiresIn: "90d" }), projectId: project.id };
   }
 
+  /** Short-lived token for the agent's headless editor (self-review without the user's browser). */
+  @Post(":id/headless-token")
+  async headlessToken(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    const project = await this.projects.get(user.id, id);
+    const payload: JwtPayload = { sub: user.id.toString(), email: user.email, scope: TokenScope.Editor, projectId: project.id };
+    return { token: await this.jwt.signAsync(payload, { expiresIn: "2h" }), user: { id: user.id.toString(), email: user.email, name: "Motionily agent", avatarUrl: null, provider: "agent" } };
+  }
+
   /** Voice-over or music for the video. Replaces the previous file. */
   @Post(":id/audio")
   @UseInterceptors(

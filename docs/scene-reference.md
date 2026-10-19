@@ -162,3 +162,8 @@ Errors name the failing op index; nothing is applied when one fails.
 - Not yet supported: video clips, export from the agent side.
 - When a comment names a layer, `get_layer` it and change just that layer.
 - Do not send `set_library`: the editor owns it.
+
+## Self-review
+`review_video` renders a contact sheet of the whole video and runs checks (layers off frame, overlapping
+text, dead air, blank frames). Run it after every edit round and fix what it reports before finishing.
+If the user has no editor open, the MCP opens an invisible one automatically.

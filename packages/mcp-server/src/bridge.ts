@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
+import type { HeadlessEditor } from "./headless.js";
 import {
   BRIDGE_PATH,
   BridgeRole,
@@ -13,6 +14,9 @@ import {
 } from "@motionily/protocol";
 
 const REQUEST_TIMEOUT_MS = 15_000;
+/** How long to wait for the headless editor to boot (wasm, fonts, models). */
+const HEADLESS_BOOT_MS = 40_000;
+const REVIEW_TIMEOUT_MS = 60_000;
 const RECONNECT_MS = 2_000;
 
 type ResultMessage = Extract<EditorMessage, { type: typeof EditorMessageType.Result }>;
@@ -30,6 +34,10 @@ export class EditorBridge {
   private pending = new Map<string, Pending>();
   private summary = "";
   private scene: string | null = null;
+
+  /** Opens an invisible editor when the user has none open; set by the server. */
+  headless: HeadlessEditor | null = null;
+  private waiters: (() => void)[] = [];
 
   constructor(
     apiUrl: string,
@@ -60,6 +68,10 @@ export class EditorBridge {
 
   renderFrames(times: number[]) {
     return this.request({ type: ServerMessageType.RenderFrames, requestId: randomUUID(), projectId: this.projectId, times });
+  }
+
+  review(frames: number) {
+    return this.request({ type: ServerMessageType.Review, requestId: randomUUID(), projectId: this.projectId, frames }, REVIEW_TIMEOUT_MS);
   }
 
   loadScene(scene: string) {
@@ -97,6 +109,7 @@ export class EditorBridge {
       case EditorMessageType.Hello:
       case EditorMessageType.SceneChanged:
         this.editorOpen = true;
+        this.waiters.splice(0).forEach((w) => w());
         this.summary = msg.summary;
         this.scene = msg.scene;
         return;
@@ -113,16 +126,30 @@ export class EditorBridge {
     }
   }
 
-  private request(msg: Request) {
+  /** Make sure some editor (the user's or our headless one) is attached. */
+  private async ensureEditor() {
+    if (this.socket && this.editorOpen) return;
+    if (!this.headless) throw new Error("The editor is not open on this project. Ask the user to open it in Motionily and retry.");
+    const ready = new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("The headless editor did not start in time.")), HEADLESS_BOOT_MS);
+      this.waiters.push(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+    await this.headless.open();
+    await ready;
+  }
+
+  private async request(msg: Request, timeoutMs = REQUEST_TIMEOUT_MS) {
+    await this.ensureEditor();
     const ws = this.socket;
-    if (!ws || !this.editorOpen) {
-      return Promise.reject(new Error("The editor is not open on this project. Ask the user to open it in Motionily and retry."));
-    }
+    if (!ws || !this.editorOpen) throw new Error("The editor is not open on this project.");
     return new Promise<ResultMessage>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(msg.requestId);
         reject(new Error("Editor did not answer in time."));
-      }, REQUEST_TIMEOUT_MS);
+      }, timeoutMs);
       this.pending.set(msg.requestId, { resolve, timer });
       ws.send(JSON.stringify(msg));
     });

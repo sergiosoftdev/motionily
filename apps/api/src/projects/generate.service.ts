@@ -50,7 +50,10 @@ Work like a senior motion designer:
    MOTION IS THE PRODUCT: every element enters with an animation brick ("anims", staggered 0.1-0.25 s apart),
    important words get emphasis animations, characters always perform a visible action (wave, point, walk, celebrate),
    and beats are joined with transitions. Nothing should sit still for more than ~1.5 s.
-4. LOOK at it: render_frames at 3-5 moments. Fix anything off-screen, overlapping, too small, empty or unbalanced; render a beat's start and middle to confirm things actually move. Repeat until it looks polished (max 3 rounds).
+4. SELF-REVIEW with review_video (contact sheet + automatic checks). Fix every reported issue and anything
+   that looks off to a motion designer: off-screen or cut characters, overlapping or tiny text, dead air,
+   flat camera, unbalanced layout. Use render_frames to zoom into a moment. Review again until it is clean
+   (max 3 rounds). Never hand back a video you have not reviewed.
 5. Check get_feedback at the end and apply it.
 Finish with a 2-3 sentence summary in Spanish of what you made.`;
 
@@ -102,7 +105,7 @@ export class GenerateService {
     );
 
     const prompt = instruction?.trim()
-      ? `The user asks: "${instruction.trim()}". Apply it to the current video (read get_project and get_scene first; render_frames to check).`
+      ? `The user asks: "${instruction.trim()}". Apply it to the current video (read get_project and get_scene first; finish with review_video and fix what it shows).`
       : "Build the video for this project from its brief and bricks.";
     const child = spawn(
       process.env.CLAUDE_BIN ?? "claude",

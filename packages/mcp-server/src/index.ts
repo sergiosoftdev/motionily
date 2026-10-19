@@ -24,6 +24,7 @@ import {
   type Project,
 } from "@motionily/protocol";
 import { EditorBridge } from "./bridge.js";
+import { HeadlessEditor } from "./headless.js";
 import { ProjectApi } from "./api.js";
 import { TEMPLATES, TemplateId } from "./templates.js";
 
@@ -39,6 +40,10 @@ if (!token || !projectId) {
 const apiUrl = process.env.MOTIONILY_API ?? "http://localhost:3100";
 const api = new ProjectApi(apiUrl, token, projectId);
 const bridge = new EditorBridge(apiUrl, token, projectId);
+// Without the user's editor open, the agent works in its own invisible one.
+if (process.env.MOTIONILY_HEADLESS !== "0") {
+  bridge.headless = new HeadlessEditor(process.env.MOTIONILY_WEB ?? "http://localhost:5173", projectId, () => api.headlessSession());
+}
 
 const server = new McpServer({ name: "motionily", version: "0.2.0" });
 
@@ -346,6 +351,29 @@ server.registerTool(
     const res = await bridge.loadScene(scene);
     return res.ok ? text(res.summary ?? "ok") : fail(res.error ?? "rejected");
   }),
+);
+
+server.registerTool(
+  "review_video",
+  {
+    description:
+      "SELF-REVIEW the whole video before saying it's done: one contact sheet of evenly spaced frames plus automatic checks (layers off frame, overlapping text, dead air where nothing moves, blank frames). Look at the sheet critically like a motion designer (framing, characters cut off or tiny, camera, readability, rhythm), fix everything with apply_ops and review again. Repeat until it is clean (max ~3 rounds). Works even if the user has no editor open.",
+    inputSchema: { frames: z.number().int().min(4).max(24).default(12).describe("frames in the sheet") },
+  },
+  async ({ frames }) => {
+    try {
+      const res = await bridge.review(frames);
+      const r = res.review;
+      if (!res.ok || !r) return fail(res.error ?? "review failed");
+      const report = [
+        `duration ${r.duration}s · frames at ${r.times.join(", ")}s`,
+        r.issues.length ? `automatic checks found ${r.issues.length} issue(s):\n- ${r.issues.join("\n- ")}` : "automatic checks: no issues (still look at the sheet).",
+      ].join("\n");
+      return { content: [{ type: "text" as const, text: report }, { type: "image" as const, data: r.sheet.split(",")[1] ?? "", mimeType: "image/jpeg" }] };
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+  },
 );
 
 server.registerTool(
