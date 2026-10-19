@@ -17,6 +17,8 @@ const REQUEST_TIMEOUT_MS = 15_000;
 /** How long to wait for the headless editor to boot (wasm, fonts, models). */
 const HEADLESS_BOOT_MS = 40_000;
 const REVIEW_TIMEOUT_MS = 60_000;
+/** A page reload closes the editor for a few seconds: wait for it before opening our own. */
+const RELOAD_GRACE_MS = 10_000;
 const RECONNECT_MS = 2_000;
 
 type ResultMessage = Extract<EditorMessage, { type: typeof EditorMessageType.Result }>;
@@ -38,6 +40,23 @@ export class EditorBridge {
   /** Opens an invisible editor when the user has none open; set by the server. */
   headless: HeadlessEditor | null = null;
   private waiters: (() => void)[] = [];
+  /** Whether a real editor has been seen (then a disconnect is probably a reload). */
+  private everOpen = false;
+
+  private waitForEditor(ms: number): Promise<boolean> {
+    if (this.socket && this.editorOpen) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+      const timer = setTimeout(() => {
+        this.waiters = this.waiters.filter((w) => w !== done);
+        resolve(false);
+      }, ms);
+      this.waiters.push(done);
+    });
+  }
 
   constructor(
     apiUrl: string,
@@ -102,6 +121,7 @@ export class EditorBridge {
     switch (msg.type) {
       case HubMessageType.EditorOpen:
         this.editorOpen = true;
+        this.waiters.splice(0).forEach((w) => w());
         return;
       case HubMessageType.EditorClosed:
         this.editorOpen = false;
@@ -109,6 +129,7 @@ export class EditorBridge {
       case EditorMessageType.Hello:
       case EditorMessageType.SceneChanged:
         this.editorOpen = true;
+        if (!this.headless?.running) this.everOpen = true;
         this.waiters.splice(0).forEach((w) => w());
         this.summary = msg.summary;
         this.scene = msg.scene;
@@ -129,6 +150,8 @@ export class EditorBridge {
   /** Make sure some editor (the user's or our headless one) is attached. */
   private async ensureEditor() {
     if (this.socket && this.editorOpen) return;
+    // The user may just be reloading the page: give their editor a moment to come back.
+    if (this.everOpen && (await this.waitForEditor(RELOAD_GRACE_MS))) return;
     if (!this.headless) throw new Error("The editor is not open on this project. Ask the user to open it in Motionily and retry.");
     const ready = new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("The headless editor did not start in time.")), HEADLESS_BOOT_MS);

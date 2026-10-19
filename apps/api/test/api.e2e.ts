@@ -214,6 +214,16 @@ describe("agent tokens", () => {
     await http.post(`/projects/${p.id}/agent-token`).set(agent).expect(403);
   });
 
+  it("saves big scenes (hundreds of layers)", async () => {
+    const auth = await login("bigscene@example.com");
+    const { body: p } = await http.post("/projects").set(auth).send({ name: "Big", motionStyle: "motion_style/apple" });
+    const layers = Array.from({ length: 900 }, (_, i) => ({ id: `l${i}`, type: "shape", shape: "rect", x: i, y: [{ t: 0, v: 0, ease: "ease_out" }, { t: 0.5, v: 100 }], w: 10, h: 10, fill: [0.1, 0.2, 0.3, 1] }));
+    const scene = { width: 1080, height: 1920, fps: 30, duration: 10, layers };
+    assert.ok(JSON.stringify(scene).length > 102400);
+    const saved = await http.put(`/projects/${p.id}/scene`).set(auth).send({ scene, baseRevision: 0 });
+    assert.ok(saved.status < 300, `status ${saved.status}`);
+  });
+
   it("gives the agent's headless editor read access but writes only on its project", async () => {
     const auth = await login("headless@example.com");
     const { body: p } = await http.post("/projects").set(auth).send({ name: "P", motionStyle: "motion_style/apple" });

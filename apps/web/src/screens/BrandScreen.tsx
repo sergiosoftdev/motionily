@@ -96,7 +96,14 @@ function Videos({ brandId }: { brandId: string }) {
           <div key={v._id} className="group relative">
             <a href={href({ name: RouteName.Editor, id: v._id })} className="flex flex-col gap-3 rounded-xl p-2 hover:bg-neutral-900">
               {palette ? <Thumb palette={palette} className="aspect-video w-full" /> : <span className="block aspect-video w-full rounded-md bg-neutral-900" />}
-              <span className="px-1 font-semibold">{v.name}</span>
+              <span className="flex items-center gap-2 px-1 font-semibold">
+                {v.name}
+                {v.generating && (
+                  <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+                    <span className="size-1.5 animate-pulse rounded-full bg-emerald-400" /> Generando…
+                  </span>
+                )}
+              </span>
               <span className="-mt-2 px-1 text-xs text-neutral-400">
                 {new Date(v.updatedAt).toLocaleDateString("es-ES")}
               </span>

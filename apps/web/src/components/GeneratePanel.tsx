@@ -121,9 +121,21 @@ export function GeneratePanel({ projectId, hasScene, runs = [] }: { projectId: s
   };
   const running = state?.status === GenerateStatus.Running;
 
+  /** The page opened while the team was already working (reload, or came back to the video). */
+  const [resumed, setResumed] = useState(false);
   useEffect(() => {
     let alive = true;
-    const tick = () => api.generateStatus(projectId).then((s) => alive && setState(s), () => undefined);
+    let first = true;
+    const tick = () =>
+      api.generateStatus(projectId).then(
+        (s) => {
+          if (!alive) return;
+          if (first && s.status === GenerateStatus.Running) setResumed(true);
+          first = false;
+          setState(s);
+        },
+        () => undefined,
+      );
     void tick();
     const timer = setInterval(tick, POLL_MS);
     return () => {
@@ -189,6 +201,11 @@ export function GeneratePanel({ projectId, hasScene, runs = [] }: { projectId: s
         <button type="button" onClick={() => void start()} className="rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-neutral-900 hover:bg-neutral-200">
           {hasScene ? (instruction.trim() ? "Aplicar cambio" : "Volver a generar") : "Generar vídeo"}
         </button>
+      )}
+      {running && resumed && (
+        <p className="rounded-lg bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200">
+          El agente ha seguido trabajando mientras no estabas. Puedes cerrar o recargar cuando quieras: no se para.
+        </p>
       )}
       {running && state && state.events.some((e) => e.kind === GenerateEventKind.Phase) && <AgentWorkshop state={state} />}
       {running && !state?.events.some((e) => e.kind === GenerateEventKind.Phase) && (

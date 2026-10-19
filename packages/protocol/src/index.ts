@@ -260,6 +260,6 @@ export type Project = {
   updatedAt: string;
 };
 
-export type ProjectListItem = { _id: string; name: string; build: Build; format?: VideoFormat; brandId?: string; updatedAt: string };
+export type ProjectListItem = { _id: string; name: string; build: Build; format?: VideoFormat; brandId?: string; updatedAt: string; generating?: boolean };
 
 export type User = { id: string; email: string; name: string; avatarUrl: string | null; provider: string };

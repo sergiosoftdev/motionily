@@ -246,6 +246,10 @@ export class GenerateService {
     private readonly jwt: JwtService,
   ) {}
 
+  isRunning(projectId: string) {
+    return this.runs.get(projectId)?.status === GenerateStatus.Running;
+  }
+
   status(projectId: string) {
     const run = this.runs.get(projectId);
     return run

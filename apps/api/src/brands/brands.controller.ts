@@ -6,6 +6,7 @@ import { MEDIA_DIR, mediaName } from "../media";
 import { ProjectsService } from "../projects/projects.service";
 import { BrandsService } from "./brands.service";
 import { ConceptsRequestDto, ConceptsService } from "./concepts";
+import { GenerateService } from "../projects/generate.service";
 import { AssetMetaDto, CreateBrandDto, UpdateBrandDto } from "./brands.dto";
 
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
@@ -17,6 +18,7 @@ export class BrandsController {
     private readonly brands: BrandsService,
     private readonly projects: ProjectsService,
     private readonly concepts: ConceptsService,
+    private readonly generator: GenerateService,
   ) {}
 
   /** Different ways to make a video from an idea, pitched by the agent before anything is built. */
@@ -64,7 +66,8 @@ export class BrandsController {
   @Get(":brandId/videos")
   async videos(@CurrentUser() user: AuthUser, @Param("brandId") brandId: string) {
     const b = await this.brands.get(user.id, brandId);
-    return this.projects.list(user.id, b._id);
+    // Mark videos the agent team is still building (it keeps going with the page closed).
+    return (await this.projects.list(user.id, b._id)).map((p) => ({ ...p, generating: this.generator.isRunning(String(p._id)) }));
   }
 
   /** Logo, screenshot or photo for the brand kit, with an optional description. */
