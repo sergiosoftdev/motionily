@@ -1,4 +1,5 @@
 import init, { Engine, captionStyles, stylePalettes, stylePresets } from "./pkg/engine_wasm.js";
+import { sfxPlayer, type SfxCue } from "../audio/sfxPlayer";
 import type { CaptionStyle, Op, ReviewReport, StylePreset } from "@motionily/protocol";
 import { DEFAULT_FONT_FAMILY, fontFilesFor } from "./fonts";
 import { decodePng, modelUrl, packOf, packTextureUrl, type Pixels } from "./models";
@@ -293,6 +294,7 @@ class EngineHost {
     if (time >= duration) useEditor.setState({ time: 0 });
     useEditor.setState({ playing: true });
     this.syncAudio(true);
+    void sfxPlayer.start(useEditor.getState().time, this.sfxCues());
     this.lastTick = performance.now();
     this.raf = requestAnimationFrame(this.tick);
   }
@@ -300,13 +302,21 @@ class EngineHost {
   pause() {
     cancelAnimationFrame(this.raf);
     this.audio?.pause();
+    sfxPlayer.stop();
     useEditor.setState({ playing: false });
   }
 
   seek(t: number) {
     useEditor.setState({ time: Math.max(0, Math.min(t, useEditor.getState().duration)) });
     this.syncAudio(false);
+    if (useEditor.getState().playing) void sfxPlayer.start(useEditor.getState().time, this.sfxCues());
     this.draw();
+  }
+
+  /** The scene's sound effect cues. */
+  sfxCues(): SfxCue[] {
+    if (!this.engine) return [];
+    return (JSON.parse(this.sceneJson()) as { sfx?: SfxCue[] }).sfx ?? [];
   }
 
   private tick = (now: number) => {
@@ -315,6 +325,7 @@ class EngineHost {
     this.lastTick = now;
     if (next >= duration && this.loop) {
       useEditor.setState({ time: 0 });
+      void sfxPlayer.start(0, this.sfxCues());
       this.draw();
       this.raf = requestAnimationFrame(this.tick);
       return;

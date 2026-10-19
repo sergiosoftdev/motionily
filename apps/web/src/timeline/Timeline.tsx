@@ -7,6 +7,7 @@ import {
 } from "react";
 import { OpName } from "@motionily/protocol";
 import { commit, preview } from "../editing/direct";
+import { sfxPlayer, type SfxCue } from "../audio/sfxPlayer";
 import { retimeGroupOps } from "../editing/groups";
 import { engineHost } from "../engine/host";
 import { agentBridge } from "../bridge";
@@ -37,6 +38,7 @@ type SceneView = {
     words: { text: string; start: number; end: number; emphasis?: boolean }[];
   } | null;
   audio?: AudioTrack | null;
+  sfx?: SfxCue[];
 };
 
 const LABEL_W = 92;
@@ -223,6 +225,29 @@ export function Timeline({ audioUrl }: { audioUrl: string | null }) {
     );
   };
 
+  /** Move a sound effect in time; a click without moving plays it. */
+  const dragSfx = (cue: SfxCue) => (e: ReactPointerEvent) => {
+    e.stopPropagation();
+    if (!area.current) return;
+    const width = area.current.getBoundingClientRect().width;
+    const x0 = e.clientX;
+    let at = cue.at;
+    let moved = false;
+    const move = (ev: PointerEvent) => {
+      if (!moved && Math.abs(ev.clientX - x0) < 3) return;
+      moved = true;
+      at = Math.min(duration, Math.max(0, cue.at + (ev.clientX - x0) / pxPerSec(width)));
+      preview([{ op: OpName.PutSfx, cue: { ...cue, at } }]);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      if (moved) commit(`Mueve el efecto ${cue.sound} a ${at.toFixed(2)} s`);
+      else void sfxPlayer.preview(cue.src, cue.gain);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up, { once: true });
+  };
+
   /** Drag a whole group's bar in time. */
   const dragGroup = (group: string) => (e: ReactPointerEvent) => {
     e.stopPropagation();
@@ -343,6 +368,33 @@ export function Timeline({ audioUrl }: { audioUrl: string | null }) {
           >
             {w.text}
           </button>
+        ))}
+      </Track>
+
+      <Track label="Efectos">
+        {(scene?.sfx ?? []).map((c, i, all) => (
+          <span
+            key={c.id}
+            title={`${c.sound} · ${c.at.toFixed(2)} s — arrastra para mover, clic para escuchar`}
+            onPointerDown={dragSfx(c)}
+            className="group absolute inset-y-0.5 flex cursor-grab items-center gap-1 overflow-hidden rounded bg-amber-500/25 pr-1 pl-1.5 text-[11px] whitespace-nowrap text-amber-100 hover:bg-amber-500/40"
+            // Never wider than the gap to the next cue, so close cues stay readable.
+            style={{ left: pct(c.at), maxWidth: all[i + 1] ? `calc(${pct(all[i + 1]!.at - c.at)} - 2px)` : 140 }}
+          >
+            ♪ {c.sound}
+            <button
+              type="button"
+              aria-label={`Quitar ${c.sound}`}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => {
+                engineHost.applyOps([{ op: OpName.RemoveSfx, id: c.id }]);
+                commit(`Quita el efecto ${c.sound}`);
+              }}
+              className="hidden text-amber-200/70 group-hover:inline hover:text-white"
+            >
+              ×
+            </button>
+          </span>
         ))}
       </Track>
 

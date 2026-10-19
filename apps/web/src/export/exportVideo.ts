@@ -1,3 +1,5 @@
+import { mediaUrl } from "../api/client";
+import type { SfxCue } from "../audio/sfxPlayer";
 import {
   AudioBufferSource,
   BufferTarget,
@@ -12,24 +14,39 @@ import {
 import { Engine } from "../engine/pkg/engine_wasm.js";
 
 type AudioTrack = { start: number; trim_in: number; trim_out: number | null };
-type SceneInfo = { width: number; height: number; fps: number; duration: number; audio?: AudioTrack | null };
+type SceneInfo = { width: number; height: number; fps: number; duration: number; audio?: AudioTrack | null; sfx?: SfxCue[] };
 
 export type ExportResult = { blob: Blob; extension: "mp4" | "webm" };
 export type FontFile = { family: string; weight: number; bytes: Uint8Array };
 
 const AUDIO_RATE = 48_000;
 
-/** Mix the project audio into a buffer the length of the video, honoring its trim and offset. */
-async function renderAudio(url: string, track: AudioTrack, duration: number): Promise<AudioBuffer> {
+/** Mix the voice-over (with its trim and offset) and every sound effect into one buffer the length of the video. */
+async function renderAudio(url: string | null, track: AudioTrack, cues: SfxCue[], duration: number): Promise<AudioBuffer> {
   const decodeCtx = new AudioContext();
-  const file = await decodeCtx.decodeAudioData(await (await fetch(url)).arrayBuffer());
-  void decodeCtx.close();
+  const decode = async (u: string) => decodeCtx.decodeAudioData(await (await fetch(u)).arrayBuffer());
   const ctx = new OfflineAudioContext(2, Math.ceil(duration * AUDIO_RATE), AUDIO_RATE);
-  const src = ctx.createBufferSource();
-  src.buffer = file;
-  src.connect(ctx.destination);
-  const end = track.trim_out ?? file.duration;
-  src.start(track.start, track.trim_in, Math.max(0, end - track.trim_in));
+  if (url) {
+    const file = await decode(url);
+    const src = ctx.createBufferSource();
+    src.buffer = file;
+    src.connect(ctx.destination);
+    const end = track.trim_out ?? file.duration;
+    src.start(track.start, track.trim_in, Math.max(0, end - track.trim_in));
+  }
+  const buffers = new Map<string, AudioBuffer | null>();
+  for (const cue of cues) {
+    if (!buffers.has(cue.src)) buffers.set(cue.src, await decode(mediaUrl(cue.src)).catch(() => null));
+    const buf = buffers.get(cue.src);
+    if (!buf || cue.at >= duration) continue;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const g = ctx.createGain();
+    g.gain.value = cue.gain ?? 1;
+    src.connect(g).connect(ctx.destination);
+    src.start(cue.at);
+  }
+  void decodeCtx.close();
   return ctx.startRendering();
 }
 
@@ -57,7 +74,8 @@ export async function exportVideo(opts: {
   const mp4 = await canEncodeVideo("avc", { width, height });
   const videoCodec = mp4 ? "avc" : "vp9";
   const audioCodec = mp4 ? "aac" : "opus";
-  const withAudio = !!opts.audioUrl && (await canEncodeAudio(audioCodec));
+  const cues = scene.sfx ?? [];
+  const withAudio = (!!opts.audioUrl || cues.length > 0) && (await canEncodeAudio(audioCodec));
 
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -89,8 +107,8 @@ export async function exportVideo(opts: {
       await video.add(t, 1 / scene.fps);
       opts.onProgress((i + 1) / (frames + (audio ? frames * 0.1 : 0)));
     }
-    if (audio && opts.audioUrl) {
-      await audio.add(await renderAudio(opts.audioUrl, scene.audio ?? { start: 0, trim_in: 0, trim_out: null }, scene.duration));
+    if (audio) {
+      await audio.add(await renderAudio(opts.audioUrl, scene.audio ?? { start: 0, trim_in: 0, trim_out: null }, cues, scene.duration));
     }
     await output.finalize();
     opts.onProgress(1);

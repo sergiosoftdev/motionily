@@ -78,10 +78,31 @@ pub struct Scene {
     /// Cuts between scenes, each drawn with a transition brick.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub transitions: Vec<TransitionRef>,
+    /// Sound effects placed on the timeline (from the user's sound library).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sfx: Vec<SfxCue>,
 }
 
 fn scene_version() -> u32 {
     SCENE_VERSION
+}
+
+/// One sound effect at a moment of the video. The editor plays and exports it; the engine only keeps it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SfxCue {
+    pub id: String,
+    /// Library sound name (for people and agents).
+    pub sound: String,
+    /// Media path of its WAV.
+    pub src: String,
+    /// Seconds from the start of the video.
+    pub at: f32,
+    #[serde(default = "unit_gain")]
+    pub gain: f32,
+}
+
+fn unit_gain() -> f32 {
+    1.0
 }
 
 impl Default for Scene {
@@ -105,6 +126,7 @@ impl Default for Scene {
             audio: None,
             captions: None,
             transitions: Vec::new(),
+            sfx: Vec::new(),
         }
     }
 }
@@ -214,14 +236,15 @@ impl Scene {
     /// Compact, token-cheap description for agents. One line per layer.
     pub fn summary(&self) -> String {
         let mut s = format!(
-            "{}x{} {}fps {}s palette={} captions={} layers={}\n",
+            "{}x{} {}fps {}s palette={} captions={} layers={} sfx={}\n",
             self.width,
             self.height,
             self.fps,
             self.duration,
             if self.palette.is_some() { "brick".to_owned() } else { enum_name(&self.style) },
             enum_name(&self.caption_style),
-            self.layers.len()
+            self.layers.len(),
+            self.sfx.iter().map(|c| format!("{}@{:.2}", c.sound, c.at)).collect::<Vec<_>>().join(",")
         );
         for l in &self.layers {
             let end = l.end.unwrap_or(self.duration);
@@ -326,6 +349,15 @@ mod tests {
             "layers":[{"id":"a","shape":"ellipse","x":0,"y":0,"w":4,"h":4}]}"#)
         .unwrap();
         assert_eq!(scene.layers[0].content, LayerContent::Shape { shape: Shape::Ellipse });
+    }
+
+    #[test]
+    fn sfx_cues_replace_by_id_and_stay_sorted() {
+        let mut scene = Scene::default();
+        let cue = |id: &str, at: f32| Op::PutSfx { cue: SfxCue { id: id.into(), sound: "pop".into(), src: "/media/x.wav".into(), at, gain: 1.0 } };
+        scene.apply(&[cue("a", 2.0), cue("b", 1.0), cue("a", 0.5)]).unwrap();
+        assert_eq!(scene.sfx.iter().map(|c| (c.id.as_str(), c.at)).collect::<Vec<_>>(), [("a", 0.5), ("b", 1.0)]);
+        assert!(scene.summary().contains("sfx=pop@0.50,pop@1.00"));
     }
 
     #[test]

@@ -138,6 +138,8 @@ export const OpName = {
   RemoveLayer: "remove_layer",
   RemoveGroup: "remove_group",
   SetGroup: "set_group",
+  PutSfx: "put_sfx",
+  RemoveSfx: "remove_sfx",
 } as const;
 export type OpName = (typeof OpName)[keyof typeof OpName];
 

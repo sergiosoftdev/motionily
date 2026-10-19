@@ -116,7 +116,7 @@ Other ops via apply_ops: {"op":"remove_layer","id":…} {"op":"remove_group","gr
 const ROLE_TOOLS = {
   planner: ["get_project", "get_brand", "view_image", "view_asset", "search_fonts", "set_font", "apply_ops"],
   builder: ["add_layers", "apply_ops", "render_frames", "view_asset", "view_image", "get_brand"],
-  finisher: ["review_video", "render_frames", "get_group", "add_layers", "apply_ops"],
+  finisher: ["review_video", "render_frames", "get_group", "add_layers", "apply_ops", "list_sounds", "add_sfx"],
 } as const;
 
 /** Plans the video and sets the look; builders do the heavy writing in parallel. */
@@ -147,6 +147,9 @@ const FINISHER_GUIDE = `You are the finishing editor of a Motionily video built 
 1. review_video. 2. Fix only what is wrong (overlaps between beats, off-frame, dead air, broken transitions,
 unreadable text): get_group to read a group as compact lines, add_layers to fix. 3. Review again only if you
 changed a lot (max 2 rounds).
+4. SOUND DESIGN: list_sounds, then ONE add_sfx call with a cue on every key motion moment of the timings below
+   (whoosh on transitions, pop on entrances, impact on hero text, ticks on counters, riser before the reveal,
+   chime on the payoff). If the library is empty, skip this.
 ${COMPACT_REF}
 Finish with a 2-3 sentence summary in Spanish: the art direction and what the video shows.
 ${CRAFT}`;
@@ -182,7 +185,7 @@ exactly like a motion designer building a spot by hand. Avoid generic videos. Wo
    Never hand back a video you have not reviewed.
 5. Check get_feedback at the end and apply it.
 ${CRAFT}
-Prefer add_layers (compact lines) over JSON for writing layers.
+Prefer add_layers (compact lines) over JSON for writing layers. Sound: list_sounds + add_sfx to sync effects to the motion.
 ${COMPACT_REF}
 Finish with a 2-3 sentence summary in Spanish: the art direction you chose and what the video shows.`;
 

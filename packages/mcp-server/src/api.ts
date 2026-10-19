@@ -24,6 +24,11 @@ export class ProjectApi {
     return this.call<Project>("PUT", `/build/${slot}`, { value, applyKitDefaults });
   }
 
+  /** The user's sound effect library. */
+  sounds() {
+    return this.call<{ name: string; category: string; description: string; duration: number; url: string }[]>("GET", "/sounds");
+  }
+
   /** Session for the agent's headless editor. */
   headlessSession() {
     return this.call<{ token: string; user: User }>("POST", "/headless-token");

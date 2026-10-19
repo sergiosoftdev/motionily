@@ -75,6 +75,10 @@ pub enum Op {
     SetRenderStyle { render_style: Option<RenderStyle> },
     /// Place/trim the project's audio on the timeline (`null` = not used).
     SetAudio { audio: Option<AudioTrack> },
+    /// Place (or move, same id) a sound effect: `{"op":"put_sfx","cue":{"id":"sfx1","sound":"pop","src":"/media/…","at":1.2,"gain":0.7}}`.
+    PutSfx { cue: crate::SfxCue },
+    RemoveSfx { id: String },
+    ClearSfx,
     /// Mark caption words (by index) as key words, or unmark them.
     SetEmphasis { words: Vec<usize>, emphasis: bool },
     /// Add or replace one animation template (e.g. a brick the agent just created).
@@ -321,6 +325,16 @@ impl Scene {
                 }
                 self.render_style = *render_style;
             }
+            Op::PutSfx { cue } => {
+                if !(0.0..=4.0).contains(&cue.gain) || cue.at < 0.0 {
+                    return Err(OpError::Invalid("sfx needs at >= 0 and gain in 0..4"));
+                }
+                self.sfx.retain(|c| c.id != cue.id);
+                self.sfx.push(cue.clone());
+                self.sfx.sort_by(|a, b| a.at.total_cmp(&b.at));
+            }
+            Op::RemoveSfx { id } => self.sfx.retain(|c| &c.id != id),
+            Op::ClearSfx => self.sfx.clear(),
             Op::SetAudio { audio } => {
                 if let Some(a) = audio {
                     if a.start < 0.0 || a.trim_in < 0.0 || a.trim_out.is_some_and(|o| o <= a.trim_in) {

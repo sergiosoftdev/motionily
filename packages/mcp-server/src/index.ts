@@ -241,6 +241,9 @@ async function currentScene(): Promise<Record<string, unknown> | null> {
   return live ? (JSON.parse(live) as Record<string, unknown>) : (await api.project()).scene;
 }
 
+/** Default level for effects so they sit under a voice-over. */
+const SFX_GAIN = 0.7;
+
 const layersOf = (scene: Record<string, unknown> | null) => (scene?.layers as Record<string, unknown>[] | undefined) ?? [];
 
 server.registerTool(
@@ -261,6 +264,39 @@ server.registerTool(
     const ops = layers.flatMap((layer) => [...(existing.has(String(layer.id)) ? [{ op: "remove_layer", id: layer.id }] : []), { op: "add_layer", layer }]);
     const res = await bridge.applyOps(ops as Op[]);
     return res.ok ? text(`${layers.length} layers ok`) : fail(res.error ?? "rejected");
+  }),
+);
+
+server.registerTool(
+  "list_sounds",
+  {
+    description: "The user's sound effect library (whooshes, pops, clicks, risers, impacts, chimes, glitches, UI, beds): name | category | seconds | description.",
+    inputSchema: {},
+  },
+  guard(async () => {
+    const rows = await api.sounds();
+    return text(rows.map((s) => `${s.name} | ${s.category} | ${s.duration}s | ${s.description}`).join("\n") || "No sounds yet: the user can create them in Sonidos.");
+  }),
+);
+
+server.registerTool(
+  "add_sfx",
+  {
+    description:
+      "Place sound effects on the timeline, one per line: `id sound_name at [gain]` (at = seconds from the video start, gain 0.2-1, default 0.7). Same id moves/replaces it. Sync them to motion: whoosh/swipe on moves and transitions (start ~0.1 s before), pop on entrances, click/tick on UI and counters, impact on hero text landing, riser before reveals, chime on positive results. 1 sound per meaningful event; never stack more than 2 at once.",
+    inputSchema: { lines: z.string().min(1) },
+  },
+  guard(async ({ lines }) => {
+    const library = new Map((await api.sounds()).map((s) => [s.name, s]));
+    const ops: Op[] = [];
+    for (const line of lines.split("\n").map((l) => l.trim()).filter(Boolean)) {
+      const [id, name, at, gain] = line.split(/\s+/);
+      const sound = library.get(name ?? "");
+      if (!id || !sound || !Number.isFinite(Number(at))) return fail(`bad line '${line}' (expected 'id sound_name at [gain]'; sounds: ${[...library.keys()].slice(0, 40).join(", ")})`);
+      ops.push({ op: "put_sfx", cue: { id, sound: sound.name, src: sound.url, at: Number(at), gain: gain ? Number(gain) : SFX_GAIN } } as Op);
+    }
+    const res = await bridge.applyOps(ops);
+    return res.ok ? text(`${ops.length} sounds placed`) : fail(res.error ?? "rejected");
   }),
 );
 
