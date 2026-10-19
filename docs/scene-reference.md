@@ -56,25 +56,26 @@ The user uploads the voice-over and the editor transcribes it into `captions.wor
 - mark key words (by index) so highlight/pop styles stress them: `{"op":"set_emphasis","words":[3,9],"emphasis":true}`
 - time your scenes and text to the speech (see the captions line in the summary).
 
-## 3D stage (real 3D)
-A camera and glTF props drawn behind every 2D layer, toon-shaded with outlines. Use it for sets,
-people and objects; put titles/captions on top as 2D layers.
+## 3D stage
+Procedural 3D drawn behind the 2D layers, toon-shaded with outlines. Units are meters, y up.
 ```
-{"op":"set_stage_preset","kind":"clinic_room|office|empty_studio|iso_city"}   // ready-made set (keeps characters)
-{"op":"put_prop","prop":{"id":"fisio","model":"characters/character-female-b","x":0.9,"y":0,"z":-0.4,
-  "rotation":-40,"scale":1,"action":"interact-left","enter":"pop|drop|rise|none","enter_delay":0.2,
-  "start":0,"end":null,"tint":"primary"}}                                      // add or replace by id
+{"op":"put_prop","prop":{"id":"fisio","prefab":"fisio","x":0.9,"z":-0.4,"rotation":-40,"action":"wave",
+  "enter":"pop|drop|rise|none","enter_delay":0.2,"start":0,"end":null}}   // add or replace by id
+{"op":"put_prop","prop":{"id":"mesa","node":{…procedural tree…}}}      // one-off, unsaved
 {"op":"remove_prop","id":"fisio"}
-{"op":"set_camera","camera":{"kind":"perspective|isometric","yaw":30,"pitch":25,"distance":6,
-  "target_x":0,"target_y":0.4,"target_z":-0.5,"fov":32}}                      // every number can be keyframes
-{"op":"set_stage","stage":{"camera":{…},"floor":"surface","props":[…]}}       // full custom set
+{"op":"set_shots","shots":[…]}                                          // camera direction (below)
+{"op":"set_stage","stage":{"floor":"surface","props":[…],"shots":[…]}}  // whole set at once
 ```
-- Units are meters, y up. Characters are ~0.72 m tall; tables ~0.38; a wall piece is 1 m wide × 1.29 m.
-- `list_models` gives every model with its size, origin and (characters) animation clips:
-  idle, walk, sprint, jump, sit, emote-yes, emote-no, pick-up, interact-left/right, wheelchair-*…
-- Walk someone across: keyframe `x`/`z` and use `action: "walk"`; turn them with `rotation`.
-- Camera moves sell 3D: slow orbits (keyframe `yaw`), push-ins (`distance`), isometric for diagrams.
-- You are not limited to the presets: compose your own sets from any models.
+- Never use stock models or `set_stage_preset`; build what the brief describes and save it as prefabs.
+- Walk someone across: keyframe `x`/`z` with `action: "walk"`; turn them with `rotation`.
+- **Direct the camera with shots**: `{"op":"set_shots","shots":[
+  {"start":0,"end":2.5,"kind":"reveal","target":"all"},
+  {"start":2.5,"end":5,"kind":"push_in","target":"fisio","yaw":-30,"framing":0.8,"blend":0.4},
+  {"start":5,"end":7,"kind":"orbit","target":"camilla","sweep":60},
+  {"start":7,"end":9,"kind":"follow","target":"paciente"}]}`
+  kinds: static, orbit, push_in, pull_out, crane, follow, reveal · target: a prop id, "all" or [x,y,z] ·
+  framing 1 = fit target (0.6 tight, 1.5 wide) · yaw/pitch degrees · blend = seconds of smooth move from the
+  previous shot (0 = hard cut) · ease. Distance is automatic from the target size.
 
 ## 3D procedural building (preferred)
 Build objects, characters and whole spaces from primitives, save them as prefabs once
@@ -87,9 +88,13 @@ Shapes:
   `{"shape":"plane","size":[w,d]}` (floor-like), `{"shape":"extrude","points":[[x,y]…],"depth":d}` (logos, signs, 3D letters),
   `{"shape":"lathe","points":[[radius,y]…]}` (vases, lamps, bottles).
 - Groups: a node without shape, only children. Prefab inside a tree: `{"prefab":"camilla","position":[…]}`.
-- Characters: `{"rig":{"height":1.7,"skin":[0.95,0.78,0.65,1],"top":"primary","bottom":"text","coat":"surface",
-  "hair":"short|long|bun|cap|none","hair_color":"text","build":1,"action":"idle|walk|wave|point|jump|sit|celebrate|stressed"}}`
-  — stickman style (no hands/feet). Save a character once (kind "character") and reuse it; the prop's `action` overrides.
+- Characters are ALWAYS stickmen (Clinily spots style: black silhouette, round faceless head, tube limbs,
+  no hands or feet — only the clothes change). Never build people from primitives; use a rig:
+  `{"rig":{"style":"tee|shirt|sweater|hoodie|coat|labcoat|suit|scrubs|dress","top":"primary","bottom":[r,g,b,a],
+  "long_sleeves":true,"shorts":false,"hair":"none|bun|pony|cap|beanie","hat":"accent","steth":true,"badge":true,
+  "tie":"primary","scarf":"accent","height":1.64,"action":"idle|walk|wave|point|jump|sit|celebrate|stressed"}}`
+  Doctor: labcoat white + steth. Physio: scrubs green + badge. Reception: shirt + vest-like top. Child: height 1.1.
+  Save each character once (kind "character") and reuse it; the prop's `action` overrides the rig's.
 - Shapes sit centered on their position (a box of height h at y=h/2 rests on the floor).
 - Clone and reshape: clone_prefab → get_prefab → edit → save_prefab (the original stays).
 

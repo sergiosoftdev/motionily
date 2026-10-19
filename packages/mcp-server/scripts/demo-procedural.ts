@@ -39,9 +39,9 @@ await call("save_prefab", {
   ] },
 });
 await call("save_prefab", { name: "fisio", kind: "character", description: "Fisio con bata blanca y moño",
-  node: { rig: { coat: "surface", top: "primary", bottom: "text", hair: "bun", hair_color: [0.35, 0.22, 0.15, 1] } } });
+  node: { rig: { style: "labcoat", top: [0.97, 0.97, 0.95, 1], bottom: [0.13, 0.15, 0.14, 1], hair: "bun", steth: true, badge: true } } });
 await call("save_prefab", { name: "paciente", kind: "character", description: "Paciente en ropa deportiva",
-  node: { rig: { top: "accent", bottom: "primary", hair: "short", hair_color: "text", build: 1.1 } } });
+  node: { rig: { style: "hoodie", top: "accent", bottom: [0.3, 0.37, 0.45, 1], hair: "beanie", hat: "primary" } } });
 await call("load_scene", { scene: JSON.stringify({ width: 1080, height: 1920, fps: 30, duration: 6, layers: [
   { id: "title", type: "text", text: "Tu consulta, a tu manera", size: 88, anchor: "top", w: 900, h: 200, fill: "text", anims: [{ use: "animation/fade_up", at: 0.4 }] },
 ] }) });
@@ -49,7 +49,11 @@ await call("apply_ops", { ops: [
   { op: "put_prop", prop: { id: "set", prefab: "consulta" } },
   { op: "put_prop", prop: { id: "fisio", prefab: "fisio", x: 1.25, z: -0.45, rotation: -50, action: "stressed", enter: "drop" } },
   { op: "put_prop", prop: { id: "paciente", prefab: "paciente", x: [{ t: 0, v: -1.8 }, { t: 3, v: -0.3 }], z: 0.4, rotation: 90, action: "walk", enter: "pop", enter_delay: 0.3 } },
-  { op: "set_camera", camera: { yaw: [{ t: 0, v: 20 }, { t: 6, v: 45 }], pitch: 26, distance: [{ t: 0, v: 7.5 }, { t: 6, v: 6 }], target_y: 0.7, target_z: -0.6 } },
+  { op: "set_shots", shots: [
+    { start: 0, end: 2.2, kind: "reveal", target: "all", yaw: 25, pitch: 28 },
+    { start: 2.2, end: 4.2, kind: "push_in", target: "fisio", yaw: -25, framing: 0.9, blend: 0.4 },
+    { start: 4.2, end: 6, kind: "follow", target: "paciente", yaw: 35, framing: 1.2 },
+  ] },
 ] });
 await call("list_prefabs");
 await client.close();

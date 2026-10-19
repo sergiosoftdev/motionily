@@ -13,7 +13,6 @@ const TURNTABLE_SECONDS = 8;
 
 /** Turntable scene for one prefab: it sits on a floor while the camera circles it. */
 function turntable(name: string | null, kind: PrefabKind) {
-  const space = kind === PrefabKind.Space;
   return JSON.stringify({
     width: 1080,
     height: 1080,
@@ -22,13 +21,9 @@ function turntable(name: string | null, kind: PrefabKind) {
     layers: [],
     stage: {
       floor: "surface",
-      camera: {
-        yaw: [{ t: 0, v: 20, ease: "linear" }, { t: TURNTABLE_SECONDS, v: 380 }],
-        pitch: space ? 32 : 18,
-        distance: space ? 9 : kind === PrefabKind.Character ? 4.6 : 3.6,
-        target_y: space ? 0.6 : kind === PrefabKind.Character ? 0.85 : 0.5,
-        fov: 32,
-      },
+      camera: { fov: 30 },
+      // One slow orbit framing whatever the prefab is, whatever its size.
+      shots: [{ start: 0, end: TURNTABLE_SECONDS, kind: "orbit", target: "all", yaw: 20, sweep: 360, ease: "linear", pitch: kind === PrefabKind.Space ? 30 : 14, framing: 1.15 }],
       props: name ? [{ id: "preview", prefab: name }] : [],
     },
   });

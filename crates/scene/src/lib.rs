@@ -24,9 +24,9 @@ pub use library::{AnimProp, AnimTemplate, Library, TemplateKey, TransitionKind, 
 pub use text::{AudioTrack, Captions, DrawText, TextAlign, TextRole, TextSpan, Typography, Word};
 pub use transition::TransitionRef;
 pub use character::{draw_character, pose, Action, CharacterKind, CharacterSpec, Hair, Outfit, Pose};
-pub use node3d::{DrawModelNode, DrawSolid, Geometry, HairStyle, Node3D, NodeKind, Repeat, Rig};
+pub use node3d::{DrawModelNode, DrawSolid, Garment, Geometry, HairStyle, Node3D, NodeKind, Repeat, Rig};
 pub use stage_presets::{merge_preset, preset as stage_preset};
-pub use stage::{Camera3D, CameraKind, DrawCamera, DrawProp, DrawStage, PropEnter, Stage, StageProp};
+pub use stage::{Shot, ShotKind, ShotTarget, Camera3D, CameraKind, DrawCamera, DrawProp, DrawStage, PropEnter, Stage, StageProp};
 pub use scenario::{draw_scenario, iso, DrawPoly, Scenario, ScenarioKind};
 pub use ops::{Op, OpError, Prop};
 pub use style::{RenderKind, RenderStyle, CaptionStyle, ColorRef, CustomPalette, HexColor, Palette, PaletteSlot, Rgba, StylePreset};
@@ -262,9 +262,15 @@ impl Scene {
             let props: Vec<String> = st
                 .props
                 .iter()
-                .map(|p| format!("{}={}{}", p.id, p.model, p.action.as_ref().map(|a| format!(":{a}")).unwrap_or_default()))
+                .map(|p| {
+                    let what = p.prefab.clone().map(|n| format!("prefab:{n}")).unwrap_or_else(|| if p.node.is_some() { "node".into() } else { p.model.clone() });
+                    format!("{}={}{}", p.id, what, p.action.as_ref().map(|a| format!(":{a}")).unwrap_or_default())
+                })
                 .collect();
             let _ = writeln!(s, "stage: camera={} props=[{}]", enum_name(&st.camera.kind), props.join(", "));
+            for sh in &st.shots {
+                let _ = writeln!(s, "shot {:.1}-{:.1}s {} -> {}", sh.start, sh.end, enum_name(&sh.kind), serde_json::to_string(&sh.target).unwrap_or_default());
+            }
         }
         if let Some(sc) = &self.scenario {
             let _ = writeln!(s, "scenario: {}", enum_name(&sc.kind));

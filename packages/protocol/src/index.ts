@@ -114,6 +114,7 @@ export const OpName = {
   SetStagePreset: "set_stage_preset",
   SetStage: "set_stage",
   DefinePrefab: "define_prefab",
+  PutProp: "put_prop",
 } as const;
 export type OpName = (typeof OpName)[keyof typeof OpName];
 

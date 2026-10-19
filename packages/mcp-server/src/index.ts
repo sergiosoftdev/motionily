@@ -29,8 +29,6 @@ import { TEMPLATES, TemplateId } from "./templates.js";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const REFERENCE = readFileSync(resolve(here, "../../../docs/scene-reference.md"), "utf8");
-type ModelInfo = { key: string; category: string; size: number[]; origin: number[]; clips?: string[] };
-const MODELS = (JSON.parse(readFileSync(resolve(here, "../../../apps/web/public/models/manifest.json"), "utf8")) as { models: ModelInfo[] }).models;
 
 const token = process.env.MOTIONILY_TOKEN;
 const projectId = process.env.MOTIONILY_PROJECT;
@@ -149,7 +147,7 @@ server.registerTool(
   "list_templates",
   {
     description:
-      "Hand-designed scene templates (3D set + camera move + characters + type + motion). Prefer them over building beats from scratch: they look professional. Fill them with apply_template.",
+      "2D typographic templates (kinetic titles). For 3D, build procedurally: prefabs, stickman rigs, set_shots.",
     inputSchema: {},
   },
   async () => text(TEMPLATES.map((t) => `${t.id}: ${t.summary} Params: ${t.uses}`).join("\n")),
@@ -168,7 +166,6 @@ server.registerTool(
       title: z.string().max(120),
       subtitle: z.string().max(160).optional(),
       cta: z.string().max(40).optional(),
-      model: z.string().optional().describe("hero model/character key from list_models"),
     },
   },
   guard(async ({ template, ...params }) => {
@@ -176,24 +173,6 @@ server.registerTool(
     const res = await bridge.applyOps(t.build(params));
     return res.ok ? text(res.summary ?? "ok") : fail(res.error ?? "rejected");
   }),
-);
-
-server.registerTool(
-  "list_models",
-  {
-    description:
-      "3D models you can put on the stage (put_prop): characters (with animation clips), furniture, buildings, shop items. Sizes in meters (w,h,d); origin = min corner, most furniture extends towards -z from its origin. Filter by category or text.",
-    inputSchema: { category: z.string().optional(), query: z.string().optional() },
-  },
-  async ({ category, query }) => {
-    const q = query?.toLowerCase();
-    const rows = MODELS.filter((m) => (!category || m.category === category) && (!q || m.key.toLowerCase().includes(q)));
-    const clips = rows.find((m) => m.clips)?.clips;
-    return text(
-      rows.map((m) => `${m.key} | ${m.category} | size ${m.size.join("x")} | origin ${m.origin.join(",")}`).join("\n") +
-        (clips ? `\ncharacter clips: ${clips.join(", ")}` : ""),
-    );
-  },
 );
 
 server.registerTool(
@@ -447,7 +426,7 @@ function describeProject(p: Project, byKey: Map<string, Brick>): string {
   if (p.misfits.length) lines.push(`Misfits (user chose them anyway): ${p.misfits.join(", ")}`);
   lines.push("");
   lines.push(
-    "Engine today: rect/ellipse layers; animate them by referencing animation bricks ({\"use\":\"animation/pop_in\",\"at\":0.3}) instead of hand keyframes; place them on composition anchors (anchor: hero/title/caption/accent); cut scenes with transition bricks (add_transition). Palette slots follow the palette brick. Text layers render in the typography brick font; captions (from the user\'s voice-over) render in their caption style — mark key words with set_emphasis. The render style brick (finish: soft shadows, toon outlines, paper cut…) is applied by the engine to the whole frame. REAL 3D: a stage with an animated camera and glTF props (list_models: animated characters, furniture, buildings) with toon shading — build any set you want with put_prop, or start from set_stage_preset (clinic_room, office, empty_studio, iso_city). Flat 2D characters (type character) also exist.",
+    "Engine today: rect/ellipse layers; animate them by referencing animation bricks ({\"use\":\"animation/pop_in\",\"at\":0.3}) instead of hand keyframes; place them on composition anchors (anchor: hero/title/caption/accent); cut scenes with transition bricks (add_transition). Palette slots follow the palette brick. Text layers render in the typography brick font; captions (from the user\'s voice-over) render in their caption style — mark key words with set_emphasis. The render style brick (finish: soft shadows, toon outlines, paper cut…) is applied by the engine to the whole frame. REAL 3D built PROCEDURALLY: primitives + stickman rigs saved as prefabs in the user's library (list_prefabs, save_prefab), placed with put_prop {prefab}, filmed with set_shots. Do not use stock models or set_stage_preset.",
   );
   lines.push(p.scene ? `Scene: exists (rev ${p.sceneRevision}); see get_scene.` : "Scene: empty. Build the first cut with load_scene.");
   lines.push(bridge.connected ? "Editor: open (your edits render live)." : "Editor: NOT open on this project — ask the user to open it before editing.");

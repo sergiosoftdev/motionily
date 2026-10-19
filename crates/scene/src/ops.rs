@@ -44,6 +44,8 @@ pub enum Op {
     PutProp { prop: StageProp },
     RemoveProp { id: String },
     SetCamera { camera: Camera3D },
+    /// Direct the camera with a shot list (replaces previous shots).
+    SetShots { shots: Vec<crate::Shot> },
     /// Add or replace one prefab in the scene library (a prefab the agent just made).
     DefinePrefab { name: String, node: crate::Node3D },
     /// Build a 3D set from a scenario brick (clinic_room, office, empty_studio, iso_city),
@@ -228,9 +230,12 @@ impl Scene {
             }
             Op::ClearTransitions => self.transitions.clear(),
             Op::SetLibrary { library } => {
-                // Prefabs the agent defined live (define_prefab) survive the editor's refresh.
+                // Prefabs defined live (define_prefab: the agent just saved them) are newer than
+                // the editor's copy, so they win; the editor only adds the ones we don't have.
                 let mut prefabs = std::mem::take(&mut self.library.prefabs);
-                prefabs.extend(library.prefabs.clone());
+                for (name, node) in &library.prefabs {
+                    prefabs.entry(name.clone()).or_insert_with(|| node.clone());
+                }
                 self.library = library.clone();
                 self.library.prefabs = prefabs;
             }
@@ -263,6 +268,14 @@ impl Scene {
                 self.library.prefabs.insert(name.clone(), node.clone());
             }
             Op::SetStagePreset { kind } => self.stage = Some(crate::merge_preset(*kind, self.stage.as_ref())),
+            Op::SetShots { shots } => {
+                if shots.iter().any(|s| s.end <= s.start) {
+                    return Err(OpError::Invalid("every shot needs end > start"));
+                }
+                let mut shots = shots.clone();
+                shots.sort_by(|a, b| a.start.total_cmp(&b.start));
+                self.stage.get_or_insert_with(Stage::default).shots = shots;
+            }
             Op::SetCamera { camera } => self.stage.get_or_insert_with(Stage::default).camera = camera.clone(),
             Op::SetCharacter { id, outfit, action, hair, hair_color, facing } => {
                 let l = self.layer_mut(id).ok_or_else(|| OpError::UnknownLayer(id.clone()))?;
