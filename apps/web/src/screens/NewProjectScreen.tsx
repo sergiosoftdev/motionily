@@ -335,24 +335,94 @@ function Glow({ index }: { index: number }) {
 
 function Thinking({ count }: { count: number }) {
   const [line, setLine] = useState(0);
+  const [typed, setTyped] = useState(0);
   useEffect(() => {
-    const t = setInterval(() => setLine((l) => (l + 1) % THINKING_LINES.length), THINKING_LINE_MS);
+    const t = setInterval(() => {
+      setLine((l) => (l + 1) % THINKING_LINES.length);
+      setTyped(0);
+    }, THINKING_LINE_MS);
     return () => clearInterval(t);
   }, []);
+  // Typewriter for the current line.
+  useEffect(() => {
+    const full = THINKING_LINES[line]!.length;
+    if (typed >= full) return;
+    const t = setTimeout(() => setTyped((n) => n + 1), TYPE_MS);
+    return () => clearTimeout(t);
+  }, [typed, line]);
   return (
-    <section className="flex flex-col items-center gap-10 pt-[6vh] text-center">
-      <div className="flex flex-col gap-3">
-        <h1 className="text-4xl font-semibold">Claude está pensando {count === 1 ? "una idea" : `${count} ideas`}</h1>
-        <p key={line} className="wiz-in text-lg text-neutral-400">
-          {THINKING_LINES[line]}
+    <section className="flex flex-col gap-10">
+      <div className="wiz-in flex flex-col gap-3">
+        <span className="font-mono text-xs text-neutral-500">Paso 4</span>
+        <h1 className="text-5xl font-semibold leading-[1.05] sm:text-6xl">Componiendo {count === 1 ? "una idea" : `${count} ideas`}</h1>
+        <p className="font-mono text-base text-neutral-400">
+          {THINKING_LINES[line]!.slice(0, typed)}
+          <span className="comp-caret ml-0.5 inline-block h-4 w-2 translate-y-0.5 bg-neutral-300" />
         </p>
       </div>
-      <div className={`grid w-full gap-4 ${count > 1 ? "md:grid-cols-2" : ""} ${count > 4 ? "xl:grid-cols-3" : ""}`}>
+      <div className={`grid gap-5 ${count > 1 ? "md:grid-cols-2" : ""} ${count > 4 ? "xl:grid-cols-3" : ""}`}>
         {Array.from({ length: count }, (_, i) => (
-          <div key={i} className="wiz-in wiz-shimmer h-40 rounded-2xl ring-1 ring-white/5" style={{ animationDelay: `${0.1 * i}s, 0s` }} />
+          <ComposingCard key={i} index={i} />
         ))}
       </div>
     </section>
+  );
+}
+
+const TYPE_MS = 28;
+/** Accent per card, so every idea feels like its own piece. */
+const CARD_HUES = [152, 32, 265, 196, 340, 54];
+
+/** A tiny timeline composing itself: tracks draw, keyframes pop, a playhead sweeps, the frame comes alive. */
+function ComposingCard({ index }: { index: number }) {
+  const hue = CARD_HUES[index % CARD_HUES.length]!;
+  const accent = `hsl(${hue} 85% 62%)`;
+  const offset = index * 0.37;
+  const v = (d: number) => ({ "--d": `${(offset + d).toFixed(2)}s`, "--comp-dur": `${4.6 + (index % 3) * 0.4}s` }) as React.CSSProperties;
+  const tracks = [
+    { from: 0.05, to: 0.7, keys: [0.05, 0.38, 0.7] },
+    { from: 0.18, to: 0.92, keys: [0.18, 0.55] },
+    { from: 0.3, to: 0.62, keys: [0.3, 0.62] },
+    { from: 0.46, to: 0.98, keys: [0.46, 0.8, 0.98] },
+  ];
+  return (
+    <div className="wiz-in flex gap-5 overflow-hidden rounded-2xl bg-white/[0.04] p-5 ring-1 ring-white/10" style={{ animationDelay: `${0.1 * index}s` }}>
+      {/* The frame being animated. */}
+      <div className="relative aspect-[9/16] w-28 shrink-0 overflow-hidden rounded-lg bg-neutral-900 ring-1 ring-white/10">
+        <div className="comp comp-block absolute top-[18%] left-[12%] h-[16%] w-[76%] rounded-md" style={{ ...v(0), background: accent }} />
+        <div className="absolute top-[42%] left-[12%] h-[9%] w-[76%] overflow-hidden">
+          <div className="comp comp-word h-full w-[70%] rounded-sm bg-white/80" style={v(0.08)} />
+        </div>
+        <div className="absolute top-[55%] left-[12%] h-[6%] w-[76%] overflow-hidden">
+          <div className="comp comp-word h-full w-[45%] rounded-sm bg-white/40" style={v(0.18)} />
+        </div>
+        <div className="comp comp-dot absolute bottom-[12%] left-[38%] aspect-square w-[24%] rounded-full" style={{ ...v(0.1), background: `hsl(${hue + 40} 85% 65%)` }} />
+      </div>
+      {/* Its timeline. */}
+      <div className="relative flex flex-1 flex-col justify-center gap-2.5">
+        <div className="flex justify-between font-mono text-[9px] text-neutral-600">
+          {["0s", "1s", "2s", "3s", "4s"].map((t) => (
+            <span key={t}>{t}</span>
+          ))}
+        </div>
+        {tracks.map((t, j) => (
+          <div key={j} className="relative h-4">
+            <div
+              className="comp comp-track absolute inset-y-0 rounded-full"
+              style={{ ...v(j * 0.12), left: `${t.from * 100}%`, width: `${(t.to - t.from) * 100}%`, background: j === 0 ? accent : `hsl(${hue} 30% ${38 - j * 4}%)` }}
+            />
+            {t.keys.map((k, n) => (
+              <span
+                key={n}
+                className="comp comp-key absolute top-1/2 -mt-1 -ml-1 size-2 bg-white"
+                style={{ ...v(j * 0.12 + n * 0.09), left: `${k * 100}%` }}
+              />
+            ))}
+          </div>
+        ))}
+        <span className="comp comp-head absolute top-0 bottom-0 w-px" style={{ ...v(0), background: accent, boxShadow: `0 0 12px ${accent}` }} />
+      </div>
+    </div>
   );
 }
 

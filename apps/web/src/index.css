@@ -32,3 +32,51 @@
 @media (prefers-reduced-motion: reduce) {
   .wiz-in, .wiz-orb, .wiz-shimmer { animation: none; }
 }
+
+/* "Claude is composing": tiny timelines that build themselves. */
+@keyframes comp-track {
+  0%, 8% { transform: scaleX(0); opacity: 1; }
+  38%, 94% { transform: scaleX(1); opacity: 1; }
+  100% { transform: scaleX(1); opacity: 0; }
+}
+@keyframes comp-key {
+  0%, 30% { transform: scale(0) rotate(45deg); opacity: 1; }
+  40% { transform: scale(1.5) rotate(45deg); opacity: 1; }
+  48%, 94% { transform: scale(1) rotate(45deg); opacity: 1; }
+  100% { transform: scale(1) rotate(45deg); opacity: 0; }
+}
+@keyframes comp-head {
+  0%, 30% { left: 0%; opacity: 0; }
+  34% { opacity: 1; }
+  94% { left: 100%; opacity: 1; }
+  100% { left: 100%; opacity: 0; }
+}
+@keyframes comp-block {
+  0%, 36% { transform: translateX(-140%) skewX(-12deg); opacity: 1; }
+  52% { transform: translateX(8%) skewX(4deg); opacity: 1; }
+  60%, 94% { transform: translateX(0) skewX(0); opacity: 1; }
+  100% { transform: translateX(0); opacity: 0; }
+}
+@keyframes comp-word {
+  0%, 46% { transform: translateY(120%); opacity: 1; }
+  58%, 94% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(0); opacity: 0; }
+}
+@keyframes comp-dot {
+  0%, 52% { transform: scale(0); opacity: 1; }
+  62% { transform: scale(1.3); opacity: 1; }
+  70%, 94% { transform: scale(1); opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes comp-caret { 50% { opacity: 0; } }
+.comp { animation-duration: var(--comp-dur, 5s); animation-iteration-count: infinite; animation-timing-function: cubic-bezier(0.2, 0.8, 0.2, 1); animation-delay: var(--d, 0s); animation-fill-mode: both; }
+.comp-track { animation-name: comp-track; transform-origin: left; }
+.comp-key { animation-name: comp-key; }
+.comp-head { animation-name: comp-head; animation-timing-function: linear; }
+.comp-block { animation-name: comp-block; }
+.comp-word { animation-name: comp-word; }
+.comp-dot { animation-name: comp-dot; }
+.comp-caret { animation: comp-caret 0.9s steps(1) infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .comp, .comp-caret { animation: none; }
+}
