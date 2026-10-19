@@ -103,7 +103,8 @@ impl Engine {
             .stage
             .iter()
             .flat_map(|s| s.props.iter().map(|p| p.model.clone()))
-            .filter(|k| !self.renderer.has_model(k))
+            .chain(self.scene.library.prefabs.values().flat_map(model_keys))
+            .filter(|k| !k.is_empty() && !self.renderer.has_model(k))
             .collect();
         keys.sort();
         keys.dedup();
@@ -123,6 +124,16 @@ impl Engine {
     pub fn render(&mut self, t: f32) {
         self.renderer.render(&self.scene, t);
     }
+}
+
+/// glTF model keys used inside a procedural tree.
+fn model_keys(node: &scene::Node3D) -> Vec<String> {
+    let mut keys = match &node.kind {
+        scene::NodeKind::Model { model } => vec![model.clone()],
+        _ => vec![],
+    };
+    keys.extend(node.children.iter().flat_map(model_keys));
+    keys
 }
 
 /// Style presets, as JSON, so the UI never hardcodes the list.

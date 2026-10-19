@@ -239,3 +239,29 @@ describe("audio and targeted feedback", () => {
     assert.equal(f.layerId, "monigote");
   });
 });
+
+describe("prefab library", () => {
+  it("is shared across a user's projects, cloneable, and private to them", async () => {
+    const auth = await login("prefabs@example.com");
+    const { body: a } = await http.post("/projects").set(auth).send({ name: "A", motionStyle: "motion_style/cartoon" });
+    const { body: b } = await http.post("/projects").set(auth).send({ name: "B", motionStyle: "motion_style/apple" });
+    const { body: t } = await http.post(`/projects/${a.id}/agent-token`).set(auth).expect(201);
+    const agent = { Authorization: `Bearer ${t.token as string}` };
+    const node = { children: [{ shape: "box", size: [1.9, 0.12, 0.7], radius: 0.05, position: [0, 0.62, 0] }] };
+
+    await http.put(`/projects/${a.id}/prefabs/camilla`).set(agent).send({ kind: "object", node, description: "Camilla" }).expect(200);
+    const fromB = await http.get(`/projects/${b.id}/prefabs`).set(auth).expect(200);
+    assert.deepEqual(fromB.body.map((p: { name: string }) => p.name), ["camilla"], "visible from another project");
+
+    await http.post(`/projects/${a.id}/prefabs/camilla/clone`).set(agent).send({ name: "camilla_azul" }).expect(201);
+    const clone = await http.get(`/projects/${b.id}/prefabs/camilla_azul`).set(auth).expect(200);
+    assert.equal(clone.body.parent, "camilla");
+    await http.put(`/projects/${a.id}/prefabs/Bad-Name`).set(agent).send({ kind: "object", node }).expect(400);
+    await http.delete(`/projects/${a.id}/prefabs/camilla`).set(agent).expect(403);
+
+    const other = await login("someone@example.com");
+    const { body: c } = await http.post("/projects").set(other).send({ name: "C", motionStyle: "motion_style/apple" });
+    const theirs = await http.get(`/projects/${c.id}/prefabs`).set(other).expect(200);
+    assert.equal(theirs.body.length, 0);
+  });
+});

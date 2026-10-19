@@ -44,6 +44,8 @@ pub enum Op {
     PutProp { prop: StageProp },
     RemoveProp { id: String },
     SetCamera { camera: Camera3D },
+    /// Add or replace one prefab in the scene library (a prefab the agent just made).
+    DefinePrefab { name: String, node: crate::Node3D },
     /// Build a 3D set from a scenario brick (clinic_room, office, empty_studio, iso_city),
     /// keeping any characters already on stage.
     SetStagePreset { kind: crate::ScenarioKind },
@@ -225,7 +227,13 @@ impl Scene {
                 self.transitions.sort_by(|a, b| a.at.total_cmp(&b.at));
             }
             Op::ClearTransitions => self.transitions.clear(),
-            Op::SetLibrary { library } => self.library = library.clone(),
+            Op::SetLibrary { library } => {
+                // Prefabs the agent defined live (define_prefab) survive the editor's refresh.
+                let mut prefabs = std::mem::take(&mut self.library.prefabs);
+                prefabs.extend(library.prefabs.clone());
+                self.library = library.clone();
+                self.library.prefabs = prefabs;
+            }
             Op::SetText { id, text } => {
                 let l = self.layer_mut(id).ok_or_else(|| OpError::UnknownLayer(id.clone()))?;
                 match &mut l.content {
@@ -250,6 +258,9 @@ impl Scene {
                 if stage.props.len() == before {
                     return Err(OpError::UnknownLayer(id.clone()));
                 }
+            }
+            Op::DefinePrefab { name, node } => {
+                self.library.prefabs.insert(name.clone(), node.clone());
             }
             Op::SetStagePreset { kind } => self.stage = Some(crate::merge_preset(*kind, self.stage.as_ref())),
             Op::SetCamera { camera } => self.stage.get_or_insert_with(Stage::default).camera = camera.clone(),

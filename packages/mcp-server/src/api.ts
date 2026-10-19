@@ -36,6 +36,22 @@ export class ProjectApi {
     return (await res.json()) as { family: string; category: string; weights: number[] }[];
   }
 
+  prefabs() {
+    return this.call<{ name: string; kind: string; description: string; parent?: string; version: number }[]>("GET", "/prefabs");
+  }
+
+  prefab(name: string) {
+    return this.call<{ name: string; kind: string; description: string; node: Record<string, unknown> }>("GET", `/prefabs/${name}`);
+  }
+
+  savePrefab(name: string, body: { kind: string; node: Record<string, unknown>; description?: string }) {
+    return this.call<unknown>("PUT", `/prefabs/${name}`, body);
+  }
+
+  clonePrefab(from: string, to: string, description?: string) {
+    return this.call<{ node: Record<string, unknown> }>("POST", `/prefabs/${from}/clone`, { name: to, description });
+  }
+
   consumeFeedback() {
     return this.call<Feedback[]>("POST", "/feedback/consume");
   }

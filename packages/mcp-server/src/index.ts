@@ -88,6 +88,63 @@ server.registerTool(
   }),
 );
 
+const PREFAB_NAME = /^[a-z0-9_]{2,40}$/;
+const PrefabKindEnum = z.enum(["object", "character", "space"]);
+
+server.registerTool(
+  "list_prefabs",
+  {
+    description:
+      "The user's 3D prefab library (objects, procedural characters, whole spaces), shared by all their projects. Reuse before building anything new.",
+    inputSchema: {},
+  },
+  guard(async () => {
+    const rows = await api.prefabs();
+    return text(rows.map((p) => `${p.name} | ${p.kind} | v${p.version}${p.parent ? ` (from ${p.parent})` : ""} | ${p.description}`).join("\n") || "No prefabs yet: build them with save_prefab.");
+  }),
+);
+
+server.registerTool(
+  "get_prefab",
+  { description: "Full procedural tree of a prefab (to tweak it and save_prefab again, or to learn from it).", inputSchema: { name: z.string() } },
+  guard(async ({ name }) => text(JSON.stringify((await api.prefab(name)).node))),
+);
+
+server.registerTool(
+  "save_prefab",
+  {
+    description:
+      "Create or update a reusable 3D prefab in the user's library from a procedural tree (see get_reference: 3D primitives). Use it in a scene with put_prop {prefab: name}. Updating a prefab changes it everywhere it is used.",
+    inputSchema: {
+      name: z.string().regex(PREFAB_NAME),
+      kind: PrefabKindEnum,
+      description: z.string().max(400),
+      node: z.record(z.string(), z.unknown()),
+    },
+  },
+  guard(async ({ name, kind, description, node }) => {
+    await api.savePrefab(name, { kind, node, description });
+    if (bridge.connected) {
+      const res = await bridge.applyOps([{ op: OpName.DefinePrefab, name, node }]);
+      if (!res.ok) return fail(`Saved '${name}', but the engine rejected the tree: ${res.error}`);
+    }
+    return text(`Saved prefab '${name}'. Place it with put_prop {"prefab":"${name}"}.`);
+  }),
+);
+
+server.registerTool(
+  "clone_prefab",
+  {
+    description: "Copy a prefab under a new name (e.g. a blue, lower version of the camilla), then reshape the copy with get_prefab + save_prefab. The original stays untouched.",
+    inputSchema: { from: z.string(), name: z.string().regex(PREFAB_NAME), description: z.string().max(400).optional() },
+  },
+  guard(async ({ from, name, description }) => {
+    const copy = await api.clonePrefab(from, name, description);
+    if (bridge.connected) await bridge.applyOps([{ op: OpName.DefinePrefab, name, node: copy.node }]);
+    return text(`Cloned '${from}' as '${name}'.`);
+  }),
+);
+
 server.registerTool(
   "list_templates",
   {

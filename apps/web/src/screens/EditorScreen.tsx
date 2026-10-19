@@ -27,7 +27,9 @@ const SidebarTab = { Video: "video", Feedback: "feedback" } as const;
 type SidebarTab = (typeof SidebarTab)[keyof typeof SidebarTab];
 
 /** Engine library from the project's bricks: every animation/transition it may use, plus the composition anchors. */
-function libraryOf(build: Build, byKey: Map<string, Brick>) {
+type PrefabRow = { name: string; node: Record<string, unknown> };
+
+function libraryOf(build: Build, byKey: Map<string, Brick>, prefabRows: PrefabRow[]) {
   const animations: Record<string, unknown> = {};
   const transitions: Record<string, unknown> = {};
   for (const b of byKey.values()) {
@@ -36,15 +38,16 @@ function libraryOf(build: Build, byKey: Map<string, Brick>) {
     if (b.slot === BrickSlot.Transition) transitions[b.key] = { kind: b.payload.kind };
   }
   const anchors = (byKey.get(build.composition)?.payload.anchors as Record<string, [number, number]> | undefined) ?? {};
-  return { animations, transitions, anchors };
+  const prefabs = Object.fromEntries(prefabRows.map((p) => [p.name, p.node]));
+  return { animations, transitions, anchors, prefabs };
 }
 
 /** Mirror the bricks the engine already understands into scene ops. */
-function buildToOps(build: Build, byKey: Map<string, Brick>, format: VideoFormat): Op[] {
+function buildToOps(build: Build, byKey: Map<string, Brick>, format: VideoFormat, prefabs: PrefabRow[]): Op[] {
   const [width, height] = FORMAT_SIZE[format];
   const ops: Op[] = [
     { op: OpName.SetSize, width, height },
-    { op: OpName.SetLibrary, library: libraryOf(build, byKey) },
+    { op: OpName.SetLibrary, library: libraryOf(build, byKey, prefabs) },
   ];
   const palette = byKey.get(build.palette);
   if (palette) ops.push({ op: OpName.SetPalette, palette: palette.payload as PalettePayload });
@@ -74,6 +77,7 @@ export function EditorScreen({ id }: { id: string }) {
   const revision = useRef(0);
   const [project, setProject] = useState<Project | null>(null);
   const [bricks, setBricks] = useState<Brick[]>([]);
+  const prefabs = useRef<PrefabRow[]>([]);
   const [openSlot, setOpenSlot] = useState<BrickSlot | null>(null);
   const [tab, setTab] = useState<SidebarTab>(SidebarTab.Video);
   const [error, setError] = useState<string | null>(null);
@@ -107,15 +111,16 @@ export function EditorScreen({ id }: { id: string }) {
   // Load project + its catalog, then start the engine on its scene.
   useEffect(() => {
     let cancelled = false;
-    Promise.all([api.project(id), api.projectBricks(id)])
-      .then(async ([p, b]) => {
+    Promise.all([api.project(id), api.projectBricks(id), api.prefabs(id)])
+      .then(async ([p, b, pf]) => {
+        prefabs.current = pf;
         if (cancelled || !canvasRef.current) return;
         setProject(p);
         setBricks(b);
         revision.current = p.sceneRevision;
         await engineHost.mount(canvasRef.current, p.scene ? JSON.stringify(p.scene) : null);
         if (cancelled || !engineHost.ready) return;
-        engineHost.setBuildOps(buildToOps(p.build, new Map(b.map((x) => [x.key, x])), p.format));
+        engineHost.setBuildOps(buildToOps(p.build, new Map(b.map((x) => [x.key, x])), p.format, prefabs.current));
         agentBridge.setProject(id);
         engineHost.setAudio(p.audio ? mediaUrl(p.audio.url) : null);
         useEditor.setState({ selectedLayerId: null });
@@ -131,10 +136,11 @@ export function EditorScreen({ id }: { id: string }) {
   // The agent changed options or format: reload the project and re-apply them to the engine.
   useEffect(() => {
     agentBridge.onProjectChanged = () => {
-      void Promise.all([api.project(id), api.projectBricks(id)]).then(([p, b]) => {
+      void Promise.all([api.project(id), api.projectBricks(id), api.prefabs(id)]).then(([p, b, pf]) => {
+        prefabs.current = pf;
         setProject(p);
         setBricks(b);
-        if (engineHost.ready) engineHost.setBuildOps(buildToOps(p.build, new Map(b.map((x) => [x.key, x])), p.format));
+        if (engineHost.ready) engineHost.setBuildOps(buildToOps(p.build, new Map(b.map((x) => [x.key, x])), p.format, pf));
       });
     };
     return () => {
@@ -176,12 +182,7 @@ export function EditorScreen({ id }: { id: string }) {
         catalog = new Map(fresh.map((b) => [b.key, b]));
       }
       if (engineHost.ready) {
-        engineHost.setBuildOps(buildToOps(p.build, catalog, p.format));
-        agentBridge.sceneChanged();
-      }
-      // Picking a scenario builds its 3D set (characters already on stage stay).
-      if (slot === BrickSlot.Scenario && typeof value === "string" && engineHost.ready) {
-        engineHost.applyOps([{ op: OpName.SetStagePreset, kind: value.split("/")[1] }]);
+        engineHost.setBuildOps(buildToOps(p.build, catalog, p.format, prefabs.current));
         agentBridge.sceneChanged();
       }
       const names = [value].flat().filter(Boolean).map((k) => catalog.get(k as string)?.name ?? (k as string));
@@ -200,7 +201,7 @@ export function EditorScreen({ id }: { id: string }) {
     if (!project || format === project.format) return;
     const p = await api.updateProject(id, { format });
     setProject(p);
-    engineHost.setBuildOps(buildToOps(p.build, byKey, p.format));
+    engineHost.setBuildOps(buildToOps(p.build, byKey, p.format, prefabs.current));
     agentBridge.sceneChanged();
     logActivity(ActivitySource.User, `Formato: ${format}`);
     // A new frame shape needs a new layout, not a stretched one: let the agent recompose.

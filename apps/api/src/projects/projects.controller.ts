@@ -24,6 +24,8 @@ import { CreateBrickDto, ListBricksQuery } from "../bricks/bricks.dto";
 import { BrickSlot } from "../bricks/brick.enums";
 import { ProjectsService } from "./projects.service";
 import { BridgeHub } from "../bridge-hub";
+import { PrefabsService } from "../prefabs/prefabs.service";
+import { ClonePrefabDto, PREFAB_NAME, SavePrefabDto } from "../prefabs/prefabs.dto";
 import { GenerateService } from "./generate.service";
 import { CreateFeedbackDto, CreateProjectDto, GenerateDto, SaveSceneDto, SetSlotDto, UpdateProjectDto } from "./projects.dto";
 import type { ProjectDocument } from "./project.schema";
@@ -35,7 +37,43 @@ export class ProjectsController {
     private readonly bricks: BricksService,
     private readonly jwt: JwtService,
     private readonly generator: GenerateService,
+    private readonly prefabs: PrefabsService,
   ) {}
+
+  // ── Prefabs: the user's reusable 3D library, reachable from any of their projects ──
+
+  @Get(":id/prefabs")
+  async listPrefabs(@CurrentUser() user: AuthUser, @Param("id") id: string, @Query("full") full?: string) {
+    await this.projects.get(user.id, id);
+    return full ? this.prefabs.all(user.id) : this.prefabs.list(user.id);
+  }
+
+  @Get(":id/prefabs/:name")
+  async getPrefab(@CurrentUser() user: AuthUser, @Param("id") id: string, @Param("name") name: string) {
+    await this.projects.get(user.id, id);
+    return this.prefabs.get(user.id, name);
+  }
+
+  @Put(":id/prefabs/:name")
+  async savePrefab(@CurrentUser() user: AuthUser, @Param("id") id: string, @Param("name") name: string, @Body() dto: SavePrefabDto) {
+    if (!PREFAB_NAME.test(name)) throw new BadRequestException("prefab names are snake_case (2-40 chars)");
+    await this.projects.get(user.id, id);
+    return this.prefabs.save(user.id, name, dto);
+  }
+
+  @Post(":id/prefabs/:name/clone")
+  async clonePrefab(@CurrentUser() user: AuthUser, @Param("id") id: string, @Param("name") name: string, @Body() dto: ClonePrefabDto) {
+    await this.projects.get(user.id, id);
+    return this.prefabs.clone(user.id, name, dto.name, dto.description);
+  }
+
+  @Delete(":id/prefabs/:name")
+  @HttpCode(204)
+  async deletePrefab(@CurrentUser() user: AuthUser, @Param("id") id: string, @Param("name") name: string) {
+    userOnly(user);
+    await this.projects.get(user.id, id);
+    await this.prefabs.remove(user.id, name);
+  }
 
   /** "Generar": run the agent on this project from the editor, no terminal needed. */
   @Post(":id/generate")

@@ -3,6 +3,7 @@
 //! into the scene texture with its own depth buffer, before the 2D layers.
 
 mod model;
+mod procedural;
 
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
@@ -371,6 +372,48 @@ impl StageRenderer {
                 &mut uniforms,
             );
             self.draws.push((FLOOR_KEY.to_owned(), 0, slot, false));
+        }
+
+        // Procedural pieces: one cached mesh per recipe, tinted per piece.
+        for solid in &stage.solids {
+            let key = format!("@proc:{}", solid.geometry.key());
+            if !self.models.contains_key(&key) {
+                let mesh = procedural::build(&solid.geometry);
+                let data = ModelData {
+                    prims: vec![model::PrimData { vertices: mesh.vertices, indices: mesh.indices, color: [1.0; 4], textured: false, node: 0, skin: None }],
+                    nodes: vec![model::NodeData { parent: None, rest: model::Trs { t: Vec3::ZERO, r: glam::Quat::IDENTITY, s: Vec3::ONE } }],
+                    skins: vec![],
+                    clips: vec![],
+                    uses_texture: false,
+                };
+                self.upload(device, &key, data, None);
+            }
+            let slot = push(
+                DrawU { model: solid.transform, tint: rgba(solid.color), flags: [0.0, 0.0, 1.0, 0.0], joints: [identity; MAX_JOINTS] },
+                &mut uniforms,
+            );
+            self.draws.push((key, 0, slot, true));
+        }
+
+        // glTF models placed inside procedural trees (static pose).
+        for placed in &stage.placed {
+            let Some(model) = self.models.get(&placed.model) else { continue };
+            let world = Mat4::from_cols_array_2d(&placed.transform);
+            let globals = model.data.globals(&model.data.pose(None, 0.0));
+            for (i, prim) in model.data.prims.iter().enumerate() {
+                let mut u = DrawU { model: world.to_cols_array_2d(), tint: prim.color, flags: [0.0, if prim.textured { 1.0 } else { 0.0 }, 1.0, 0.0], joints: [identity; MAX_JOINTS] };
+                match prim.skin.and_then(|s| model.data.skins.get(s)) {
+                    Some(skin) => {
+                        u.flags[0] = 1.0;
+                        for (j, (&node, inv)) in skin.joints.iter().zip(&skin.inverse_bind).take(MAX_JOINTS).enumerate() {
+                            u.joints[j] = (globals[node] * *inv).to_cols_array_2d();
+                        }
+                    }
+                    None => u.model = (world * globals[prim.node]).to_cols_array_2d(),
+                }
+                let slot = push(u, &mut uniforms);
+                self.draws.push((placed.model.clone(), i, slot, true));
+            }
         }
 
         for prop in &stage.props {

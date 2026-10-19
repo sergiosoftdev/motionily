@@ -7,6 +7,8 @@ fn prop(id: &str, model: &str, x: f32, z: f32, rotation: f32) -> StageProp {
     StageProp {
         id: id.to_owned(),
         model: model.to_owned(),
+        prefab: None,
+        node: None,
         x: x.into(),
         y: 0.0.into(),
         z: z.into(),

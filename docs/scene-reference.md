@@ -66,6 +66,23 @@ people and objects; put titles/captions on top as 2D layers.
 - Camera moves sell 3D: slow orbits (keyframe `yaw`), push-ins (`distance`), isometric for diagrams.
 - You are not limited to the presets: compose your own sets from any models.
 
+## 3D procedural building (preferred)
+Build objects, characters and whole spaces from primitives, save them as prefabs once
+(save_prefab) and reuse them in any project of the user (put_prop {"prefab":"name"}).
+A node: `{ "shape": …, "position":[x,y,z], "rotation":[x,y,z]°, "scale":[x,y,z], "color": slot|[r,g,b,a],
+"children":[…], "repeat":{"count":[nx,ny,nz],"spacing":[dx,dy,dz]} }`. Color is inherited by children.
+Shapes:
+- `{"shape":"box","size":[w,h,d],"radius":0.05}` (rounded corners), `{"shape":"cylinder","radius":r,"height":h}`,
+  `cone`, `{"shape":"sphere","radius":r}`, `{"shape":"capsule","radius":r,"height":h}`, `{"shape":"torus","radius":r,"tube":t}`,
+  `{"shape":"plane","size":[w,d]}` (floor-like), `{"shape":"extrude","points":[[x,y]…],"depth":d}` (logos, signs, 3D letters),
+  `{"shape":"lathe","points":[[radius,y]…]}` (vases, lamps, bottles).
+- Groups: a node without shape, only children. Prefab inside a tree: `{"prefab":"camilla","position":[…]}`.
+- Characters: `{"rig":{"height":1.7,"skin":[0.95,0.78,0.65,1],"top":"primary","bottom":"text","coat":"surface",
+  "hair":"short|long|bun|cap|none","hair_color":"text","build":1,"action":"idle|walk|wave|point|jump|sit|celebrate|stressed"}}`
+  — stickman style (no hands/feet). Save a character once (kind "character") and reuse it; the prop's `action` overrides.
+- Shapes sit centered on their position (a box of height h at y=h/2 rests on the floor).
+- Clone and reshape: clone_prefab → get_prefab → edit → save_prefab (the original stays).
+
 ## Characters and scenarios
 ```json
 { "id": "doctora", "type": "character", "character": "stickman_plain|stickman_outfit|blob|chibi",

@@ -12,6 +12,7 @@ mod stage;
 mod stage_presets;
 mod layer;
 mod library;
+mod node3d;
 mod ops;
 mod style;
 mod text;
@@ -23,6 +24,7 @@ pub use library::{AnimProp, AnimTemplate, Library, TemplateKey, TransitionKind, 
 pub use text::{AudioTrack, Captions, DrawText, TextAlign, TextRole, TextSpan, Typography, Word};
 pub use transition::TransitionRef;
 pub use character::{draw_character, pose, Action, CharacterKind, CharacterSpec, Hair, Outfit, Pose};
+pub use node3d::{DrawModelNode, DrawSolid, Geometry, HairStyle, Node3D, NodeKind, Repeat, Rig};
 pub use stage_presets::{merge_preset, preset as stage_preset};
 pub use stage::{Camera3D, CameraKind, DrawCamera, DrawProp, DrawStage, PropEnter, Stage, StageProp};
 pub use scenario::{draw_scenario, iso, DrawPoly, Scenario, ScenarioKind};
@@ -139,7 +141,7 @@ impl Scene {
             library: &self.library,
             scene_size: [self.width as f32, self.height as f32],
         };
-        let mut items: Vec<DrawItem> = self.stage.iter().map(|s| DrawItem::Stage(s.draw(t, &palette))).collect();
+        let mut items: Vec<DrawItem> = self.stage.iter().map(|s| DrawItem::Stage(s.draw(t, &palette, &self.library.prefabs))).collect();
         items.extend(self
             .scenario
             .filter(|_| self.stage.is_none())

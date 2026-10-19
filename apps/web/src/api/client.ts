@@ -73,6 +73,8 @@ export const api = {
     call<GoogleFont[]>(HttpMethod.Get, `/fonts?${new URLSearchParams({ q, ...(category ? { category } : {}) })}`),
   createProjectBrick: (id: string, brick: { slot: BrickSlot; id: string; name: string; description?: string; payload?: Record<string, unknown> }) =>
     call<Brick>(HttpMethod.Post, `/projects/${id}/bricks`, brick),
+  /** The user's prefab library with full trees (for the engine). */
+  prefabs: (id: string) => call<{ name: string; node: Record<string, unknown> }[]>(HttpMethod.Get, `/projects/${id}/prefabs?full=1`),
   generate: (id: string, instruction?: string, prefs?: AgentPrefs) =>
     call<GenerateState>(HttpMethod.Post, `/projects/${id}/generate`, { instruction: instruction || undefined, ...prefs }),
   generateStatus: (id: string) => call<GenerateState>(HttpMethod.Get, `/projects/${id}/generate`),

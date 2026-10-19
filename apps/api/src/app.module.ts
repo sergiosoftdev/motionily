@@ -14,6 +14,8 @@ import { ProjectsService } from "./projects/projects.service";
 import { GenerateService } from "./projects/generate.service";
 import { ProjectsController } from "./projects/projects.controller";
 import { MediaController } from "./media";
+import { Prefab, PrefabSchema } from "./prefabs/prefab.schema";
+import { PrefabsService } from "./prefabs/prefabs.service";
 import { FontsController } from "./fonts";
 
 @Module({
@@ -28,6 +30,7 @@ import { FontsController } from "./fonts";
       { name: Brick.name, schema: BrickSchema },
       { name: Project.name, schema: ProjectSchema },
       { name: Feedback.name, schema: FeedbackSchema },
+      { name: Prefab.name, schema: PrefabSchema },
     ]),
     JwtModule.registerAsync({
       global: true,
@@ -39,6 +42,6 @@ import { FontsController } from "./fonts";
     }),
   ],
   controllers: [AuthController, BricksController, ProjectsController, MediaController, FontsController],
-  providers: [BricksService, ProjectsService, GenerateService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
+  providers: [BricksService, ProjectsService, GenerateService, PrefabsService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
 })
 export class AppModule {}

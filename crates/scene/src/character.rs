@@ -36,6 +36,8 @@ pub enum Action {
     Jump,
     Sit,
     Celebrate,
+    /// Hands on the head, fidgeting: overwhelmed.
+    Stressed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -122,6 +124,16 @@ pub fn pose(action: Action, t: f32) -> Pose {
             }
         }
         Action::Sit => Pose { hip_y: 0.2, near_leg: [PI * 0.5, -PI * 0.5], far_leg: [PI * 0.45, -PI * 0.45], near_arm: [0.4, -0.6], far_arm: [0.3, -0.6], ..rest },
+        Action::Stressed => Pose {
+            hip_y: (t * TAU * 3.0).sin().abs() * -0.006,
+            lean: 0.12 + w(1.5) * 0.03,
+            head: -0.1 + w(3.0) * 0.06,
+            near_arm: [PI * 0.82 + w(3.0) * 0.08, -2.2],
+            far_arm: [PI * 0.82 - w(3.0) * 0.08, -2.2],
+            near_leg: [0.05 + w(1.5) * 0.04, 0.0],
+            far_leg: [-0.05, 0.0],
+            squash: 1.0,
+        },
         Action::Celebrate => Pose {
             hip_y: -w(2.0).abs() * 0.05,
             near_arm: [PI * 0.8 + w(2.0) * 0.15, 0.2],
