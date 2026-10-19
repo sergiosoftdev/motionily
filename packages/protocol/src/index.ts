@@ -132,6 +132,10 @@ export const OpName = {
   SetStage: "set_stage",
   DefinePrefab: "define_prefab",
   PutProp: "put_prop",
+  SetProp: "set_prop",
+  SetTiming: "set_timing",
+  SetText: "set_text",
+  RemoveLayer: "remove_layer",
 } as const;
 export type OpName = (typeof OpName)[keyof typeof OpName];
 

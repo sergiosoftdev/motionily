@@ -463,6 +463,12 @@ class EngineHost {
     return this.engine?.pick(useEditor.getState().time, x, y);
   }
 
+  /** A layer's JSON (to edit it directly without the agent). */
+  layer(id: string): Record<string, unknown> | undefined {
+    const json = this.engine?.layerJson(id);
+    return json ? (JSON.parse(json) as Record<string, unknown>) : undefined;
+  }
+
   layerBounds(id: string): number[] | undefined {
     const b = this.engine?.layerBounds(id, useEditor.getState().time);
     return b ? Array.from(b) : undefined;

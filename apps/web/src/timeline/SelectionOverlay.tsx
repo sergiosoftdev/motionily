@@ -1,10 +1,15 @@
-import { useEffect, useState, type RefObject } from "react";
+import { useEffect, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
+import { OpName } from "@motionily/protocol";
+import { apply, commit, moveOps, preview, resizeOps } from "../editing/direct";
 import { api } from "../api/client";
 import { engineHost } from "../engine/host";
 import { ActivitySource, logActivity, useEditor } from "../store";
 import { GenerateEventKind, GenerateStatus, loadPrefs, TOOL_LABEL, type GenerateState } from "../components/GeneratePanel";
 
 const POLL_MS = 1200;
+/** Pointer travel (px) before a press on the selection counts as a drag, not a click. */
+const DRAG_THRESHOLD = 3;
+const MIN_RESIZE = 0.1;
 
 /**
  * Click an object in the preview to select it, then ask the agent about it.
@@ -18,6 +23,26 @@ export function SelectionOverlay({ canvas, projectId }: { canvas: RefObject<HTML
   /** Agent run started from this popover, shown live next to the object. */
   const [run, setRun] = useState<GenerateState | null>(null);
   const running = run?.status === GenerateStatus.Running;
+  /** Bumped while dragging so the box follows the edit. */
+  const [tick, setTick] = useState(0);
+  const [editingText, setEditingText] = useState<string | null>(null);
+
+  // Keyboard: Delete removes the selected layer, Escape deselects. Never while typing.
+  useEffect(() => {
+    if (!selected) return;
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement;
+      if (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable) return;
+      if (e.key === "Escape") useEditor.setState({ selectedLayerId: null });
+      if (e.key === "Delete" || e.key === "Backspace") {
+        e.preventDefault();
+        apply([{ op: OpName.RemoveLayer, id: selected }], `Borra ${selected}`);
+        useEditor.setState({ selectedLayerId: null });
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selected]);
 
   useEffect(() => {
     if (!running) return;
@@ -50,9 +75,48 @@ export function SelectionOverlay({ canvas, projectId }: { canvas: RefObject<HTML
     const ky = c.clientHeight / sh;
     const [cx = 0, cy = 0, w = 0, h = 0, rot = 0] = b;
     setBox({ left: c.offsetLeft + (cx - w / 2) * kx, top: c.offsetTop + (cy - h / 2) * ky, width: w * kx, height: h * ky, rotation: rot });
-  }, [canvas, selected, time]);
+  }, [canvas, selected, time, tick]);
 
   if (!selected || !box) return null;
+
+  /** Drag the selection: move (body) or resize (corner handle). Pure local edit, no agent. */
+  const drag = (resize: boolean) => (e: ReactPointerEvent) => {
+    const c = canvas.current;
+    const base = engineHost.layer(selected);
+    if (!c || !base) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const [sw] = engineHost.sceneSize();
+    const k = c.clientWidth / sw;
+    const [x0, y0] = [e.clientX, e.clientY];
+    const b = engineHost.layerBounds(selected) ?? [0, 0, 1, 1];
+    const size: [number, number] = [b[2] ?? 1, b[3] ?? 1];
+    const diag0 = Math.hypot(box.width, box.height);
+    let moved = false;
+    const move = (ev: PointerEvent) => {
+      const [dx, dy] = [ev.clientX - x0, ev.clientY - y0];
+      if (!moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+      moved = true;
+      if (resize) {
+        const f = Math.max(MIN_RESIZE, (diag0 + (dx + dy) / Math.SQRT2) / diag0);
+        preview(resizeOps(selected, base, f, size));
+      } else {
+        preview(moveOps(selected, base, dx / k, dy / k));
+      }
+      setTick((t) => t + 1);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      if (moved) commit(resize ? `Redimensiona ${selected}` : `Mueve ${selected}`);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up, { once: true });
+  };
+
+  const layerText = () => {
+    const l = engineHost.layer(selected);
+    return l?.type === "text" ? String(l.text ?? "") : null;
+  };
 
   const send = async () => {
     const t = text.trim();
@@ -81,9 +145,35 @@ export function SelectionOverlay({ canvas, projectId }: { canvas: RefObject<HTML
   return (
     <>
       <div
-        className="pointer-events-none absolute rounded-sm ring-2 ring-sky-400"
+        className="absolute cursor-move rounded-sm ring-2 ring-sky-400"
         style={{ ...box, transform: `rotate(${box.rotation}rad)` }}
-      />
+        onPointerDown={drag(false)}
+        onDoubleClick={() => setEditingText(layerText())}
+        title="Arrastra para mover · doble clic para editar el texto · Supr para borrar"
+      >
+        <span
+          className="absolute -right-1.5 -bottom-1.5 size-3 cursor-nwse-resize rounded-sm bg-white ring-2 ring-sky-400"
+          onPointerDown={drag(true)}
+        />
+        {editingText !== null && (
+          <textarea
+            autoFocus
+            value={editingText}
+            onChange={(e) => setEditingText(e.target.value)}
+            onPointerDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") setEditingText(null);
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                if (editingText.trim()) apply([{ op: OpName.SetText, id: selected, text: editingText }], `Texto de ${selected}: ${editingText}`);
+                setEditingText(null);
+              }
+            }}
+            onBlur={() => setEditingText(null)}
+            className="absolute inset-0 resize-none bg-neutral-950/90 p-1 text-sm text-white focus:outline-none"
+          />
+        )}
+      </div>
       <form
         className="absolute z-10 flex w-72 items-center gap-1 rounded-xl bg-neutral-900/95 p-1.5 shadow-xl ring-1 ring-white/10"
         style={{ left: Math.max(8, box.left + box.width / 2 - 144), top: box.top + box.height + 8 }}

@@ -1,9 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { OpName } from "@motionily/protocol";
+import { commit, preview } from "../editing/direct";
 import { engineHost } from "../engine/host";
 import { agentBridge } from "../bridge";
 import { useEditor } from "../store";
 import { loadPeaks } from "./waveform";
+
+const LayerDrag = { Move: "move", TrimIn: "trim_in", TrimOut: "trim_out" } as const;
+type LayerDrag = (typeof LayerDrag)[keyof typeof LayerDrag];
+/** Shortest a layer can be trimmed to, in seconds. */
+const MIN_LAYER = 0.1;
 
 type AudioTrack = { start: number; trim_in: number; trim_out: number | null };
 type SceneView = {
@@ -90,6 +96,34 @@ export function Timeline({ audioUrl }: { audioUrl: string | null }) {
     window.addEventListener("pointerup", up, { once: true });
   };
 
+  /** Move a layer in time or trim its in/out, by hand (no agent). Keyframes ride along with `start`. */
+  const dragLayer = (id: string, start: number, end: number, kind: LayerDrag) => (e: ReactPointerEvent) => {
+    e.stopPropagation();
+    if (!area.current) return;
+    const width = area.current.getBoundingClientRect().width;
+    const x0 = e.clientX;
+    let last: [number, number] = [start, end];
+    let moved = false;
+    const move = (ev: PointerEvent) => {
+      const dt = (ev.clientX - x0) / pxPerSec(width);
+      if (!moved && Math.abs(ev.clientX - x0) < 3) return;
+      moved = true;
+      if (kind === LayerDrag.Move) {
+        const s = Math.min(Math.max(0, start + dt), duration - (end - start));
+        last = [s, s + (end - start)];
+      }
+      if (kind === LayerDrag.TrimIn) last = [Math.min(Math.max(0, start + dt), end - MIN_LAYER), end];
+      if (kind === LayerDrag.TrimOut) last = [start, Math.max(start + MIN_LAYER, Math.min(duration, end + dt))];
+      preview([{ op: OpName.SetTiming, id, start: last[0], end: last[1] }]);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      if (moved) commit(`Tiempo de ${id}: ${last[0].toFixed(2)}–${last[1].toFixed(2)} s`);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up, { once: true });
+  };
+
   const ticks = useMemo(() => {
     const step = duration > 30 ? 5 : duration > 10 ? 2 : 1;
     return Array.from({ length: Math.floor(duration / step) + 1 }, (_, i) => i * step);
@@ -154,7 +188,7 @@ export function Timeline({ audioUrl }: { audioUrl: string | null }) {
           <Track key={l.id} label={l.id}>
             <button
               type="button"
-              onPointerDown={(e) => e.stopPropagation()}
+              onPointerDown={dragLayer(l.id, start, end, LayerDrag.Move)}
               onClick={() => {
                 useEditor.setState({ selectedLayerId: l.id });
                 // Land a bit after the start, once entrance animations have revealed it.
@@ -166,6 +200,8 @@ export function Timeline({ audioUrl }: { audioUrl: string | null }) {
               style={{ left: pct(start), width: pct(Math.max(0.05, end - start)) }}
             >
               {l.type === "text" && l.text ? `“${l.text}”` : l.id}
+              <span className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize hover:bg-sky-400/60" onPointerDown={dragLayer(l.id, start, end, LayerDrag.TrimIn)} />
+              <span className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize hover:bg-sky-400/60" onPointerDown={dragLayer(l.id, start, end, LayerDrag.TrimOut)} />
             </button>
           </Track>
         );
