@@ -86,7 +86,7 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
     setStep(Step.Thinking);
     setError(null);
     try {
-      const { concepts: next, usage } = await api.concepts(brandId, { idea: fullIdea(), format, count, steer: again ? steer : undefined, avoid: again ? seen : undefined, references: refs.refs, ...prefs });
+      const { concepts: next, usage } = await api.concepts(brandId, { idea: fullIdea(), format, count, steer: again ? steer : undefined, avoid: again ? seen : undefined, references: refs.refs, model: prefs.model, effort: prefs.effort });
       setConcepts(next);
       setPitchCost(usage ? usageLine(usage) : null);
       setSeen((s) => [...s, ...next.map((c) => c.title)]);
