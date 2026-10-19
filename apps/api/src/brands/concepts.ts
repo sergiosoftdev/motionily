@@ -1,11 +1,12 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { copyFileSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, extname, join } from "node:path";
 import { BadGatewayException, Injectable } from "@nestjs/common";
 import { Type } from "class-transformer";
-import { IsArray, IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from "class-validator";
-import { AgentEffort, AgentModel } from "../projects/projects.dto";
+import { ArrayMaxSize, IsArray, IsEnum, Matches, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from "class-validator";
+import { AgentEffort, AgentModel, MAX_REFERENCES } from "../projects/projects.dto";
+import { MEDIA_DIR, MEDIA_PATH } from "../media";
 import { VideoFormat, type AgentRunUsage } from "../projects/project.schema";
 import { usageFrom } from "../projects/generate.service";
 
@@ -38,6 +39,8 @@ export class ConceptsRequestDto {
   @IsOptional() @IsArray() @IsString({ each: true }) avoid?: string[];
   @IsOptional() @IsEnum(AgentModel) model?: AgentModel;
   @IsOptional() @IsEnum(AgentEffort) effort?: AgentEffort;
+  /** Reference images the user attached to the idea (media paths). */
+  @IsOptional() @IsArray() @ArrayMaxSize(MAX_REFERENCES) @Matches(MEDIA_PATH, { each: true }) references?: string[];
 }
 
 type BrandContext = { name: string; notes: string; palettes: unknown[]; assets: { kind: string; name: string; description: string }[] };
@@ -80,13 +83,14 @@ export class ConceptsService {
       dto.steer?.trim() && `Steer this round: ${dto.steer.trim()}`,
       dto.avoid?.length && `Already pitched (bring different ones): ${dto.avoid.join(" | ")}`,
       ...kit,
+      dto.references?.length && `The user attached ${dto.references.length} reference image(s): ${dto.references.map((_, i) => `ref-${i + 1}${extname(dto.references![i]!)}`).join(", ")} in the current folder. Read each one first and let them shape the concepts.`,
       `Give exactly ${dto.count} concept(s).`,
     ]
       .filter(Boolean)
       .join("\n");
     const model = dto.model ?? AgentModel.Sonnet;
     const effort = dto.effort ?? AgentEffort.Low;
-    const { text: out, usage } = await this.run(prompt, model, effort);
+    const { text: out, usage } = await this.run(prompt, model, effort, dto.references ?? []);
     const json = out.slice(out.indexOf("{"), out.lastIndexOf("}") + 1);
     try {
       const concepts = (JSON.parse(json) as { concepts: ConceptDto[] }).concepts;
@@ -96,13 +100,15 @@ export class ConceptsService {
     }
   }
 
-  private run(prompt: string, model: AgentModel, effort: AgentEffort): Promise<{ text: string; usage: Parameters<typeof usageFrom>[0] | null }> {
+  private run(prompt: string, model: AgentModel, effort: AgentEffort, references: string[]): Promise<{ text: string; usage: Parameters<typeof usageFrom>[0] | null }> {
     // Empty folder: no repo CLAUDE.md or tools leak into the pitch.
     const cwd = mkdtempSync(join(tmpdir(), "motionily-pitch-"));
+    // Reference images go next to it so Claude can Read (see) them; nothing else is allowed.
+    references.forEach((ref, i) => copyFileSync(join(MEDIA_DIR, basename(ref)), join(cwd, `ref-${i + 1}${extname(ref)}`)));
     return new Promise((resolve, reject) => {
       const child = spawn(
         process.env.CLAUDE_BIN ?? "claude",
-        ["-p", prompt, "--append-system-prompt", SYSTEM, "--strict-mcp-config", "--allowedTools", "", "--output-format", "json", "--model", model, "--effort", effort],
+        ["-p", prompt, "--append-system-prompt", SYSTEM, "--strict-mcp-config", "--allowedTools", references.length ? "Read" : "", "--output-format", "json", "--model", model, "--effort", effort],
         { cwd, stdio: ["ignore", "pipe", "pipe"], env: process.env },
       );
       let out = "";

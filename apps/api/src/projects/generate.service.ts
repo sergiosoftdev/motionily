@@ -111,7 +111,7 @@ export class GenerateService {
       : { status: GenerateStatus.Idle, events: [], summary: null, usage: null };
   }
 
-  async start(ownerId: Types.ObjectId, email: string, projectId: string, { instruction, model, effort }: GenerateDto) {
+  async start(ownerId: Types.ObjectId, email: string, projectId: string, { instruction, model, effort, references }: GenerateDto) {
     const project = await this.projects.get(ownerId, projectId);
     if (this.runs.get(project.id)?.status === GenerateStatus.Running) {
       throw new ConflictException("the agent is already working on this project");
@@ -136,9 +136,10 @@ export class GenerateService {
       }),
     );
 
-    const prompt = instruction?.trim()
+    const refs = references?.length ? ` The user attached reference images; look at each with view_image first: ${references.join(", ")}.` : "";
+    const prompt = (instruction?.trim()
       ? `The user asks: "${instruction.trim()}". Apply it to the current video (read get_project and get_scene first; finish with review_video and fix what it shows).`
-      : "Design and build the video for this project from its brief.";
+      : "Design and build the video for this project from its brief.") + refs;
     const child = spawn(
       process.env.CLAUDE_BIN ?? "claude",
       [

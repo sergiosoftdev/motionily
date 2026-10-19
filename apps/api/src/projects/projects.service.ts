@@ -47,7 +47,7 @@ export class ProjectsService {
     const build = this.buildFromKit(kit.key, kit.payload as KitPayload);
     await this.assertBricksExist(build);
     const brandId = dto.brandId ? new Types.ObjectId(dto.brandId) : undefined;
-    return this.projects.create({ ownerId, name: dto.name, brief: dto.brief ?? "", wantsScript: dto.wantsScript ?? false, voiceScript: dto.voiceScript ?? "", build, format: dto.format, brandId });
+    return this.projects.create({ ownerId, name: dto.name, brief: dto.brief ?? "", wantsScript: dto.wantsScript ?? false, voiceScript: dto.voiceScript ?? "", references: dto.references ?? [], build, format: dto.format, brandId });
   }
 
   /** The user's hidden workshop video, where the agent edits prefabs with a live preview. */

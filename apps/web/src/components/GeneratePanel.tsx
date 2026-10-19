@@ -1,6 +1,7 @@
 import type { AgentRunUsage } from "@motionily/protocol";
 import { GENERATE_EVENT, takePipeline, VideoPipeline } from "../pipeline";
 import { useEffect, useRef, useState } from "react";
+import { ReferenceStrip, useReferences } from "./References";
 import { api } from "../api/client";
 
 export const GenerateStatus = { Idle: "idle", Running: "running", Done: "done", Failed: "failed", Stopped: "stopped" } as const;
@@ -104,6 +105,7 @@ export const TOOL_LABEL: Record<string, string> = {
 export function GeneratePanel({ projectId, hasScene, runs = [] }: { projectId: string; hasScene: boolean; runs?: AgentRunUsage[] }) {
   const [state, setState] = useState<GenerateState | null>(null);
   const [instruction, setInstruction] = useState("");
+  const refs = useReferences();
   const [error, setError] = useState<string | null>(null);
   const [prefs, setPrefs] = useState<AgentPrefs>(loadPrefs);
   const updatePrefs = (p: Partial<AgentPrefs>) => {
@@ -136,7 +138,8 @@ export function GeneratePanel({ projectId, hasScene, runs = [] }: { projectId: s
   const start = async () => {
     setError(null);
     try {
-      setState(await api.generate(projectId, instruction, prefs));
+      setState(await api.generate(projectId, instruction, prefs, refs.refs));
+      refs.clear();
       setInstruction("");
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -155,10 +158,12 @@ export function GeneratePanel({ projectId, hasScene, runs = [] }: { projectId: s
           value={instruction}
           onChange={(e) => setInstruction(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && void start()}
-          placeholder="Pide un cambio: «más ritmo», «título más grande»…"
+          placeholder="Pide un cambio: «más ritmo», «título más grande»… (⌘V pega imágenes)"
           className="rounded-lg bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-white/40"
+          {...refs.handlers}
         />
       )}
+      {!running && <ReferenceStrip r={refs} compact />}
       {!running && (
         <div className="flex gap-2 text-xs">
           <select

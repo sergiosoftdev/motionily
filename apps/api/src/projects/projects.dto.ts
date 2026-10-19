@@ -1,5 +1,9 @@
+import { MEDIA_PATH } from "../media";
 import {
   Allow,
+  ArrayMaxSize,
+  IsArray,
+  Matches,
   IsMongoId,
   IsBoolean,
   IsEnum,
@@ -14,6 +18,9 @@ import {
 } from "class-validator";
 import { FeedbackKind, VideoFormat } from "./project.schema";
 
+/** Reference images per prompt. */
+export const MAX_REFERENCES = 8;
+
 export class CreateProjectDto {
   @IsString() @MinLength(1) @MaxLength(80) name: string;
   /** Optional starting point; by default the agent designs the look itself from the brief. */
@@ -22,6 +29,7 @@ export class CreateProjectDto {
   @IsOptional() @IsBoolean() wantsScript?: boolean;
   /** ElevenLabs script chosen in the pitch; the video is built on it. */
   @IsOptional() @IsString() @MaxLength(8000) voiceScript?: string;
+  @IsOptional() @IsArray() @ArrayMaxSize(MAX_REFERENCES) @Matches(MEDIA_PATH, { each: true }) references?: string[];
   @IsOptional() @IsEnum(VideoFormat) format?: VideoFormat;
   /** Project (brand kit) to put the video in; defaults to the user's first project. */
   @IsOptional() @IsMongoId() brandId?: string;
@@ -77,4 +85,6 @@ export class GenerateDto {
   @IsOptional() @IsString() @MaxLength(2000) instruction?: string;
   @IsOptional() @IsEnum(AgentModel) model?: AgentModel;
   @IsOptional() @IsEnum(AgentEffort) effort?: AgentEffort;
+  /** Images pasted with the request. */
+  @IsOptional() @IsArray() @ArrayMaxSize(MAX_REFERENCES) @Matches(MEDIA_PATH, { each: true }) references?: string[];
 }

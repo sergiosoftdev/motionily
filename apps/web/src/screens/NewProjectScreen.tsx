@@ -5,6 +5,7 @@ import { Logo } from "../components/Logo";
 import { api, type Concept } from "../api/client";
 import { href, navigate, BrandTab, RouteName } from "../router";
 import { requestPipeline, VideoPipeline } from "../pipeline";
+import { ReferenceStrip, useReferences } from "../components/References";
 import { AgentEffort, AgentModel, EFFORT_LABEL, loadPrefs, MODEL_LABEL, savePrefs, usageLine, type AgentPrefs } from "../components/GeneratePanel";
 
 const Step = {
@@ -44,6 +45,7 @@ const THINKING_LINE_MS = 2600;
 export function NewProjectScreen({ brandId }: { brandId: string }) {
   const [step, setStep] = useState<Step>(Step.Idea);
   const [idea, setIdea] = useState("");
+  const refs = useReferences();
   const [format, setFormat] = useState<VideoFormat>(VideoFormat.Vertical);
   const [count, setCount] = useState(3);
   const [concepts, setConcepts] = useState<Concept[]>([]);
@@ -65,7 +67,7 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
     setStep(Step.Thinking);
     setError(null);
     try {
-      const { concepts: next, usage } = await api.concepts(brandId, { idea, format, count, steer: again ? steer : undefined, avoid: again ? seen : undefined, ...prefs });
+      const { concepts: next, usage } = await api.concepts(brandId, { idea, format, count, steer: again ? steer : undefined, avoid: again ? seen : undefined, references: refs.refs, ...prefs });
       setConcepts(next);
       setPitchCost(usage ? usageLine(usage) : null);
       setSeen((s) => [...s, ...next.map((c) => c.title)]);
@@ -82,7 +84,7 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
     setBusy(true);
     setError(null);
     try {
-      const p = await api.createProject(chosen.title.slice(0, 80), chosen.prompt, format, brandId, chosen.voiceover);
+      const p = await api.createProject(chosen.title.slice(0, 80), chosen.prompt, format, brandId, chosen.voiceover, refs.refs);
       if (voice) await api.uploadAudio(p.id, voice);
       requestPipeline(p.id, voice ? VideoPipeline.TranscribeThenGenerate : VideoPipeline.Generate);
       navigate({ name: RouteName.Editor, id: p.id });
@@ -115,10 +117,12 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
               onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && idea.trim() && setStep(Step.Format)}
               rows={5}
               autoFocus
-              placeholder="Ej.: reel para fisios que pierden huecos por cancelaciones de última hora; con la lista de espera se rellenan solos. Cercano, con humor."
+              placeholder="Ej.: reel para fisios que pierden huecos por cancelaciones de última hora; con la lista de espera se rellenan solos. Cercano, con humor. (Pega o arrastra imágenes de referencia)"
+              {...refs.handlers}
               className="w-full resize-none rounded-2xl bg-white/5 px-6 py-5 text-lg leading-relaxed ring-1 ring-white/10 transition placeholder:text-neutral-600 focus:bg-white/[0.07] focus:outline-none focus:ring-white/30"
             />
-            <Next disabled={!idea.trim()} onClick={() => setStep(Step.Format)} hint="⌘ + Enter" />
+            <ReferenceStrip r={refs} />
+            <Next disabled={!idea.trim() || refs.uploading} onClick={() => setStep(Step.Format)} hint="⌘ + Enter" />
           </Panel>
         )}
 

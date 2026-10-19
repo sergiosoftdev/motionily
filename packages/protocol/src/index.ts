@@ -243,6 +243,8 @@ export type Project = {
   brief: string;
   wantsScript: boolean;
   voiceScript: string;
+  /** Reference images attached to the idea (media paths). */
+  references: string[];
   build: Build;
   format: VideoFormat;
   /** Project (brand kit) the video belongs to. */

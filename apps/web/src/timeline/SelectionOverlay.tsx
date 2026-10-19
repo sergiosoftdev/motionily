@@ -5,6 +5,7 @@ import {
   type RefObject,
 } from "react";
 import { OpName } from "@motionily/protocol";
+import { ReferenceStrip, useReferences } from "../components/References";
 import { apply, commit, moveOps, preview, resizeOps } from "../editing/direct";
 import {
   groupLayerIds,
@@ -61,6 +62,7 @@ export function SelectionOverlay({
   /** Bumped while dragging so the box follows the edit. */
   const [tick, setTick] = useState(0);
   const [editingText, setEditingText] = useState<string | null>(null);
+  const refs = useReferences();
 
   // Keyboard: Delete removes the selected layer, Escape deselects. Never while typing.
   useEffect(() => {
@@ -207,8 +209,10 @@ export function SelectionOverlay({
             ? `Only about group '${group}' (around ${time.toFixed(1)}s): ${t}. Read it with get_group ${group} and change only that group — to redesign it, remove_group ${group} and add new layers with "group":"${group}" in the same time span and area. Do not touch other layers. Then render_frames at ${time.toFixed(1)}s to check.`
             : `Only about layer '${selected}' (around ${time.toFixed(1)}s): ${t}. Read it with get_layer ${selected}, change just that layer, then render_frames at ${time.toFixed(1)}s to check.`,
           loadPrefs(),
+          refs.refs,
         ),
       );
+      refs.clear();
     } catch (e) {
       // Agent busy or unavailable: keep the request as a comment for the next run.
       await api.addComment(projectId, t, time, label).catch(() => undefined);
@@ -263,7 +267,8 @@ export function SelectionOverlay({
         )}
       </div>
       <form
-        className="absolute z-10 flex w-72 items-center gap-1 rounded-xl bg-neutral-900/95 p-1.5 shadow-xl ring-1 ring-white/10"
+        className="absolute z-10 flex w-80 flex-wrap items-center gap-1 rounded-xl bg-neutral-900/95 p-1.5 shadow-xl ring-1 ring-white/10"
+        {...refs.handlers}
         style={{
           left: Math.max(8, box.left + box.width / 2 - 144),
           top: box.top + box.height + 8,
@@ -290,6 +295,7 @@ export function SelectionOverlay({
           }
           className="min-w-0 flex-1 bg-transparent px-1 text-xs placeholder:text-neutral-500 focus:outline-none"
         />
+        {!running && <ReferenceStrip r={refs} compact />}
       </form>
       {run && run.status !== GenerateStatus.Idle && (
         <div

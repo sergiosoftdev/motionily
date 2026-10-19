@@ -182,6 +182,22 @@ server.registerTool(
 );
 
 server.registerTool(
+  "view_image",
+  {
+    description: "Look at a reference image the user attached (a /media/… path from the request or get_project). Use it to understand what they mean; it is not brand material unless they say so.",
+    inputSchema: { url: z.string().regex(/^\/media\/[a-f0-9-]{36}\.[a-z0-9]{1,5}$/) },
+  },
+  async ({ url }) => {
+    try {
+      const img = await api.media(url);
+      return { content: [{ type: "image" as const, data: img.bytes.toString("base64"), mimeType: img.mime }] };
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+  },
+);
+
+server.registerTool(
   "view_asset",
   {
     description: "Look at one brand image (logo, product screenshot…) to understand it before recreating or showing it. Put it in the video as an image layer with its src.",
@@ -358,6 +374,7 @@ function describeProject(p: Project): string {
   const lines = [`Project "${p.name}"`, `Brief: ${p.brief.trim() || "(empty — ask the user what the video is about)"}`, ""];
   lines.push(`Format: ${p.format}`);
   if (p.voiceScript.trim()) lines.push(`Voice script (ElevenLabs; the video is built on it):\n${p.voiceScript.trim()}`);
+  if (p.references?.length) lines.push(`Reference images from the user (look with view_image): ${p.references.join(", ")}`);
   lines.push(p.audio ? `Voice uploaded: ${p.audio.name} (captions carry word timings).` : "Voice: not uploaded yet.");
   lines.push("No presets exist: you design and animate everything yourself (palette, font, keyframes, cuts, 3D). See get_reference.");
   lines.push(p.scene ? `Scene: exists (rev ${p.sceneRevision}); see get_scene.` : "Scene: empty. Build the first cut with load_scene.");

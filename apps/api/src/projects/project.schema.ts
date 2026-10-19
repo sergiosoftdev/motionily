@@ -54,6 +54,8 @@ export class Project {
   @Prop({ default: false }) wantsScript: boolean;
   /** Voice-over script the agent wrote for the final cut. */
   @Prop({ default: "" }) voiceScript: string;
+  /** Reference images the user attached to the idea (media paths). */
+  @Prop({ type: [String], default: [] }) references: string[];
   @Prop({ type: MongooseSchema.Types.Mixed, required: true }) build: Build;
   @Prop({ required: true, enum: VideoFormat, type: String, default: VideoFormat.Vertical }) format: VideoFormat;
   /** Engine scene (see crates/scene). Null until the agent builds the first cut. */

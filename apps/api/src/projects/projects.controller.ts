@@ -236,6 +236,7 @@ export class ProjectsController {
       brief: p.brief,
       wantsScript: p.wantsScript,
       voiceScript: p.voiceScript,
+      references: p.references ?? [],
       build: p.build,
       format: p.format,
       brandId: p.brandId?.toString() ?? null,

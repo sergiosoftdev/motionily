@@ -16,7 +16,7 @@ export type PrefabSummary = { name: string; kind: PrefabKind; description: strin
 
 export type ConceptBeat = { at: string; what: string };
 export type Concept = { title: string; hook: string; direction: string; beats: ConceptBeat[]; voiceover: string; prompt: string };
-export type ConceptsRequest = { idea: string; format: VideoFormat; count: number; steer?: string; avoid?: string[]; model?: string; effort?: string };
+export type ConceptsRequest = { idea: string; format: VideoFormat; count: number; steer?: string; avoid?: string[]; model?: string; effort?: string; references?: string[] };
 export type GoogleFont = { family: string; category: string; weights: number[]; popularity: number };
 
 export class ApiError extends Error {
@@ -69,8 +69,8 @@ export const api = {
     call<Brick[]>(HttpMethod.Get, `/bricks?${new URLSearchParams(q as Record<string, string>)}`),
   projects: () => call<ProjectListItem[]>(HttpMethod.Get, "/projects"),
   project: (id: string) => call<Project>(HttpMethod.Get, `/projects/${id}`),
-  createProject: (name: string, brief: string, format: VideoFormat, brandId: string, voiceScript = "") =>
-    call<Project>(HttpMethod.Post, "/projects", { name, brief, format, brandId, voiceScript, wantsScript: !!voiceScript }),
+  createProject: (name: string, brief: string, format: VideoFormat, brandId: string, voiceScript = "", references: string[] = []) =>
+    call<Project>(HttpMethod.Post, "/projects", { name, brief, format, brandId, voiceScript, wantsScript: !!voiceScript, references }),
   concepts: (brandId: string, req: ConceptsRequest) => call<{ concepts: Concept[]; usage: AgentRunUsage | null }>(HttpMethod.Post, `/brands/${brandId}/concepts`, req),
   brands: () => call<BrandSummary[]>(HttpMethod.Get, "/brands"),
   brand: (id: string) => call<BrandKit>(HttpMethod.Get, `/brands/${id}`),
@@ -110,8 +110,10 @@ export const api = {
     call<Brick>(HttpMethod.Post, `/projects/${id}/bricks`, brick),
   /** The user's prefab library with full trees (for the engine). */
   prefabs: (id: string) => call<{ name: string; node: Record<string, unknown> }[]>(HttpMethod.Get, `/projects/${id}/prefabs?full=1`),
-  generate: (id: string, instruction?: string, prefs?: AgentPrefs) =>
-    call<GenerateState>(HttpMethod.Post, `/projects/${id}/generate`, { instruction: instruction || undefined, ...prefs }),
+  generate: (id: string, instruction?: string, prefs?: AgentPrefs, references: string[] = []) =>
+    call<GenerateState>(HttpMethod.Post, `/projects/${id}/generate`, { instruction: instruction || undefined, ...prefs, references: references.length ? references : undefined }),
+  /** A reference image pasted into a prompt; returns its media path. */
+  uploadReference: (file: File) => upload<{ url: string }>("/references", file),
   generateStatus: (id: string) => call<GenerateState>(HttpMethod.Get, `/projects/${id}/generate`),
   stopGenerate: (id: string) => call<GenerateState>(HttpMethod.Delete, `/projects/${id}/generate`),
   uploadAudio: (id: string, file: File) => upload<Project>(`/projects/${id}/audio`, file),

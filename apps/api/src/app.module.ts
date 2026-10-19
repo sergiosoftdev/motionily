@@ -13,7 +13,7 @@ import { Feedback, FeedbackSchema, Project, ProjectSchema } from "./projects/pro
 import { ProjectsService } from "./projects/projects.service";
 import { GenerateService } from "./projects/generate.service";
 import { ProjectsController } from "./projects/projects.controller";
-import { MediaController } from "./media";
+import { MediaController, ReferencesController } from "./media";
 import { Brand, BrandAsset, BrandAssetSchema, BrandSchema } from "./brands/brand.schema";
 import { BrandsService } from "./brands/brands.service";
 import { BrandsController } from "./brands/brands.controller";
@@ -48,7 +48,7 @@ import { FontsController } from "./fonts";
       }),
     }),
   ],
-  controllers: [AuthController, BricksController, ProjectsController, MediaController, FontsController, BrandsController, PrefabsController],
+  controllers: [AuthController, BricksController, ProjectsController, MediaController, ReferencesController, FontsController, BrandsController, PrefabsController],
   providers: [BricksService, ProjectsService, GenerateService, PrefabsService, BrandsService, ConceptsService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
 })
 export class AppModule {}
