@@ -5,10 +5,14 @@ import { BrandTab, href, navigate, RouteName } from "../router";
 import { MotionilyLayout } from "../shell/MotionilyLayout";
 import { Thumb } from "../components/style/Thumb";
 
+/** Images and the clip formats video layers decode (mp4, webm, mov). */
+const ASSET_ACCEPT = "image/*,video/mp4,video/webm,video/quicktime";
+
 const KIND_LABEL: Record<AssetKind, string> = {
   [AssetKind.Logo]: "Logo",
   [AssetKind.Screenshot]: "Captura",
   [AssetKind.Photo]: "Foto",
+  [AssetKind.Video]: "Vídeo",
   [AssetKind.Other]: "Otro",
 };
 
@@ -185,27 +189,41 @@ function Kit({ kit, onKit }: { kit: BrandKit; onKit: (k: BrandKit) => void }) {
       <section className="flex flex-col gap-3">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold">Logos, capturas y fotos</h2>
-            <p className="text-xs text-neutral-500">Describe cada imagen (qué es, cómo funciona) y el agente podrá explicarla y usarla en los vídeos.</p>
+            <h2 className="text-sm font-semibold">Logos, capturas, fotos y clips</h2>
+            <p className="text-xs text-neutral-500">Describe cada imagen o clip (qué es, cómo funciona) y el agente podrá explicarlo y usarlo en los vídeos.</p>
           </div>
           <div className="flex items-center gap-2">
             <select value={kind} onChange={(e) => setKind(e.target.value as AssetKind)} className="rounded-md bg-neutral-900 px-2 py-1.5 text-xs focus:outline-none" aria-label="Tipo">
-              {Object.values(AssetKind).map((k) => (
+              {/* Clips are recognised by their file, not picked. */}
+              {Object.values(AssetKind).filter((k) => k !== AssetKind.Video).map((k) => (
                 <option key={k} value={k}>
                   {KIND_LABEL[k]}
                 </option>
               ))}
             </select>
-            <input ref={fileInput} type="file" accept="image/*" multiple className="hidden" onChange={(e) => void upload(e.target.files)} />
+            <input ref={fileInput} type="file" accept={ASSET_ACCEPT} multiple className="hidden" onChange={(e) => void upload(e.target.files)} />
             <button type="button" disabled={uploading} onClick={() => fileInput.current?.click()} className="rounded-lg bg-neutral-800 px-3 py-1.5 text-xs font-semibold hover:bg-neutral-700 disabled:opacity-50">
-              {uploading ? "Subiendo…" : "Subir imágenes"}
+              {uploading ? "Subiendo…" : "Subir imágenes o clips"}
             </button>
           </div>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {kit.assets.map((a) => (
             <div key={a.id} className="flex flex-col gap-2">
-              <img src={mediaUrl(a.url)} alt={a.name} className="aspect-video w-full rounded-lg bg-neutral-900 object-contain" />
+              {a.kind === AssetKind.Video ? (
+                <video
+                  src={mediaUrl(a.url)}
+                  muted
+                  loop
+                  playsInline
+                  preload="metadata"
+                  onMouseEnter={(e) => void e.currentTarget.play().catch(() => undefined)}
+                  onMouseLeave={(e) => e.currentTarget.pause()}
+                  className="aspect-video w-full rounded-lg bg-neutral-900 object-contain"
+                />
+              ) : (
+                <img src={mediaUrl(a.url)} alt={a.name} className="aspect-video w-full rounded-lg bg-neutral-900 object-contain" />
+              )}
               <div className="flex items-center gap-2">
                 <input
                   defaultValue={a.name}

@@ -28,7 +28,7 @@ export function CaptionsPanel({ project, onProject }: { project: Project; onProj
     try {
       const p = await api.uploadAudio(project.id, f);
       onProject(p);
-      engineHost.setAudio(p.audio ? mediaUrl(p.audio.url) : null);
+      void engineHost.setAudio(p.audio ? mediaUrl(p.audio.url) : null);
       setStatus(Status.Idle);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

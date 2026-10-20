@@ -54,21 +54,30 @@ export class BrandsService {
     return this.assets.find({ brandId }).sort({ createdAt: 1 }).lean();
   }
 
-  addAsset(brandId: Types.ObjectId, file: { filename: string; originalname: string; mimetype: string }, meta: AssetMetaDto) {
+  addAsset(
+    brandId: Types.ObjectId,
+    file: { filename: string; originalname: string; mimetype: string },
+    meta: AssetMetaDto,
+    video?: { duration: number; width: number; height: number; poster: string | null } | null,
+  ) {
+    // The file decides whether it is a clip; images never claim to be one.
+    const kind = video !== undefined ? AssetKind.Video : meta.kind === AssetKind.Video ? AssetKind.Other : (meta.kind ?? AssetKind.Other);
     return this.assets.create({
       brandId,
       file: file.filename,
       mime: file.mimetype,
-      kind: meta.kind ?? AssetKind.Other,
+      kind,
       name: meta.name ?? file.originalname.replace(/\.[^.]+$/, ""),
       description: meta.description ?? "",
+      ...(video ? { duration: video.duration, width: video.width, height: video.height, ...(video.poster ? { poster: video.poster } : {}) } : {}),
     });
   }
 
   async updateAsset(brandId: Types.ObjectId, assetId: string, meta: AssetMetaDto) {
     const asset = await this.assets.findOne({ _id: assetId, brandId });
     if (!asset) throw new NotFoundException("asset not found");
-    if (meta.kind) asset.kind = meta.kind;
+    // A clip stays a clip and an image never becomes one.
+    if (meta.kind && (meta.kind === AssetKind.Video) === (asset.kind === AssetKind.Video)) asset.kind = meta.kind;
     if (meta.name !== undefined) asset.name = meta.name;
     if (meta.description !== undefined) asset.description = meta.description;
     return asset.save();
@@ -78,5 +87,6 @@ export class BrandsService {
     const asset = await this.assets.findOneAndDelete({ _id: assetId, brandId });
     if (!asset) throw new NotFoundException("asset not found");
     await removeMedia(asset.file);
+    await removeMedia(asset.poster?.replace(/^\/media\//, ""));
   }
 }

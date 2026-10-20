@@ -14,7 +14,7 @@ const CUT_THRESHOLD = 0.32;
 const MIN_SHOT = 0.35;
 const SHEET_COLS = 4;
 const SHEET_ROWS = 3;
-const SHEET_FRAMES = SHEET_COLS * SHEET_ROWS;
+export const SHEET_FRAMES = SHEET_COLS * SHEET_ROWS;
 const CELL_WIDTH = 480;
 /** Seconds per motion-energy bucket. */
 const RHYTHM_BUCKET = 0.5;
@@ -26,7 +26,7 @@ export type FilmReference = { sheets: string[]; notes: string };
 
 const sidecar = (sheet: string) => join(MEDIA_DIR, `${sheet.replace(/^\/media\//, "")}.film.json`);
 
-async function probe(file: string) {
+export async function probe(file: string) {
   const { stdout } = await run(FFPROBE, ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height:format=duration", "-of", "json", file]);
   const j = JSON.parse(stdout) as { streams?: { width: number; height: number }[]; format?: { duration?: string } };
   return { duration: Number(j.format?.duration ?? 0), width: j.streams?.[0]?.width ?? 0, height: j.streams?.[0]?.height ?? 0 };
@@ -76,7 +76,7 @@ function rhythm(scores: { t: number; score: number }[], duration: number): strin
   return `Motion energy per ${RHYTHM_BUCKET}s: ${bar} — fastest moves around ${fast.slice(0, 8).join(", ") || "—"}; calm around ${calm.slice(0, 8).join(", ") || "—"}.`;
 }
 
-async function sheet(file: string, times: number[], dir: string, tag: string): Promise<string> {
+export async function sheet(file: string, times: number[], dir: string, tag: string): Promise<string> {
   await Promise.all(
     times.map((t, i) => run(FFMPEG, ["-v", "error", "-ss", t.toFixed(3), "-i", file, "-frames:v", "1", "-vf", `scale=${CELL_WIDTH}:-2`, join(dir, `${tag}${String(i).padStart(2, "0")}.jpg`)])),
   );

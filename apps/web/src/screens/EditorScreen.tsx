@@ -104,7 +104,8 @@ export function EditorScreen({ id }: { id: string }) {
         if (cancelled || !engineHost.ready) return;
         engineHost.setBuildOps(buildToOps(p.build, new Map(b.map((x) => [x.key, x])), p.format, prefabs.current));
         agentBridge.setProject(id);
-        engineHost.setAudio(p.audio ? mediaUrl(p.audio.url) : null);
+        // Once analysed, the agent's summary lists the beats it can sync to.
+        void engineHost.setAudio(p.audio ? mediaUrl(p.audio.url) : null).then(() => agentBridge.sceneChanged());
         useEditor.setState({ selectedLayerId: null, selectedGroup: null });
       })
       .catch((e: Error) => setError(e.message));
@@ -123,6 +124,8 @@ export function EditorScreen({ id }: { id: string }) {
         setProject(p);
         setBricks(b);
         if (engineHost.ready) engineHost.setBuildOps(buildToOps(p.build, new Map(b.map((x) => [x.key, x])), p.format, pf));
+        // A new voice-over (set_voice_script) changes what audio-reactive expressions read.
+        if (engineHost.ready) void engineHost.setAudio(p.audio ? mediaUrl(p.audio.url) : null).then(() => agentBridge.sceneChanged());
       });
     };
     return () => {

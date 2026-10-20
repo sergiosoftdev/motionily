@@ -24,6 +24,8 @@
  * Materials: inner=X,Y,BLUR,COLOR,OP · sheen=AT,ANGLE,WIDTH,OP · bevel=WIDTH,STRENGTH · backdrop=BLUR (frosted glass).
  * Gradients: grad=lin:… | rad:… | con:CX,CY:ANGLE:stops (conic) · sgrad= paints the stroke.
  * Text: "Just *ask.*" colors the marked words with accent= (default palette accent) · count=0>12480@0-2:eo dec=0 with {n} in the text · reveal=(t*16) caret=1 (typewriter).
+ * Video: `clip video 0 x= y= w= h= src=/media/….mp4 fit=cover in=2 out=8 speed=1 loop=1 volume=0 rad=24` (muted unless volume>0).
+ * Audio-reactive expressions: vol bass mid high beat beats (now) · vol(T-0.1) · spec(i/n) — 0..1 from the project audio, 0 without it.
  */
 
 import { ICON_GRID, iconPath } from "./icons.js";
@@ -47,7 +49,12 @@ const EASE: Record<string, string> = {
 };
 const EASE_SHORT: Record<string, string> = Object.fromEntries(Object.entries(EASE).map(([k, v]) => [v, k]));
 const SHAPES = ["rect", "ellipse"];
-const TYPES = [...SHAPES, "text", "image", "path", "object"];
+const TYPES = [...SHAPES, "text", "image", "video", "path", "object"];
+// --- video clips: keys only `video` layers take (JSON names: in, out, speed, loop, volume) ---
+const VIDEO = "video";
+const VIDEO_NUM = ["in", "out", "speed", "volume"];
+const VIDEO_DEFAULTS: Record<string, number> = { in: 0, speed: 1, volume: 0 };
+// --- end video clips ---
 /** Short keys for animated numbers. */
 const NUM: Record<string, string> = {
   x: "x",
@@ -226,6 +233,11 @@ export function parseLine(line: string): Layer {
     else if (k === "accent") layer.accent = colorAnim(v, line);
     else if (k === "g") layer.group = v;
     else if (PLAIN_NUM[k]) layer[PLAIN_NUM[k]] = num(v, line);
+    else if (VIDEO_NUM.includes(k) || k === "loop") {
+      if (type !== VIDEO) throw new Error(`'${k}=' is only for video layers: ${line}`);
+      if (k === "loop") layer.loop = v !== "0" && v !== "false";
+      else layer[k] = num(v, line);
+    }
     else if (PLAIN_STR.includes(k)) layer[k] = v;
     else if (k === "grad") layer.gradient = gradient(v, line);
     else if (k === "sgrad") layer.stroke = { width: 2, ...(layer.stroke as object), gradient: gradient(v, line) };
@@ -475,6 +487,14 @@ export function formatLayer(l: Layer): string {
   for (const k of PLAIN_STR) {
     if (l[k] !== undefined) parts.push(`${k}=${l[k]}`);
     done.add(k);
+  }
+  if (type === VIDEO) {
+    for (const k of VIDEO_NUM) {
+      if (typeof l[k] === "number" && l[k] !== VIDEO_DEFAULTS[k]) parts.push(`${k}=${r3(l[k] as number)}`);
+      if (typeof l[k] === "number") done.add(k);
+    }
+    if (l.loop === true) parts.push("loop=1");
+    if (typeof l.loop === "boolean") done.add("loop");
   }
   for (const [key, short] of SHORT_FORMS) {
     if (l[key] === undefined) continue;

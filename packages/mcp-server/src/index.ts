@@ -23,7 +23,7 @@ import {
 import { EditorBridge } from "./bridge.js";
 import { HeadlessEditor } from "./headless.js";
 import { formatLayer, parseLines } from "./compact.js";
-import { ProjectApi } from "./api.js";
+import { ProjectApi, VIDEO_ASSET, clipFacts, posterTimes } from "./api.js";
 import { formatLayouts } from "./layout.js";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
@@ -196,14 +196,15 @@ server.registerTool(
   "get_brand",
   {
     description:
-      "The project's brand kit: what the product is (notes), brand palettes, and every logo/screenshot/photo with the user's description of what it shows and how it works. Read it before designing; use view_asset to look at an image.",
+      "The project's brand kit: what the product is (notes), brand palettes, and every logo/screenshot/photo/video clip with the user's description of what it shows and how it works. Read it before designing; use view_asset to look at an image or a clip's contact sheet.",
     inputSchema: {},
   },
   guard(async () => {
     const b = await api.brand();
     const lines = [`Brand: ${b.name}`, `About: ${b.notes.trim() || "(no notes)"}`];
     for (const p of b.palettes) lines.push(`Palette "${p.name}": bg ${p.background}, surface ${p.surface}, primary ${p.primary}, accent ${p.accent}, text ${p.text}`);
-    for (const a of b.assets) lines.push(`Asset ${a.id} | ${a.kind} | ${a.name} | src "${a.url}" | ${a.description || "(no description)"}`);
+    for (const a of b.assets)
+      lines.push(`Asset ${a.id} | ${a.kind} | ${a.name} | src "${a.url}"${a.kind === VIDEO_ASSET ? ` | ${clipFacts(a)}` : ""} | ${a.description || "(no description)"}`);
     if (!b.assets.length) lines.push("No images yet.");
     return text(lines.join("\n"));
   }),
@@ -228,13 +229,26 @@ server.registerTool(
 server.registerTool(
   "view_asset",
   {
-    description: "Look at one brand image (logo, product screenshot…) to understand it before recreating or showing it. Put it in the video as an image layer with its src.",
+    description:
+      "Look at one brand image (logo, product screenshot…) to understand it before recreating or showing it; for a video clip, its contact sheet (12 frames with their seconds). Put it in the video as an image or video layer with its src.",
     inputSchema: { id: z.string() },
   },
   async ({ id }) => {
     try {
       const asset = (await api.brand()).assets.find((a) => a.id === id);
       if (!asset) return fail(`No asset '${id}'. See get_brand.`);
+      if (asset.kind === VIDEO_ASSET) {
+        const about = `${asset.name} (video clip, ${clipFacts(asset)}): ${asset.description || "no description"}. Use src "${asset.url}" in a video layer (in=/out= trim seconds of this file).`;
+        if (!asset.poster || !asset.duration) return text(`${about} No contact sheet: the file could not be read on upload.`);
+        const sheet = await api.media(asset.poster);
+        const times = posterTimes(asset.duration).map((t) => `${t}s`).join(", ");
+        return {
+          content: [
+            { type: "text" as const, text: `${about} Contact sheet, 4×3 frames left→right, top→bottom at ${times}.` },
+            { type: "image" as const, data: sheet.bytes.toString("base64"), mimeType: sheet.mime },
+          ],
+        };
+      }
       const img = await api.media(asset.url);
       return {
         content: [

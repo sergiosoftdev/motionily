@@ -20,6 +20,8 @@ mod ops;
 mod style;
 mod text;
 mod transition;
+pub mod video;
+pub mod reactive;
 
 pub use anim::{Animated, Easing, Keyframe};
 pub use layer::{Xform, PathData, AnimRef, Bounds, DrawImage, DrawItem, DrawObject, DrawShape, EvalCtx, ImageFit, Layer, LayerContent, Shape};
@@ -176,7 +178,8 @@ impl Scene {
             };
             expr::with_vars(gt, 0.0, 1.0, || value.sample(lt))
         };
-        expr::with_resolver(&resolve, f)
+        // Audio-reactive expressions read the analysed file through this scene's placement of it.
+        reactive::with_track(self.audio.unwrap_or_default(), || expr::with_resolver(&resolve, f))
     }
 
     /// Resolve every visible layer at time `t` (seconds), back to front.
@@ -684,6 +687,9 @@ impl Scene {
         if let Some(a) = &self.audio {
             let out = a.trim_out.map(|o| format!("{o:.2}")).unwrap_or_else(|| "end".into());
             let _ = writeln!(s, "audio: plays from {:.2}s, file {:.2}-{}", a.start, a.trim_in, out);
+        }
+        if let Some(line) = reactive::summary_line(self.audio) {
+            let _ = writeln!(s, "{line}");
         }
         if let Some(c) = &self.captions {
             let shown: Vec<&str> = c.words.iter().take(12).map(|w| w.text.as_str()).collect();

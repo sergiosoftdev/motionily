@@ -135,3 +135,29 @@ test("icons expand to centered paths and read back by name", () => {
   assert.deepEqual(parseLine(out), l);
   assert.throws(() => parseLine("x path 0 ic=not-an-icon"), /unknown icon/);
 });
+
+// --- video clips and audio-reactive expressions ---
+test("video layers parse their clip keys and read back", () => {
+  const l = parseLine(
+    "clip video .5-6 g=demo x=540 y=900 w=860 h=1520 rad=36 src=/media/0f8c2a1e-1111-4222-8333-944455556666.mp4 fit=cover in=2 out=7.5 speed=0.5 loop=1 volume=0.4 s=1>1.06@0-5.5:io",
+  );
+  assert.equal(l.type, "video");
+  assert.equal(l.src, "/media/0f8c2a1e-1111-4222-8333-944455556666.mp4");
+  assert.deepEqual([l.in, l.out, l.speed, l.loop, l.volume, l.fit], [2, 7.5, 0.5, true, 0.4, "cover"]);
+  const out = formatLayer(l);
+  assert.ok(/ in=2 out=7.5 speed=0.5 volume=0.4 loop=1/.test(out) && !out.includes("{"), out);
+  assert.deepEqual(parseLine(out), l);
+  // Defaults the engine leaves out read back short.
+  const plain = formatLayer({ id: "v", type: "video", src: "/media/x.mp4", fit: "contain", start: 0, w: 100, h: 100, in: 0, speed: 1 });
+  assert.equal(plain, "v video 0 w=100 h=100 src=/media/x.mp4 fit=contain");
+  assert.throws(() => parseLine("img image 0 w=1 h=1 src=/media/x.png in=2"), /only for video/);
+});
+
+test("audio-reactive expressions pass through as strings", () => {
+  const eq = parseLine("bar rect 0 x=(140+i*80) y=1500 w=56 h=(40+520*spec(i/n)) fill=accent rep=12:80,0");
+  assert.equal(eq.h, "40+520*spec(i/n)");
+  const cap = parseLine('cap text 0 x=540 y=1500 w=900 h=160 size=90 s=(1+0.08*vol) o=(0.6+0.4*beat) "Hola"');
+  assert.equal(cap.scale, "1+0.08*vol");
+  assert.ok(formatLayer(cap).includes("s=(1+0.08*vol) o=(0.6+0.4*beat)"));
+});
+// --- end video clips ---

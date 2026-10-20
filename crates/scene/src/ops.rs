@@ -172,6 +172,9 @@ impl Scene {
                 if let Some(anchor) = &layer.anchor {
                     self.check_anchor(anchor)?;
                 }
+                if let LayerContent::Video { clip } = &layer.content {
+                    clip.check().map_err(OpError::Invalid)?;
+                }
                 self.layers.push(layer.clone());
             }
             Op::SetGroup { ids, group } => {

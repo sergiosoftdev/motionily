@@ -352,6 +352,26 @@ impl Renderer {
         self.images.has_image(key)
     }
 
+    /// Store a decoded video frame (RGBA8) under its `src#ms` key (`scene::video::frame_key`).
+    pub fn add_video_frame(&mut self, key: &str, rgba: &[u8], width: u32, height: u32) {
+        self.images.add_frame(&self.device, &self.queue, key, rgba, width, height);
+    }
+
+    /// Store a decoded video frame straight from a browser canvas or bitmap (no CPU copy).
+    #[cfg(target_arch = "wasm32")]
+    pub fn copy_video_frame(&mut self, key: &str, source: &wgpu::CopyExternalImageSourceInfo) {
+        self.images.copy_frame(&self.device, &self.queue, key, source);
+    }
+
+    pub fn has_video_frame(&self, key: &str) -> bool {
+        self.images.has_frame(key)
+    }
+
+    /// Release every video frame not in `keep` (the host calls it with the frames of the next render).
+    pub fn retain_video_frames(&mut self, keep: &[String]) {
+        self.images.retain_frames(keep);
+    }
+
     pub fn has_model(&self, key: &str) -> bool {
         self.stage.has_model(key)
     }

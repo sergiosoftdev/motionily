@@ -92,9 +92,11 @@ class AgentBridge {
         this.onProjectChanged?.();
         return;
       case ServerMessageType.Review: {
-        const review = engineHost.review(msg.frames);
-        logActivity(ActivitySource.Agent, `Revisa el vídeo (${review.issues.length} avisos)`);
-        this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, review });
+        // Async: video frames are decoded exactly for every sampled instant.
+        void engineHost.review(msg.frames).then((review) => {
+          logActivity(ActivitySource.Agent, `Revisa el vídeo (${review.issues.length} avisos)`);
+          this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, review });
+        }, (e: unknown) => this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error: String(e) }));
         return;
       }
       case ServerMessageType.Layout: {
@@ -103,9 +105,11 @@ class AgentBridge {
         return;
       }
       case ServerMessageType.RenderFrames: {
-        const images = engineHost.snapshots(msg.times.slice(0, 6), Math.min(MAX_FRAME_WIDTH, Math.max(MIN_FRAME_WIDTH, msg.width ?? MIN_FRAME_WIDTH)));
-        logActivity(ActivitySource.Agent, `Mira ${images.length} fotogramas`);
-        this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, images });
+        const width = Math.min(MAX_FRAME_WIDTH, Math.max(MIN_FRAME_WIDTH, msg.width ?? MIN_FRAME_WIDTH));
+        void engineHost.snapshots(msg.times.slice(0, 6), width).then((images) => {
+          logActivity(ActivitySource.Agent, `Mira ${images.length} fotogramas`);
+          this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, images });
+        }, (e: unknown) => this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error: String(e) }));
         return;
       }
     }

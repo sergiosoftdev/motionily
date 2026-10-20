@@ -5,10 +5,22 @@ import type { AgentPrefs, GenerateState } from "../components/GeneratePanel";
 
 export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3100";
 
-export const AssetKind = { Logo: "logo", Screenshot: "screenshot", Photo: "photo", Other: "other" } as const;
+export const AssetKind = { Logo: "logo", Screenshot: "screenshot", Photo: "photo", Video: "video", Other: "other" } as const;
 export type AssetKind = (typeof AssetKind)[keyof typeof AssetKind];
 export type BrandPalette = { name: string; background: string; surface: string; primary: string; accent: string; text: string };
-export type BrandAsset = { id: string; kind: AssetKind; name: string; description: string; url: string; mime: string };
+export type BrandAsset = {
+  id: string;
+  kind: AssetKind;
+  name: string;
+  description: string;
+  url: string;
+  mime: string;
+  /** Video clips: seconds, size and contact sheet (when the API could read the file). */
+  duration?: number;
+  width?: number;
+  height?: number;
+  poster?: string;
+};
 export type BrandSummary = { id: string; name: string; notes: string; palettes: BrandPalette[]; videos: number };
 export type BrandKit = { id: string; name: string; notes: string; palettes: BrandPalette[]; assets: BrandAsset[] };
 export const PrefabKind = { Object: "object", Character: "character", Space: "space" } as const;

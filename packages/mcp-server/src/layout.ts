@@ -39,6 +39,7 @@ function rowLine(row: LayoutRow, size: [number, number]): string {
     row.k !== 1 ? `k=${row.k.toFixed(2)}` : "",
     row.z !== 0 ? `z=${r(row.z)}` : "",
     row.plane ? `plane=${row.plane}` : "",
+    row.video ? (row.video.error ? `VIDEO ${row.video.error}` : `video@${row.video.at}s${row.video.duration ? `/${row.video.duration}s` : ""}`) : "",
     ...flags(row, size),
   ];
   return parts.filter(Boolean).join(" ");

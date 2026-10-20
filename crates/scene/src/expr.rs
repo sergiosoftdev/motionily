@@ -7,6 +7,8 @@
 //! ease_in ease_out back elastic bounce spring pulse saw tri.
 //! Other layers: `card.x`, `card.y(T - 0.2)` (at another scene time: delays, echoes, follow
 //! through); properties x y w h scale rotation opacity (s r o for short).
+//! Audio-reactive (see `reactive`): `vol bass mid high beat beats` now, or `vol(T - 0.1)` at a scene
+//! time; `spec(k[, T])` spectrum band at k in 0..1. All 0 without analysed audio.
 //! Parsed once and cached; a malformed expression evaluates to 0 (and `check` reports why).
 
 use std::cell::Cell;
@@ -108,6 +110,8 @@ enum Node {
     Call(Func, Vec<Node>),
     /// Another layer's property, at the current scene time or at the given one.
     Ref(String, Prop, Option<Box<Node>>),
+    /// The project audio's analysis: no args = now (`vol`), else `vol(T)` / `spec(k, T)`.
+    Audio(crate::reactive::Channel, Vec<Node>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -214,6 +218,7 @@ fn eval(n: &Node, t: f32, vars @ (gt, i, cnt): (f32, f32, f32)) -> f32 {
             let when = at.as_ref().map_or(gt, |a| e(a));
             resolve_ref(layer, *prop, when)
         }
+        Node::Audio(ch, args) => crate::reactive::eval(*ch, &args.iter().map(e).collect::<Vec<_>>(), gt),
         Node::Bin(op, a, b) => {
             let (a, b) = (e(a), e(b));
             match op {
@@ -335,6 +340,23 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Comma-separated arguments up to the closing ')' (the '(' is already eaten).
+    fn args(&mut self, name: &str) -> Result<Vec<Node>, String> {
+        let mut args = Vec::new();
+        if self.eat(b')') {
+            return Ok(args);
+        }
+        loop {
+            args.push(self.cmp()?);
+            if self.eat(b')') {
+                return Ok(args);
+            }
+            if !self.eat(b',') {
+                return Err(format!("expected ',' or ')' in {name}()"));
+            }
+        }
+    }
+
     fn cmp(&mut self) -> Result<Node, String> {
         let mut l = self.add()?;
         loop {
@@ -444,6 +466,14 @@ impl<'a> Parser<'a> {
                 };
                 return Ok(Node::Ref(name.to_owned(), prop, at));
             }
+            if let Some(ch) = crate::reactive::Channel::parse(name).filter(|_| self.s.get(self.p) == Some(&b'(')) {
+                self.p += 1;
+                let args = self.args(name)?;
+                if !ch.arity().contains(&args.len()) {
+                    return Err(format!("{name}() takes {}..{} arguments", ch.arity().start(), ch.arity().end()));
+                }
+                return Ok(Node::Audio(ch, args));
+            }
             if self.eat(b'(') {
                 let (f, arity) = Func::parse(name).ok_or_else(|| format!("unknown function '{name}'"))?;
                 let mut args = Vec::new();
@@ -470,7 +500,11 @@ impl<'a> Parser<'a> {
                 "n" | "count" => Node::Var(Var::N),
                 "pi" | "PI" => Node::Num(std::f32::consts::PI),
                 "tau" => Node::Num(std::f32::consts::TAU),
-                _ => return Err(format!("unknown variable '{name}' (use t, T, i, n, pi)")),
+                "spec" => return Err("spec needs a band position 0..1: spec(i/n) or spec(0.2, T)".into()),
+                _ => match crate::reactive::Channel::parse(name) {
+                    Some(ch) => Node::Audio(ch, Vec::new()),
+                    None => return Err(format!("unknown variable '{name}' (use t, T, i, n, pi, vol, bass, mid, high, beat, beats)")),
+                },
             });
         }
         Err(format!("unexpected '{}' at {}", c as char, self.p))

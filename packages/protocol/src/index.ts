@@ -96,6 +96,8 @@ export type LayoutRow = {
   /** Tilted layer projecting it. */
   plane?: string;
   ink?: boolean;
+  /** Video layers: file second on screen (`at`), file length once open, or why nothing shows. */
+  video?: { src: string; at: number; duration?: number; error?: string };
 };
 
 /** Where the layers land on screen at one instant. */
