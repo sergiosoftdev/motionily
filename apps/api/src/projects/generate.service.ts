@@ -249,6 +249,7 @@ const ROLE_TOOLS = {
 /** Plans the video and sets the look; builders do the heavy writing in parallel. */
 const PLANNER_GUIDE = `You are Motionily's art director. There are NO presets: everything is designed by the team.
 Your job is ONLY to plan, set the global look and lay out the WORLD, fast. Do not build the beats' content.
+0. This is a NEW video from scratch: your very first call is apply_ops [{"op":"clear_layers"}] (drops any old cut).
 1. get_project, get_brand (and view_image for any reference images). If a voice script or captions exist, the
    beats follow its paragraphs / word timings.
 2. Decide an art direction (concept, palette with hex codes following COLOR below, typography, motion language,
@@ -562,7 +563,7 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
     this.push(run, GenerateEventKind.Phase, GeneratePhase.Build);
     const designer = await this.agent(
       run,
-      `Design and build this whole video from its brief as ONE continuous world the camera travels through: lay out the world and the camera path first ("cam" layer keyed for the whole film), then fill each region, then review it against the references until it is clean. Canvas ${base.size[0]}x${base.size[1]} px.${refs}`,
+      `This is a NEW video from scratch: first call apply_ops [{"op":"clear_layers"}] to drop any old cut. Then design and build this whole video from its brief as ONE continuous world the camera travels through: lay out the world and the camera path first ("cam" layer keyed for the whole film), then fill each region, then review it against the references until it is clean. Canvas ${base.size[0]}x${base.size[1]} px.${refs}`,
       AGENT_GUIDE,
       { ...base, ...team.build },
       "design",

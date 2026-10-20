@@ -79,6 +79,9 @@ pub enum Op {
     PutSfx { cue: crate::SfxCue },
     RemoveSfx { id: String },
     ClearSfx,
+    /// Start a video from scratch: every layer, sound cue and transition goes (palette, font,
+    /// voice and captions stay).
+    ClearLayers,
     /// Mark caption words (by index) as key words, or unmark them.
     SetEmphasis { words: Vec<usize>, emphasis: bool },
     /// Add or replace one animation template (e.g. a brick the agent just created).
@@ -335,6 +338,11 @@ impl Scene {
             }
             Op::RemoveSfx { id } => self.sfx.retain(|c| &c.id != id),
             Op::ClearSfx => self.sfx.clear(),
+            Op::ClearLayers => {
+                self.layers.clear();
+                self.sfx.clear();
+                self.transitions.clear();
+            }
             Op::SetAudio { audio } => {
                 if let Some(a) = audio {
                     if a.start < 0.0 || a.trim_in < 0.0 || a.trim_out.is_some_and(|o| o <= a.trim_in) {
