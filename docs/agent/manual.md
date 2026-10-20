@@ -24,7 +24,9 @@ where something lands, `get_layout` returns screen boxes as numbers (cheap, no i
 7. Sound: `list_sounds` + ONE `add_sfx`. Voice-over script: `set_voice_script` when the user wants one.
 8. `get_feedback`, apply it, and finish with a 2-3 sentence summary (in the user's language).
 
-Batch everything: one call with 30 lines beats 30 calls. A failing line or op names itself and nothing in that call is
+Batch everything: one call with 30 lines beats 30 calls. To change what exists, `edit_layers` (only the keys you
+write) or `replace_color` — never rewrite whole layers or send one op per layer. Write colors as palette slots
+(`fill=primary`) so one `set_palette` recolors the whole video. A failing line or op names itself and nothing in that call is
 applied: fix it and resend the call.
 
 ## Tools
@@ -36,6 +38,7 @@ applied: fix it and resend the call.
 | `find_icons` | Lucide icon names for `ic=NAME:SIZE` |
 | `search_images` · `import_image` | real photos from Wikimedia Commons / Openverse (reusable licenses only) → src for image layers |
 | `add_layers` | write/replace layers in compact lines (main tool) |
+| `edit_layers` | change ONLY the keys you write on existing layers: `id …`, `a,b …`, `g:group …`, `* …` (restyles, feedback fixes) |
 | `define_component` · `get_component` | reusable motifs with params, placed with `use` lines (syntax: Components) |
 | `apply_ops` | atomic batch of JSON ops (palette, duration, remove, timing, text, 3D stage…) |
 | `load_scene` | replace the whole scene JSON (rarely needed) |
@@ -54,6 +57,10 @@ applied: fix it and resend the call.
 {"op":"add_layer","layer":{…}}  {"op":"remove_layer","id":"card"}
 {"op":"remove_group","group":"dashboard"}  {"op":"set_group","ids":["a","b"],"group":"dashboard"}
 {"op":"set_prop","id":"card","prop":"x|y|w|h|scale|rotation|opacity|radius|z|rotate_x|rotate_y|soft|backdrop|time","value":<number|keyframes|"expression">}
+                                                        // any other prop (gradient, stroke, effects…) is a patch of that field
+{"op":"patch","id":"card"|"ids":[…]|"group":"cards"|"all":true,"fields":{"gradient":{…},"stroke.width":3,"fill":"accent"}}
+                                                        // any layer field (JSON names); "a.b" merges inside; null resets
+{"op":"replace_color","from":"#e87c3d","to":"#57a0db","group":"hook"?}   // every fill/stroke/stop/effect color at once
 {"op":"set_fill","id":"card","fill":"accent"}  {"op":"set_text","id":"title","text":"…"}
 {"op":"set_timing","id":"card","start":1,"end":3}       // end may be null (= video end)
 {"op":"reorder","id":"card","index":0}                  // 0 = back (only matters without a camera or at equal depth)

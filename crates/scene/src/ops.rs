@@ -22,6 +22,27 @@ pub enum Op {
     RemoveGroup { group: String },
     /// Replace one animatable property (a number or a keyframe list).
     SetProp { id: String, prop: Prop, value: Animated },
+    /// Change any fields of existing layers (JSON as in add_layer; `"stroke.width"` reaches inside an
+    /// object; `null` resets a field). Targets: `id`, `ids`, `group` or `all: true`.
+    Patch {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        ids: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        group: Option<String>,
+        #[serde(default)]
+        all: bool,
+        fields: serde_json::Map<String, serde_json::Value>,
+    },
+    /// Swap one color for another in every layer (or only `group`): fills, strokes, gradient stops,
+    /// effects, accents. Case-insensitive; `#rrggbb` also matches `#rrggbbaa` keeping its alpha.
+    ReplaceColor {
+        from: String,
+        to: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        group: Option<String>,
+    },
     SetFill { id: String, fill: ColorRef },
     SetTiming { id: String, start: f32, end: Option<f32> },
     /// Move a layer in the stack. 0 is the back.
@@ -99,10 +120,34 @@ pub enum Op {
     RemoveComponent { name: String },
 }
 
+/// `set_prop` names (numbers that take keyframes/expressions); any other field goes through `patch`.
+const NUMERIC_PROPS: [&str; 14] = ["x", "y", "w", "h", "scale", "rotation", "opacity", "radius", "z", "rotate_x", "rotate_y", "soft", "backdrop", "time"];
+
 impl Op {
+    /// `set_prop` on any other field (gradient, stroke, fill, effects, text…) is a patch of that
+    /// field: the natural attempt works instead of failing with "unknown variant".
+    fn widen_set_prop(json: &str) -> String {
+        let Ok(serde_json::Value::Array(mut ops)) = serde_json::from_str::<serde_json::Value>(json) else { return json.to_owned() };
+        let mut changed = false;
+        for op in &mut ops {
+            let is_field = op.get("op").and_then(|o| o.as_str()) == Some("set_prop")
+                && op.get("prop").and_then(|p| p.as_str()).is_some_and(|p| !NUMERIC_PROPS.contains(&p));
+            if !is_field {
+                continue;
+            }
+            let prop = op["prop"].as_str().unwrap_or_default().to_owned();
+            let mut fields = serde_json::Map::new();
+            fields.insert(prop, op.get("value").cloned().unwrap_or(serde_json::Value::Null));
+            *op = serde_json::json!({ "op": "patch", "id": op.get("id").cloned().unwrap_or_default(), "fields": fields });
+            changed = true;
+        }
+        if changed { serde_json::Value::Array(ops).to_string() } else { json.to_owned() }
+    }
+
     /// A JSON list of ops, or an error naming the op that fails (index, kind, layer id) and why,
     /// instead of serde's bare "invalid type at column N".
     pub fn parse_list(json: &str) -> Result<Vec<Op>, String> {
+        let json = &Self::widen_set_prop(json);
         serde_json::from_str(json).map_err(|e| {
             let Ok(serde_json::Value::Array(items)) = serde_json::from_str::<serde_json::Value>(json) else { return format!("invalid ops: {e}") };
             for (i, v) in items.into_iter().enumerate() {
@@ -151,6 +196,8 @@ pub enum OpError {
     Component(String),
     /// Custom shader code that does not compile (names the layer, the WGSL line and why).
     Shader(String),
+    /// A patch or replace_color that does not fit (names the layer and why).
+    Field(String),
 }
 
 impl fmt::Display for OpError {
@@ -164,6 +211,7 @@ impl fmt::Display for OpError {
                 write!(f, "unknown brick '{key}'; available: {}", available.join(", "))
             }
             OpError::Component(why) => f.write_str(why),
+            OpError::Field(why) => f.write_str(why),
         }
     }
 }
@@ -209,12 +257,7 @@ impl Scene {
                 if let Some(anchor) = &layer.anchor {
                     self.check_anchor(anchor)?;
                 }
-                let mut layer = layer.clone();
-                crate::shader::check_layer(&layer).map_err(OpError::Shader)?;
-                if let LayerContent::Video { clip } = &layer.content {
-                    clip.check().map_err(OpError::Invalid)?;
-                }
-                crate::component::check_instance(&mut layer, &self.library)?;
+                let layer = self.checked_layer(layer.clone())?;
                 self.layers.push(layer);
             }
             Op::SetGroup { ids, group } => {
@@ -230,6 +273,11 @@ impl Scene {
                     return Err(OpError::UnknownLayer(id.clone()));
                 }
             }
+            Op::Patch { id, ids, group, all, fields } => {
+                let t = crate::patch::Targets { id: id.as_deref(), ids, group: group.as_deref(), all: *all };
+                self.patch_layers(&t, fields)?;
+            }
+            Op::ReplaceColor { from, to, group } => self.replace_color(from, to, group.as_deref())?,
             Op::SetProp { id, prop, value } => {
                 let l = self.layer_mut(id).ok_or_else(|| OpError::UnknownLayer(id.clone()))?;
                 let slot = match prop {
@@ -442,6 +490,16 @@ impl Scene {
             Op::RemoveComponent { name } => self.remove_component(name)?,
         }
         Ok(())
+    }
+
+    /// What every new or patched layer must pass: shaders compile, clips make sense, instances bind.
+    pub(crate) fn checked_layer(&self, mut layer: Layer) -> Result<Layer, OpError> {
+        crate::shader::check_layer(&layer).map_err(OpError::Shader)?;
+        if let LayerContent::Video { clip } = &layer.content {
+            clip.check().map_err(OpError::Invalid)?;
+        }
+        crate::component::check_instance(&mut layer, &self.library)?;
+        Ok(layer)
     }
 
     fn check_anim(&self, key: &str) -> Result<(), OpError> {

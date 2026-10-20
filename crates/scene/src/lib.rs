@@ -8,6 +8,7 @@
 mod anim;
 pub mod expr;
 pub mod glyphs;
+mod patch;
 pub mod paint;
 pub mod path;
 mod character;

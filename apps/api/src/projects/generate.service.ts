@@ -108,8 +108,8 @@ rules below are exact. To know where something lands on screen, get_layout retur
 /** MCP tools each role sees (each tool description costs context on every turn). */
 const ROLE_TOOLS = {
   planner: ["get_project", "get_brand", "view_image", "view_asset", "search_fonts", "set_font", "apply_ops", "add_layers", "search_images", "import_image", "define_component", "get_component"],
-  builder: ["add_layers", "apply_ops", "get_layout", "render_frames", "view_asset", "view_image", "get_brand", "find_icons", "define_component", "get_component"],
-  finisher: ["get_feedback", "review_video", "get_layout", "render_frames", "get_group", "add_layers", "apply_ops", "list_sounds", "add_sfx", "get_component", "set_font", "search_fonts"],
+  builder: ["add_layers", "edit_layers", "apply_ops", "get_layout", "render_frames", "view_asset", "view_image", "get_brand", "find_icons", "define_component", "get_component"],
+  finisher: ["get_feedback", "edit_layers", "review_video", "get_layout", "render_frames", "get_group", "add_layers", "apply_ops", "list_sounds", "add_sfx", "get_component", "set_font", "search_fonts"],
 } as const;
 
 /** Plans the video and sets the look; builders do the heavy writing in parallel. */

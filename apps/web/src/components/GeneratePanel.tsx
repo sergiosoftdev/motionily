@@ -92,6 +92,7 @@ export const TOOL_LABEL: Record<string, string> = {
   apply_template: "Applies a template",
   review_video: "Reviews the whole video",
   add_layers: "Draws layers",
+  edit_layers: "Restyles layers",
   get_group: "Reads a group",
   define_component: "Crea un componente reutilizable",
   get_component: "Checks a component",

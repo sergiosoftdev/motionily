@@ -499,7 +499,8 @@ function formatParticles(l: Layer, done: Set<string>): string[] {
 // ---- particles: end ----
 
 /** One line -> one layer JSON. */
-export function parseLine(line: string): Layer {
+/** One line -> one layer JSON. `partial` (edit_layers) skips the checks for fields a new layer needs. */
+export function parseLine(line: string, partial = false): Layer {
   const toks = tokenize(line.trim());
   const [id, type, span, ...rest] = toks;
   if (!id || !type || !span) throw new Error(`expected 'id type start[-end] …': ${line}`);
@@ -665,13 +666,14 @@ export function parseLine(line: string): Layer {
       node[to] = layer[from];
       delete layer[from];
     }
-    if (typeof node.text !== "string" || !node.text) throw new Error(`text3d needs its "text" in quotes: ${line}`);
+    if (!partial && (typeof node.text !== "string" || !node.text)) throw new Error(`text3d needs its "text" in quotes: ${line}`);
   }
   if (Object.keys(params).length) layer.params = params;
   Object.assign(layer, merge);
-  if (type === USE && typeof layer.comp !== "string") throw new Error(`a use line needs comp=NAME (a component from define_component): ${line}`);
+  if (!partial && type === USE && typeof layer.comp !== "string") throw new Error(`a use line needs comp=NAME (a component from define_component): ${line}`);
   // light= is lights.key; a JSON tail's other light fields merge with it (its own key wins).
   if (keyLight) layer.lights = { key: keyLight, ...(layer.lights as Layer | undefined) };
+  if (partial) return layer;
   if (type === PARTICLES) checkParticles(layer, line);
   else if (type !== "path" && type !== USE && (layer.w === undefined || layer.h === undefined)) throw new Error(`w and h are required: ${line}`);
   if (type === "path" && typeof layer.d !== "string") throw new Error(`path needs its "M… path data" in quotes (or ic=NAME:SIZE): ${line}`);
@@ -682,12 +684,48 @@ export function parseLine(line: string): Layer {
   return layer;
 }
 
+// ── partial edits (edit_layers) ──────────────────────────────────────────
+/** Keys a partial line never changes (identity and the span it is parsed with). */
+const BASE_KEYS = new Set(["id", "type", "shape", "start", "end"]);
+/** Object fields merged key by key: a partial line names only some of their keys. */
+const MERGED_OBJECTS = new Set(["stroke", "motion_path", "path", "camera", "inner", "sheen", "bevel", "repeat", "lights", "node"]);
+
+/**
+ * Patch fields (for the engine's `patch` op) of a partial line `key=value… ["text"]` on `layer`:
+ * only the keys written change; an effect replaces only its own kind; `t=START[-END]` retimes.
+ */
+export function parsePartial(rest: string, layer: Layer): Record<string, unknown> {
+  const type = layer.type === "shape" ? String(layer.shape ?? "rect") : String(layer.type);
+  const toks = tokenize(rest);
+  const timing = toks.find((t) => t.startsWith("t="));
+  const body = toks.filter((t) => t !== timing).join(" ");
+  const parsed = parseLine(`${layer.id} ${type} ${Number(layer.start ?? 0)} ${body}`, true);
+  const fields: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(parsed)) {
+    if (BASE_KEYS.has(k)) continue;
+    const old = layer[k];
+    if (k === "effects") {
+      const kinds = new Set((v as { fx: string }[]).map((e) => e.fx));
+      fields.effects = [...((old as { fx: string }[] | undefined) ?? []).filter((e) => !kinds.has(e.fx)), ...(v as unknown[])];
+    } else if (MERGED_OBJECTS.has(k) && v && typeof v === "object" && !Array.isArray(v) && old && typeof old === "object" && !Array.isArray(old)) {
+      for (const [sub, sv] of Object.entries(v)) fields[`${k}.${sub}`] = sv;
+    } else fields[k] = v;
+  }
+  if (timing) {
+    const [start, end] = timing.slice(2).split("-");
+    fields.start = num(start!, rest);
+    if (end !== undefined) fields.end = num(end, rest);
+  }
+  if (!Object.keys(fields).length) throw new Error(`nothing to change in '${layer.id} ${rest}': write key=value pairs (the add_layers keys)`);
+  return fields;
+}
+
 export function parseLines(text: string): Layer[] {
   return text
     .split("\n")
     .map((l) => l.trim())
     .filter((l) => l && !l.startsWith("#"))
-    .map(parseLine);
+    .map((l) => parseLine(l));
 }
 
 const r3 = (n: number) => +n.toFixed(3);

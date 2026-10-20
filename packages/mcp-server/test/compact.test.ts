@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { formatLayer, formatParams, parseLine, parseLines, parseParams } from "../src/compact.js";
+import { formatLayer, formatParams, parseLine, parseLines, parseParams, parsePartial } from "../src/compact.js";
 
 test("parses tweens, keys, colors and text", () => {
   const l = parseLine('hook_w1 text 0-3 g=hook x=540 y=420>380@0-.4:b w=900 h=180 o=0>1@0-.3 size=140 fill=text "Tu \\"agenda\\""');
@@ -416,3 +416,18 @@ test("audio-reactive expressions pass through as strings", () => {
   assert.ok(formatLayer(cap).includes("s=(1+0.08*vol) o=(0.6+0.4*beat)"));
 });
 // --- end video clips ---
+
+// ── partial edits (edit_layers) ──
+test("partial lines change only the keys written, merge strokes and replace one effect kind", () => {
+  const card = parseLine("card rect 1-5 g=cards x=500 y=400 w=300 h=200 rad=12 fill=surface stroke=2:#ffffff sgrad=lin:0:#000000@0,#ffffff@1 shadow=0,20,40,#000000,.3 glow=10,1,#ff0000");
+  const f = parsePartial("fill=accent rad=40 stroke=4:#111111 shadow=0,30,60,#1b2a4a,.2 t=2-6", card);
+  assert.equal(f.fill, "accent");
+  assert.equal(f.radius, 40);
+  assert.deepEqual([f["stroke.width"], f["stroke.color"]], [4, "#111111"], "the stroke gradient is kept");
+  assert.deepEqual((f.effects as { fx: string }[]).map((e) => e.fx), ["glow", "shadow"], "glow kept, shadow replaced");
+  assert.deepEqual([f.start, f.end], [2, 6]);
+  assert.equal(f.w, undefined, "w and h untouched");
+  const title = parseLine('title text 0 x=1 y=1 w=10 h=10 size=40 "Hello"');
+  assert.deepEqual(parsePartial('"Clear day" size=80', title), { text: "Clear day", size: 80 });
+  assert.throws(() => parsePartial("", title), /nothing to change/);
+});

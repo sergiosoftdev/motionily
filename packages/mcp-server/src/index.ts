@@ -23,7 +23,7 @@ import {
 } from "@motionily/protocol";
 import { EditorBridge } from "./bridge.js";
 import { HeadlessEditor } from "./headless.js";
-import { formatLayer, formatParams, parseLines, parseParams, type ParamDef } from "./compact.js";
+import { formatLayer, formatParams, parseLines, parseParams, parsePartial, type ParamDef } from "./compact.js";
 import { ProjectApi, VIDEO_ASSET, clipFacts, posterTimes } from "./api.js";
 import { formatLayouts } from "./layout.js";
 
@@ -551,16 +551,50 @@ server.registerTool(
   }),
 );
 
+/** Said with every rejected op: the cheap, sure way to change existing layers. */
+const EDIT_HINT =
+  "To change existing layers use edit_layers (`id key=value…`, `g:group …`, `* …`) or {\"op\":\"patch\",\"id\"|\"group\"|\"all\":…,\"fields\":{…}}; to recolor everything at once {\"op\":\"replace_color\",\"from\":\"#…\",\"to\":\"#…\"}. The ops list is in the manual (Ops).";
+
 server.registerTool(
   "apply_ops",
   {
     description:
-      "Edit the video with an atomic batch of ops. Rendered live in the user's editor and autosaved. Returns the new summary.",
+      "Edit the video with an atomic batch of ops (manual: Ops). Rendered live in the user's editor and autosaved. Returns the new summary. Change fields of existing layers with edit_layers or the patch op (any field, by id/group/all) and swap colors everywhere with replace_color — never one op per layer.",
     inputSchema: { ops: z.array(z.looseObject({ op: z.string() })).min(1) },
   },
   guard(async ({ ops }) => {
     const res = await bridge.applyOps(ops as Op[]);
-    return res.ok ? text(res.summary ?? "ok") : fail(res.error ?? "rejected");
+    return res.ok ? text(res.summary ?? "ok") : fail(`${res.error ?? "rejected"}\n${EDIT_HINT}`);
+  }),
+);
+
+server.registerTool(
+  "edit_layers",
+  {
+    description:
+      "Change ONLY the keys you write on existing layers, in add_layers syntax, one line per target: `title fill=accent size=120` · several ids `a,b,c rad=24` · a whole group `g:cards rad=40 shadow=0,30,60,#1b2a4a,.2` · every layer `* blur=0` · new text `title \"Clear day\"` · retime `t=1.2-3.5`. An effect you write replaces only that effect kind; stroke/motion path keys merge. One atomic call for any number of layers: never rewrite whole layers or send one op per layer to restyle.",
+    inputSchema: { lines: z.string().min(1) },
+  },
+  guard(async ({ lines }) => {
+    const layers = layersOf(await currentScene());
+    const ops: Op[] = [];
+    for (const raw of lines.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"))) {
+      const cut = raw.search(/\s/);
+      const [target, rest] = cut < 0 ? [raw, ""] : [raw.slice(0, cut), raw.slice(cut + 1)];
+      const picked =
+        target === "*" ? layers : target.startsWith("g:") ? layers.filter((l) => l.group === target.slice(2)) : layers.filter((l) => target.split(",").includes(String(l.id)));
+      if (!picked.length) {
+        const groups = [...new Set(layers.map((l) => l.group).filter(Boolean))].join(", ");
+        return fail(`no layer matches '${target}'. Groups: ${groups || "none"}. Ids: ${layers.map((l) => l.id).slice(0, 40).join(", ")}`);
+      }
+      try {
+        for (const l of picked) ops.push({ op: "patch", id: l.id, fields: parsePartial(rest, l) } as Op);
+      } catch (e) {
+        return fail((e as Error).message);
+      }
+    }
+    const res = await bridge.applyOps(ops);
+    return res.ok ? text(`${ops.length} layer(s) changed`) : fail(`${res.error ?? "rejected"}\n${EDIT_HINT}`);
   }),
 );
 
