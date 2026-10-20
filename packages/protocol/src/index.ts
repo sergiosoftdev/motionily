@@ -106,7 +106,8 @@ export type LayoutParticles = { live: number; on_screen: number; max: number };
 /** Where the layers land on screen at one instant. */
 export type FrameLayout = {
   t: number;
-  camera: { look: [number, number]; dolly: number; focal: number } | null;
+  /** `roll`: camera roll in degrees, clockwise (the picture turns counter-clockwise). */
+  camera: { look: [number, number]; dolly: number; focal: number; roll?: number } | null;
   layers: LayoutRow[];
   /** Active layers the camera has passed (not drawn). */
   behind: string[];

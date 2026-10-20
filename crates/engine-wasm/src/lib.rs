@@ -127,10 +127,49 @@ impl Engine {
         self.renderer.add_model(key, bytes).map_err(|e| JsError::new(&e))
     }
 
-    /// Register the shared texture of a model pack (RGBA8 pixels).
+    /// Register a decoded texture (RGBA8 pixels): a model pack's shared one ("characters") or a
+    /// model image by its key from `missingTextures`.
     #[wasm_bindgen(js_name = addTexture)]
-    pub fn add_texture(&mut self, pack: &str, rgba: &[u8], width: u32, height: u32) {
-        self.renderer.add_texture(pack, rgba, width, height);
+    pub fn add_texture(&mut self, key: &str, rgba: &[u8], width: u32, height: u32) {
+        self.renderer.add_texture(key, rgba, width, height);
+    }
+
+    /// Image keys loaded models need that no texture answers yet: `dir/file.png` (fetch it from
+    /// /models/<key>) or `model#index` (decode `embeddedTexture(key)`).
+    #[wasm_bindgen(js_name = missingTextures)]
+    pub fn missing_textures(&self) -> Vec<String> {
+        self.renderer.missing_textures()
+    }
+
+    /// PNG/JPEG bytes of an image packed inside a model, or undefined.
+    #[wasm_bindgen(js_name = embeddedTexture)]
+    pub fn embedded_texture(&self, key: &str) -> Option<Vec<u8>> {
+        self.renderer.embedded_texture(key).map(<[u8]>::to_vec)
+    }
+
+    /// Every texture key registered so far (to give another engine the same textures).
+    #[wasm_bindgen(js_name = textureKeys)]
+    pub fn texture_keys(&self) -> Vec<String> {
+        self.renderer.texture_keys()
+    }
+
+    /// Every glTF model key the scene uses: stage props, procedural trees (props, prefabs,
+    /// object layers).
+    #[wasm_bindgen(js_name = modelKeys)]
+    pub fn model_keys(&self) -> Vec<String> {
+        let stage = self.scene.stage.iter().flat_map(|s| &s.props);
+        let mut keys: Vec<String> = stage
+            .flat_map(|p| std::iter::once(p.model.clone()).chain(p.node.iter().flat_map(model_keys)))
+            .chain(self.scene.library.prefabs.values().flat_map(model_keys))
+            .chain(self.scene.layers.iter().filter_map(|l| match &l.content {
+                scene::LayerContent::Object { node, .. } => Some(model_keys(node)),
+                _ => None,
+            }).flatten())
+            .filter(|k| !k.is_empty())
+            .collect();
+        keys.sort();
+        keys.dedup();
+        keys
     }
 
     /// Register a decoded image (RGBA8) for image layers.
@@ -148,17 +187,7 @@ impl Engine {
     /// Model keys the current scene uses that are not loaded yet.
     #[wasm_bindgen(js_name = missingModels)]
     pub fn missing_models(&self) -> Vec<String> {
-        let mut keys: Vec<String> = self
-            .scene
-            .stage
-            .iter()
-            .flat_map(|s| s.props.iter().map(|p| p.model.clone()))
-            .chain(self.scene.library.prefabs.values().flat_map(model_keys))
-            .filter(|k| !k.is_empty() && !self.renderer.has_model(k))
-            .collect();
-        keys.sort();
-        keys.dedup();
-        keys
+        self.model_keys().into_iter().filter(|k| !self.renderer.has_model(k)).collect()
     }
 
     /// Register a font file (TTF/OTF bytes) under a family and weight.

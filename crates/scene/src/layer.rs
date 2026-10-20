@@ -81,6 +81,10 @@ pub enum LayerContent {
         /// Lens field of view (degrees): small = flat, large = dramatic perspective.
         #[serde(default = "object_fov")]
         fov: f32,
+        /// Key/ambient/point lights in the object's own space (seen from the front) and a soft
+        /// contact shadow. `None` = the default soft light, no shadow.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lights: Option<crate::Lights>,
     },
     /// Vector path (SVG path data, relative to the layer position): lines, connectors, icons, light
     /// trails. Filled with `fill` when closed, outlined with `stroke`; `trim_*` draw it on.
@@ -160,6 +164,8 @@ pub struct DrawObject {
     /// Screen rotation (rad) of the box.
     pub rotation: f32,
     pub opacity: f32,
+    /// Soft shadow under the object (drawn just before it), when its lights ask for one.
+    pub contact: Option<DrawShape>,
 }
 
 /// One morph keyframe.
@@ -377,8 +383,9 @@ pub struct Layer {
     pub rotate_y: Animated,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub z: Animated,
+    /// Animatable (a lens zoom on a tilted plane).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub perspective: Option<f32>,
+    pub perspective: Option<Animated>,
     /// Pinned to the screen: the camera does not move it (backgrounds, HUD, captions-like text).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub fixed: bool,
@@ -580,6 +587,11 @@ impl Layer {
         !is_zero(&self.rotate_x) || !is_zero(&self.rotate_y)
     }
 
+    /// Lens (px) a tilted plane uses without a camera layer: `perspective` at `lt` (≥ 1).
+    pub fn lens(&self, lt: f32) -> f32 {
+        self.perspective.as_ref().map_or(crate::paint::DEFAULT_PERSPECTIVE, |p| p.sample(lt).max(1.0))
+    }
+
     /// Layer-local time at scene time `t`, after time remapping.
     pub fn local_time(&self, t: f32) -> f32 {
         let lt = t - self.start;
@@ -711,7 +723,7 @@ impl Layer {
                 rotation,
                 opacity: color.0[3],
             })),
-            LayerContent::Object { node, finish, spin, fov } => {
+            LayerContent::Object { node, finish, spin, fov, lights } => {
                 use glam::{Mat4, Quat};
                 let [rx, ry, rz] = [spin[0].sample(lt), spin[1].sample(lt), spin[2].sample(lt)].map(f32::to_radians);
                 let base = Mat4::from_quat(Quat::from_euler(glam::EulerRot::YXZ, ry, rx, rz));
@@ -725,6 +737,9 @@ impl Layer {
                 let (mut rest, mut rest_placed) = (Vec::new(), Vec::new());
                 node.flatten(Mat4::IDENTITY, tint, &nctx, &mut rest, &mut rest_placed, 0);
                 let camera = crate::stage::frame_solids(&rest, *fov, size[0] / size[1].max(1.0));
+                // Point lights sit relative to the framed center.
+                let lights = lights.as_ref().map(|l| l.resolve(lt, ctx.palette, camera.target));
+                let contact = lights.as_ref().and_then(|l| crate::contact_shadow(&solids, &crate::ObjectBox { camera: &camera, center, size, rotation }, l, opacity));
                 let stage = crate::DrawStage {
                     camera,
                     finish: *finish,
@@ -734,8 +749,9 @@ impl Layer {
                     floor: None,
                     ink: ctx.palette.text,
                     background: Rgba([0.0; 4]),
+                    lights,
                 };
-                Some(DrawItem::Object(Box::new(DrawObject { stage, center, size, rotation, opacity })))
+                Some(DrawItem::Object(Box::new(DrawObject { stage, center, size, rotation, opacity, contact })))
             }
             LayerContent::Particles { system } => {
                 let paint = crate::particles::Paint {

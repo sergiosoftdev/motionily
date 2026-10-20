@@ -229,7 +229,15 @@ Trust these formulas; `get_layout` prints the resulting screen boxes if you want
 
 **Camera.** One layer with `cam=FOCAL[,FOCUS_Z,APERTURE]` (give it `vis=0 w=1 h=1`) is the camera, for the whole film:
 - its `x,y` = the world point shown at the frame center (pan = animate x/y) · its `z` = dolly D (+ = flies forward) ·
-  its `s` multiplies the focal (zoom): F = FOCAL × s. Its rotation is ignored (no roll).
+  its `s` multiplies the focal (zoom): F = FOCAL × s.
+<!-- camera-roll:start -->
+- its `r` (world rotation: r + parents' r + animation bricks) is the ROLL R°: the camera turns R° clockwise, so the
+  picture turns R° counter-clockwise around the frame center. Exact: **screen = center + rot(point − camera x,y, −R) × k**
+  with rot(v, a) = (vx·cos a − vy·sin a, vx·sin a + vy·cos a) in y-down pixels; every drawn item also gets −R added to
+  its rotation. Planes (rx/ry), depth of field, drop-shadow offsets, `get_layout`, picking and text ink all use the same
+  roll. Whip transition: `r=0:0,0.35:-18:ei,0.7:0:eo` with an x pan and `mblur` on the movers.
+- `fixed=1` layers and captions are never rolled (nor panned/dollied/zoomed).
+<!-- camera-roll:end -->
 - FOCAL 1800 is a natural lens on 1080p (wider: 1200; telephoto: 3000).
 
 **Depth.** Every layer has depth Z = its `z` + its parents' `z` (+ = farther). With a camera, a non-fixed layer is drawn:
@@ -240,7 +248,8 @@ Trust these formulas; `get_layout` prints the resulting screen boxes if you want
   moves half as much when the camera pans (parallax). Example, F=1800 and the camera dollies z 0>2400: a card at z=2400
   goes from k=0.43 to k=1; a layer at z=0 is behind the camera once D ≥ 1800 (put intro layers that must vanish there).
 - Draw order with a camera: far to near (bigger Z first); equal Z keep list order. Without a camera: list order (first = back).
-- `fixed=1` ignores camera and depth (full-frame backgrounds, grain/grade adjustment layers, HUD).
+- `fixed=1` ignores the camera (pan, dolly, zoom, roll) — full-frame backgrounds, grain/grade adjustment layers, HUD.
+  A fixed layer with z≠0 is scaled around the frame center with F=1800, as without a camera; a fixed plane uses `persp`.
 - Without a camera layer nothing moves in depth, except layers with z≠0, scaled around the frame center with F=1800.
 - Depth of field: APERTURE A>0 blurs each layer by A·|Z − FOCUS_Z|/1000 × k screen px (planes: without the × k).
 
@@ -250,12 +259,22 @@ turn a layer into a plane, usually an invisible null (`vis=0 w=1 h=1`):
   plane's center, their own z ignored), then projected together. Children keep their own effects, blends and mattes.
 - its center lands on screen where a flat layer with the same x,y,Z would, then the page tilts around it. Keep the
   center inside the region the camera frames (a plane centered at y=1900 in a 1080-high frame is mostly off screen).
-- with a camera the plane uses the camera's lens (`persp` is ignored); without one, `persp=PX` (default 1800) is its lens.
+- with a camera the plane uses the camera's lens and roll (`persp` is ignored); without one (or `fixed=1`), `persp=PX`
+  (default 1800, animatable: `persp=600>2400@0-2:eo` is a lens zoom on the page) is its lens.
 - planes do not nest: rx/ry on a layer inside another plane is ignored.
 
 **Camera nulls without a camera layer.** `cam rect 0 vis=0 x=0 y=0 w=1 h=1 pivot=CX,CY s=1>1.06@0-6:io` with
 `parent=cam` on the other layers keeps their absolute x/y and gives a slow push-in around the frame center (animate the
 null's x/y/r for pans and tilts). Prefer a real camera layer for depth and parallax.
+
+<!-- object-lights:start -->
+**3D object lights.** `object` layers take `light=AZIMUTH,ELEVATION[,COLOR[,INTENSITY]]` (= `lights.key`) and the rest of
+`lights` in the JSON tail (same fields as the stage, manual "Lights"). Directions are seen from the viewer: azimuth 0 =
+from the front, −90 = from the left, 90 = from the right; elevation 90 = from above. With `lights` the object also gets a
+contact shadow (a soft #0f121f ellipse under its lowest point, as wide as its base × (1 + 0.3·(1 − Ly)), 0.18 × width
+tall, pushed −Lx·0.2·width away from the key, opacity `contact` (default 0.35) × layer opacity; not part of the layer box).
+Without `lights`: the original soft light, no shadow. Point light x/y/z are relative to the object's center (node units).
+<!-- object-lights:end -->
 
 ## Recipes (copy and adapt)
 ```
@@ -281,6 +300,8 @@ tile object .5 x=1500 y=420 w=260 h=260 s=0>1@0-.6:b spin=(10*sin(t)),(t*40),0 {
 logo text3d 1 x=960 y=540 w=1100 h=360 depth=0.3 finish=chrome fill=#d7dde8 s=.8>1@0-1.2:eo spin=(-70*(1-ease_out(min(1,t/1.2)))),(25*(1-ease_out(min(1,t/1.2)))),0 "Lumen"
 glassy text3d .5 x=960 y=400 w=1400 h=300 depth=0.2 finish=glass fill=#57a0db glow=40,1.2,#9fd2ff spin=0,(8*sin(t*0.8)),0 "Día claro"
 pop text3d 2 x=960 y=700 w=700 h=240 finish=toon fill=accent s=0:0,.35:1.15:b,.6:1 spin=0,0,(6*sin(t*3)) "¡Listo!"
+whip rect 0 vis=0 w=1 h=1 cam=1800 x=0:960,2.8:960,3.3:2900:eio y=540 r=0:0,2.8:0,3.05:-16:ei,3.3:0:eo
+ring object 0 x=1400 y=540 w=520 h=520 light=-80,20,#fff1e0,1.5 {"node":{"shape":"torus","radius":0.5,"tube":0.16,"color":"#d9dee8"},"finish":"chrome","spin":[70,"t*35",0],"lights":{"ambient":{"intensity":0.7},"contact":0.4}}
 ```
 
 <!-- components:begin -->

@@ -74,10 +74,22 @@ impl DrawItem {
 
     /// `p -> origin + (p - origin) * s + shift` on everything the item draws.
     pub fn affine(&mut self, origin: [f32; 2], s: f32, shift: [f32; 2]) {
-        let map = |p: [f32; 2]| [origin[0] + (p[0] - origin[0]) * s + shift[0], origin[1] + (p[1] - origin[1]) * s + shift[1]];
+        self.transform(origin, s, 0.0, shift);
+    }
+
+    /// `p -> origin + rot(p - origin, angle) * s + shift` on everything the item draws (`angle` in
+    /// radians, clockwise like layer rotation): the 2.5D camera's depth scale and roll.
+    pub fn transform(&mut self, origin: [f32; 2], s: f32, angle: f32, shift: [f32; 2]) {
+        let (sin, cos) = angle.sin_cos();
+        let turn = |v: [f32; 2]| [v[0] * cos - v[1] * sin, v[0] * sin + v[1] * cos];
+        let map = |p: [f32; 2]| {
+            let q = turn([p[0] - origin[0], p[1] - origin[1]]);
+            [origin[0] + q[0] * s + shift[0], origin[1] + q[1] * s + shift[1]]
+        };
         match self {
             DrawItem::Shape(shape) => {
                 shape.center = map(shape.center);
+                shape.rotation += angle;
                 shape.size = [shape.size[0] * s, shape.size[1] * s];
                 shape.radius *= s;
                 shape.style.soft *= s;
@@ -87,6 +99,7 @@ impl DrawItem {
             }
             DrawItem::Text(text) => {
                 text.center = map(text.center);
+                text.rotation += angle;
                 text.size *= s;
                 text.max_width *= s;
                 text.letter_spacing *= s;
@@ -98,6 +111,7 @@ impl DrawItem {
             }
             DrawItem::Image(img) => {
                 img.center = map(img.center);
+                img.rotation += angle;
                 img.size = [img.size[0] * s, img.size[1] * s];
                 img.radius *= s;
             }
@@ -106,29 +120,52 @@ impl DrawItem {
                     *p = map(*p);
                 }
             }
-            DrawItem::Group(items) => items.iter_mut().for_each(|i| i.affine(origin, s, shift)),
+            DrawItem::Group(items) => items.iter_mut().for_each(|i| i.transform(origin, s, angle, shift)),
             DrawItem::Path(path) => {
                 path.lines.iter_mut().chain(path.fills.iter_mut()).flatten().for_each(|p| *p = map(*p));
-                path.bounds = (map(path.bounds.0), map(path.bounds.1));
+                let (lo, hi) = path.bounds;
+                path.bounds = if angle == 0.0 {
+                    (map(lo), map(hi))
+                } else {
+                    // The box around the turned corners (gradients and hit-tests stay upright).
+                    let corners = [lo, [hi[0], lo[1]], hi, [lo[0], hi[1]]].map(map);
+                    let fold = |f: fn(f32, f32) -> f32, k: usize| corners.iter().map(|c| c[k]).reduce(f).unwrap_or_default();
+                    ([fold(f32::min, 0), fold(f32::min, 1)], [fold(f32::max, 0), fold(f32::max, 1)])
+                };
+                if let Some(g) = &mut path.gradient {
+                    g.angle += angle;
+                }
                 path.stroke = path.stroke.map(|(w, c)| (w * s, c));
             }
             DrawItem::Object(o) => {
                 o.center = map(o.center);
+                o.rotation += angle;
                 o.size = [o.size[0] * s, o.size[1] * s];
+                if let Some(shadow) = &mut o.contact {
+                    shadow.center = map(shadow.center);
+                    shadow.rotation += angle;
+                    shadow.size = [shadow.size[0] * s, shadow.size[1] * s];
+                    shadow.style.soft *= s;
+                }
             }
             // The pattern scales with the box: `px` stays in the layer's own units.
             DrawItem::Shader(sh) => {
                 sh.center = map(sh.center);
+                sh.rotation += angle;
                 sh.size = [sh.size[0] * s, sh.size[1] * s];
                 sh.radius *= s;
             }
             DrawItem::Fx(fx) => {
-                fx.items.iter_mut().chain(fx.samples.iter_mut().flatten()).for_each(|i| i.affine(origin, s, shift));
+                fx.items.iter_mut().chain(fx.samples.iter_mut().flatten()).for_each(|i| i.transform(origin, s, angle, shift));
                 if let Some((m, _)) = &mut fx.matte {
-                    m.iter_mut().for_each(|i| i.affine(origin, s, shift));
+                    m.iter_mut().for_each(|i| i.transform(origin, s, angle, shift));
                 }
                 for e in &mut fx.effects {
                     e.scale(s);
+                    // Drop shadows fall the same way in the rolled picture.
+                    if let crate::paint::DrawEffect::Shadow { offset, .. } = e {
+                        *offset = turn(*offset);
+                    }
                 }
             }
             // Zoom the 3D camera in: shrink the view distance.

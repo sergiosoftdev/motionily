@@ -62,7 +62,7 @@ applied: fix it and resend the call.
 {"op":"set_captions","captions":{"words":[{"text":"Hola","start":0.2,"end":0.5}]}}   // words:[] hides the built-in line
 {"op":"put_sfx","cue":{…}} {"op":"remove_sfx","id":"…"} {"op":"clear_sfx"}           // prefer add_sfx
 {"op":"define_component","name":"stat","component":{"params":[…],"duration":6,"layers":[…]}}  {"op":"remove_component","name":"stat"}  // prefer the define_component tool
-3D stage: put_prop, remove_prop, set_camera, set_shots, set_stage, define_prefab (below)
+3D stage: put_prop, remove_prop, set_camera, set_shots, set_stage, set_lights, define_prefab (below)
 ```
 Rejected on purpose: `set_size` (use `set_format`), `set_style`, `set_library`, `set_caption_style`, `set_render_style`,
 `set_scenario`. JSON layer fields are the long names of the compact keys (`scale`, `rotation`, `opacity`, `radius`,
@@ -128,6 +128,27 @@ Most videos are 2D layers; 3D objects inside them (`object` layers, see syntax) 
 - x/z/rotation/scale take keyframes. Behaviour with `beats` (times from the prop's start; walks auto-play "walk" and face
   where they go): `[{"at":0.5,"duration":2,"go_to":"fisio","action":"wave"},{"at":3,"duration":1.2,"sit_on":"camilla","seat_height":0.6},
   {"at":5,"face":"fisio","action":"point"},{"at":6,"duration":1.5,"walk_to":[2,1]}]` — prefer beats over hand-keyed x/z.
+<!-- stage-lights:start -->
+- **Lights** (`{"op":"set_lights","lights":{…}}` or `"lights"` inside `set_stage`; `null` = default). Without lights the
+  stage keeps its original look: a soft light that follows the camera, no shadows. With `lights` (even `{}`):
+  `{"key":{"azimuth":35,"elevation":50,"color":"#ffffff","intensity":1},"ambient":{"sky":"#ffffff","ground":"#ffffff","intensity":1},
+  "points":[{"x":0,"y":1.5,"z":1,"color":"#ffffff","intensity":1,"range":4}],"shadows":true,"softness":0.5}` (shown = defaults).
+  - key: world direction, the camera-yaw convention — azimuth 0 = from +z (front), 90 = from +x (right), −90 = left,
+    180 = behind; elevation 0..89° above the horizon (low = long shadows; ≤ ~1° = no shadows). Fixed in the world.
+  - shading (toon): color × (0.68·ambient + 0.32·key·lit) where lit = 1 on faces turned > ~25° toward the key and not in
+    shadow; the floor: floor × (0.68·sky + 0.32·key·unshadowed) — so with default lights an unshadowed floor keeps its
+    exact color and a shadow takes 32% off. Shadows get darker with key intensity ↑ or ambient intensity ↓.
+  - ambient: `sky` lights faces looking up, `ground` faces looking down (mixed by the normal). Intensities 0..8, 1 = default.
+  - points (max 4, no shadows): light falls off as (1 − (d/range)²)², 0 beyond `range` (meters). Warm lamp:
+    `{"x":1.2,"y":1.6,"z":0.5,"color":"#ffb36b","intensity":1.5,"range":3}`.
+  - shadows: the key casts them from every prop onto the floor and other props; `softness` 0..1 blurs the edge over
+    ±(0.005 + 0.12·softness) m. Colors/intensities/angles take keyframes (a sun sweep: `"azimuth":[{"t":0,"v":-60},{"t":6,"v":60}]`).
+  - recipe, warm key with a long floor shadow: `{"op":"set_lights","lights":{"key":{"azimuth":-55,"elevation":18,"color":"#ffd2a0","intensity":1.3},"ambient":{"sky":"#dfe8ff","intensity":0.8},"softness":0.4}}`
+  - recipe, textured model on a turntable: `{"op":"put_prop","prop":{"id":"hero","model":"characters/character-female-b","rotation":"t*45","action":"idle"}}`
+    (glTF base-color textures — pack colormaps, files next to the model, images embedded in the GLB — are applied
+    automatically, toon included; models inside object-layer nodes render too).
+  - `set_camera` takes `"roll"` (degrees, keyframable, clockwise camera = counter-clockwise picture; applies to shots too).
+<!-- stage-lights:end -->
 - camera: shots auto-frame a target: `{"op":"set_shots","shots":[{"start":0,"end":2.5,"kind":"reveal","target":"all"},
   {"start":2.5,"end":5,"kind":"push_in","target":"fisio","yaw":-30,"framing":0.8,"blend":0.4},{"start":5,"end":7,"kind":"orbit","target":"camilla","sweep":60},
   {"start":7,"end":9,"kind":"follow","target":"paciente"}]}` — kinds static, orbit, push_in, pull_out, crane, follow, reveal;
@@ -140,4 +161,4 @@ Most videos are 2D layers; 3D objects inside them (`object` layers, see syntax) 
 - `review_video` — contact sheet, 12 fps strips of the busiest moments, automatic checks (off frame, colliding text, text
   crossing card edges, neon/saturated palette, dead air, blank frames) and motion notes (abrupt stops, linear keys,
   crowded entrances, held layers, no camera). Never hand back a video you have not reviewed.
-- Not supported yet: video clips, exporting from the agent side, camera roll.
+- Not supported yet: video clips, exporting from the agent side, glTF morph targets, point-light shadows.

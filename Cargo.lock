@@ -185,6 +185,7 @@ dependencies = [
  "glam",
  "gltf",
  "lyon_tessellation",
+ "naga",
  "scene",
  "wgpu",
 ]

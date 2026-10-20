@@ -40,6 +40,14 @@ pub struct Camera3D {
     /// Vertical field of view in degrees (perspective).
     #[serde(default = "default_fov")]
     pub fov: f32,
+    /// Degrees the camera rolls clockwise around its view axis (the picture turns the other
+    /// way). Applies to shots too.
+    #[serde(default, skip_serializing_if = "is_still")]
+    pub roll: Animated,
+}
+
+fn is_still(a: &Animated) -> bool {
+    *a == Animated::Static(0.0)
 }
 
 fn default_yaw() -> Animated {
@@ -69,6 +77,7 @@ impl Default for Camera3D {
             target_y: default_target_y(),
             target_z: Animated::default(),
             fov: default_fov(),
+            roll: Animated::default(),
         }
     }
 }
@@ -148,6 +157,10 @@ pub struct Stage {
     /// Floor color (palette slot); `None` = no floor.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub floor: Option<ColorRef>,
+    /// Key, ambient and point lights with floor shadows. `None` = the soft camera-following
+    /// light without shadows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lights: Option<crate::Lights>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -321,6 +334,8 @@ pub struct DrawCamera {
     pub fov: f32,
     /// Orthographic half-height.
     pub ortho: f32,
+    /// Clockwise roll around the view axis (radians).
+    pub roll: f32,
 }
 
 /// Resolved prop for one frame. The engine evaluates `action` at `action_time`.
@@ -349,6 +364,8 @@ pub struct DrawStage {
     pub floor: Option<Rgba>,
     pub ink: Rgba,
     pub background: Rgba,
+    /// `None` = the legacy camera-following light, no shadows.
+    pub lights: Option<crate::DrawLights>,
 }
 
 const ENTER_TIME: f32 = 0.6;
@@ -392,7 +409,7 @@ pub fn frame_solids(solids: &[DrawSolid], fov: f32, aspect: f32) -> DrawCamera {
     let half_v = fov.to_radians() / 2.0;
     let half_h = (half_v.tan() * aspect).atan();
     let dist = radius / half_v.min(half_h).sin() * 1.02;
-    DrawCamera { kind: CameraKind::Perspective, eye: (target + Vec3::Z * dist).into(), target: target.into(), fov, ortho: radius }
+    DrawCamera { kind: CameraKind::Perspective, eye: (target + Vec3::Z * dist).into(), target: target.into(), fov, ortho: radius, roll: 0.0 }
 }
 
 /// Words fill their box: the front face of their ink box touches the box's sides or its top and
@@ -413,7 +430,7 @@ fn frame_tight(solids: &[DrawSolid], fov: f32, aspect: f32) -> DrawCamera {
     let half_v = fov.to_radians() / 2.0;
     let half_h = (half_v.tan() * aspect).atan();
     let dist = (half.x / half_h.tan()).max(half.y / half_v.tan()) * TIGHT_MARGIN + half.z;
-    DrawCamera { kind: CameraKind::Perspective, eye: (target + Vec3::Z * dist).into(), target: target.into(), fov, ortho: half.x.max(half.y) }
+    DrawCamera { kind: CameraKind::Perspective, eye: (target + Vec3::Z * dist).into(), target: target.into(), fov, ortho: half.x.max(half.y), roll: 0.0 }
 }
 
 /// Breathing room around framed text (2%), like the sphere framing.
@@ -474,7 +491,8 @@ impl Stage {
                 })
             })
             .collect();
-        let camera = self.camera_at(t, &bounds);
+        let mut camera = self.camera_at(t, &bounds);
+        camera.roll = self.camera.roll.sample(t).to_radians();
         DrawStage {
             camera,
             finish: Finish::Toon,
@@ -484,6 +502,7 @@ impl Stage {
             floor: self.floor.map(|f| f.resolve(palette)),
             ink: palette.text,
             background: palette.background,
+            lights: self.lights.as_ref().map(|l| l.resolve(t, palette, [0.0; 3])),
         }
     }
 }
@@ -494,7 +513,7 @@ impl Stage {
         let (yaw, pitch) = (c.yaw.sample(t).to_radians(), c.pitch.sample(t).to_radians());
         let d = c.distance.sample(t).max(0.1);
         let target = [c.target_x.sample(t), c.target_y.sample(t), c.target_z.sample(t)];
-        DrawCamera { kind: c.kind, eye: orbit_eye(Vec3::from(target), yaw, pitch, d).to_array(), target, fov: c.fov, ortho: d }
+        DrawCamera { kind: c.kind, eye: orbit_eye(Vec3::from(target), yaw, pitch, d).to_array(), target, fov: c.fov, ortho: d, roll: 0.0 }
     }
 
     /// Camera from the shot list at `t` (falls back to the keyframed camera).
@@ -549,6 +568,7 @@ impl Stage {
             target: center.to_array(),
             fov: self.camera.fov,
             ortho: radius * s.framing * 1.15,
+            roll: 0.0,
         }
     }
 }

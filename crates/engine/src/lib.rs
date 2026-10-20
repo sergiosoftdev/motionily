@@ -173,7 +173,11 @@ impl Batches {
                     }
                     continue;
                 }
-                DrawItem::Object(o) => {
+                DrawItem::Object(mut o) => {
+                    // Its contact shadow is a plain shape drawn just before it.
+                    if let Some(shadow) = o.contact.take() {
+                        self.push_all(vec![DrawItem::Shape(shadow)], runs, top);
+                    }
                     self.objects.push(*o);
                     runs.push(Run::Object(self.objects.len() as u32 - 1));
                     continue;
@@ -351,9 +355,24 @@ impl Renderer {
         self.stage.add_model(&self.device, key, bytes)
     }
 
-    /// Register a model pack's shared texture (RGBA8).
-    pub fn add_texture(&mut self, pack: &str, rgba: &[u8], width: u32, height: u32) {
-        self.stage.add_texture(&self.device, &self.queue, pack, rgba, width, height);
+    /// Register a model pack's shared texture, or one model image by its key (RGBA8).
+    pub fn add_texture(&mut self, key: &str, rgba: &[u8], width: u32, height: u32) {
+        self.stage.add_texture(&self.device, &self.queue, key, rgba, width, height);
+    }
+
+    /// Image keys the loaded models need and nobody registered yet (`add_texture` them).
+    pub fn missing_textures(&self) -> Vec<String> {
+        self.stage.missing_textures()
+    }
+
+    /// PNG/JPEG bytes of an image embedded in a model (`key` from `missing_textures`).
+    pub fn embedded_texture(&self, key: &str) -> Option<&[u8]> {
+        self.stage.embedded_texture(key)
+    }
+
+    /// Every texture key registered so far.
+    pub fn texture_keys(&self) -> Vec<String> {
+        self.stage.texture_keys()
     }
 
     /// Register an image (RGBA8) for image layers under its source key.
@@ -447,7 +466,8 @@ impl Renderer {
         }
         let scene_px = [scene.width as f32, scene.height as f32];
         for (renderer, o) in self.objects.iter_mut().zip(&batches.objects) {
-            let screen = three::ScreenBox { center: o.center, size: o.size, scene: scene_px };
+            renderer.share_assets(&self.stage);
+            let screen = three::ScreenBox { center: o.center, size: o.size, rotation: o.rotation, scene: scene_px };
             renderer.prepare_in(&self.device, &self.queue, Some(&o.stage), 1.0, linearize > 0.5, Some(screen));
         }
 

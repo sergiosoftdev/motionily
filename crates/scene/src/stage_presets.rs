@@ -60,6 +60,7 @@ fn camera(yaw: f32, pitch: f32, distance: f32, target: [f32; 3]) -> Camera3D {
         target_y: target[1].into(),
         target_z: target[2].into(),
         fov: 32.0,
+        roll: Default::default(),
     }
 }
 
@@ -67,7 +68,7 @@ pub fn preset(kind: ScenarioKind) -> Stage {
     let floor = Some(ColorRef::Slot(PaletteSlot::Surface));
     let mut props = Vec::new();
     match kind {
-        ScenarioKind::EmptyStudio => Stage { camera: camera(20.0, 12.0, 3.2, [0.0, 0.45, 0.0]), shots: Vec::new(), props, floor },
+        ScenarioKind::EmptyStudio => Stage { camera: camera(20.0, 12.0, 3.2, [0.0, 0.45, 0.0]), shots: Vec::new(), props, floor, lights: None },
         ScenarioKind::ClinicRoom => {
             // Room spans x -2..2, z -2..1. Kenney furniture has its origin at a back corner
             // (geometry along -z), so rotations below are chosen to keep pieces inside the walls.
@@ -82,7 +83,7 @@ pub fn preset(kind: ScenarioKind) -> Stage {
             props.push(prop("bookcase", "furniture/bookcaseOpen", 1.0, -1.55, 0.0));
             props.push(prop("plant", "furniture/pottedPlant", -1.8, -1.7, 0.0));
             props.push(prop("lamp", "furniture/lampRoundFloor", 1.7, 0.4, 0.0));
-            Stage { camera: camera(28.0, 24.0, 6.2, [0.0, 0.35, -0.7]), shots: Vec::new(), props, floor }
+            Stage { camera: camera(28.0, 24.0, 6.2, [0.0, 0.35, -0.7]), shots: Vec::new(), props, floor, lights: None }
         }
         ScenarioKind::Office => {
             back_wall(&mut props, "wall", -3, 3, -2.5, &[-2, 0, 2]);
@@ -95,7 +96,7 @@ pub fn preset(kind: ScenarioKind) -> Stage {
             props.push(prop("plant-a", "furniture/pottedPlant", -2.8, -2.3, 0.0));
             props.push(prop("plant-b", "furniture/pottedPlant", 2.6, -2.3, 0.0));
             props.push(prop("coffee", "furniture/kitchenCoffeeMachine", 2.2, -2.4, 0.0));
-            Stage { camera: camera(25.0, 24.0, 6.5, [0.0, 0.35, -0.7]), shots: Vec::new(), props, floor }
+            Stage { camera: camera(25.0, 24.0, 6.5, [0.0, 0.35, -0.7]), shots: Vec::new(), props, floor, lights: None }
         }
         ScenarioKind::IsoCity => {
             const BLOCKS: [&str; 10] = [
@@ -123,7 +124,7 @@ pub fn preset(kind: ScenarioKind) -> Stage {
             }
             let mut cam = camera(45.0, 35.0, 4.2, [0.0, 0.4, 0.0]);
             cam.kind = CameraKind::Isometric;
-            Stage { camera: cam, shots: Vec::new(), props, floor }
+            Stage { camera: cam, shots: Vec::new(), props, floor, lights: None }
         }
     }
 }
@@ -136,6 +137,8 @@ pub fn merge_preset(kind: ScenarioKind, current: Option<&Stage>) -> Stage {
         .unwrap_or_default();
     if let Some(c) = current {
         stage.props.extend(c.props.iter().filter(|p| set_ids.contains(&p.id)).cloned());
+        // Lights are the agent's choice, not part of the set.
+        stage.lights = c.lights.clone();
     }
     stage
 }

@@ -60,8 +60,10 @@ export function formatLayouts(layouts: FrameLayout[], size: [number, number], fi
     .map((frame) => {
       const head = [`t=${frame.t}s · frame ${size[0]}×${size[1]}`];
       if (frame.camera) {
-        const { look, dolly, focal } = frame.camera;
-        head.push(`camera look=${r(look[0])},${r(look[1])} dolly=${r(dolly)} focal=${r(focal)} → z=${r(dolly)} draws 1:1, z≤${r(dolly - focal)} is behind it`);
+        const { look, dolly, focal, roll } = frame.camera;
+        const turn = roll ? Math.abs(+roll.toFixed(1)) : 0;
+        const rolled = roll ? ` roll=${+roll.toFixed(1)}° (picture turned ${turn}° ${roll > 0 ? "counter-clockwise" : "clockwise"})` : "";
+        head.push(`camera look=${r(look[0])},${r(look[1])} dolly=${r(dolly)} focal=${r(focal)}${rolled} → z=${r(dolly)} draws 1:1, z≤${r(dolly - focal)} is behind it`);
       } else head.push("no camera (flat; z≠0 still scales around the frame center)");
       const matching = frame.layers.filter(wanted);
       // Layers entirely outside the frame are one line: usually fine (waiting off screen), sometimes the bug.
