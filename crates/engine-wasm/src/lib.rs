@@ -66,6 +66,12 @@ impl Engine {
         self.scene.pick(t, x, y)
     }
 
+    /// JSON `[{id, cover}]` of every layer under scene point (x, y) at time t, front to back.
+    #[wasm_bindgen(js_name = pickStack)]
+    pub fn pick_stack(&self, t: f32, x: f32, y: f32) -> String {
+        serde_json::to_string(&self.scene.pick_stack(t, x, y)).expect("hits always serialize")
+    }
+
     /// `[cx, cy, w, h, rotation]` of a layer at time t in scene pixels, or undefined.
     #[wasm_bindgen(js_name = layerBounds)]
     pub fn layer_bounds(&self, id: &str, t: f32) -> Option<Vec<f32>> {

@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
   type RefObject,
@@ -11,7 +12,7 @@ import {
   moveGroupOps,
   removeGroupOps,
   resizeGroupOps,
-  selectFromPick,
+  selectAt,
   snapshot,
   unionBounds,
 } from "../editing/groups";
@@ -21,6 +22,15 @@ import { useEditor } from "../store";
 /** Pointer travel (px) before a press on the selection counts as a drag, not a click. */
 const DRAG_THRESHOLD = 3;
 const MIN_RESIZE = 0.1;
+/** How long a click on the selected layer waits for a second click (double-click edits text). */
+const DOUBLE_CLICK_MS = 260;
+
+/** What is under a pointer on the preview canvas, front to back. */
+function stackAt(c: HTMLCanvasElement, e: { clientX: number; clientY: number }) {
+  const r = c.getBoundingClientRect();
+  const [sw, sh] = engineHost.sceneSize();
+  return engineHost.pickStack(((e.clientX - r.left) / r.width) * sw, ((e.clientY - r.top) / r.height) * sh);
+}
 
 /**
  * Click an object in the preview to select it (requests then go to it alone), drag it to move,
@@ -42,6 +52,8 @@ export function SelectionOverlay({ canvas }: { canvas: RefObject<HTMLCanvasEleme
   /** Bumped while dragging so the box follows the edit. */
   const [tick, setTick] = useState(0);
   const [editingText, setEditingText] = useState<string | null>(null);
+  const pendingPick = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(pendingPick.current), []);
 
   // Keyboard: Delete removes the selected layer, Escape deselects. Never while typing.
   useEffect(() => {
@@ -75,15 +87,7 @@ export function SelectionOverlay({ canvas }: { canvas: RefObject<HTMLCanvasEleme
   useEffect(() => {
     const c = canvas.current;
     if (!c) return;
-    const onClick = (e: MouseEvent) => {
-      const r = c.getBoundingClientRect();
-      const [sw, sh] = engineHost.sceneSize();
-      const id = engineHost.pick(
-        ((e.clientX - r.left) / r.width) * sw,
-        ((e.clientY - r.top) / r.height) * sh,
-      );
-      selectFromPick(id ?? null);
-    };
+    const onClick = (e: MouseEvent) => selectAt(stackAt(c, e), e.metaKey || e.ctrlKey);
     c.addEventListener("click", onClick);
     return () => c.removeEventListener("click", onClick);
   }, [canvas]);
@@ -109,11 +113,14 @@ export function SelectionOverlay({ canvas }: { canvas: RefObject<HTMLCanvasEleme
     const kx = c.clientWidth / sw;
     const ky = c.clientHeight / sh;
     const [cx = 0, cy = 0, w = 0, h = 0, rot = 0] = b;
+    let [x0, y0, x1, y1] = [(cx - w / 2) * kx, (cy - h / 2) * ky, (cx + w / 2) * kx, (cy + h / 2) * ky];
+    // What bleeds off the frame (backgrounds) is framed at the frame's edge, not across the page.
+    if (!rot) [x0, y0, x1, y1] = [Math.max(0, x0), Math.max(0, y0), Math.min(c.clientWidth, x1), Math.min(c.clientHeight, y1)];
     setBox({
-      left: c.offsetLeft + (cx - w / 2) * kx,
-      top: c.offsetTop + (cy - h / 2) * ky,
-      width: w * kx,
-      height: h * ky,
+      left: c.offsetLeft + x0,
+      top: c.offsetTop + y0,
+      width: Math.max(0, x1 - x0),
+      height: Math.max(0, y1 - y0),
       rotation: rot,
     });
   }, [canvas, selected, group, label, time, tick]);
@@ -151,9 +158,17 @@ export function SelectionOverlay({ canvas }: { canvas: RefObject<HTMLCanvasEleme
       else preview(moveOps(selected!, base!, dx / k, dy / k));
       setTick((t) => t + 1);
     };
-    const up = () => {
+    const up = (ev: PointerEvent) => {
       window.removeEventListener("pointermove", move);
-      if (moved) commit(resize ? `Resizes ${label}` : `Moves ${label}`);
+      if (moved) return commit(resize ? `Resizes ${label}` : `Moves ${label}`);
+      if (resize) return;
+      // A click (no drag) goes through to what is under it: into the group, or the next layer down.
+      const stack = stackAt(c, ev);
+      const deep = ev.metaKey || ev.ctrlKey;
+      clearTimeout(pendingPick.current);
+      if (group) selectAt(stack, deep);
+      // A selected layer first waits out a double-click, which edits its text instead.
+      else pendingPick.current = setTimeout(() => selectAt(stack, deep), DOUBLE_CLICK_MS);
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up, { once: true });
@@ -171,8 +186,11 @@ export function SelectionOverlay({ canvas }: { canvas: RefObject<HTMLCanvasEleme
         className={`absolute cursor-move rounded-sm ring-2 ${group ? "ring-violet-400" : "ring-sky-400"}`}
         style={{ ...box, transform: `rotate(${box.rotation}rad)` }}
         onPointerDown={drag(false)}
-        onDoubleClick={() => setEditingText(layerText())}
-        title="Drag to move · double-click to edit the text · Delete to remove"
+        onDoubleClick={() => {
+          clearTimeout(pendingPick.current);
+          setEditingText(layerText());
+        }}
+        title="Click again to go inside (or to what is under it) · ⌘-click picks a layer directly · drag to move · double-click to edit the text · Delete to remove"
       >
         <span
           className="absolute -right-1.5 -bottom-1.5 size-3 cursor-nwse-resize rounded-sm bg-white ring-2 ring-sky-400"

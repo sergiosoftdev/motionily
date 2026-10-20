@@ -90,7 +90,9 @@ export function AskBox({ g, hasScene, projectId, variant }: { g: Generation; has
               ×
             </button>
           </span>
-        ) : (
+        ) : null}
+        {target && group && variant === AskVariant.Simple && <span className="px-1 text-xs text-neutral-600">click it again to pick one piece inside · ⌘-click picks it directly</span>}
+        {target ? null : (
           <>
             <button type="button" onClick={() => useEditor.setState({ pinnedMoment: false })} className={moment ? st.chip : st.chipOn}>
               Whole video

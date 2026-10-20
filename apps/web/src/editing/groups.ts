@@ -1,5 +1,5 @@
 import { OpName, type Op } from "@motionily/protocol";
-import { engineHost } from "../engine/host";
+import { engineHost, type PickHit } from "../engine/host";
 import { useEditor } from "../store";
 import { moveOps, resizeOps, type Animated } from "./direct";
 
@@ -28,17 +28,31 @@ export function groupLayerIds(group: string): string[] {
 }
 
 /**
- * Figma-like picking: the first click on a grouped layer selects its group; clicking again
- * inside the selected group drills into the layer.
+ * Figma-style selection from a click on the preview. `stack` is what is under the pointer,
+ * front to back; full-frame backdrops and overlays only count where nothing else is.
+ * - First click: the group of the front layer (the layer itself when it has none).
+ * - Clicking inside the group you are in (it or one of its layers is selected): its layer under
+ *   the pointer; clicking that layer again goes to the next one under it.
+ * - ⌘/Ctrl-click (`deep`): the front layer, skipping its group.
+ * - Nothing there: clear the selection.
  */
-export function selectFromPick(id: string | null) {
-  const { selectedGroup } = useEditor.getState();
-  if (!id)
-    return useEditor.setState({ selectedLayerId: null, selectedGroup: null });
-  const group = groupOf(id);
-  if (group && group !== selectedGroup)
-    return useEditor.setState({ selectedGroup: group, selectedLayerId: null });
-  useEditor.setState({ selectedLayerId: id, selectedGroup: null });
+export function selectAt(stack: PickHit[], deep: boolean) {
+  const content = stack.filter((h) => !h.cover);
+  const hits = content.length ? content : stack;
+  const front = hits[0];
+  if (!front) return useEditor.setState({ selectedLayerId: null, selectedGroup: null });
+  const all = layers();
+  const groupOfHit = (id: string) => all.find((l) => l.id === id)?.group;
+  const select = (id: string) => useEditor.setState({ selectedLayerId: id, selectedGroup: null });
+  if (deep) return select(front.id);
+  const { selectedGroup, selectedLayerId } = useEditor.getState();
+  const inside = selectedGroup ?? (selectedLayerId ? groupOfHit(selectedLayerId) : undefined);
+  // In a group, or clicking the selected layer again: walk down what is under the pointer there.
+  const pool = inside ? hits.filter((h) => groupOfHit(h.id) === inside) : hits.some((h) => h.id === selectedLayerId) ? hits : [];
+  if (pool.length) return select(pool[(pool.findIndex((h) => h.id === selectedLayerId) + 1) % pool.length]!.id);
+  const group = groupOfHit(front.id);
+  if (group) return useEditor.setState({ selectedGroup: group, selectedLayerId: null });
+  select(front.id);
 }
 
 /** Box around several layers at the current time: [cx, cy, w, h]. */

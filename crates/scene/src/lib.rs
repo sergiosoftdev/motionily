@@ -9,6 +9,7 @@ mod anim;
 pub mod expr;
 pub mod glyphs;
 mod patch;
+mod hit;
 pub mod paint;
 pub mod path;
 mod character;
@@ -41,6 +42,7 @@ pub use stage::{Finish, Shot, ShotKind, ShotTarget, Camera3D, CameraKind, DrawCa
 pub use scenario::{draw_scenario, iso, DrawPoly, Scenario, ScenarioKind};
 pub use light::{contact_shadow, direction as light_direction, geometry_bounds, solids_box, AmbientLight, DrawLights, DrawPointLight, KeyLight, Lights, ObjectBox, PointLight, MAX_INTENSITY, MAX_POINT_LIGHTS};
 pub use ops::{Op, OpError, Prop};
+pub use hit::Hit;
 pub use style::{RenderKind, RenderStyle, CaptionStyle, ColorRef, CustomPalette, HexColor, Palette, PaletteSlot, Rgba, StylePreset};
 
 use serde::{Deserialize, Serialize};
@@ -521,7 +523,7 @@ impl Scene {
             for (idx, l) in self.layers.iter().enumerate().rev().filter(|(_, l)| l.camera.is_none()) {
                 let Some((b, map)) = self.screen_bounds(idx, t, m) else { continue };
                 // An instance is hit on its layers, not on the gaps of its union box.
-                if !b.contains([x, y]) || !self.instance_hit(l, t, m.ctx, &map, [x, y]) {
+                if !b.contains([x, y]) || !self.shape_hit(l, t, m.ctx, &map, [x, y]) {
                     continue;
                 }
                 // Without a camera the top-most layer wins; with one, the nearest (draw order).
@@ -1075,6 +1077,11 @@ mod tests {
         assert_eq!(scene.pick(0.0, 500.0, 500.0).as_deref(), Some("grain"));
         assert_eq!(scene.pick(0.0, 520.0, 500.0).as_deref(), Some("near"));
         assert_eq!(scene.pick(0.0, 50.0, 50.0).as_deref(), Some("bg"));
+        let stack: Vec<_> = scene.pick_stack(0.0, 500.0, 500.0).into_iter().map(|h| (h.id, h.cover)).collect();
+        let full = |id: &str| (id.to_owned(), true);
+        let part = |id: &str| (id.to_owned(), false);
+        assert_eq!(stack, [part("grain"), part("near"), part("far"), full("bg")], "front to back, the full-frame backdrop marked");
+        assert_eq!(scene.pick_stack(0.0, 50.0, 50.0).into_iter().map(|h| (h.id, h.cover)).collect::<Vec<_>>(), [full("bg")]);
     }
 
     #[test]

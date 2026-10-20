@@ -9,6 +9,8 @@ import { ClipSounds, VIDEO_LAYER, VideoLibrary, VideoStatus, type ClipState, typ
 import { decodeMono, type AudioAnalysisInfo } from "./audioReactive";
 
 type AudioTrack = { start: number; trim_in: number; trim_out: number | null };
+/** A layer under the pointer (see `pickStack`). */
+export type PickHit = { id: string; cover: boolean };
 type ReviewLayer = {
   id: string;
   type: LayerType;
@@ -844,6 +846,12 @@ class EngineHost {
 
   pick(x: number, y: number): string | undefined {
     return this.engine?.pick(useEditor.getState().time, x, y);
+  }
+
+  /** Layers under scene point (x, y) now, front to back; `cover` marks full-frame backdrops and overlays. */
+  pickStack(x: number, y: number): PickHit[] {
+    const json = this.engine?.pickStack(useEditor.getState().time, x, y);
+    return json ? (JSON.parse(json) as PickHit[]) : [];
   }
 
   /** A layer's JSON (to edit it directly without the agent). */
