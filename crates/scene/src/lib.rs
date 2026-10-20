@@ -200,53 +200,81 @@ impl Scene {
             .unwrap_or_default());
         expr::set_scene_time(t);
         let owners = self.owners_3d();
+        let center = [self.width as f32 / 2.0, self.height as f32 / 2.0];
+        let camera = self.camera_view(t, &ctx);
+        let view = camera.map_or(paint::View { look: center, dolly: 0.0, focal: paint::DEFAULT_PERSPECTIVE, screen: center }, |c| c.0);
+        // Each top-level layer's items with its depth (sorted far to near when there is a camera).
+        let mut layered: Vec<(f32, Vec<DrawItem>)> = Vec::new();
         for (idx, l) in self.layers.iter().enumerate() {
             // Layers inside a 3D layer are drawn (flat) into it, then projected with it.
-            if owners[idx].is_some() || !self.active(l, t) {
+            if owners[idx].is_some() || !self.active(l, t) || l.camera.is_some() {
                 continue;
             }
             let is_3d = l.is_3d();
             if !l.visible && !is_3d {
                 continue;
             }
-            let mut drawn = if l.visible { self.layer_items(l, t, &ctx) } else { Vec::new() };
+            let lt = l.local_time(t);
+            let z = self.depth(l, t);
             if is_3d {
-                for (j, m) in self.layers.iter().enumerate() {
-                    if owners[j] == Some(idx) && m.visible && self.active(m, t) {
-                        drawn.extend(self.layer_items(m, t, &ctx));
-                    }
+                let out = self.tilted_items(l, idx, &owners, t, z, &ctx, camera);
+                if !out.is_empty() {
+                    layered.push((z, out));
                 }
+                continue;
             }
+            let mut drawn = if l.visible { self.layer_items(l, t, &ctx) } else { Vec::new() };
             if drawn.is_empty() {
                 continue;
             }
-            let needs_fx = !l.effects.is_empty() || l.blend != paint::BlendMode::Normal || l.matte.is_some() || l.adjustment || is_3d;
+            // Flat layers in a world (or pushed in depth) are scaled toward the camera axis.
+            let flat_scale = if (camera.is_some() && !l.fixed) || z != 0.0 {
+                match view.scale_at(z) {
+                    Some(k) => Some(k),
+                    None => continue,
+                }
+            } else {
+                None
+            };
+            let defocus = camera
+                .filter(|_| !l.fixed)
+                .and_then(|c| c.1)
+                .map(|(focus, aperture)| aperture * (z - focus).abs() / 1000.0 * flat_scale.unwrap_or(1.0))
+                .filter(|b| *b > 0.5);
+            let needs_fx = !l.effects.is_empty() || l.blend != paint::BlendMode::Normal || l.matte.is_some() || l.adjustment || defocus.is_some();
+            let mut out = Vec::new();
             if needs_fx {
-                let lt = l.local_time(t);
-                let perspective = is_3d
-                    .then(|| {
-                        let center = l.world(lt, &ctx, &self.parent_xform(l, t, &ctx, 0)).origin;
-                        let focal = l.perspective.unwrap_or(paint::DEFAULT_PERSPECTIVE);
-                        paint::perspective_inverse(center, l.rotate_x.sample(lt), l.rotate_y.sample(lt), l.z.sample(lt), focal)
-                    })
-                    .flatten();
                 let matte = l.matte.as_ref().and_then(|m| {
                     let src = self.layers.iter().find(|x| x.id == m.layer)?;
                     Some((if self.active(src, t) { self.layer_items(src, t, &ctx) } else { Vec::new() }, m.mode))
                 });
-                let samples = if is_3d { Vec::new() } else { self.motion_samples(l, t, &ctx) };
-                let effects = l.effects.iter().filter_map(|e| e.resolve(lt, &palette)).collect();
+                let samples = self.motion_samples(l, t, &ctx);
+                let mut effects: Vec<paint::DrawEffect> = l.effects.iter().filter_map(|e| e.resolve(lt, &palette)).collect();
+                if let Some(radius) = defocus {
+                    // Depth of field: blur in flat space, so undo the zoom the affine applies after.
+                    effects.insert(0, paint::DrawEffect::Blur { radius: radius / flat_scale.unwrap_or(1.0) });
+                }
                 let fx = if l.adjustment {
                     // The layer's own shape bounds the adjustment.
                     paint::DrawFx { items: Vec::new(), effects, blend: l.blend, matte: Some((std::mem::take(&mut drawn), paint::MatteMode::Alpha)), samples: Vec::new(), adjust: true, perspective: None }
                 } else {
-                    paint::DrawFx { items: std::mem::take(&mut drawn), effects, blend: l.blend, matte, samples, adjust: false, perspective }
+                    paint::DrawFx { items: std::mem::take(&mut drawn), effects, blend: l.blend, matte, samples, adjust: false, perspective: None }
                 };
-                items.push(DrawItem::Fx(Box::new(fx)));
+                out.push(DrawItem::Fx(Box::new(fx)));
             } else {
-                items.append(&mut drawn);
+                out.append(&mut drawn);
             }
+            if let Some(k) = flat_scale {
+                let shift = [view.screen[0] - view.look[0], view.screen[1] - view.look[1]];
+                out.iter_mut().for_each(|item| item.affine(view.look, k, shift));
+            }
+            layered.push((z, out));
         }
+        if camera.is_some() {
+            // Painter's order by depth (stable: equal depths keep the layer order).
+            layered.sort_by(|a, b| b.0.total_cmp(&a.0));
+        }
+        items.extend(layered.into_iter().flat_map(|(_, i)| i));
         items.extend(text::caption_frame(self, &palette, t).map(DrawItem::Text));
         transition::apply(self, &palette, t, &mut items);
         items
@@ -272,6 +300,83 @@ impl Scene {
             .collect();
         expr::set_scene_time(t);
         out
+    }
+
+    /// A tilted layer and the layers parented to it, projected in perspective. Runs of plain
+    /// layers share one offscreen pass; a layer with effects, a blend mode or a matte gets its
+    /// own (same projection), so card shadows and glows survive on a tilted page.
+    #[allow(clippy::too_many_arguments)]
+    fn tilted_items(&self, l: &Layer, idx: usize, owners: &[Option<usize>], t: f32, z: f32, ctx: &EvalCtx, camera: Option<(paint::View, Option<(f32, f32)>)>) -> Vec<DrawItem> {
+        let lt = l.local_time(t);
+        let c = l.world(lt, ctx, &self.parent_xform(l, t, ctx, 0)).origin;
+        let lens = camera.map_or(paint::View { look: c, dolly: 0.0, focal: l.perspective.unwrap_or(paint::DEFAULT_PERSPECTIVE), screen: c }, |cam| cam.0);
+        let Some(perspective) = paint::perspective_inverse(c, l.rotate_x.sample(lt), l.rotate_y.sample(lt), z, &lens) else { return Vec::new() };
+        let defocus = camera.and_then(|cam| cam.1).map(|(focus, aperture)| aperture * (z - focus).abs() / 1000.0).filter(|b| *b > 0.5);
+        let base_effects = || defocus.map(|radius| vec![paint::DrawEffect::Blur { radius }]).unwrap_or_default();
+        let pass = |items: Vec<DrawItem>, effects: Vec<paint::DrawEffect>, blend: paint::BlendMode, matte| {
+            DrawItem::Fx(Box::new(paint::DrawFx { items, effects, blend, matte, samples: Vec::new(), adjust: false, perspective: Some(perspective) }))
+        };
+        let mut out = Vec::new();
+        let mut batch: Vec<DrawItem> = Vec::new();
+        let members = std::iter::once(idx).chain((0..self.layers.len()).filter(|j| owners[*j] == Some(idx)));
+        for j in members {
+            let m = &self.layers[j];
+            if !m.visible || !self.active(m, t) {
+                continue;
+            }
+            let drawn = self.layer_items(m, t, ctx);
+            if drawn.is_empty() {
+                continue;
+            }
+            let own_pass = !m.effects.is_empty() || m.blend != paint::BlendMode::Normal || m.matte.is_some();
+            if !own_pass {
+                batch.extend(drawn);
+                continue;
+            }
+            if !batch.is_empty() {
+                out.push(pass(std::mem::take(&mut batch), base_effects(), paint::BlendMode::Normal, None));
+            }
+            let mlt = m.local_time(t);
+            let mut effects = base_effects();
+            effects.extend(m.effects.iter().filter_map(|e| e.resolve(mlt, ctx.palette)));
+            let matte = m.matte.as_ref().and_then(|mt| {
+                let src = self.layers.iter().find(|x| x.id == mt.layer)?;
+                Some((if self.active(src, t) { self.layer_items(src, t, ctx) } else { Vec::new() }, mt.mode))
+            });
+            out.push(pass(drawn, effects, m.blend, matte));
+        }
+        if !batch.is_empty() {
+            out.push(pass(batch, base_effects(), paint::BlendMode::Normal, None));
+        }
+        out
+    }
+
+    /// The camera layer's view at `t` and its depth of field (focus depth, aperture), if any.
+    fn camera_view(&self, t: f32, ctx: &EvalCtx) -> Option<(paint::View, Option<(f32, f32)>)> {
+        let cam = self.layers.iter().find(|l| l.camera.is_some() && self.active(l, t))?;
+        let lens = cam.camera.as_ref()?;
+        let lt = cam.local_time(t);
+        let look = cam.world(lt, ctx, &self.parent_xform(cam, t, ctx, 0)).origin;
+        let screen = [self.width as f32 / 2.0, self.height as f32 / 2.0];
+        let focal = lens.focal * cam.scale.sample(lt).max(0.01);
+        let aperture = lens.aperture.sample(lt);
+        let dof = (aperture > 0.0).then(|| (lens.focus.sample(lt), aperture));
+        Some((paint::View { look, dolly: cam.z.sample(lt), focal, screen }, dof))
+    }
+
+    /// Depth of a layer: its `z` plus its parents'.
+    fn depth(&self, l: &Layer, t: f32) -> f32 {
+        let mut z = l.z.sample(l.local_time(t));
+        let mut cur = l;
+        for _ in 0..MAX_PARENT_DEPTH {
+            let Some(p) = cur.parent.as_ref().and_then(|pid| self.layer(pid)) else { break };
+            if p.id == l.id {
+                break;
+            }
+            z += p.z.sample(p.local_time(t));
+            cur = p;
+        }
+        z
     }
 
     /// For every layer, the index of the nearest 3D layer up its parent chain (not itself).
@@ -626,5 +731,26 @@ mod tests {
         assert_eq!(fx.items.len(), 1);
         assert!(fx.perspective.is_some());
         assert!(matches!(items[1], DrawItem::Shape(_)));
+    }
+
+    #[test]
+    fn the_camera_gives_parallax_and_depth_order() {
+        let mut scene = Scene::default();
+        scene.width = 1000;
+        scene.height = 1000;
+        for l in [
+            r#"{"id":"near","type":"shape","shape":"rect","x":500,"y":500,"w":100,"h":100}"#,
+            r#"{"id":"far","type":"shape","shape":"rect","x":500,"y":500,"w":100,"h":100,"z":1800}"#,
+            r#"{"id":"cam","type":"shape","shape":"rect","x":600,"y":500,"w":1,"h":1,"visible":false,"camera":{"focal":1800}}"#,
+        ] {
+            scene.layers.push(serde_json::from_str(l).unwrap());
+        }
+        let items = scene.frame(0.0);
+        let shapes: Vec<&DrawShape> = items.iter().filter_map(|i| if let DrawItem::Shape(s) = i { Some(s) } else { None }).collect();
+        assert_eq!(shapes.len(), 2);
+        // Far first (painter's order), half size, and it moves half as much as the near one.
+        assert!((shapes[0].size[0] - 50.0).abs() < 1e-3);
+        assert!((shapes[0].center[0] - 450.0).abs() < 1e-3, "{:?}", shapes[0].center);
+        assert!((shapes[1].center[0] - 400.0).abs() < 1e-3, "{:?}", shapes[1].center);
     }
 }

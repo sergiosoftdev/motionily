@@ -98,6 +98,22 @@ pub struct TextPath {
     pub offset: Animated,
 }
 
+/// Camera lens: focal length in px (smaller = wider, stronger perspective) and depth of field:
+/// layers away from `focus` depth blur by `aperture` px per 1000 px of distance.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Lens {
+    #[serde(default = "focal")]
+    pub focal: f32,
+    #[serde(default)]
+    pub focus: Animated,
+    #[serde(default)]
+    pub aperture: Animated,
+}
+
+fn focal() -> f32 {
+    crate::paint::DEFAULT_PERSPECTIVE
+}
+
 /// One morph keyframe.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PathKey {
@@ -288,9 +304,11 @@ pub struct Layer {
     pub pivot: [f32; 2],
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repeat: Option<Repeater>,
-    /// 3D: tilt the layer and everything parented to it in perspective (a UI page lying back,
-    /// a dashboard turning). Degrees; top leans back with rotate_x > 0, right side goes away with
-    /// rotate_y > 0. `z` pushes it away (px), `perspective` is the camera distance (px).
+    /// 2.5D world: `z` is depth (px, + = farther; parents' z adds up): far layers look smaller
+    /// and move less when the camera moves (parallax). `rotate_x`/`rotate_y` tilt the layer and
+    /// everything parented to it in perspective (a UI page lying back, a dashboard turning);
+    /// top leans back with rotate_x > 0, right side goes away with rotate_y > 0. `perspective`
+    /// is the lens (px) when the scene has no camera layer.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub rotate_x: Animated,
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -299,6 +317,13 @@ pub struct Layer {
     pub z: Animated,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub perspective: Option<f32>,
+    /// Pinned to the screen: the camera does not move it (backgrounds, HUD, captions-like text).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub fixed: bool,
+    /// This (invisible) layer is the scene camera: it looks at its x/y, `z` dollies it forward
+    /// (+ = closer to the world), `rotation` rolls it, `scale` zooms the lens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub camera: Option<Lens>,
     /// Adjustment layer: its effects change everything below it, inside this layer's shape
     /// (a full-frame rect for the whole picture).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -480,9 +505,9 @@ pub enum DrawItem {
 }
 
 impl Layer {
-    /// Tilted or pushed in depth (drawn offscreen and projected, with its children).
+    /// Tilted in perspective (drawn offscreen with its children, then projected).
     pub fn is_3d(&self) -> bool {
-        [&self.rotate_x, &self.rotate_y, &self.z].iter().any(|a| !is_zero(a))
+        !is_zero(&self.rotate_x) || !is_zero(&self.rotate_y)
     }
 
     /// Layer-local time at scene time `t`, after time remapping.

@@ -69,44 +69,54 @@ pub(crate) fn apply(scene: &Scene, palette: &Palette, t: f32, items: &mut Vec<Dr
 impl DrawItem {
     /// Scale the item around a point, as if the camera zoomed.
     pub fn scale_about(&mut self, origin: [f32; 2], s: f32) {
+        self.affine(origin, s, [0.0, 0.0]);
+    }
+
+    /// `p -> origin + (p - origin) * s + shift` on everything the item draws.
+    pub fn affine(&mut self, origin: [f32; 2], s: f32, shift: [f32; 2]) {
+        let map = |p: [f32; 2]| [origin[0] + (p[0] - origin[0]) * s + shift[0], origin[1] + (p[1] - origin[1]) * s + shift[1]];
         match self {
             DrawItem::Shape(shape) => {
-                shape.center = [origin[0] + (shape.center[0] - origin[0]) * s, origin[1] + (shape.center[1] - origin[1]) * s];
+                shape.center = map(shape.center);
                 shape.size = [shape.size[0] * s, shape.size[1] * s];
                 shape.radius *= s;
+                shape.style.soft *= s;
+                shape.style.stroke = shape.style.stroke.map(|(w, c)| (w * s, c));
             }
             DrawItem::Text(text) => {
-                text.center = [origin[0] + (text.center[0] - origin[0]) * s, origin[1] + (text.center[1] - origin[1]) * s];
+                text.center = map(text.center);
                 text.size *= s;
                 text.max_width *= s;
+                text.letter_spacing *= s;
                 text.max_height = text.max_height.map(|h| h * s);
                 if let Some((points, offset)) = &mut text.path {
-                    points.iter_mut().for_each(|p| *p = [origin[0] + (p[0] - origin[0]) * s, origin[1] + (p[1] - origin[1]) * s]);
+                    points.iter_mut().for_each(|p| *p = map(*p));
                     *offset *= s;
                 }
             }
             DrawItem::Image(img) => {
-                img.center = [origin[0] + (img.center[0] - origin[0]) * s, origin[1] + (img.center[1] - origin[1]) * s];
+                img.center = map(img.center);
                 img.size = [img.size[0] * s, img.size[1] * s];
                 img.radius *= s;
             }
             DrawItem::Poly(poly) => {
                 for p in &mut poly.points {
-                    *p = [origin[0] + (p[0] - origin[0]) * s, origin[1] + (p[1] - origin[1]) * s];
+                    *p = map(*p);
                 }
             }
-            DrawItem::Group(items) => items.iter_mut().for_each(|i| i.scale_about(origin, s)),
+            DrawItem::Group(items) => items.iter_mut().for_each(|i| i.affine(origin, s, shift)),
             DrawItem::Path(path) => {
-                let f = |p: &mut [f32; 2]| *p = [origin[0] + (p[0] - origin[0]) * s, origin[1] + (p[1] - origin[1]) * s];
-                path.lines.iter_mut().chain(path.fills.iter_mut()).flatten().for_each(f);
-                f(&mut path.bounds.0);
-                f(&mut path.bounds.1);
+                path.lines.iter_mut().chain(path.fills.iter_mut()).flatten().for_each(|p| *p = map(*p));
+                path.bounds = (map(path.bounds.0), map(path.bounds.1));
                 path.stroke = path.stroke.map(|(w, c)| (w * s, c));
             }
             DrawItem::Fx(fx) => {
-                fx.items.iter_mut().chain(fx.samples.iter_mut().flatten()).for_each(|i| i.scale_about(origin, s));
+                fx.items.iter_mut().chain(fx.samples.iter_mut().flatten()).for_each(|i| i.affine(origin, s, shift));
                 if let Some((m, _)) = &mut fx.matte {
-                    m.iter_mut().for_each(|i| i.scale_about(origin, s));
+                    m.iter_mut().for_each(|i| i.affine(origin, s, shift));
+                }
+                for e in &mut fx.effects {
+                    e.scale(s);
                 }
             }
             // Zoom the 3D camera in: shrink the view distance.

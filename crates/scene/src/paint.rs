@@ -311,6 +311,29 @@ pub enum DrawEffect {
     Turbulence { amount: f32, size: f32, phase: f32 },
 }
 
+impl DrawEffect {
+    /// Sizes in pixels follow a zoom.
+    pub fn scale(&mut self, s: f32) {
+        match self {
+            DrawEffect::Blur { radius } | DrawEffect::Glow { radius, .. } => *radius *= s,
+            DrawEffect::Shadow { offset, blur, .. } => {
+                *offset = [offset[0] * s, offset[1] * s];
+                *blur *= s;
+            }
+            DrawEffect::Chromatic { amount } => *amount *= s,
+            DrawEffect::Wave { amplitude, wavelength, .. } => {
+                *amplitude *= s;
+                *wavelength *= s;
+            }
+            DrawEffect::Turbulence { amount, size, .. } => {
+                *amount *= s;
+                *size *= s;
+            }
+            DrawEffect::Color { .. } | DrawEffect::Grain { .. } => {}
+        }
+    }
+}
+
 impl Effect {
     /// The effect at layer time `t`; `None` for motion blur, which the scene applies itself.
     pub fn resolve(&self, t: f32, palette: &Palette) -> Option<DrawEffect> {
@@ -504,29 +527,49 @@ pub struct DrawFx {
 /// Camera distance (px) for 3D layers when none is given: a natural, slightly wide lens.
 pub const DEFAULT_PERSPECTIVE: f32 = 1800.0;
 
-/// Inverse homography projecting a flat layer rotated `rx` (top leans back) and `ry` (right side
-/// goes away) degrees around `center`, pushed `z` px away, seen from `focal` px.
-pub fn perspective_inverse(center: [f32; 2], rx: f32, ry: f32, z: f32, focal: f32) -> Option<[f32; 9]> {
+/// The 2.5D camera for one frame: it looks at `look` (scene px) from `focal` px in front of the
+/// depth-0 plane, moved forward by `dolly`; `screen` is where `look` lands (the frame center).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct View {
+    pub look: [f32; 2],
+    pub dolly: f32,
+    pub focal: f32,
+    pub screen: [f32; 2],
+}
+
+impl View {
+    /// Screen scale of a plane at depth `z` (`None` when it is behind the camera).
+    pub fn scale_at(&self, z: f32) -> Option<f32> {
+        let d = self.focal + z - self.dolly;
+        (d > 1.0).then(|| self.focal / d)
+    }
+}
+
+/// Inverse homography (screen px -> flat layer px) of a flat layer centered at `center`, at depth
+/// `z`, rotated `rx` (top leans back) and `ry` (right side goes away) degrees, seen through `view`.
+pub fn perspective_inverse(center: [f32; 2], rx: f32, ry: f32, z: f32, view: &View) -> Option<[f32; 9]> {
     let (sa, ca) = rx.to_radians().sin_cos();
     let (sb, cb) = ry.to_radians().sin_cos();
-    let f = focal.max(1.0);
+    let f = view.focal.max(1.0);
     let [cx, cy] = center;
+    let [lx, ly] = view.look;
+    let [sx, sy] = view.screen;
+    let depth = f + z - view.dolly;
     // Columns of the rotation applied to (x, y, 0) relative to the center.
     let (r00, r01, r10, r11, r20, r21) = (cb, sa * sb, 0.0, ca, sb, -sa * cb);
     // Forward map for (x - cx, y - cy, 1), then shifted to take plain (x, y, 1).
     let h = [
-        [cx * r20 + f * r00, cx * r21 + f * r01, cx * (f + z)],
-        [cy * r20 + f * r10, cy * r21 + f * r11, cy * (f + z)],
-        [r20, r21, f + z],
+        [sx * r20 + f * r00, sx * r21 + f * r01, sx * depth + f * (cx - lx)],
+        [sy * r20 + f * r10, sy * r21 + f * r11, sy * depth + f * (cy - ly)],
+        [r20, r21, depth],
     ];
     let m: [[f32; 3]; 3] = std::array::from_fn(|r| [h[r][0], h[r][1], h[r][2] - h[r][0] * cx - h[r][1] * cy]);
     let det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
     if det.abs() < 1e-9 {
         return None;
     }
-    let inv = |a: usize, b: usize, c: usize, d: usize| m[a][b] * m[c][d] - m[a][d] * m[c][b];
     Some([
-        inv(1, 1, 2, 2) / det,
+        (m[1][1] * m[2][2] - m[1][2] * m[2][1]) / det,
         -(m[0][1] * m[2][2] - m[0][2] * m[2][1]) / det,
         (m[0][1] * m[1][2] - m[0][2] * m[1][1]) / det,
         -(m[1][0] * m[2][2] - m[1][2] * m[2][0]) / det,
@@ -549,7 +592,8 @@ mod tests {
 
     #[test]
     fn perspective_keeps_the_center_and_shrinks_the_far_edge() {
-        let inv = perspective_inverse([500.0, 400.0], 50.0, 0.0, 0.0, 1800.0).unwrap();
+        let view = View { look: [500.0, 400.0], dolly: 0.0, focal: 1800.0, screen: [500.0, 400.0] };
+        let inv = perspective_inverse([500.0, 400.0], 50.0, 0.0, 0.0, &view).unwrap();
         let c = apply(&inv, [500.0, 400.0]);
         assert!((c[0] - 500.0).abs() < 1e-2 && (c[1] - 400.0).abs() < 1e-2, "{c:?}");
         // The top leans back: a screen point near the top maps to a flat point further out
@@ -558,8 +602,11 @@ mod tests {
         let bottom = apply(&inv, [500.0, 500.0]);
         assert!(400.0 - top[1] > bottom[1] - 400.0, "{top:?} {bottom:?}");
         // Pushed away = smaller on screen = a screen offset covers more of the flat layer.
-        let far = perspective_inverse([500.0, 400.0], 0.0, 0.0, 1800.0, 1800.0).unwrap();
+        let far = perspective_inverse([500.0, 400.0], 0.0, 0.0, 1800.0, &view).unwrap();
         assert!((apply(&far, [600.0, 400.0])[0] - 700.0).abs() < 1e-2);
+        // A layer off the camera axis is seen from the camera, not from its own center.
+        let side = perspective_inverse([900.0, 400.0], 0.0, 0.0, 1800.0, &view).unwrap();
+        assert!((apply(&side, [700.0, 400.0])[0] - 900.0).abs() < 1e-2);
     }
 }
 

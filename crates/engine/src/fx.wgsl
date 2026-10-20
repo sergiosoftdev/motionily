@@ -155,7 +155,8 @@ fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
         c = c * p.a.z;
     }
     if (matte_mode > 0) {
-        let mt = textureSampleLevel(matte, samp, in.uv, 0.0);
+        // A projected layer's matte lives in the same flat space as the layer.
+        let mt = textureSampleLevel(matte, samp, select(in.uv, base, p.h0.w > 0.5), 0.0);
         var m = mt.a;
         if (matte_mode >= 3) {
             // Premultiplied, so this is luma times coverage.
