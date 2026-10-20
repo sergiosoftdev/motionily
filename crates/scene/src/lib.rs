@@ -243,6 +243,9 @@ impl Scene {
                 .filter(|b| *b > 0.5);
             let needs_fx = !l.effects.is_empty() || l.blend != paint::BlendMode::Normal || l.matte.is_some() || l.adjustment || defocus.is_some();
             let mut out = Vec::new();
+            if let Some(glass) = self.backdrop_pass(l, t, &drawn, None) {
+                out.push(glass);
+            }
             if needs_fx {
                 let matte = l.matte.as_ref().and_then(|m| {
                     let src = self.layers.iter().find(|x| x.id == m.layer)?;
@@ -328,7 +331,8 @@ impl Scene {
             if drawn.is_empty() {
                 continue;
             }
-            let own_pass = !m.effects.is_empty() || m.blend != paint::BlendMode::Normal || m.matte.is_some();
+            let glass = self.backdrop_pass(m, t, &drawn, Some(perspective));
+            let own_pass = !m.effects.is_empty() || m.blend != paint::BlendMode::Normal || m.matte.is_some() || glass.is_some();
             if !own_pass {
                 batch.extend(drawn);
                 continue;
@@ -336,6 +340,7 @@ impl Scene {
             if !batch.is_empty() {
                 out.push(pass(std::mem::take(&mut batch), base_effects(), paint::BlendMode::Normal, None));
             }
+            out.extend(glass);
             let mlt = m.local_time(t);
             let mut effects = base_effects();
             effects.extend(m.effects.iter().filter_map(|e| e.resolve(mlt, ctx.palette)));
@@ -349,6 +354,22 @@ impl Scene {
             out.push(pass(batch, base_effects(), paint::BlendMode::Normal, None));
         }
         out
+    }
+
+    /// Frosted glass: an adjustment pass blurring what is already drawn, inside the layer's shape.
+    fn backdrop_pass(&self, l: &Layer, t: f32, drawn: &[DrawItem], perspective: Option<[f32; 9]>) -> Option<DrawItem> {
+        let radius = l.backdrop.sample(l.local_time(t));
+        (radius > 0.5 && !drawn.is_empty()).then(|| {
+            DrawItem::Fx(Box::new(paint::DrawFx {
+                items: Vec::new(),
+                effects: vec![paint::DrawEffect::Blur { radius }],
+                blend: paint::BlendMode::Normal,
+                matte: Some((drawn.to_vec(), paint::MatteMode::Alpha)),
+                samples: Vec::new(),
+                adjust: true,
+                perspective,
+            }))
+        })
     }
 
     /// The camera layer's view at `t` and its depth of field (focus depth, aperture), if any.

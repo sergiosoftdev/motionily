@@ -17,6 +17,13 @@ struct Instance {
     grad_center: [f32; 2],
     stop_pos: [f32; 4],
     stops: [[f32; 4]; 4],
+    /// Inner offset x/y, inner blur, bevel width.
+    inner: [f32; 4],
+    inner_color: [f32; 4],
+    /// Sheen angle, position, width, intensity.
+    sheen: [f32; 4],
+    /// Bevel strength.
+    bevel: f32,
 }
 
 /// Gradient fields shared by every instanced pipeline that supports gradients.
@@ -53,6 +60,13 @@ impl From<&DrawShape> for Instance {
             grad_center,
             stop_pos,
             stops,
+            inner: {
+                let (o, b) = s.style.inner.map_or(([0.0; 2], 0.0), |(o, b, _)| (o, b));
+                [o[0], o[1], b, s.style.bevel.map_or(0.0, |b| b[0])]
+            },
+            inner_color: s.style.inner.map_or([0.0; 4], |(_, _, c)| c.0),
+            sheen: s.style.sheen.unwrap_or([0.0; 4]),
+            bevel: s.style.bevel.map_or(0.0, |b| b[1]),
         }
     }
 }
@@ -66,9 +80,10 @@ pub struct ShapePipeline {
 impl ShapePipeline {
     pub fn new(ctx: &Ctx) -> Self {
         let shader = ctx.device.create_shader_module(wgpu::include_wgsl!("shapes.wgsl"));
-        const ATTRS: [wgpu::VertexAttribute; 11] = wgpu::vertex_attr_array![
+        const ATTRS: [wgpu::VertexAttribute; 15] = wgpu::vertex_attr_array![
             0 => Float32x4, 1 => Float32x4, 2 => Float32x4, 3 => Float32x4, 4 => Float32x4, 5 => Float32x2,
-            6 => Float32x4, 7 => Float32x4, 8 => Float32x4, 9 => Float32x4, 10 => Float32x4
+            6 => Float32x4, 7 => Float32x4, 8 => Float32x4, 9 => Float32x4, 10 => Float32x4,
+            11 => Float32x4, 12 => Float32x4, 13 => Float32x4, 14 => Float32
         ];
         let pipeline = ctx.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("shapes"),

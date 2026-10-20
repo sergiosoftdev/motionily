@@ -6,7 +6,7 @@
 //! with its own pipeline, keeping layer order.
 
 use crate::text::{DrawText, TextAlign, TextRole, TextSpan, Typography, DEFAULT_FAMILY};
-use crate::paint::{BlendMode, ColorAnim, DrawPath, Effect, Gradient, Matte, Repeater, ShapeStyle, Stroke};
+use crate::paint::{Bevel, BlendMode, ColorAnim, DrawPath, Effect, Gradient, Inner, Matte, Repeater, ShapeStyle, Sheen, Stroke};
 use crate::{draw_character, AnimProp, Animated, CharacterSpec, DrawPoly, Library, Palette, Rgba};
 use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
@@ -285,6 +285,16 @@ pub struct Layer {
     /// Edge feather in pixels (shapes): big values make soft blobs for mesh-gradient backgrounds.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub soft: Animated,
+    /// Material (shapes): inner shadow or glow, a light sweep, an embossed edge.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inner: Option<Inner>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sheen: Option<Sheen>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bevel: Option<Bevel>,
+    /// Frosted glass: blur what is behind this layer's shape by this many px.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub backdrop: Animated,
     /// Effect stack: blur, glow, shadow.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<Effect>,
@@ -594,6 +604,13 @@ impl Layer {
                     stroke,
                     soft: self.soft.sample(lt).max(0.0) * scale,
                     dash: self.stroke.as_ref().and_then(|s| s.dash),
+                    inner: self.inner.as_ref().map(|i| {
+                        let mut c = i.color.resolve(ctx.palette);
+                        c.0[3] *= i.opacity.sample(lt).clamp(0.0, 1.0) * opacity;
+                        ([i.x.sample(lt) * scale, i.y.sample(lt) * scale], i.blur.sample(lt).max(0.0) * scale, c)
+                    }),
+                    sheen: self.sheen.as_ref().map(|s| [s.angle.sample(lt).to_radians(), s.at.sample(lt), s.width.sample(lt).max(0.01), s.opacity.sample(lt) * opacity]),
+                    bevel: self.bevel.as_ref().map(|b| [b.width.sample(lt).max(0.0) * scale, b.strength.sample(lt) * opacity]),
                 };
                 Some(DrawItem::Shape(DrawShape { center, size, radius, rotation, color, style }))
             }

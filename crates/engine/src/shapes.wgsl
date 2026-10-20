@@ -26,6 +26,12 @@ struct Instance {
     @location(8) c1: vec4<f32>,
     @location(9) c2: vec4<f32>,
     @location(10) c3: vec4<f32>,
+    // inner offset xy, inner blur, bevel width
+    @location(11) inner: vec4<f32>,
+    @location(12) inner_color: vec4<f32>,
+    // sheen angle, position, width, intensity
+    @location(13) sheen: vec4<f32>,
+    @location(14) bevel: f32,
 };
 
 struct VsOut {
@@ -33,8 +39,8 @@ struct VsOut {
     @location(0) local: vec2<f32>,
     @location(1) half: vec2<f32>,
     @location(2) color: vec4<f32>,
-    // radius, soft, stroke width
-    @location(3) shape: vec3<f32>,
+    // radius, soft, stroke width, bevel strength
+    @location(3) shape: vec4<f32>,
     @location(4) stroke_color: vec4<f32>,
     @location(5) grad: vec4<f32>,
     @location(6) grad_center: vec2<f32>,
@@ -43,6 +49,9 @@ struct VsOut {
     @location(9) c1: vec4<f32>,
     @location(10) c2: vec4<f32>,
     @location(11) c3: vec4<f32>,
+    @location(12) inner: vec4<f32>,
+    @location(13) inner_color: vec4<f32>,
+    @location(14) sheen: vec4<f32>,
 };
 
 const CORNERS = array<vec2<f32>, 6>(
@@ -67,7 +76,10 @@ fn vs(@builtin(vertex_index) vi: u32, inst: Instance) -> VsOut {
     out.local = local;
     out.half = half;
     out.color = inst.color;
-    out.shape = vec3(min(inst.params.x, min(half.x, half.y)), soft, inst.params.w);
+    out.shape = vec4(min(inst.params.x, min(half.x, half.y)), soft, inst.params.w, inst.bevel);
+    out.inner = inst.inner;
+    out.inner_color = inst.inner_color;
+    out.sheen = inst.sheen;
     out.stroke_color = inst.stroke_color;
     out.grad = inst.grad;
     out.grad_center = inst.grad_center;
@@ -134,6 +146,47 @@ fn gradient_color(in: VsOut, kind: i32) -> vec4<f32> {
     return col;
 }
 
+/// `top` (straight color, alpha) laid over `base` (straight alpha).
+fn over_straight(top: vec4<f32>, base: vec4<f32>) -> vec4<f32> {
+    let a = top.a + base.a * (1.0 - top.a);
+    if (a <= 1e-5) {
+        return vec4(base.rgb, 0.0);
+    }
+    return vec4((top.rgb * top.a + base.rgb * base.a * (1.0 - top.a)) / a, a);
+}
+
+/// Inner shadow/glow, bevel and sheen on top of the fill (straight alpha in and out); they show
+/// on glassy, see-through fills too.
+fn material(in: VsOut, d: f32, base: vec4<f32>) -> vec4<f32> {
+    var c = base;
+    if (in.inner_color.a > 0.0) {
+        // The shape shifted by the offset: where we are outside it, light is blocked (or glows).
+        let shifted = sd_round_box(in.local - in.inner.xy, in.half, in.shape.x);
+        let blur = max(in.inner.z, 0.75);
+        let k = smoothstep(-blur, blur * 0.35, shifted) * in.inner_color.a;
+        c = over_straight(vec4(in.inner_color.rgb, k), c);
+    }
+    let bevel_w = in.inner.w;
+    if (bevel_w > 0.0 && in.shape.w != 0.0) {
+        let e = 1.0;
+        let nx = sd_round_box(in.local + vec2(e, 0.0), in.half, in.shape.x) - sd_round_box(in.local - vec2(e, 0.0), in.half, in.shape.x);
+        let ny = sd_round_box(in.local + vec2(0.0, e), in.half, in.shape.x) - sd_round_box(in.local - vec2(0.0, e), in.half, in.shape.x);
+        let n = normalize(vec2(nx, ny) + vec2(1e-5));
+        // Light from the top-left: rims facing it brighten, the others darken.
+        let lit = dot(n, normalize(vec2(-0.45, -0.9))) * in.shape.w;
+        let edge = 1.0 - smoothstep(0.0, bevel_w, -d);
+        c = over_straight(vec4(select(vec3(0.0), vec3(1.0), lit > 0.0), clamp(abs(lit) * edge, 0.0, 1.0)), c);
+    }
+    if (in.sheen.w > 0.0) {
+        let dir = vec2(cos(in.sheen.x), sin(in.sheen.x));
+        let u = dot(in.local / max(in.half, vec2(1.0)), dir) * 0.5;
+        let center = mix(-0.9, 0.9, in.sheen.y);
+        let band = exp(-pow((u - center) / max(in.sheen.z, 0.01), 2.0));
+        c = over_straight(vec4(vec3(1.0), clamp(band * in.sheen.w, 0.0, 1.0)), c);
+    }
+    return c;
+}
+
 @fragment
 fn fs(in: VsOut) -> @location(0) vec4<f32> {
     let d = sd_round_box(in.local, in.half, in.shape.x);
@@ -150,6 +203,7 @@ fn fs(in: VsOut) -> @location(0) vec4<f32> {
     } else if (kind > 0) {
         fill = gradient_color(in, kind);
     }
+    fill = material(in, d, fill);
     let sw = in.shape.z;
     var rgb: vec3<f32>;
     var a: f32;

@@ -82,6 +82,8 @@ impl DrawItem {
                 shape.radius *= s;
                 shape.style.soft *= s;
                 shape.style.stroke = shape.style.stroke.map(|(w, c)| (w * s, c));
+                shape.style.inner = shape.style.inner.map(|(o, b, c)| ([o[0] * s, o[1] * s], b * s, c));
+                shape.style.bevel = shape.style.bevel.map(|[w, k]| [w * s, k]);
             }
             DrawItem::Text(text) => {
                 text.center = map(text.center);

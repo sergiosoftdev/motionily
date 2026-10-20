@@ -118,7 +118,8 @@ fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
         }
         base = s.xy / s.z / size;
     }
-    var uv = base - p.b.xy;
+    // Adjustment passes read the screen as it is (only their matte is projected).
+    var uv = select(base, in.uv, p.b.w > 0.5) - p.b.xy;
     if (mode == 0) {
         uv.x += p.warp.x * sin(uv.y * p.warp.y * 6.2831853 + p.warp.z);
         if (p.turb.x != 0.0) {

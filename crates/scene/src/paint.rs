@@ -178,6 +178,72 @@ pub struct ShapeStyle {
     pub dash: Option<[f32; 2]>,
     /// `gradient` paints the outline instead of the fill.
     pub stroke_gradient: bool,
+    /// Inner shadow / inner glow: offset, blur (px) and color (alpha = strength).
+    pub inner: Option<([f32; 2], f32, Rgba)>,
+    /// Light sweeping across the surface: angle (rad), position (0..1 of the sweep), width
+    /// (fraction of the shape), intensity.
+    pub sheen: Option<[f32; 4]>,
+    /// Embossed edge: width (px), strength.
+    pub bevel: Option<[f32; 2]>,
+}
+
+/// Shadow or glow painted inside a shape's edge (pressed buttons, glass rims, inset fields).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Inner {
+    #[serde(default)]
+    pub x: Animated,
+    #[serde(default)]
+    pub y: Animated,
+    #[serde(default = "inner_blur")]
+    pub blur: Animated,
+    #[serde(default = "shadow_color")]
+    pub color: ColorRef,
+    #[serde(default = "shadow_opacity")]
+    pub opacity: Animated,
+}
+
+fn inner_blur() -> Animated {
+    Animated::Static(12.0)
+}
+
+/// A band of light sweeping across a surface (glossy cards, glass, chrome): animate `at` 0 -> 1.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Sheen {
+    #[serde(default)]
+    pub at: Animated,
+    /// Degrees of the band's travel direction.
+    #[serde(default = "sheen_angle")]
+    pub angle: Animated,
+    #[serde(default = "sheen_width")]
+    pub width: Animated,
+    #[serde(default = "sheen_opacity")]
+    pub opacity: Animated,
+}
+
+fn sheen_angle() -> Animated {
+    Animated::Static(20.0)
+}
+fn sheen_width() -> Animated {
+    Animated::Static(0.18)
+}
+fn sheen_opacity() -> Animated {
+    Animated::Static(0.45)
+}
+
+/// Embossed edge lit from the top-left (plastic, glossy app tiles, buttons).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Bevel {
+    #[serde(default = "bevel_width")]
+    pub width: Animated,
+    #[serde(default = "bevel_strength")]
+    pub strength: Animated,
+}
+
+fn bevel_width() -> Animated {
+    Animated::Static(6.0)
+}
+fn bevel_strength() -> Animated {
+    Animated::Static(0.35)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
