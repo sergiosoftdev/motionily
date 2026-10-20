@@ -112,6 +112,10 @@ impl DrawItem {
                 path.bounds = (map(path.bounds.0), map(path.bounds.1));
                 path.stroke = path.stroke.map(|(w, c)| (w * s, c));
             }
+            DrawItem::Object(o) => {
+                o.center = map(o.center);
+                o.size = [o.size[0] * s, o.size[1] * s];
+            }
             DrawItem::Fx(fx) => {
                 fx.items.iter_mut().chain(fx.samples.iter_mut().flatten()).for_each(|i| i.affine(origin, s, shift));
                 if let Some((m, _)) = &mut fx.matte {

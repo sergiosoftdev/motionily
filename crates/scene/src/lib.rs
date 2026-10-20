@@ -22,14 +22,14 @@ mod text;
 mod transition;
 
 pub use anim::{Animated, Easing, Keyframe};
-pub use layer::{Xform, PathData, AnimRef, Bounds, DrawImage, DrawItem, DrawShape, EvalCtx, ImageFit, Layer, LayerContent, Shape};
+pub use layer::{Xform, PathData, AnimRef, Bounds, DrawImage, DrawItem, DrawObject, DrawShape, EvalCtx, ImageFit, Layer, LayerContent, Shape};
 pub use library::{AnimProp, AnimTemplate, Library, TemplateKey, TransitionKind, TransitionTemplate};
 pub use text::{AudioTrack, Captions, DrawText, TextAlign, TextRole, TextSpan, Typography, Word};
 pub use transition::TransitionRef;
 pub use character::{draw_character, pose, Action, CharacterKind, CharacterSpec, Hair, Outfit, Pose};
 pub use node3d::{DrawModelNode, DrawSolid, Garment, Geometry, HairStyle, Node3D, NodeKind, Repeat, Rig};
 pub use stage_presets::{merge_preset, preset as stage_preset};
-pub use stage::{Shot, ShotKind, ShotTarget, Camera3D, CameraKind, DrawCamera, DrawProp, DrawStage, PropEnter, Stage, StageProp};
+pub use stage::{Finish, Shot, ShotKind, ShotTarget, Camera3D, CameraKind, DrawCamera, DrawProp, DrawStage, PropEnter, Stage, StageProp};
 pub use scenario::{draw_scenario, iso, DrawPoly, Scenario, ScenarioKind};
 pub use ops::{Op, OpError, Prop};
 pub use style::{RenderKind, RenderStyle, CaptionStyle, ColorRef, CustomPalette, HexColor, Palette, PaletteSlot, Rgba, StylePreset};

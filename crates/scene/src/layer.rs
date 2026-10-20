@@ -69,6 +69,19 @@ pub enum LayerContent {
         #[serde(flatten)]
         spec: CharacterSpec,
     },
+    /// A 3D object drawn inside the 2D layer box (glossy icons, glass shapes, chrome ribbons):
+    /// a procedural tree (same nodes as the stage: box, sphere, torus, extrude, lathe… or a
+    /// prefab), framed to fill the box, turned by `spin` (degrees x, y, z).
+    Object {
+        node: crate::Node3D,
+        #[serde(default)]
+        finish: crate::stage::Finish,
+        #[serde(default)]
+        spin: [Animated; 3],
+        /// Lens field of view (degrees): small = flat, large = dramatic perspective.
+        #[serde(default = "object_fov")]
+        fov: f32,
+    },
     /// Vector path (SVG path data, relative to the layer position): lines, connectors, icons, light
     /// trails. Filled with `fill` when closed, outlined with `stroke`; `trim_*` draw it on.
     Path {
@@ -112,6 +125,17 @@ pub struct Lens {
 
 fn focal() -> f32 {
     crate::paint::DEFAULT_PERSPECTIVE
+}
+
+/// A 3D object layer for one frame: its little stage, and where it lands on screen.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DrawObject {
+    pub stage: crate::DrawStage,
+    pub center: [f32; 2],
+    pub size: [f32; 2],
+    /// Screen rotation (rad) of the box.
+    pub rotation: f32,
+    pub opacity: f32,
 }
 
 /// One morph keyframe.
@@ -224,6 +248,7 @@ impl LayerContent {
             LayerContent::Text { text, .. } => format!("text \"{}\"", text.chars().take(40).collect::<String>()),
             LayerContent::Image { src, .. } => format!("image {}", src.rsplit('/').next().unwrap_or(src)),
             LayerContent::Path { d, .. } => format!("path ({} chars)", d.d.len()),
+            LayerContent::Object { finish, .. } => format!("object {}", crate::enum_name(finish)),
             LayerContent::Character { spec } => format!(
                 "character {}/{}/{} hair={}",
                 crate::enum_name(&spec.character),
@@ -372,6 +397,10 @@ fn marked_spans(text: &str, color: Rgba, accent: Rgba) -> Vec<TextSpan> {
         .collect()
 }
 
+fn object_fov() -> f32 {
+    28.0
+}
+
 fn is_zero_u8(n: &u8) -> bool {
     *n == 0
 }
@@ -512,6 +541,8 @@ pub enum DrawItem {
     Path(DrawPath),
     /// A layer drawn offscreen for effects, blend modes or a matte.
     Fx(Box<crate::paint::DrawFx>),
+    /// A 3D object rendered into its screen box.
+    Object(Box<DrawObject>),
 }
 
 impl Layer {
@@ -651,6 +682,32 @@ impl Layer {
                 rotation,
                 opacity: color.0[3],
             })),
+            LayerContent::Object { node, finish, spin, fov } => {
+                use glam::{Mat4, Quat};
+                let [rx, ry, rz] = [spin[0].sample(lt), spin[1].sample(lt), spin[2].sample(lt)].map(f32::to_radians);
+                let base = Mat4::from_quat(Quat::from_euler(glam::EulerRot::YXZ, ry, rx, rz));
+                let nctx = crate::node3d::NodeCtx { palette: ctx.palette, prefabs: &ctx.library.prefabs, time: lt, action: None };
+                let (mut solids, mut placed) = (Vec::new(), Vec::new());
+                // The object's color comes from its nodes; `fill` tints parts without one.
+                let mut tint = color;
+                tint.0[3] = 1.0;
+                node.flatten(base, tint, &nctx, &mut solids, &mut placed, 0);
+                // Framed at rest (unspun) so turning does not breathe the size.
+                let (mut rest, mut rest_placed) = (Vec::new(), Vec::new());
+                node.flatten(Mat4::IDENTITY, tint, &nctx, &mut rest, &mut rest_placed, 0);
+                let camera = crate::stage::frame_solids(&rest, *fov, size[0] / size[1].max(1.0));
+                let stage = crate::DrawStage {
+                    camera,
+                    finish: *finish,
+                    props: Vec::new(),
+                    solids,
+                    placed,
+                    floor: None,
+                    ink: ctx.palette.text,
+                    background: Rgba([0.0; 4]),
+                };
+                Some(DrawItem::Object(Box::new(DrawObject { stage, center, size, rotation, opacity })))
+            }
             LayerContent::Character { spec } => {
                 let feet = [center[0], center[1] + size[1] / 2.0];
                 Some(DrawItem::Group(draw_character(spec, feet, size[1], lt, color.0[3], ctx.palette)))
@@ -754,6 +811,7 @@ impl Layer {
         match self.resolve(lt, ctx, false, xf)? {
             DrawItem::Shape(s) => Some(Bounds { center: s.center, size: s.size, rotation: s.rotation }),
             DrawItem::Image(i) => Some(Bounds { center: i.center, size: i.size, rotation: i.rotation }),
+            DrawItem::Object(o) => Some(Bounds { center: o.center, size: o.size, rotation: o.rotation }),
             DrawItem::Text(t) => {
                 let scale = self.scale.sample(lt);
                 Some(Bounds { center: t.center, size: [t.max_width, self.h.sample(lt) * scale * xf.scale], rotation: t.rotation })

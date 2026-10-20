@@ -94,6 +94,8 @@ enum ItemKind {
 enum Run {
     Items(ItemKind, Range<u32>),
     Fx(FxRun),
+    /// A 3D object layer (index into `Batches::objects`), rendered by its own stage renderer.
+    Object(u32),
 }
 
 struct FxRun {
@@ -117,6 +119,7 @@ struct Batches {
     images: Vec<DrawImage>,
     paths: Vec<DrawPath>,
     stage: Option<DrawStage>,
+    objects: Vec<scene::DrawObject>,
     runs: Vec<Run>,
 }
 
@@ -165,6 +168,11 @@ impl Batches {
                     }
                     continue;
                 }
+                DrawItem::Object(o) => {
+                    self.objects.push(*o);
+                    runs.push(Run::Object(self.objects.len() as u32 - 1));
+                    continue;
+                }
                 DrawItem::Image(i) => {
                     self.images.push(i);
                     (ItemKind::Image, self.images.len() as u32 - 1)
@@ -209,6 +217,8 @@ pub struct Renderer {
     images: ImagePipeline,
     paths: PathPipeline,
     stage: StageRenderer,
+    /// One stage renderer per 3D object layer on screen (grown on demand).
+    objects: Vec<StageRenderer>,
     post: PostPass,
     fx: FxPass,
     pub adapter_info: String,
@@ -304,6 +314,7 @@ impl Renderer {
             images,
             paths,
             stage,
+            objects: Vec::new(),
             post,
             fx,
             device,
@@ -377,6 +388,9 @@ impl Renderer {
         self.post.resize(&self.device, width, height);
         self.fx.resize(&self.device, width, height);
         self.stage.resize(&self.device, [width, height]);
+        for o in &mut self.objects {
+            o.resize(&self.device, [width, height]);
+        }
     }
 
     /// Draw `scene` at time `t` (seconds) into the surface.
@@ -402,6 +416,14 @@ impl Renderer {
         self.images.prepare(&ctx, &batches.images);
         self.paths.prepare(&ctx, &batches.paths);
         self.stage.prepare(&self.device, &self.queue, batches.stage.as_ref(), scene.width as f32 / scene.height as f32, linearize > 0.5);
+        while self.objects.len() < batches.objects.len() {
+            self.objects.push(StageRenderer::new(&self.device, &self.queue, self.config.format, [self.config.width, self.config.height]));
+        }
+        let scene_px = [scene.width as f32, scene.height as f32];
+        for (renderer, o) in self.objects.iter_mut().zip(&batches.objects) {
+            let screen = three::ScreenBox { center: o.center, size: o.size, scene: scene_px };
+            renderer.prepare_in(&self.device, &self.queue, Some(&o.stage), 1.0, linearize > 0.5, Some(screen));
+        }
 
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(f) | wgpu::CurrentSurfaceTexture::Suboptimal(f) => f,
@@ -431,7 +453,16 @@ impl Renderer {
             .iter()
             .map(|r| match r {
                 Run::Fx(f) => Some(plan_fx(&mut self.fx, f, px_per_scene, texel, scene.width as f32, scene.height as f32, linearize > 0.5)),
-                Run::Items(..) => None,
+                Run::Items(..) | Run::Object(_) => None,
+            })
+            .collect();
+        // Top-level objects composite at their opacity.
+        let object_params: Vec<Option<u32>> = batches
+            .runs
+            .iter()
+            .map(|r| match r {
+                Run::Object(k) => Some(self.fx.push(FxParams { a: [2.0, 0.0, batches.objects[*k as usize].opacity, 0.0], ..Default::default() })),
+                _ => None,
             })
             .collect();
         self.fx.upload(&self.device, &self.queue);
@@ -443,7 +474,7 @@ impl Renderer {
         let mut i = 0;
         while i < batches.runs.len() {
             // A stretch of plain runs goes in one scene pass.
-            let j = batches.runs[i..].iter().position(|r| matches!(r, Run::Fx(_))).map_or(batches.runs.len(), |k| i + k);
+            let j = batches.runs[i..].iter().position(|r| matches!(r, Run::Fx(_) | Run::Object(_))).map_or(batches.runs.len(), |k| i + k);
             if j > i || !cleared {
                 let load = if cleared { wgpu::LoadOp::Load } else { wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT) };
                 cleared = true;
@@ -463,6 +494,11 @@ impl Renderer {
             if j < batches.runs.len() {
                 if let (Run::Fx(f), Some(plan)) = (&batches.runs[j], &plans[j]) {
                     self.render_fx(&mut encoder, f, plan);
+                }
+                if let (Run::Object(k), Some(param)) = (&batches.runs[j], object_params[j]) {
+                    if self.objects[*k as usize].render_onto(&mut encoder, &self.fx.layer, true) {
+                        self.fx.composite(&mut encoder, Tex::Layer, self.post.target(), scene::paint::BlendMode::Normal, param);
+                    }
                 }
                 i = j + 1;
             } else {
@@ -501,15 +537,37 @@ impl Renderer {
                     ItemKind::Path => self.paths.draw(pass, range.clone()),
                 },
                 Run::Fx(f) => self.draw_runs(pass, &f.runs),
+                // Objects need their own pass (depth): `draw_offscreen` handles them.
+                Run::Object(_) => {}
             }
         }
     }
 
     /// Draw `runs` into an offscreen texture (cleared first).
     fn draw_offscreen(&self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView, runs: &[Run]) {
-        let mut pass = FxPass::clear_pass(encoder, view, "fx layer");
-        pass.set_bind_group(0, &self.bind_group, &[]);
-        self.draw_runs(&mut pass, runs);
+        drop(FxPass::clear_pass(encoder, view, "fx layer"));
+        let mut i = 0;
+        while i < runs.len() {
+            if let Run::Object(k) = runs[i] {
+                self.objects[k as usize].render_onto(encoder, view, false);
+                i += 1;
+                continue;
+            }
+            let j = runs[i..].iter().position(|r| matches!(r, Run::Object(_))).map_or(runs.len(), |k| i + k);
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("fx layer"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+                })],
+                ..Default::default()
+            });
+            pass.set_bind_group(0, &self.bind_group, &[]);
+            self.draw_runs(&mut pass, &runs[i..j]);
+            i = j;
+        }
     }
 
     fn render_fx(&self, encoder: &mut wgpu::CommandEncoder, f: &FxRun, plan: &FxPlan) {

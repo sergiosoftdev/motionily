@@ -339,6 +339,8 @@ pub struct DrawProp {
 #[derive(Debug, Clone, PartialEq)]
 pub struct DrawStage {
     pub camera: DrawCamera,
+    /// How surfaces are shaded (the 3D stage is toon; object layers pick their finish).
+    pub finish: Finish,
     pub props: Vec<DrawProp>,
     /// Procedural pieces (from prefabs and inline nodes).
     pub solids: Vec<DrawSolid>,
@@ -350,6 +352,45 @@ pub struct DrawStage {
 }
 
 const ENTER_TIME: f32 = 0.6;
+
+/// Surface finish of a 3D object layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Finish {
+    /// Flat cartoon bands with an ink outline (the stage look).
+    Toon,
+    /// Glossy plastic: soft diffuse, crisp highlight, rim light (app icons, toys, 3D emoji).
+    #[default]
+    Glossy,
+    /// Glass: tinted, bright fresnel edges, strong highlights.
+    Glass,
+    /// Chrome / polished metal: reflects a studio gradient (ribbons, logos, rings).
+    Chrome,
+    /// Soft matte clay.
+    Matte,
+}
+
+/// Camera framing `solids` (seen from the front, `fov` degrees) so they fill the box.
+pub fn frame_solids(solids: &[DrawSolid], fov: f32, aspect: f32) -> DrawCamera {
+    let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+    for s in solids {
+        let m = Mat4::from_cols_array_2d(&s.transform);
+        let scale = m.x_axis.truncate().length().max(m.y_axis.truncate().length()).max(m.z_axis.truncate().length());
+        let r = Vec3::splat(s.geometry.extent() * scale);
+        let c = m.w_axis.truncate();
+        lo = lo.min(c - r);
+        hi = hi.max(c + r);
+    }
+    if lo.x > hi.x {
+        (lo, hi) = (Vec3::splat(-1.0), Vec3::splat(1.0));
+    }
+    let target = (lo + hi) / 2.0;
+    let radius = ((hi - lo).length() / 2.0).max(0.01);
+    let half_v = fov.to_radians() / 2.0;
+    let half_h = (half_v.tan() * aspect).atan();
+    let dist = radius / half_v.min(half_h).sin() * 1.02;
+    DrawCamera { kind: CameraKind::Perspective, eye: (target + Vec3::Z * dist).into(), target: target.into(), fov, ortho: radius }
+}
 
 impl Stage {
     pub fn draw(&self, t: f32, palette: &Palette, prefabs: &BTreeMap<String, Node3D>) -> DrawStage {
@@ -409,6 +450,7 @@ impl Stage {
         let camera = self.camera_at(t, &bounds);
         DrawStage {
             camera,
+            finish: Finish::Toon,
             props,
             solids,
             placed,

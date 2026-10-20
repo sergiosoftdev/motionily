@@ -55,6 +55,19 @@ pub enum Geometry {
 }
 
 impl Geometry {
+    /// Half of the largest dimension (m) at scale 1, for framing.
+    pub fn extent(&self) -> f32 {
+        match self {
+            Geometry::Box { size, .. } => size.iter().fold(0.0f32, |a, b| a.max(*b)) / 2.0,
+            Geometry::Cylinder { radius, height } | Geometry::Cone { radius, height } | Geometry::Capsule { radius, height } => radius.max(height / 2.0),
+            Geometry::Sphere { radius } => *radius,
+            Geometry::Torus { radius, tube } => radius + tube,
+            Geometry::Plane { size } => size[0].max(size[1]) / 2.0,
+            Geometry::Extrude { points, depth } => points.iter().fold(depth / 2.0, |a, p| a.max(p[0].abs()).max(p[1].abs())),
+            Geometry::Lathe { points } => points.iter().fold(0.0f32, |a, p| a.max(p[0].abs()).max(p[1].abs())),
+        }
+    }
+
     /// Stable cache key for the engine.
     pub fn key(&self) -> String {
         serde_json::to_string(self).unwrap_or_default()

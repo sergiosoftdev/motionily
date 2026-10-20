@@ -27,6 +27,25 @@ struct FrameU {
     light_dir: [f32; 4],
     ink: [f32; 4],
     params: [f32; 4],
+    eye: [f32; 4],
+}
+
+/// Where an object layer lands: its box on screen (scene px) and the scene size.
+#[derive(Clone, Copy)]
+pub struct ScreenBox {
+    pub center: [f32; 2],
+    pub size: [f32; 2],
+    pub scene: [f32; 2],
+}
+
+fn finish_code(f: scene::Finish) -> f32 {
+    match f {
+        scene::Finish::Toon => 0.0,
+        scene::Finish::Glossy => 1.0,
+        scene::Finish::Glass => 2.0,
+        scene::Finish::Chrome => 3.0,
+        scene::Finish::Matte => 4.0,
+    }
 }
 
 #[repr(C)]
@@ -333,6 +352,11 @@ impl StageRenderer {
 
     /// Compute camera, skeleton poses and per-draw uniforms for this frame.
     pub fn prepare(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, stage: Option<&DrawStage>, aspect: f32, linearize: bool) {
+        self.prepare_in(device, queue, stage, aspect, linearize, None);
+    }
+
+    /// Like `prepare`, but the picture is squeezed into `screen` (object layers).
+    pub fn prepare_in(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, stage: Option<&DrawStage>, aspect: f32, linearize: bool, screen: Option<ScreenBox>) {
         self.draws.clear();
         self.has_frame = false;
         let Some(stage) = stage else { return };
@@ -342,20 +366,28 @@ impl StageRenderer {
         let eye = Vec3::from(cam.eye);
         let target = Vec3::from(cam.target);
         let view = look_at_rh(eye, target, Vec3::Y);
+        let aspect = screen.map_or(aspect, |b| b.size[0] / b.size[1].max(1.0));
         let proj = match cam.kind {
             CameraKind::Perspective => perspective_rh(cam.fov.to_radians(), aspect, 0.05, 300.0),
             CameraKind::Isometric => orthographic_rh(cam.ortho * aspect, cam.ortho, -200.0, 400.0),
         };
+        // Object layers: map the full-frame picture into their box (in clip space).
+        let fit = screen.map_or(Mat4::IDENTITY, |b| {
+            let c = [b.center[0] / b.scene[0] * 2.0 - 1.0, 1.0 - b.center[1] / b.scene[1] * 2.0];
+            Mat4::from_translation(Vec3::new(c[0], c[1], 0.0)) * Mat4::from_scale(Vec3::new(b.size[0] / b.scene[0], b.size[1] / b.scene[1], 1.0))
+        });
+        let outlines = stage.finish == scene::Finish::Toon;
         let light = (eye - target).normalize() * 0.4 + Vec3::new(0.5, 1.0, 0.35);
         let rgba = |c: Rgba| c.0;
         queue.write_buffer(
             &self.frame_buf,
             0,
             bytemuck::bytes_of(&FrameU {
-                view_proj: (proj * view).to_cols_array_2d(),
+                view_proj: (fit * proj * view).to_cols_array_2d(),
                 light_dir: light.normalize().extend(0.0).to_array(),
                 ink: rgba(stage.ink),
-                params: [if linearize { 1.0 } else { 0.0 }, OUTLINE_WIDTH, 0.0, 0.0],
+                params: [if linearize { 1.0 } else { 0.0 }, OUTLINE_WIDTH, finish_code(stage.finish), 0.0],
+                eye: eye.extend(1.0).to_array(),
             }),
         );
 
@@ -392,7 +424,7 @@ impl StageRenderer {
                 DrawU { model: solid.transform, tint: rgba(solid.color), flags: [0.0, 0.0, 1.0, 0.0], joints: [identity; MAX_JOINTS] },
                 &mut uniforms,
             );
-            self.draws.push((key, 0, slot, true));
+            self.draws.push((key, 0, slot, outlines));
         }
 
         // glTF models placed inside procedural trees (static pose).
@@ -463,16 +495,22 @@ impl StageRenderer {
 
     /// Draw the stage into `target` (clearing it), with depth. No-op without a stage.
     pub fn render(&self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) -> bool {
+        self.render_onto(encoder, target, true)
+    }
+
+    /// Draw into `target`, clearing it first or drawing over what is there.
+    pub fn render_onto(&self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView, clear: bool) -> bool {
         if !self.has_frame {
             return false;
         }
+        let load = if clear { wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT) } else { wgpu::LoadOp::Load };
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("stage"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: target,
                 depth_slice: None,
                 resolve_target: None,
-                ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
+                ops: wgpu::Operations { load, store: wgpu::StoreOp::Store },
             })],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: &self.depth,
