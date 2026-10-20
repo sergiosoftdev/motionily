@@ -19,6 +19,13 @@ function flags(row: LayoutRow, [sw, sh]: [number, number]): string[] {
   const inside = Math.max(0, Math.min(x1, sw) - Math.max(x0, 0)) * Math.max(0, Math.min(y1, sh) - Math.max(y0, 0));
   const out: string[] = [];
   if (!row.visible) out.push("hidden");
+  if (row.particles) {
+    // Particles leaving the frame (snow, sparks, confetti) are normal: count them instead.
+    const p = row.particles;
+    out.push(p.live ? `particles ${p.live} live, ${p.on_screen} on screen` : "particles: none alive (box = emitter)");
+    if (p.live >= p.max) out.push(`CAPPED at max=${p.max}: the oldest vanish early (lower rate×life or raise max ≤2000)`);
+    return out;
+  }
   if (x0 <= 0 && y0 <= 0 && x1 >= sw && y1 >= sh) out.push("fills frame");
   else if (inside / area < 1 - OFF_TOLERANCE) out.push(`${r((1 - inside / area) * 100)}% off frame`);
   if (row.visible && inside > 0 && area / (sw * sh) < TINY_SHARE) out.push("tiny");

@@ -96,7 +96,12 @@ export type LayoutRow = {
   /** Tilted layer projecting it. */
   plane?: string;
   ink?: boolean;
+  /** Particle layers: live particles (`screen` is their extent, or the emitter box when none). */
+  particles?: LayoutParticles;
 };
+
+/** A particle layer at one instant: `live === max` means the cap is dropping the oldest. */
+export type LayoutParticles = { live: number; on_screen: number; max: number };
 
 /** Where the layers land on screen at one instant. */
 export type FrameLayout = {

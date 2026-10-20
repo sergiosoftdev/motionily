@@ -165,11 +165,22 @@ impl ImagePipeline {
     pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, range: Range<u32>) {
         pass.set_pipeline(&self.pipeline);
         pass.set_vertex_buffer(0, self.quads.slice(..));
-        for i in range {
-            let Some(Some(src)) = self.items.get(i as usize) else { continue };
-            let Some(tex) = self.textures.get(src) else { continue };
-            pass.set_bind_group(1, &tex.group, &[]);
-            pass.draw(0..6, i..i + 1);
+        let mut i = range.start;
+        while i < range.end {
+            let Some(Some(src)) = self.items.get(i as usize) else {
+                i += 1;
+                continue;
+            };
+            // Consecutive quads of one picture (image particles) share one instanced draw.
+            let mut end = i + 1;
+            while end < range.end && self.items.get(end as usize).is_some_and(|s| s.as_ref() == Some(src)) {
+                end += 1;
+            }
+            if let Some(tex) = self.textures.get(src) {
+                pass.set_bind_group(1, &tex.group, &[]);
+                pass.draw(0..6, i..end);
+            }
+            i = end;
         }
     }
 }

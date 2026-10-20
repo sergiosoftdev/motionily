@@ -18,7 +18,7 @@ type ReviewLayer = {
   camera?: unknown;
   [prop: string]: unknown;
 };
-const LayerType = { Shape: "shape", Text: "text", Image: "image", Character: "character" } as const;
+const LayerType = { Shape: "shape", Text: "text", Image: "image", Character: "character", Particles: "particles" } as const;
 type LayerType = (typeof LayerType)[keyof typeof LayerType];
 /** A new video starts blank: the agent designs everything. */
 const EMPTY_SCENE = JSON.stringify({ width: 1080, height: 1920, fps: 30, duration: 6, layers: [] });
@@ -448,6 +448,8 @@ class EngineHost {
     const layers = (JSON.parse(this.sceneJson()) as { layers?: ReviewLayer[] }).layers ?? [];
     let saturated = 0;
     let sampled = 0;
+    /** Particle layers seen at the review times, and whether any particle was ever alive. */
+    const swarms = new Map<string, boolean>();
     const hues = { violet: 0, magenta: 0, cyan: 0 };
 
     times.forEach((t, i) => {
@@ -485,8 +487,16 @@ class EngineHost {
           const [cx = 0, cy = 0, w = 0, h = 0] = b;
           return [{ l, x0: cx - w / 2, y0: cy - h / 2, x1: cx + w / 2, y1: cy + h / 2, area: w * h }];
         });
+      // Particles flying off frame are normal; they are judged by their counts instead.
+      for (const row of this.layout([t])[0]?.layers ?? []) {
+        const p = row.particles;
+        if (!p || !row.visible) continue;
+        swarms.set(row.id, (swarms.get(row.id) ?? false) || p.live > 0);
+        if (p.live >= p.max) flag(`particles '${row.id}' hit max=${p.max}: rate×life is over the cap, so the oldest vanish early — lower rate/life or raise max (≤2000)`, t);
+        else if (p.live > 0 && p.on_screen === 0) flag(`particles '${row.id}': all ${p.live} live particles are off frame`, t);
+      }
       for (const b of boxes) {
-        if (b.area <= 0 || b.l.type === LayerType.Shape) continue;
+        if (b.area <= 0 || b.l.type === LayerType.Shape || b.l.type === LayerType.Particles) continue;
         const inside = Math.max(0, Math.min(b.x1, sw) - Math.max(b.x0, 0)) * Math.max(0, Math.min(b.y1, sh) - Math.max(b.y0, 0));
         if (inside / b.area < 1 - OFF_FRAME_TOLERANCE) flag(`${b.l.type} '${b.l.id}' goes off frame`, t);
       }
@@ -528,6 +538,8 @@ class EngineHost {
         }
     });
 
+    for (const [id, seen] of swarms)
+      if (!seen) found.set(`particles '${id}' never has a live particle at the review times: set rate= and/or burst= inside its span (and life=)`, [times[0]!]);
     const share = saturated / Math.max(1, sampled);
     if (share > SATURATED_SHARE)
       flag(`palette: ${Math.round(share * 100)}% of the frame is saturated color — pro films keep neutrals (near-black/white/warm grey) ≥60% and save saturation for small accents`, times[0]!);
@@ -596,7 +608,8 @@ class EngineHost {
     const steps = Math.floor(duration * MOTION_FPS);
     const fmt = (t: number) => `${t.toFixed(1)}s`;
     for (const l of layers) {
-      if (l.visible === false || l.camera) continue;
+      // A particle layer's box is its swarm: it grows and shrinks by design.
+      if (l.visible === false || l.camera || l.type === LayerType.Particles) continue;
       let prev: number[] | null = null;
       let prevSpeed = 0;
       let stillSince: number | null = null;

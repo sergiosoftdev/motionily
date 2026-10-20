@@ -99,6 +99,20 @@ pub fn set_scene_time(gt: f32) {
     });
 }
 
+/// The scene time expressions currently see (`T`).
+pub fn scene_time() -> f32 {
+    VARS.with(|v| v.get().0)
+}
+
+/// Run `f` with expressions seeing scene time `gt` (copy index and count kept), then restore it.
+pub fn with_scene_time<R>(gt: f32, f: impl FnOnce() -> R) -> R {
+    let prev = VARS.with(|v| v.get());
+    VARS.with(|v| v.set((gt, prev.1, prev.2)));
+    let r = f();
+    VARS.with(|v| v.set(prev));
+    r
+}
+
 #[derive(Debug, Clone, PartialEq)]
 enum Node {
     Num(f32),

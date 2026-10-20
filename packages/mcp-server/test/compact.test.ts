@@ -135,3 +135,91 @@ test("icons expand to centered paths and read back by name", () => {
   assert.deepEqual(parseLine(out), l);
   assert.throws(() => parseLine("x path 0 ic=not-an-icon"), /unknown icon/);
 });
+
+// ---- particles: begin ----
+test("particles: emitters, physics, looks and over-life values parse and read back", () => {
+  const sparks = parseLine("sparks particles 1-4 g=fx x=960 y=900 rate=0:0,.2:300,.6:0 life=.4..1 speed=600..1100 dir=-80 spread=70 grav=0,1400 drag=1.2 look=streak trail=.05 size=3 alpha=0:1,1:0 colors=#ffffff,#ffd27a,accent blend=add glow=18,1.5");
+  assert.equal(sparks.type, "particles");
+  assert.deepEqual(sparks.rate, [{ t: 0, v: 0 }, { t: 0.2, v: 300 }, { t: 0.6, v: 0 }]);
+  assert.deepEqual(sparks.life, [0.4, 1]);
+  assert.deepEqual(sparks.speed, [600, 1100]);
+  assert.equal(sparks.direction, -80);
+  assert.deepEqual(sparks.gravity, [0, 1400]);
+  assert.equal(sparks.look, "streak");
+  assert.equal(sparks.size, 3);
+  assert.deepEqual(sparks.alpha, [[0, 1], [1, 0]]);
+  assert.deepEqual(sparks.colors, ["#ffffff", "#ffd27a", "accent"]);
+  assert.equal(sparks.blend, "add");
+  const confetti = parseLine("confetti particles 2.4 emit=rect x=540 y=-40 w=1080 h=10 burst=0:180,.4:60 life=3..4.5 speed=200..900 dir=90 spread=40 grav=0,700 drag=.8 look=rect aspect=.5 size=0:6,.2:14,1:12 size_var=.3 angle=0..360 spin=-240..240 flip=.6..1.6 seed=4 max=400");
+  assert.equal(confetti.emit, "rect");
+  assert.deepEqual(confetti.bursts, [{ at: 0, count: 180 }, { at: 0.4, count: 60 }]);
+  assert.deepEqual(confetti.size, [[0, 6], [0.2, 14], [1, 12]]);
+  assert.deepEqual(confetti.flip, [0.6, 1.6]);
+  assert.equal(confetti.max, 400);
+  const flow = parseLine('flow particles 0 emit="M100 500 C400 200 700 800 1000 500" follow=1 out=1 rate=4 life=2.5 speed=0 wander=6,80,.5 color_life=0:#ffffff,1:accent');
+  assert.equal(flow.emit, "path");
+  assert.equal(flow.emit_d, "M100 500 C400 200 700 800 1000 500");
+  assert.equal(flow.follow, true);
+  assert.equal(flow.outward, true);
+  assert.deepEqual(flow.wander, { amount: 6, size: 80, speed: 0.5 });
+  assert.deepEqual(flow.color_life, [[0, "#ffffff"], [1, "accent"]]);
+  const hearts = parseLine("hearts particles 0 x=540 y=1500 rate=6 ic=heart size=28 filled=1 align=1 space=local");
+  assert.equal(hearts.icon, "heart");
+  assert.match(String(hearts.d), /^M/);
+  assert.equal(hearts.filled, true);
+  assert.equal(hearts.space, "local");
+  const drawn = parseLine('stars particles 0 rate=6 "M0 -10 L3 -3 L10 0 L3 3 L0 10 L-3 3 L-10 0 L-3 -3 Z" filled=1');
+  assert.equal(drawn.d, "M0 -10 L3 -3 L10 0 L3 3 L0 10 L-3 3 L-10 0 L-3 -3 Z");
+  const logos = parseLine("logos particles 0 rate=3 src=/media/logo.png size=64 prewarm=2");
+  assert.equal(logos.src, "/media/logo.png");
+  assert.equal(logos.prewarm, 2);
+  for (const l of [sparks, confetti, flow, hearts, drawn, logos]) {
+    const out = formatLayer(l);
+    assert.ok(!out.includes('{"'), `no JSON tail: ${out}`);
+    assert.deepEqual(parseLine(out), l, out);
+  }
+});
+
+test("particles: engine read-back leaves defaults out", () => {
+  const engine = {
+    id: "dust",
+    type: "particles",
+    start: 0,
+    x: 540,
+    y: 960,
+    w: 1080,
+    h: 1920,
+    soft: 3,
+    fill: "#fff7e0",
+    emit: "rect",
+    rate: 12,
+    prewarm: 8,
+    life: [6, 9],
+    speed: [4, 16],
+    spread: 360,
+    wander: { amount: 40, size: 260, speed: 0.3 },
+    alpha: [[0, 0], [0.05, 1], [0.7, 1], [1, 0]],
+    size: 6,
+  };
+  const out = formatLayer(engine);
+  assert.equal(out, "dust particles 0 x=540 y=960 w=1080 h=1920 soft=3 fill=#fff7e0 emit=rect rate=12 life=6..9 speed=4..16 spread=360 prewarm=8 wander=40,260,0.3 size=6");
+  const back = parseLine(out);
+  assert.equal(back.alpha, undefined, "the default alpha stays implicit");
+  assert.deepEqual({ ...back, alpha: engine.alpha }, engine);
+});
+
+test("particles: explains mistakes", () => {
+  assert.throws(() => parseLine("p particles 0 x=1"), /rate= and\/or burst/);
+  assert.throws(() => parseLine("p particles 0 emit=rect w=10 rate=5"), /needs h=/);
+  assert.throws(() => parseLine("p particles 0 emit=line rate=5"), /needs w=/);
+  assert.throws(() => parseLine("p particles 0 emit=path rate=5"), /emit=path/);
+  assert.throws(() => parseLine("p particles 0 emit=blob rate=5"), /emit is point\|line\|rect\|circle\|path/);
+  assert.throws(() => parseLine("p particles 0 rate=5 look=blob"), /look is/);
+  assert.throws(() => parseLine("p particles 0 rate=5 look=image"), /needs src=/);
+  assert.throws(() => parseLine("p particles 0 rate=5 life=1..2..3"), /MIN..MAX/);
+  assert.throws(() => parseLine("p particles 0 rate=5 size=0:1:2"), /AGE:VALUE/);
+  assert.throws(() => parseLine("p particles 0 burst=1"), /AT:COUNT/);
+  assert.throws(() => parseLine("p particles 0 rate=5 follow=1"), /follow=1/);
+  assert.throws(() => parseLine("p particles 0 rate=5 grav=900"), /X,Y/);
+});
+// ---- particles: end ----
