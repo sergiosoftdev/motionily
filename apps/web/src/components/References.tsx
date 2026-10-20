@@ -128,7 +128,7 @@ export function ReferenceStrip({ r, compact = false }: { r: References; compact?
             compact ? "size-8 text-sm" : "h-14 px-3 text-xs"
           }`}
         >
-          {compact ? "＋" : "＋ Imagen de referencia"}
+          {compact ? "＋" : "＋ Imagen o vídeo de referencia"}
         </button>
       )}
       <input
