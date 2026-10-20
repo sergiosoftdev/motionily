@@ -4,6 +4,8 @@ import { Model, Types } from "mongoose";
 import { BricksService } from "../bricks/bricks.service";
 import { BrickSlot, SLOT_CARDINALITY, SlotCardinality } from "../bricks/brick.enums";
 import { Build, Feedback, FeedbackKind, Project, ProjectDocument, type AgentRunUsage } from "./project.schema";
+import type { ImageCredit } from "../images/image-search";
+import { removeMedia } from "../media";
 import type { CreateFeedbackDto, CreateProjectDto, SaveSceneDto, SetSlotDto, UpdateProjectDto } from "./projects.dto";
 
 type KitPayload = { defaults?: Partial<Build> };
@@ -45,6 +47,11 @@ export class ProjectsService {
   /** Append one agent run's usage (keeps the last 50). */
   async logAgentRun(id: string, usage: AgentRunUsage) {
     await this.projects.updateOne({ _id: id }, { $push: { agentRuns: { $each: [usage], $slice: -50 } } });
+  }
+
+  /** Remember an imported photo's attribution (once per image). */
+  async addImageCredit(id: string, credit: ImageCredit) {
+    await this.projects.updateOne({ _id: id, "imageCredits.pageUrl": { $ne: credit.pageUrl } }, { $push: { imageCredits: credit } });
   }
 
   async get(ownerId: Types.ObjectId, id: string): Promise<ProjectDocument> {
@@ -104,6 +111,8 @@ export class ProjectsService {
   async remove(ownerId: Types.ObjectId, id: string) {
     const project = await this.get(ownerId, id);
     await Promise.all([project.deleteOne(), this.feedback.deleteMany({ projectId: project._id })]);
+    // Imported photos belong to this video only.
+    await Promise.all((project.imageCredits ?? []).map((c) => removeMedia(c.src.replace(/^\/media\//, ""))));
   }
 
   /** Snap a brick (or several) into one slot. Records the choice as feedback for the agent. */

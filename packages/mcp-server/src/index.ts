@@ -14,6 +14,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import {
   FeedbackKind,
+  ImageSource,
   OpName,
   VideoFormat,
   type Feedback,
@@ -338,6 +339,71 @@ server.registerTool(
   }),
 );
 
+const THUMB_TIMEOUT_MS = 8000;
+/** Wikimedia asks every client to identify itself. */
+const THUMB_HEADERS = { "User-Agent": "Motionily/0.1 (https://github.com/sergiosoftdev/motionily)" };
+
+server.registerTool(
+  "search_images",
+  {
+    description:
+      "Find REAL photos (history, places, people, events, nature, documentary) in free libraries: Wikimedia Commons and Openverse. Only reusable licenses come back (public domain, CC0, CC BY, CC BY-SA). You see each hit's thumbnail with its id, size, date and license: pick by looking, then import_image. Query in English (better results), and also in the topic's own language if few hits.",
+    inputSchema: {
+      query: z.string().min(2).max(120).describe("what the photo shows, e.g. 'Spanish Civil War Madrid 1936 barricade'"),
+      source: z.enum([ImageSource.Commons, ImageSource.Openverse]).optional().describe("one library only; default both"),
+      limit: z.number().int().min(1).max(12).default(8),
+    },
+  },
+  async ({ query, source, limit }) => {
+    try {
+      const { hits, unavailable } = await api.searchImages(query, limit, source);
+      const thumbs = await Promise.all(
+        hits.map(async (h) => {
+          try {
+            const res = await fetch(h.thumb, { headers: THUMB_HEADERS, signal: AbortSignal.timeout(THUMB_TIMEOUT_MS) });
+            const mime = res.headers.get("content-type") ?? "";
+            return res.ok && mime.startsWith("image/") ? { data: Buffer.from(await res.arrayBuffer()).toString("base64"), mimeType: mime.split(";")[0]! } : null;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      const content: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[] = [];
+      if (unavailable.length) content.push({ type: "text", text: `Unavailable right now: ${unavailable.join("; ")}` });
+      if (!hits.length) content.push({ type: "text", text: `No reusable images for '${query}'. Try other words (English, names, places, years).` });
+      hits.forEach((h, i) => {
+        const facts = [h.title, h.date, `${h.width}x${h.height}`, h.license, `by ${h.author}`, h.description].filter(Boolean).join(" | ");
+        content.push({ type: "text", text: `[${i + 1}] id="${h.id}" ${facts}` });
+        const t = thumbs[i];
+        if (t) content.push({ type: "image", ...t });
+      });
+      return { content };
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+  },
+);
+
+server.registerTool(
+  "import_image",
+  {
+    description:
+      "Import search_images hits into this video: downloads each one (up to 2560 px wide) and records its credit. Returns the src for image layers (`fit=cover`). Import only what you will show.",
+    inputSchema: { ids: z.array(z.string().min(3)).min(1).max(12).describe("ids from search_images") },
+  },
+  guard(async ({ ids }) => {
+    const lines = await Promise.all(
+      ids.map((id) =>
+        api.importImage(id).then(
+          (c) => `${id} -> src "${c.src}" (${c.license}, ${c.author})`,
+          (e: Error) => `${id} -> FAILED: ${e.message}`,
+        ),
+      ),
+    );
+    return text(`${lines.join("\n")}\nCredits are kept with the video; the user sees them in the editor.`);
+  }),
+);
+
 server.registerTool(
   "add_sfx",
   {
@@ -518,6 +584,7 @@ function describeProject(p: Project): string {
   lines.push(`Format: ${p.format}`);
   if (p.voiceScript.trim()) lines.push(`Voice script (ElevenLabs; the video is built on it):\n${p.voiceScript.trim()}`);
   if (p.references?.length) lines.push(`Reference images from the user (look with view_image): ${p.references.join(", ")}`);
+  if (p.imageCredits?.length) lines.push(`Imported photos (src for image layers): ${p.imageCredits.map((c) => `${c.src} "${c.title}"`).join(", ")}`);
   lines.push(p.audio ? `Voice uploaded: ${p.audio.name} (captions carry word timings).` : "Voice: not uploaded yet.");
   lines.push("No presets exist: you design and animate everything yourself (palette, font, keyframes, cuts, 3D).");
   lines.push(p.scene ? `Scene: exists (rev ${p.sceneRevision}); see get_scene.` : "Scene: empty. Build the first cut with load_scene.");

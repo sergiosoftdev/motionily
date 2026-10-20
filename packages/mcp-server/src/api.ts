@@ -1,4 +1,4 @@
-import type { Brick, BrickSlot, Feedback, Project, User } from "@motionily/protocol";
+import type { Brick, BrickSlot, Feedback, ImageCredit, ImageHit, ImageSource, Project, User } from "@motionily/protocol";
 
 /** Motionily API client for one project, with an agent-scoped token. */
 export class ProjectApi {
@@ -76,6 +76,17 @@ export class ProjectApi {
     const res = await fetch(`${this.baseUrl}${path}`);
     if (!res.ok) throw new Error(`image not found (${res.status})`);
     return { bytes: Buffer.from(await res.arrayBuffer()), mime: res.headers.get("content-type") ?? "image/png" };
+  }
+
+  /** Openly licensed photos from free libraries (sources that fail are listed, not fatal). */
+  searchImages(q: string, limit: number, source?: ImageSource) {
+    const params = new URLSearchParams({ q, limit: String(limit), ...(source ? { source } : {}) });
+    return this.call<{ hits: ImageHit[]; unavailable: string[] }>("GET", `/images/search?${params}`);
+  }
+
+  /** Download a search hit into the project's media, with its credit. */
+  importImage(id: string) {
+    return this.call<ImageCredit>("POST", "/images", { id });
   }
 
   consumeFeedback() {

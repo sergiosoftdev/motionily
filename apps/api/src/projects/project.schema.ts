@@ -1,6 +1,7 @@
 import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
 import { HydratedDocument, Schema as MongooseSchema, Types } from "mongoose";
 import { BrickSlot } from "../bricks/brick.enums";
+import type { ImageCredit } from "../images/image-search";
 
 /** Which brick sits in each slot. Single slots hold a key, multi slots a list. */
 export type Build = {
@@ -66,6 +67,8 @@ export class Project {
   @Prop({ default: 0 }) sceneRevision: number;
   /** What each agent run cost (newest last), to see where tokens go. */
   @Prop({ type: [MongooseSchema.Types.Mixed], default: [] }) agentRuns: AgentRunUsage[];
+  /** Real photos the agent imported from free libraries, with what their licenses ask to credit. */
+  @Prop({ type: [MongooseSchema.Types.Mixed], default: [] }) imageCredits: ImageCredit[];
   /**
    * The agent team working on this video right now, persisted so an API restart can neither hide a
    * running team (and let a second one start) nor leave its claude processes orphaned.

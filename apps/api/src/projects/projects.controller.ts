@@ -245,6 +245,7 @@ export class ProjectsController {
       audio: p.audio ? { url: `/media/${p.audio.file}`, name: p.audio.name, mime: p.audio.mime } : null,
       sceneRevision: p.sceneRevision,
       agentRuns: p.agentRuns ?? [],
+      imageCredits: p.imageCredits ?? [],
       updatedAt: (p as unknown as { updatedAt: Date }).updatedAt,
     };
   }

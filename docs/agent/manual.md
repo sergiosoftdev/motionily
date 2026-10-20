@@ -33,6 +33,7 @@ applied: fix it and resend the call.
 | `get_brand` · `view_asset` · `view_image` | product notes, palettes, logos/screenshots (src for image layers); user's references |
 | `search_fonts` · `set_font` | any Google Font for the whole video |
 | `find_icons` | Lucide icon names for `ic=NAME:SIZE` |
+| `search_images` · `import_image` | real photos from Wikimedia Commons / Openverse (reusable licenses only) → src for image layers |
 | `add_layers` | write/replace layers in compact lines (main tool) |
 | `apply_ops` | atomic batch of JSON ops (palette, duration, remove, timing, text, 3D stage…) |
 | `load_scene` | replace the whole scene JSON (rarely needed) |
@@ -79,6 +80,16 @@ Rejected on purpose: `set_size` (use `set_format`), `set_style`, `set_library`, 
   between scenes, numbers in letters, last sentence = CTA.
 - `add_sfx` lines `id sound_name at [gain]`: whoosh ~0.1 s before moves and transitions, pop on entrances, click/tick on UI
   and counters, impact on hero text, riser before reveals, chime on the payoff; ≤ 2 at once.
+
+## Real photos
+For real subjects (history, events, places, people, nature, documentary) or when the brief asks for real images:
+- `search_images` with specific English queries (names, places, years; the topic's language too if few hits). You see
+  every thumbnail: choose sharp, on-topic images whose shape fits the frame (portrait photos for 9:16).
+- `import_image` with all chosen ids in ONE call; each comes back as a `/media/…` src. Import only what you show.
+- Credits are recorded automatically and listed in the editor for the post description: do not write them into the video.
+- Documentary look: the photo fills its box (`fit=cover`), always moving slowly (`s=1>1.12@0-5:l` push or an x/y pan,
+  never static), old photos graded (`color=0,0,0,1.1` = B/W with a bit more contrast, plus `grain=.05`), text on a dark gradient band or beside
+  the photo, a date/place kicker per photo, cuts or slow cross-fades between photos on the voice's beats.
 
 ## 3D
 Most videos are 2D layers; 3D objects inside them (`object` layers, see syntax) cover glossy icons and hero props. Use the

@@ -107,7 +107,7 @@ rules below are exact. To know where something lands on screen, get_layout retur
 
 /** MCP tools each role sees (each tool description costs context on every turn). */
 const ROLE_TOOLS = {
-  planner: ["get_project", "get_brand", "view_image", "view_asset", "search_fonts", "set_font", "apply_ops", "add_layers"],
+  planner: ["get_project", "get_brand", "view_image", "view_asset", "search_fonts", "set_font", "apply_ops", "add_layers", "search_images", "import_image"],
   builder: ["add_layers", "apply_ops", "get_layout", "render_frames", "view_asset", "view_image", "get_brand", "find_icons"],
   finisher: ["review_video", "get_layout", "render_frames", "get_group", "add_layers", "apply_ops", "list_sounds", "add_sfx"],
 } as const;
@@ -120,6 +120,11 @@ Your job is ONLY to plan, set the global look and lay out the WORLD, fast. Do no
    beats follow its paragraphs / word timings.
 2. Decide an art direction (concept, palette with hex codes following COLOR below, typography, motion language,
    recurring motif) for THIS brief. Unique palette: never the generic violet/magenta/cyan AI look.
+2b. REAL PHOTOS: if the brief asks for real images or its subject is real (history, events, places, people, nature,
+   documentary), search_images (2-4 queries, English first, specific: names, places, years), pick by looking at the
+   thumbnails (sharp, on topic, fits the format) and import_image the chosen ones in ONE call (one or two per beat).
+   Write each photo's src and how to show it (slow push/pan, grade, what text sits on it) into the beat's brief:
+   builders only know the photos you hand them. Brand/product videos use get_brand images instead.
 3. Apply the global look with tools: set_palette op (apply_ops), set_font, set_duration op.
 4. WORLD FIRST: the video is ONE continuous space the camera travels through (like the reference films), not
    slides. With ONE add_layers call create the global layers (group "world"): the background (fixed=1 for

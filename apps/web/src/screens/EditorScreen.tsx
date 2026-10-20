@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { FORMAT_SIZE, OpName, type VideoFormat, type Brick, type Build, type Op, type Project } from "@motionily/protocol";
 import { api, ApiError, mediaUrl } from "../api/client";
 import { ReferenceStrip, useReferences } from "../components/References";
+import { ImageCredits } from "../components/ImageCredits";
 import { engineHost } from "../engine/host";
 import { agentBridge } from "../bridge";
 import { ActivitySource, EngineStatus, logActivity, useEditor } from "../store";
@@ -312,6 +313,11 @@ function BriefBox({ project, onBrief, onReferences }: { project: Project; onBrie
       />
       <span className="mt-3 text-xs text-neutral-500">Referencias · imágenes o vídeos (⌘V o arrastra)</span>
       <ReferenceStrip r={refs} />
+      {project.imageCredits.length > 0 && (
+        <div className="mt-6">
+          <ImageCredits credits={project.imageCredits} />
+        </div>
+      )}
     </div>
   );
 }

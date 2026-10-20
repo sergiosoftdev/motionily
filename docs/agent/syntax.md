@@ -67,7 +67,7 @@ id type start[-end] key=value… "text or path data" {optional JSON merged into 
   Morph (JSON): `{"morph":[{"t":0,"d":"M…"},{"t":0.8,"d":"M…","ease":"expo_in_out"}]}` (subpaths pair in order).
 - icons: `id path START x= y= ic=NAME:SIZE stroke=2.5:text` — 1,900 Lucide line icons centered on x,y; `find_icons` finds names.
   Never hand-draw icons.
-- image: `id image START x= y= w= h= src=/media/… fit=cover|contain rad=28` — src from get_brand; `contain` for logos
+- image: `id image START x= y= w= h= src=/media/… fit=cover|contain rad=28` — src from get_brand or import_image; `contain` for logos
   (never crop them), `cover` for photos. Put screenshots on a card or a device frame built from shapes and walk through
   features by keying the image's scale/x/y while text explains them.
 - 3D object inside the 2D frame: `id object START x= y= w= h= {"node":{…},"finish":"glossy|glass|chrome|matte|toon","spin":["t*40",0,0],"fov":28}`

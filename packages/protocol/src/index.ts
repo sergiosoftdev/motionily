@@ -271,6 +271,35 @@ export type AgentRunUsage = {
   durationMs: number;
 };
 
+/** Free image libraries the agent searches for real photos (only openly licensed images come back). */
+export const ImageSource = { Commons: "commons", Openverse: "openverse" } as const;
+export type ImageSource = (typeof ImageSource)[keyof typeof ImageSource];
+
+/** One search result: `id` ("commons:File:…" / "openverse:<uuid>") is what import_image takes. */
+export type ImageHit = {
+  id: string;
+  source: ImageSource;
+  title: string;
+  description: string;
+  author: string;
+  license: string;
+  date: string;
+  width: number;
+  height: number;
+  thumb: string;
+};
+
+/** Attribution of an image imported into a video (CC BY / BY-SA require it). */
+export type ImageCredit = {
+  src: string;
+  source: ImageSource;
+  title: string;
+  author: string;
+  license: string;
+  licenseUrl: string | null;
+  pageUrl: string;
+};
+
 export type Project = {
   id: string;
   name: string;
@@ -289,6 +318,8 @@ export type Project = {
   sceneRevision: number;
   /** Tokens and cost of each agent run on this video (newest last). */
   agentRuns: AgentRunUsage[];
+  /** Real photos the agent imported from free libraries, with what their licenses ask to credit. */
+  imageCredits: ImageCredit[];
   updatedAt: string;
 };
 

@@ -96,6 +96,8 @@ export const TOOL_LABEL: Record<string, string> = {
   view_image: "Mira una referencia",
   get_brand: "Lee el kit de marca",
   view_asset: "Mira una imagen de la marca",
+  search_images: "Busca fotos reales",
+  import_image: "Guarda las fotos elegidas",
   set_format: "Cambia el formato",
   ToolSearch: "Prepara sus herramientas",
 };
