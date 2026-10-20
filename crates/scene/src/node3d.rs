@@ -4,7 +4,7 @@
 //! the engine turns each `Geometry` into a cached mesh.
 
 use crate::character::{pose, Action, Pose};
-use crate::{ColorRef, Palette, PaletteSlot, Rgba};
+use crate::{ColorRef, Palette, PaletteSlot, Rgba, TextAlign, Typography};
 use glam::{EulerRot, Mat4, Quat, Vec3};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -52,7 +52,43 @@ pub enum Geometry {
     Lathe {
         points: Vec<[f32; 2]>,
     },
+    /// Words extruded from a font's glyph outlines (headlines, logos), centered on their ink box.
+    /// `size` is the em (m), `depth` the thickness along z; `family`/`weight` default to the
+    /// video's typography (heading weight). `letter_spacing` is in em, `line_height` in em per line.
+    Text {
+        text: String,
+        #[serde(default = "one")]
+        size: f32,
+        #[serde(default = "default_text_depth")]
+        depth: f32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        family: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        weight: Option<u16>,
+        #[serde(default)]
+        align: TextAlign,
+        #[serde(default)]
+        letter_spacing: f32,
+        #[serde(default = "default_line_height")]
+        line_height: f32,
+    },
 }
+
+fn one() -> f32 {
+    1.0
+}
+
+/// A chunky but readable extrusion: a quarter of the em.
+fn default_text_depth() -> f32 {
+    0.25
+}
+
+fn default_line_height() -> f32 {
+    1.2
+}
+
+/// Rough share of the em one character takes, to frame text before its font has loaded.
+const TEXT_ADVANCE_GUESS: f32 = 0.6;
 
 impl Geometry {
     /// Half of the largest dimension (m) at scale 1, for framing.
@@ -65,6 +101,24 @@ impl Geometry {
             Geometry::Plane { size } => size[0].max(size[1]) / 2.0,
             Geometry::Extrude { points, depth } => points.iter().fold(depth / 2.0, |a, p| a.max(p[0].abs()).max(p[1].abs())),
             Geometry::Lathe { points } => points.iter().fold(0.0f32, |a, p| a.max(p[0].abs()).max(p[1].abs())),
+            Geometry::Text { .. } => self.half_extents().into_iter().fold(0.0, f32::max),
+        }
+    }
+
+    /// Half size along x, y, z (m) at scale 1. Exact for text (its ink box once the font is
+    /// loaded); the other shapes use their `extent` on every axis.
+    pub fn half_extents(&self) -> [f32; 3] {
+        match self {
+            Geometry::Text { text, size, depth, line_height, .. } => match crate::glyphs::outline(self) {
+                Some(o) => [o.half[0], o.half[1], depth / 2.0],
+                None => {
+                    let lines = text.split('\n');
+                    let longest = lines.clone().map(|l| l.chars().count()).max().unwrap_or(0) as f32;
+                    let rows = lines.count() as f32;
+                    [longest * TEXT_ADVANCE_GUESS * size / 2.0, (0.7 + (rows - 1.0) * line_height) * size / 2.0, depth / 2.0]
+                }
+            },
+            _ => [self.extent(); 3],
         }
     }
 
@@ -227,6 +281,22 @@ pub struct NodeCtx<'a> {
     pub time: f32,
     /// Action override from the prop (e.g. walking prefab character).
     pub action: Option<Action>,
+    /// The video's typography: 3D text without its own font uses its heading font.
+    pub typography: Option<&'a Typography>,
+}
+
+impl NodeCtx<'_> {
+    /// Text without its own font takes the video's heading font (so the engine caches the right mesh).
+    fn resolve(&self, g: &Geometry) -> Geometry {
+        let mut g = g.clone();
+        if let (Geometry::Text { family, weight, .. }, Some(t)) = (&mut g, self.typography) {
+            if family.is_none() {
+                *family = Some(t.family.clone());
+                weight.get_or_insert(t.heading);
+            }
+        }
+        g
+    }
 }
 
 const MAX_DEPTH: u32 = 12;
@@ -261,7 +331,7 @@ impl Node3D {
         for offset in copies {
             let m = parent * Mat4::from_translation(offset) * self.local();
             match &self.kind {
-                NodeKind::Solid(g) => out.push(DrawSolid { geometry: g.clone(), transform: m.to_cols_array_2d(), color }),
+                NodeKind::Solid(g) => out.push(DrawSolid { geometry: ctx.resolve(g), transform: m.to_cols_array_2d(), color }),
                 NodeKind::Model { model } => models.push(DrawModelNode { model: model.clone(), transform: m.to_cols_array_2d() }),
                 NodeKind::Prefab { prefab } => {
                     if let Some(p) = ctx.prefabs.get(prefab) {
@@ -440,7 +510,7 @@ mod tests {
         let mut prefabs = BTreeMap::new();
         prefabs.insert("pillow".into(), serde_json::from_str::<Node3D>(r#"{"shape":"sphere","radius":0.1}"#).unwrap());
         let palette = crate::StylePreset::Clean.palette();
-        let ctx = NodeCtx { palette: &palette, prefabs: &prefabs, time: 0.5, action: None };
+        let ctx = NodeCtx { palette: &palette, prefabs: &prefabs, time: 0.5, action: None, typography: None };
         let (mut solids, mut models) = (Vec::new(), Vec::new());
         n.flatten(Mat4::IDENTITY, palette.surface, &ctx, &mut solids, &mut models, 0);
         let legs = solids.iter().filter(|s| matches!(s.geometry, Geometry::Cylinder { height, .. } if (height - 0.6).abs() < 1e-6)).count();
@@ -459,7 +529,7 @@ mod debug_tests {
         let palette = crate::StylePreset::Clean.palette();
         let prefabs = BTreeMap::new();
         for action in [None, Some(Action::Walk)] {
-            let ctx = NodeCtx { palette: &palette, prefabs: &prefabs, time: 0.7, action };
+            let ctx = NodeCtx { palette: &palette, prefabs: &prefabs, time: 0.7, action, typography: None };
             let (mut solids, mut models) = (Vec::new(), Vec::new());
             n.flatten(Mat4::IDENTITY, palette.surface, &ctx, &mut solids, &mut models, 0);
             for s in &solids {

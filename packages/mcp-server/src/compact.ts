@@ -47,7 +47,7 @@ const EASE: Record<string, string> = {
 };
 const EASE_SHORT: Record<string, string> = Object.fromEntries(Object.entries(EASE).map(([k, v]) => [v, k]));
 const SHAPES = ["rect", "ellipse"];
-const TYPES = [...SHAPES, "text", "image", "path", "object"];
+const TYPES = [...SHAPES, "text", "image", "path", "object", "text3d"];
 /** Short keys for animated numbers. */
 const NUM: Record<string, string> = {
   x: "x",
@@ -192,13 +192,65 @@ function list(v: string, line: string, min: number): string[] {
   return p;
 }
 
+// ── 3D objects and 3D text ─────────────────────────────────────────────
+// `text3d` is an object layer whose node is one `{"shape":"text"}`: the quoted text and the text
+// keys (depth, family, weight, align, ls, lh) live on that node. Any object takes finish/spin/fov.
+const FINISHES = ["glossy", "glass", "chrome", "matte", "toon"];
+const DEFAULT_FINISH = "glossy";
+/** Mirrors `object_fov` in crates/scene/src/layer.rs. */
+const DEFAULT_FOV = 28;
+/** Node fields a text3d line can carry (anything else keeps the object form). */
+const TEXT3D_NODE_KEYS = new Set(["shape", "text", "depth", "family", "weight", "align", "letter_spacing", "line_height", "size"]);
+/** Layer fields that move onto the text node. */
+const TEXT3D_MOVED: Record<string, string> = { text: "text", align: "align", letter_spacing: "letter_spacing", line_height: "line_height" };
+
+/** Split on `sep` outside parentheses (expressions keep their commas). */
+function splitTop(v: string, sep: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let cur = "";
+  for (const c of v) {
+    if (c === "(") depth++;
+    if (c === ")") depth--;
+    if (c === sep && depth === 0) {
+      out.push(cur);
+      cur = "";
+    } else cur += c;
+  }
+  out.push(cur);
+  return out;
+}
+
+/** `spin=RX,RY,RZ`, or `RX;RY;RZ` when a value is keyframes (they use commas). */
+function spinValue(v: string, line: string): Animated[] {
+  const parts = v.includes(";") ? splitTop(v, ";") : splitTop(v, ",");
+  if (parts.length !== 3) throw new Error(`spin needs 3 values RX,RY,RZ (use ; between them when one is keyframes): ${line}`);
+  return parts.map((p) => parseValue(p, line));
+}
+
+/** Text node defaults (mirror crates/scene/src/node3d.rs), left out of text3d lines. */
+const TEXT3D_DEFAULTS: Record<string, unknown> = { size: 1, depth: 0.25, align: "center", letter_spacing: 0, line_height: 1.2 };
+/** Node transform defaults the engine writes back on every node. */
+const NODE_DEFAULTS: Record<string, string> = { position: "[0,0,0]", rotation: "[0,0,0]", scale: "[1,1,1]" };
+
+function isText3d(l: Layer): boolean {
+  const node = l.node as Record<string, unknown> | undefined;
+  if (l.type !== "object" || node?.shape !== "text" || typeof node.text !== "string") return false;
+  return Object.entries(node).every(([k, v]) => (TEXT3D_NODE_KEYS.has(k) && (k !== "size" || v === 1)) || NODE_DEFAULTS[k] === JSON.stringify(v));
+}
+
+/** A text node field worth writing (not its default). */
+const textField = (node: Record<string, unknown>, k: string) => node[k] !== undefined && node[k] !== TEXT3D_DEFAULTS[k];
+
 /** One line -> one layer JSON. */
 export function parseLine(line: string): Layer {
   const toks = tokenize(line.trim());
   const [id, type, span, ...rest] = toks;
   if (!id || !type || !span) throw new Error(`expected 'id type start[-end] …': ${line}`);
   if (!TYPES.includes(type)) throw new Error(`unknown type '${type}' (${TYPES.join(", ")}): ${line}`);
-  const layer: Layer = SHAPES.includes(type) ? { id, type: "shape", shape: type } : { id, type };
+  const text3d = type === "text3d";
+  const node: Layer = { shape: "text" };
+  const layer: Layer = SHAPES.includes(type) ? { id, type: "shape", shape: type } : text3d ? { id, type: "object", node } : { id, type };
   const [start, end] = span.split("-");
   layer.start = num(start!, line);
   if (end) layer.end = num(end, line);
@@ -242,6 +294,14 @@ export function parseLine(line: string): Layer {
       layer.d = iconPath(name!, px);
       layer.stroke ??= { width: Math.max(1.5, px / 12), color: "text" };
     } else if (k === "fixed") layer.fixed = v !== "0" && v !== "false";
+    else if (k === "finish") {
+      if (!FINISHES.includes(v)) throw new Error(`finish is ${FINISHES.join(", ")}: ${line}`);
+      layer.finish = v;
+    } else if (k === "spin") layer.spin = spinValue(v, line);
+    else if (k === "fov") layer.fov = num(v, line);
+    else if (text3d && k === "depth") node.depth = num(v, line);
+    else if (text3d && k === "weight") node.weight = num(v, line);
+    else if (text3d && k === "family") node.family = v.startsWith('"') ? quoted(v, line) : v;
     else if (k === "cam") {
       const [focal, focus, aperture] = v.split(",");
       layer.camera = { focal: num(focal!, line), ...(focus ? { focus: parseValue(focus, line) } : {}), ...(aperture ? { aperture: parseValue(aperture, line) } : {}) };
@@ -303,6 +363,14 @@ export function parseLine(line: string): Layer {
     } else throw new Error(`unknown key '${k}': ${line}`);
   }
   if (effects.length) layer.effects = effects;
+  if (text3d) {
+    for (const [from, to] of Object.entries(TEXT3D_MOVED)) {
+      if (layer[from] === undefined) continue;
+      node[to] = layer[from];
+      delete layer[from];
+    }
+    if (typeof node.text !== "string" || !node.text) throw new Error(`text3d needs its "text" in quotes: ${line}`);
+  }
   Object.assign(layer, merge);
   if (type !== "path" && (layer.w === undefined || layer.h === undefined)) throw new Error(`w and h are required: ${line}`);
   if (type === "path" && typeof layer.d !== "string") throw new Error(`path needs its "M… path data" in quotes (or ic=NAME:SIZE): ${line}`);
@@ -440,7 +508,8 @@ const SHORT_FORMS: [string, (v: never) => string[]][] = [
 
 /** One layer JSON -> one line (what the agent reads back). Fields without a short form go in `{…}`. */
 export function formatLayer(l: Layer): string {
-  const type = l.type === "shape" ? String(l.shape ?? "rect") : String(l.type);
+  const text3d = isText3d(l);
+  const type = text3d ? "text3d" : l.type === "shape" ? String(l.shape ?? "rect") : String(l.type);
   const parts = [String(l.id), type, `${r3(Number(l.start ?? 0))}${l.end == null ? "" : `-${r3(Number(l.end))}`}`];
   const done = new Set(["id", "type", "shape", "start", "end"]);
   const extra: Layer = {};
@@ -485,6 +554,32 @@ export function formatLayer(l: Layer): string {
       // No compact form (animated angle, bezier key…): it goes in the JSON tail.
     }
   }
+  if (l.type === "object") {
+    if (l.finish !== undefined && l.finish !== DEFAULT_FINISH) parts.push(`finish=${l.finish}`);
+    done.add("finish");
+    const spin = l.spin as Animated[] | undefined;
+    if (spin?.some((v) => v !== 0)) {
+      try {
+        const vals = spin.map(formatValue);
+        parts.push(`spin=${vals.join(vals.some((v) => !v.startsWith("(") && v.includes(",")) ? ";" : ",")}`);
+      } catch {
+        extra.spin = spin;
+      }
+    }
+    done.add("spin");
+    if (l.fov !== undefined && l.fov !== DEFAULT_FOV) parts.push(`fov=${l.fov}`);
+    done.add("fov");
+  }
+  if (text3d) {
+    const node = l.node as Record<string, unknown>;
+    if (textField(node, "depth")) parts.push(`depth=${node.depth}`);
+    if (node.family !== undefined) parts.push(`family=${/\s/.test(String(node.family)) ? JSON.stringify(node.family) : node.family}`);
+    if (node.weight !== undefined) parts.push(`weight=${node.weight}`);
+    if (textField(node, "align")) parts.push(`align=${node.align}`);
+    if (textField(node, "letter_spacing")) parts.push(`ls=${node.letter_spacing}`);
+    if (textField(node, "line_height")) parts.push(`lh=${node.line_height}`);
+    done.add("node");
+  }
   if (l.visible === false) parts.push("vis=0");
   if (l.filled === true) parts.push("filled=1");
   done.add("visible");
@@ -492,7 +587,7 @@ export function formatLayer(l: Layer): string {
   for (const [k, v] of Object.entries(l)) if (!done.has(k) && k !== "text" && k !== "d") extra[k] = v;
   if (typeof l.icon === "string") parts.push(`ic=${l.icon}`);
   done.add("icon");
-  const quoted = type === "path" ? (l.icon ? undefined : l.d) : l.text;
+  const quoted = type === "path" ? (l.icon ? undefined : l.d) : text3d ? (l.node as { text: string }).text : l.text;
   if (quoted !== undefined) parts.push(JSON.stringify(String(quoted)));
   if (Object.keys(extra).length) parts.push(JSON.stringify(extra));
   return parts.join(" ");

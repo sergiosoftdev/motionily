@@ -27,3 +27,21 @@ export function fontFilesFor(family: string, weights: number[] = [500, 700]): Fo
     url: `${API_URL}/fonts/file?${new URLSearchParams({ family, weight: String(weight) })}`,
   }));
 }
+
+/** Weight 3D text uses when its node names a family but no weight (mirrors scene::glyphs::DEFAULT_WEIGHT). */
+const TEXT3D_DEFAULT_WEIGHT = 700;
+
+/** Fonts that 3D text nodes (`{"shape":"text","family":…}`) ask for by name, anywhere in a scene or ops. */
+export function text3dFonts(value: unknown, out: Map<string, Set<number>> = new Map()): Map<string, Set<number>> {
+  if (Array.isArray(value)) value.forEach((v) => text3dFonts(v, out));
+  else if (value && typeof value === "object") {
+    const o = value as Record<string, unknown>;
+    if (o.shape === "text" && typeof o.family === "string") {
+      const weights = out.get(o.family) ?? new Set<number>();
+      weights.add(typeof o.weight === "number" ? o.weight : TEXT3D_DEFAULT_WEIGHT);
+      out.set(o.family, weights);
+    }
+    Object.values(o).forEach((v) => text3dFonts(v, out));
+  }
+  return out;
+}

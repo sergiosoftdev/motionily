@@ -689,7 +689,7 @@ impl Layer {
                 use glam::{Mat4, Quat};
                 let [rx, ry, rz] = [spin[0].sample(lt), spin[1].sample(lt), spin[2].sample(lt)].map(f32::to_radians);
                 let base = Mat4::from_quat(Quat::from_euler(glam::EulerRot::YXZ, ry, rx, rz));
-                let nctx = crate::node3d::NodeCtx { palette: ctx.palette, prefabs: &ctx.library.prefabs, time: lt, action: None };
+                let nctx = crate::node3d::NodeCtx { palette: ctx.palette, prefabs: &ctx.library.prefabs, time: lt, action: None, typography: ctx.typography };
                 let (mut solids, mut placed) = (Vec::new(), Vec::new());
                 // The object's color comes from its nodes; `fill` tints parts without one.
                 let mut tint = color;

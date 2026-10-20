@@ -1,7 +1,7 @@
 import init, { Engine, captionStyles, stylePalettes, stylePresets } from "./pkg/engine_wasm.js";
 import { sfxPlayer, type SfxCue } from "../audio/sfxPlayer";
 import type { CaptionStyle, FrameLayout, Op, ReviewReport, StylePreset } from "@motionily/protocol";
-import { DEFAULT_FONT_FAMILY, fontFilesFor } from "./fonts";
+import { DEFAULT_FONT_FAMILY, fontFilesFor, text3dFonts } from "./fonts";
 import { decodePng, modelUrl, packOf, packTextureUrl, type Pixels } from "./models";
 import { mediaUrl } from "../api/client";
 import { EngineStatus, useEditor } from "../store";
@@ -169,7 +169,13 @@ class EngineHost {
   applyOps(ops: Op[]) {
     this.require().applyOps(JSON.stringify(ops));
     for (const op of ops) this.fontsFor(op.typography);
+    this.text3dFontsFor(ops);
     this.changed();
+  }
+
+  /** Load the fonts 3D text names explicitly (the typography's font is loaded by fontsFor). */
+  private text3dFontsFor(value: unknown) {
+    for (const [family, weights] of text3dFonts(value)) void this.ensureFonts(family, [...weights]);
   }
 
   /** Load the Google Font a typography (from an op or a scene) asks for. */
@@ -189,7 +195,9 @@ class EngineHost {
   loadScene(json: string) {
     const engine = this.require();
     engine.loadScene(json);
-    this.fontsFor((JSON.parse(json) as { typography?: unknown }).typography);
+    const parsed = JSON.parse(json) as { typography?: unknown };
+    this.fontsFor(parsed.typography);
+    this.text3dFontsFor(parsed);
     if (this.buildOps.length) engine.applyOps(JSON.stringify(this.buildOps));
     this.changed();
   }
@@ -284,8 +292,13 @@ class EngineHost {
 
   /** Every font file fetched so far, to hand to another engine (export). */
   async loadedFontFiles(): Promise<{ family: string; weight: number; bytes: Uint8Array }[]> {
-    const typo = (JSON.parse(this.require().sceneJson()) as { typography?: { family: string; body: number; heading: number } | null }).typography;
-    const files = [...fontFilesFor(DEFAULT_FONT_FAMILY), ...(typo ? fontFilesFor(typo.family, [typo.body, typo.heading]) : [])];
+    const scene = JSON.parse(this.require().sceneJson()) as { typography?: { family: string; body: number; heading: number } | null };
+    const typo = scene.typography;
+    const files = [
+      ...fontFilesFor(DEFAULT_FONT_FAMILY),
+      ...(typo ? fontFilesFor(typo.family, [typo.body, typo.heading]) : []),
+      ...[...text3dFonts(scene)].flatMap(([family, weights]) => fontFilesFor(family, [...weights])),
+    ];
     return Promise.all(
       files.map(async (f) => {
         let bytes = this.fontCache.get(f.url);

@@ -376,7 +376,9 @@ impl Renderer {
 
     /// Register a TTF/OTF font for text layers and captions.
     pub fn add_font(&mut self, family: &str, weight: u16, bytes: &[u8]) -> Result<(), String> {
-        self.text.add_font(family, weight, bytes)
+        self.text.add_font(family, weight, bytes)?;
+        // The same font extrudes 3D text.
+        scene::glyphs::register(family, weight, bytes)
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
