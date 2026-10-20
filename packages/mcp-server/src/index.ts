@@ -5,6 +5,7 @@
  * builds the video with small ops (rendered live in the editor) and iterates
  * on the user's feedback.
  */
+import { findIcons } from "./icons.js";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -279,6 +280,19 @@ server.registerTool(
   guard(async () => {
     const rows = await api.sounds();
     return text(rows.map((s) => `${s.name} | ${s.category} | ${s.duration}s | ${s.description}`).join("\n") || "No sounds yet: the user can create them in Sonidos.");
+  }),
+);
+
+server.registerTool(
+  "find_icons",
+  {
+    description:
+      "Search 1,900 clean line icons (Lucide) by words: returns icon names. Use them in add_layers as path layers: `bell path 1 x=300 y=200 ic=bell:48 stroke=2.5:text` (centered on x,y; SIZE px). Real icons make UI look real — never hand-draw icons.",
+    inputSchema: { query: z.string().min(1).describe("words, e.g. 'chart growth' or 'mail send'"), limit: z.number().int().min(1).max(60).default(24) },
+  },
+  guard(async ({ query, limit }) => {
+    const names = findIcons(query, limit);
+    return text(names.length ? names.join(", ") : `no icon matches '${query}'; try simpler words`);
   }),
 );
 

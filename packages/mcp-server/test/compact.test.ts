@@ -124,3 +124,14 @@ test("explains mistakes", () => {
   assert.throws(() => parseLine("a rect 0 w=1 h=1 x=(1+2"), /unbalanced/);
   assert.throws(() => parseLine("a rect 0 w=1 h=1 grad=lin:0:#fff"), /color@pos/);
 });
+
+test("icons expand to centered paths and read back by name", () => {
+  const l = parseLine("bell path 1 x=300 y=200 ic=bell:48");
+  assert.equal(l.icon, "bell:48");
+  assert.match(String(l.d), /^M/);
+  assert.deepEqual(l.stroke, { width: 4, color: "text" });
+  const out = formatLayer(l);
+  assert.ok(out.includes("ic=bell:48") && !out.includes('"M'), out);
+  assert.deepEqual(parseLine(out), l);
+  assert.throws(() => parseLine("x path 0 ic=not-an-icon"), /unknown icon/);
+});

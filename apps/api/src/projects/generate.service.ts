@@ -226,7 +226,7 @@ Other ops via apply_ops: {"op":"remove_layer","id":…} {"op":"remove_group","gr
 /** MCP tools each role sees (each tool description costs context on every turn). */
 const ROLE_TOOLS = {
   planner: ["get_project", "get_brand", "view_image", "view_asset", "search_fonts", "set_font", "apply_ops"],
-  builder: ["add_layers", "apply_ops", "render_frames", "view_asset", "view_image", "get_brand"],
+  builder: ["add_layers", "apply_ops", "render_frames", "view_asset", "view_image", "get_brand", "find_icons"],
   finisher: ["review_video", "render_frames", "get_group", "add_layers", "apply_ops", "list_sounds", "add_sfx"],
 } as const;
 

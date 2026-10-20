@@ -95,6 +95,9 @@ pub enum LayerContent {
         /// Fill closed subpaths with `fill` (false = stroke only).
         #[serde(default)]
         filled: bool,
+        /// Icon this path came from (Lucide name), so it reads back as `ic=name`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        icon: Option<String>,
         /// Shape keyframes (morph): `[{"t":0,"d":"M…"},{"t":1,"d":"M…","ease":"expo_out"}]`. When set,
         /// they replace `d` over time (`d` stays the shape at rest, for selection).
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -645,7 +648,7 @@ impl Layer {
                 };
                 Some(DrawItem::Shape(DrawShape { center, size, radius, rotation, color, style }))
             }
-            LayerContent::Path { d, trim_start, trim_end, trim_offset, filled, morph } => {
+            LayerContent::Path { d, trim_start, trim_end, trim_offset, filled, morph, .. } => {
                 let lines = path_at(d, if animated { morph } else { &[] }, lt)?;
                 let lines = lines.as_ref();
                 let to_world = |p: [f32; 2]| {

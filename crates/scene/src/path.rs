@@ -389,6 +389,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn every_icon_parses() {
+        let file = concat!(env!("CARGO_MANIFEST_DIR"), "/../../packages/mcp-server/src/icons.json");
+        let Ok(text) = std::fs::read_to_string(file) else { return };
+        let icons: std::collections::BTreeMap<String, serde_json::Value> = serde_json::from_str(&text).unwrap();
+        for (name, icon) in &icons {
+            let d = icon["d"].as_str().unwrap();
+            let lines = parse(d).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert!(lines.iter().flat_map(|l| &l.points).all(|p| p[0].abs() <= 12.5 && p[1].abs() <= 12.5), "{name} is not centered");
+        }
+    }
+
+    #[test]
     fn morphs_between_shapes() {
         let a = parse("M0 0 L100 0").unwrap();
         let b = parse("M0 100 L100 100 M50 50 L60 50").unwrap();

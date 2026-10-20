@@ -20,10 +20,13 @@
  *   · turb=AMT,SIZE,SPEED · adj=1 (adjustment layer) · matte=id[:inv|:luma|:lumainv].
  * World: cam=FOCAL[,FOCUS,APERTURE] on a vis=0 layer = the camera (x/y look, z dolly, s zoom) · z= depth (parallax)
  *   · fixed=1 pinned to the screen · rx= ry= tilt a layer and its children in perspective · persp=.
+ * Icons: path layers take ic=NAME:SIZE (Lucide, centered on x,y; find_icons searches them) instead of "M…".
  * Materials: inner=X,Y,BLUR,COLOR,OP · sheen=AT,ANGLE,WIDTH,OP · bevel=WIDTH,STRENGTH · backdrop=BLUR (frosted glass).
  * Gradients: grad=lin:… | rad:… | con:CX,CY:ANGLE:stops (conic) · sgrad= paints the stroke.
  * Text: "Just *ask.*" colors the marked words with accent= (default palette accent) · count=0>12480@0-2:eo dec=0 with {n} in the text · reveal=(t*16) caret=1 (typewriter).
  */
+
+import { ICON_GRID, iconPath } from "./icons.js";
 
 type Keyframe = { t: number; v: number; ease?: string; bezier?: number[] };
 type Animated = number | string | Keyframe[];
@@ -232,7 +235,13 @@ export function parseLine(line: string): Layer {
     } else if (k === "count") layer.count = parseValue(v, line);
     else if (k === "reveal") layer.reveal = parseValue(v, line);
     else if (k === "caret") layer.caret = v !== "0" && v !== "false";
-    else if (k === "fixed") layer.fixed = v !== "0" && v !== "false";
+    else if (k === "ic") {
+      const [name, size] = v.split(":");
+      const px = size ? num(size, line) : ICON_GRID * 2;
+      layer.icon = `${name}:${px}`;
+      layer.d = iconPath(name!, px);
+      layer.stroke ??= { width: Math.max(1.5, px / 12), color: "text" };
+    } else if (k === "fixed") layer.fixed = v !== "0" && v !== "false";
     else if (k === "cam") {
       const [focal, focus, aperture] = v.split(",");
       layer.camera = { focal: num(focal!, line), ...(focus ? { focus: parseValue(focus, line) } : {}), ...(aperture ? { aperture: parseValue(aperture, line) } : {}) };
@@ -296,7 +305,7 @@ export function parseLine(line: string): Layer {
   if (effects.length) layer.effects = effects;
   Object.assign(layer, merge);
   if (type !== "path" && (layer.w === undefined || layer.h === undefined)) throw new Error(`w and h are required: ${line}`);
-  if (type === "path" && typeof layer.d !== "string") throw new Error(`path needs its "M… path data" in quotes: ${line}`);
+  if (type === "path" && typeof layer.d !== "string") throw new Error(`path needs its "M… path data" in quotes (or ic=NAME:SIZE): ${line}`);
   if (layer.motion_path && typeof (layer.motion_path as { d?: unknown }).d !== "string") throw new Error(`mpp/orient need mp="M… path": ${line}`);
   if (layer.path && typeof (layer.path as { d?: unknown }).d !== "string") throw new Error(`tpo needs tp="M… path": ${line}`);
   return layer;
@@ -481,7 +490,9 @@ export function formatLayer(l: Layer): string {
   done.add("visible");
   done.add("filled");
   for (const [k, v] of Object.entries(l)) if (!done.has(k) && k !== "text" && k !== "d") extra[k] = v;
-  const quoted = type === "path" ? l.d : l.text;
+  if (typeof l.icon === "string") parts.push(`ic=${l.icon}`);
+  done.add("icon");
+  const quoted = type === "path" ? (l.icon ? undefined : l.d) : l.text;
   if (quoted !== undefined) parts.push(JSON.stringify(String(quoted)));
   if (Object.keys(extra).length) parts.push(JSON.stringify(extra));
   return parts.join(" ");
