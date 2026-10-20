@@ -256,6 +256,58 @@ function formatColor(c: unknown): string {
   return `#${hex}${a < 1 ? Math.round(a * 255).toString(16).padStart(2, "0") : ""}`;
 }
 
+/** A value that fits inside a comma/colon separated short form. */
+function inner(v: unknown): string {
+  const s = formatValue(v as Animated);
+  if (/[:,]/.test(s)) throw new Error("needs JSON");
+  return s;
+}
+
+function formatGradient(g: Record<string, unknown>): string[] {
+  const stops = (g.stops as [number, unknown][]).map(([p, c]) => `${formatColor(c)}@${r3(p)}`).join(",");
+  if (g.kind === "radial") {
+    const [cx, cy] = (g.center as number[] | undefined) ?? [0.5, 0.5];
+    return [`grad=rad:${r3(cx!)},${r3(cy!)}:${inner(g.radius ?? 1)}:${stops}`];
+  }
+  return [`grad=lin:${inner(g.angle ?? 0)}:${stops}`];
+}
+
+function formatStroke(s: Record<string, unknown>): string[] {
+  const dash = s.dash ? `:${(s.dash as number[]).map(r3).join(",")}` : "";
+  return [`stroke=${inner(s.width)}:${formatColor(s.color ?? "text")}${dash}`];
+}
+
+function formatEffects(list: Record<string, unknown>[]): string[] {
+  // The line form keeps one of each kind; repeats or unknown effects stay in JSON.
+  const kinds = list.map((e) => e.fx);
+  if (new Set(kinds).size !== kinds.length) throw new Error("needs JSON");
+  return list.map((e) => {
+    if (e.fx === "blur") return `blur=${inner(e.radius)}`;
+    if (e.fx === "glow") return `glow=${[inner(e.radius), inner(e.strength ?? 1), ...(e.color ? [formatColor(e.color)] : [])].join(",")}`;
+    if (e.fx === "shadow") {
+      const vals = [inner(e.x ?? 0), inner(e.y ?? 18), inner(e.blur ?? 36), formatColor(e.color ?? "#0f121f"), inner(e.opacity ?? 0.25)];
+      return `shadow=${vals.join(",")}`;
+    }
+    throw new Error("needs JSON");
+  });
+}
+
+function formatRepeat(r: Record<string, number>): string[] {
+  const opts = Object.entries({ cols: r.columns, rot: r.rotation, sc: r.scale, op: r.opacity, delay: r.delay })
+    .filter(([k, v]) => v !== undefined && v !== (k === "sc" || k === "op" ? 1 : 0))
+    .map(([k, v]) => `:${k}=${r3(v!)}`);
+  return [`rep=${r.count}:${r3(r.x ?? 0)},${r3(r.y ?? 0)}${opts.join("")}`];
+}
+
+const SHORT_FORMS: [string, (v: never) => string[]][] = [
+  ["gradient", formatGradient],
+  ["stroke", formatStroke],
+  ["effects", formatEffects],
+  ["repeat", formatRepeat],
+  ["matte", (m: { layer: string; mode?: string }) => [`matte=${m.layer}${m.mode === "alpha_inverted" ? ":inv" : ""}`]],
+  ["pivot", (p: number[]) => [`pivot=${p.map(r3).join(",")}`]],
+];
+
 /** One layer JSON -> one line (what the agent reads back). Fields without a short form go in `{…}`. */
 export function formatLayer(l: Layer): string {
   const type = l.type === "shape" ? String(l.shape ?? "rect") : String(l.type);
@@ -283,6 +335,15 @@ export function formatLayer(l: Layer): string {
   for (const k of PLAIN_STR) {
     if (l[k] !== undefined) parts.push(`${k}=${l[k]}`);
     done.add(k);
+  }
+  for (const [key, short] of SHORT_FORMS) {
+    if (l[key] === undefined) continue;
+    try {
+      parts.push(...short(l[key] as never));
+      done.add(key);
+    } catch {
+      // No compact form (animated angle, bezier key…): it goes in the JSON tail.
+    }
   }
   if (l.visible === false) parts.push("vis=0");
   if (l.filled === true) parts.push("filled=1");

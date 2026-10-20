@@ -54,6 +54,17 @@ test("formatting is stable and round-trips the example scene", () => {
   }
 });
 
+test("reads gradients, strokes, effects, repeaters and mattes back in short form", () => {
+  const line =
+    'card rect 0.3 x=960 y=560 w=820 h=420 grad=rad:0.3,0.2:1.2:#ffffff@0,surface@1 stroke=2:#ffd0dd:6,4 shadow=0,30,70,#ff6f91,0.35 glow=18,1.6 blur=4 rep=3:0,40:op=0.5 matte=mask:inv pivot=10,-5';
+  const out = formatLayer(parseLine(line));
+  assert.ok(!out.includes("{"), `no JSON tail: ${out}`);
+  assert.deepEqual(parseLine(out), parseLine(line));
+  // Two shadows have no line form: they stay in JSON, still round-tripping.
+  const two = parseLine('a rect 0 w=1 h=1 {"effects":[{"fx":"shadow","y":4},{"fx":"shadow","y":40}]}');
+  assert.deepEqual(parseLine(formatLayer(two)), two);
+});
+
 test("explains mistakes", () => {
   assert.throws(() => parseLine("a blob 0-1 w=1 h=1"), /unknown type/);
   assert.throws(() => parseLine("a rect 0-1 w=1"), /w and h/);
