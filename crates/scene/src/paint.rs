@@ -69,6 +69,9 @@ pub enum GradientKind {
     #[default]
     Linear,
     Radial,
+    /// Sweeps around `center` starting at `angle` (rotating rim lights, glowing borders: animate
+    /// `angle`, repeat the first color last for a seamless loop).
+    Conic,
 }
 
 /// `{"kind":"linear","angle":90,"stops":[[0,"#ff5a5f"],[1,"#ffb347"]]}` — positions 0..1 across the
@@ -116,6 +119,7 @@ impl DrawGradient {
                 ((uv[0] - 0.5) * dir[0] + (uv[1] - 0.5) * dir[1]) / extent.max(1e-3) * 0.5 + 0.5
             }
             GradientKind::Radial => ((uv[0] - self.center[0]).hypot(uv[1] - self.center[1])) / (self.radius * 0.7071).max(1e-3),
+            GradientKind::Conic => ((uv[1] - self.center[1]).atan2(uv[0] - self.center[0]) - self.angle).rem_euclid(std::f32::consts::TAU) / std::f32::consts::TAU,
         }
         .clamp(0.0, 1.0);
         let mut col = self.stops[0].1;
@@ -154,6 +158,9 @@ pub struct Stroke {
     pub color: ColorAnim,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dash: Option<[f32; 2]>,
+    /// Paint the outline with a gradient (a conic one makes glowing, rotating borders).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gradient: Option<Gradient>,
 }
 
 fn stroke_color() -> ColorAnim {
@@ -169,6 +176,8 @@ pub struct ShapeStyle {
     /// Feather in pixels: 0 = crisp edge, large = blurred blob (mesh-gradient backgrounds, glows).
     pub soft: f32,
     pub dash: Option<[f32; 2]>,
+    /// `gradient` paints the outline instead of the fill.
+    pub stroke_gradient: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -236,6 +245,18 @@ pub enum Effect {
     },
     /// Animated film grain (0..1).
     Grain { amount: Animated },
+    /// Turbulent displacement (AE Turbulent Displace): pixels pushed around by flowing fractal
+    /// noise. On big soft blobs it makes liquid, smoky, cloudy gradient backgrounds.
+    Turbulence {
+        /// Displacement in px.
+        amount: Animated,
+        /// Px per noise cell (bigger = broader swirls).
+        #[serde(default = "turbulence_size")]
+        size: Animated,
+        /// How fast the noise flows.
+        #[serde(default = "one")]
+        speed: Animated,
+    },
     /// Motion blur: the layer averaged over the shutter (degrees of a frame, 180 = film look).
     MotionBlur {
         #[serde(default = "shutter")]
@@ -245,6 +266,9 @@ pub enum Effect {
     },
 }
 
+fn turbulence_size() -> Animated {
+    Animated::Static(320.0)
+}
 fn wavelength() -> Animated {
     Animated::Static(200.0)
 }
@@ -283,6 +307,8 @@ pub enum DrawEffect {
     Wave { amplitude: f32, wavelength: f32, phase: f32 },
     /// `seed` changes every frame so the grain moves.
     Grain { amount: f32, seed: f32 },
+    /// `phase` = flow time.
+    Turbulence { amount: f32, size: f32, phase: f32 },
 }
 
 impl Effect {
@@ -313,6 +339,7 @@ impl Effect {
                 phase: speed.sample(t) * t * std::f32::consts::TAU,
             },
             Effect::Grain { amount } => DrawEffect::Grain { amount: amount.sample(t).clamp(0.0, 1.0), seed: (t * 24.0).floor() },
+            Effect::Turbulence { amount, size, speed } => DrawEffect::Turbulence { amount: amount.sample(t), size: size.sample(t).max(4.0), phase: speed.sample(t) * t },
             Effect::MotionBlur { .. } => return None,
         })
     }
@@ -397,6 +424,9 @@ pub struct UnitOffset {
     /// Opacity at the start.
     #[serde(default)]
     pub opacity: f32,
+    /// Blur in px at the start (words that come into focus).
+    #[serde(default)]
+    pub blur: f32,
 }
 
 /// Per-character / word / line animation (AE text animator with a range selector): every unit
@@ -466,6 +496,71 @@ pub struct DrawFx {
     pub samples: Vec<Vec<crate::DrawItem>>,
     /// Adjustment layer: the effects apply to everything drawn below, inside the matte.
     pub adjust: bool,
+    /// 3D layer: the flat result is projected through this inverse homography (row-major, scene
+    /// px of the screen -> scene px of the flat layer).
+    pub perspective: Option<[f32; 9]>,
+}
+
+/// Camera distance (px) for 3D layers when none is given: a natural, slightly wide lens.
+pub const DEFAULT_PERSPECTIVE: f32 = 1800.0;
+
+/// Inverse homography projecting a flat layer rotated `rx` (top leans back) and `ry` (right side
+/// goes away) degrees around `center`, pushed `z` px away, seen from `focal` px.
+pub fn perspective_inverse(center: [f32; 2], rx: f32, ry: f32, z: f32, focal: f32) -> Option<[f32; 9]> {
+    let (sa, ca) = rx.to_radians().sin_cos();
+    let (sb, cb) = ry.to_radians().sin_cos();
+    let f = focal.max(1.0);
+    let [cx, cy] = center;
+    // Columns of the rotation applied to (x, y, 0) relative to the center.
+    let (r00, r01, r10, r11, r20, r21) = (cb, sa * sb, 0.0, ca, sb, -sa * cb);
+    // Forward map for (x - cx, y - cy, 1), then shifted to take plain (x, y, 1).
+    let h = [
+        [cx * r20 + f * r00, cx * r21 + f * r01, cx * (f + z)],
+        [cy * r20 + f * r10, cy * r21 + f * r11, cy * (f + z)],
+        [r20, r21, f + z],
+    ];
+    let m: [[f32; 3]; 3] = std::array::from_fn(|r| [h[r][0], h[r][1], h[r][2] - h[r][0] * cx - h[r][1] * cy]);
+    let det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+    if det.abs() < 1e-9 {
+        return None;
+    }
+    let inv = |a: usize, b: usize, c: usize, d: usize| m[a][b] * m[c][d] - m[a][d] * m[c][b];
+    Some([
+        inv(1, 1, 2, 2) / det,
+        -(m[0][1] * m[2][2] - m[0][2] * m[2][1]) / det,
+        (m[0][1] * m[1][2] - m[0][2] * m[1][1]) / det,
+        -(m[1][0] * m[2][2] - m[1][2] * m[2][0]) / det,
+        (m[0][0] * m[2][2] - m[0][2] * m[2][0]) / det,
+        -(m[0][0] * m[1][2] - m[0][2] * m[1][0]) / det,
+        (m[1][0] * m[2][1] - m[1][1] * m[2][0]) / det,
+        -(m[0][0] * m[2][1] - m[0][1] * m[2][0]) / det,
+        (m[0][0] * m[1][1] - m[0][1] * m[1][0]) / det,
+    ])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn apply(h: &[f32; 9], p: [f32; 2]) -> [f32; 2] {
+        let w = h[6] * p[0] + h[7] * p[1] + h[8];
+        [(h[0] * p[0] + h[1] * p[1] + h[2]) / w, (h[3] * p[0] + h[4] * p[1] + h[5]) / w]
+    }
+
+    #[test]
+    fn perspective_keeps_the_center_and_shrinks_the_far_edge() {
+        let inv = perspective_inverse([500.0, 400.0], 50.0, 0.0, 0.0, 1800.0).unwrap();
+        let c = apply(&inv, [500.0, 400.0]);
+        assert!((c[0] - 500.0).abs() < 1e-2 && (c[1] - 400.0).abs() < 1e-2, "{c:?}");
+        // The top leans back: a screen point near the top maps to a flat point further out
+        // (the far half is squeezed), the bottom to one closer in.
+        let top = apply(&inv, [500.0, 300.0]);
+        let bottom = apply(&inv, [500.0, 500.0]);
+        assert!(400.0 - top[1] > bottom[1] - 400.0, "{top:?} {bottom:?}");
+        // Pushed away = smaller on screen = a screen offset covers more of the flat layer.
+        let far = perspective_inverse([500.0, 400.0], 0.0, 0.0, 1800.0, 1800.0).unwrap();
+        assert!((apply(&far, [600.0, 400.0])[0] - 700.0).abs() < 1e-2);
+    }
 }
 
 /// One stroked/filled vector path for one frame, already flattened to polylines in scene pixels.

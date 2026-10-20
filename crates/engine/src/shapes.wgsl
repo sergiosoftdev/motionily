@@ -106,20 +106,19 @@ fn stop_at(i: i32, in: VsOut) -> f32 {
     }
 }
 
-/// Fill color at this pixel: flat, or the gradient sampled in box space.
-fn fill_color(in: VsOut) -> vec4<f32> {
-    let kind = i32(in.grad.x + 0.5);
-    if (kind == 0) {
-        return in.color;
-    }
+/// Gradient color at this pixel (box space).
+fn gradient_color(in: VsOut, kind: i32) -> vec4<f32> {
     let uv = in.local / max(in.half * 2.0, vec2(1e-3)) + vec2(0.5);
     var t: f32;
     if (kind == 1) {
         let dir = vec2(cos(in.grad.z), sin(in.grad.z));
         let extent = 0.5 * (abs(dir.x) + abs(dir.y));
         t = dot(uv - vec2(0.5), dir) / max(extent, 1e-3) * 0.5 + 0.5;
-    } else {
+    } else if (kind == 2) {
         t = length(uv - in.grad_center) / max(in.grad.w * 0.7071, 1e-3);
+    } else {
+        let d = (uv - in.grad_center) * in.half;
+        t = fract((atan2(d.y, d.x) - in.grad.z) / 6.2831853);
     }
     t = clamp(t, 0.0, 1.0);
     let count = i32(in.grad.y + 0.5);
@@ -142,7 +141,15 @@ fn fs(in: VsOut) -> @location(0) vec4<f32> {
     let soft = in.shape.y;
     let edge = aa * 0.5 + soft;
     let coverage = 1.0 - smoothstep(-edge, edge, d);
-    var fill = fill_color(in);
+    let kind = i32(in.grad.x + 0.5);
+    var fill = in.color;
+    var stroke_color = in.stroke_color;
+    if (kind >= 10) {
+        let c = gradient_color(in, kind - 10);
+        stroke_color = vec4(c.rgb, c.a * in.stroke_color.a);
+    } else if (kind > 0) {
+        fill = gradient_color(in, kind);
+    }
     let sw = in.shape.z;
     var rgb: vec3<f32>;
     var a: f32;
@@ -150,9 +157,9 @@ fn fs(in: VsOut) -> @location(0) vec4<f32> {
         // Outline drawn inside the edge; the fill covers what is inside the outline.
         let inner = 1.0 - smoothstep(-edge, edge, d + sw);
         let fa = fill.a * inner;
-        let sa = in.stroke_color.a * max(coverage - inner, 0.0);
+        let sa = stroke_color.a * max(coverage - inner, 0.0);
         a = fa + sa * (1.0 - fa);
-        rgb = (fill.rgb * fa + in.stroke_color.rgb * sa * (1.0 - fa)) / max(a, 1e-4);
+        rgb = (fill.rgb * fa + stroke_color.rgb * sa * (1.0 - fa)) / max(a, 1e-4);
     } else {
         a = fill.a * coverage;
         rgb = fill.rgb;

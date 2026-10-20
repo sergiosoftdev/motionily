@@ -61,6 +61,9 @@ pub struct DrawText {
     pub letter_spacing: f32,
     /// Text on a path: the baseline follows this polyline (scene pixels), starting `offset` px in.
     pub path: Option<(Vec<[f32; 2]>, f32)>,
+    /// Typewriter: characters shown (the rest hidden), and the caret's opacity after them.
+    pub reveal: Option<f32>,
+    pub caret: Option<f32>,
     pub spans: Vec<TextSpan>,
     /// Font size in scene pixels.
     pub size: f32,
@@ -206,6 +209,8 @@ pub(crate) fn caption_frame(scene: &Scene, palette: &Palette, t: f32) -> Option<
         animator: None,
         letter_spacing: 0.0,
         path: None,
+        reveal: None,
+        caret: None,
         spans,
         size: CAPTION_SIZE,
         weight: typo.heading,

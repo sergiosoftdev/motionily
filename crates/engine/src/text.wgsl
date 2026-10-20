@@ -17,12 +17,16 @@ struct Quad {
     @location(3) color: vec4<f32>,
     @location(4) pivot: vec2<f32>,
     @location(5) rotation: f32,
+    @location(6) blur: f32,
 };
 
 struct VsOut {
     @builtin(position) pos: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) color: vec4<f32>,
+    // Glyph rect in the atlas (samples outside it are empty) and blur radius in uv.
+    @location(2) @interpolate(flat) rect: vec4<f32>,
+    @location(3) @interpolate(flat) blur_uv: vec2<f32>,
 };
 
 const CORNERS = array<vec2<f32>, 6>(
@@ -33,14 +37,19 @@ const CORNERS = array<vec2<f32>, 6>(
 @vertex
 fn vs(@builtin(vertex_index) vi: u32, q: Quad) -> VsOut {
     let corner = CORNERS[vi];
-    let local = q.pos + corner * q.size - q.pivot;
+    // A blurred glyph spills out of its box: grow the quad (and its uv) by the radius.
+    let uv_per_px = (q.uv.zw - q.uv.xy) / max(q.size, vec2(1e-3));
+    let grow = vec2(q.blur);
+    let local = q.pos - grow + corner * (q.size + grow * 2.0) - q.pivot;
     let c = cos(q.rotation);
     let s = sin(q.rotation);
     let p = q.pivot + vec2(local.x * c - local.y * s, local.x * s + local.y * c);
     var out: VsOut;
     out.pos = vec4(p.x / g.scene_size.x * 2.0 - 1.0, 1.0 - p.y / g.scene_size.y * 2.0, 0.0, 1.0);
-    out.uv = mix(q.uv.xy, q.uv.zw, corner);
+    out.uv = mix(q.uv.xy - grow * uv_per_px, q.uv.zw + grow * uv_per_px, corner);
     out.color = q.color;
+    out.rect = q.uv;
+    out.blur_uv = q.blur * uv_per_px;
     return out;
 }
 
@@ -50,7 +59,24 @@ fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
 
 @fragment
 fn fs(in: VsOut) -> @location(0) vec4<f32> {
-    let coverage = textureSample(atlas, atlas_sampler, in.uv).r;
+    var coverage = 0.0;
+    if (in.blur_uv.x > 0.0) {
+        // Disc of taps over the blur radius, ignoring neighbours in the atlas.
+        let taps = 24;
+        var sum = 0.0;
+        for (var k = 0; k < taps; k++) {
+            let f = f32(k) + 0.5;
+            let r = sqrt(f / f32(taps));
+            let a = f * 2.39996;
+            let uv = in.uv + vec2(cos(a), sin(a)) * r * in.blur_uv;
+            let inside = all(uv >= in.rect.xy) && all(uv <= in.rect.zw);
+            sum += select(0.0, textureSampleLevel(atlas, atlas_sampler, uv, 0.0).r, inside);
+        }
+        coverage = sum / f32(taps);
+    } else {
+        let inside = all(in.uv >= in.rect.xy) && all(in.uv <= in.rect.zw);
+        coverage = select(0.0, textureSampleLevel(atlas, atlas_sampler, in.uv, 0.0).r, inside);
+    }
     var rgb = in.color.rgb;
     if (g.linearize > 0.5) {
         rgb = srgb_to_linear(rgb);

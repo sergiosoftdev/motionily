@@ -15,6 +15,12 @@ struct Params {
     warp: vec4<f32>,
     // Layer composite grain: amount, seed.
     grain: vec4<f32>,
+    // Turbulent displacement: amount (uv x, uv y), noise cells per uv x, flow time.
+    turb: vec4<f32>,
+    // 3D layers: screen px -> flat layer px (rows), enabled in h0.w, scene size in h1.w / h2.w.
+    h0: vec4<f32>,
+    h1: vec4<f32>,
+    h2: vec4<f32>,
 };
 
 @group(0) @binding(0) var src: texture_2d<f32>;
@@ -71,6 +77,26 @@ fn hash(q: vec2<f32>) -> f32 {
     return fract(sin(dot(q, vec2(12.9898, 78.233))) * 43758.5453);
 }
 
+fn value_noise(q: vec2<f32>) -> f32 {
+    let i = floor(q);
+    let f = fract(q);
+    let u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+
+/// Four octaves of flowing value noise in -0.5..0.5.
+fn fbm(q: vec2<f32>, time: f32) -> f32 {
+    var sum = 0.0;
+    var amp = 0.5;
+    var p = q;
+    for (var o = 0; o < 4; o++) {
+        sum += amp * value_noise(p + vec2(time * 0.35, -time * 0.22));
+        p = p * 2.03 + vec2(17.1, 9.2);
+        amp *= 0.5;
+    }
+    return sum - 0.47;
+}
+
 /// Hue rotation around the grey axis (Rodrigues).
 fn rotate_hue(c: vec3<f32>, angle: f32) -> vec3<f32> {
     let k = vec3(0.57735);
@@ -82,9 +108,24 @@ fn rotate_hue(c: vec3<f32>, angle: f32) -> vec3<f32> {
 fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
     let mode = i32(p.a.x + 0.5);
     let matte_mode = i32(p.a.y + 0.5);
-    var uv = in.uv - p.b.xy;
+    var base = in.uv;
+    if (p.h0.w > 0.5) {
+        let size = vec2(p.h1.w, p.h2.w);
+        let q = vec3(in.uv * size, 1.0);
+        let s = vec3(dot(p.h0.xyz, q), dot(p.h1.xyz, q), dot(p.h2.xyz, q));
+        if (s.z <= 0.0) {
+            return vec4(0.0);
+        }
+        base = s.xy / s.z / size;
+    }
+    var uv = base - p.b.xy;
     if (mode == 0) {
         uv.x += p.warp.x * sin(uv.y * p.warp.y * 6.2831853 + p.warp.z);
+        if (p.turb.x != 0.0) {
+            // Aspect-correct noise space: cells are square on screen.
+            let q = vec2(uv.x, uv.y * p.turb.x / p.turb.y) * p.turb.z;
+            uv += vec2(fbm(q, p.turb.w), fbm(q + vec2(31.7, 11.3), p.turb.w)) * p.turb.xy * 2.0;
+        }
     }
     var c = sample_in(uv);
     if (mode == 0 && p.warp.w != 0.0) {

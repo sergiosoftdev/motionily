@@ -102,6 +102,7 @@ struct FxRun {
     samples: Vec<Vec<Run>>,
     /// Adjustment layer: the effects run on the scene drawn so far.
     adjust: bool,
+    perspective: Option<[f32; 9]>,
     matte: Option<(Vec<Run>, scene::paint::MatteMode)>,
     effects: Vec<DrawEffect>,
     blend: scene::paint::BlendMode,
@@ -141,7 +142,7 @@ impl Batches {
                     continue;
                 }
                 DrawItem::Fx(fx) => {
-                    let DrawFx { items, effects, blend, matte, samples, adjust } = *fx;
+                    let DrawFx { items, effects, blend, matte, samples, adjust, perspective } = *fx;
                     if top {
                         let mut inner = Vec::new();
                         self.push_all(items, &mut inner, false);
@@ -158,7 +159,7 @@ impl Batches {
                             self.push_all(m, &mut mr, false);
                             (mr, mode)
                         });
-                        runs.push(Run::Fx(FxRun { runs: inner, samples, adjust, matte, effects, blend }));
+                        runs.push(Run::Fx(FxRun { runs: inner, samples, adjust, perspective, matte, effects, blend }));
                     } else {
                         self.push_all(items, runs, false);
                     }
@@ -565,6 +566,10 @@ fn plan_fx(fx: &mut FxPass, f: &FxRun, px_per_scene: f32, texel: [f32; 2], scene
     let (mut hue, mut sat, mut bright, mut contrast) = (0.0, 1.0, 0.0, 1.0);
     let mut warp = [0.0f32; 4];
     let mut grain = [0.0f32; 4];
+    let mut turb = [0.0f32; 4];
+    let (h0, h1, h2) = f.perspective.map_or(([0.0; 4], [0.0; 4], [0.0; 4]), |m| {
+        ([m[0], m[1], m[2], 1.0], [m[3], m[4], m[5], scene_w], [m[6], m[7], m[8], scene_h])
+    });
     for e in &f.effects {
         match *e {
             DrawEffect::Blur { radius } if radius > 0.0 => plan.blurs.push(blur_pair(fx, radius)),
@@ -574,6 +579,9 @@ fn plan_fx(fx: &mut FxPass, f: &FxRun, px_per_scene: f32, texel: [f32; 2], scene
                     a: [1.0, matte, 1.0, 1.0],
                     b: [offset[0] / scene_w, offset[1] / scene_h, 0.0, 0.0],
                     color: tint(color),
+                    h0,
+                    h1,
+                    h2,
                     ..Default::default()
                 });
                 plan.shadows.push((h, v, comp));
@@ -583,6 +591,9 @@ fn plan_fx(fx: &mut FxPass, f: &FxRun, px_per_scene: f32, texel: [f32; 2], scene
                 let comp = fx.push(FxParams {
                     a: [2.0, matte, strength, if color.is_some() { 1.0 } else { 0.0 }],
                     color: color.map_or([1.0; 4], tint),
+                    h0,
+                    h1,
+                    h2,
                     ..Default::default()
                 });
                 plan.glows.push((h, v, comp));
@@ -597,10 +608,12 @@ fn plan_fx(fx: &mut FxPass, f: &FxRun, px_per_scene: f32, texel: [f32; 2], scene
             DrawEffect::Chromatic { amount } => warp[3] += amount / scene_w,
             DrawEffect::Wave { amplitude, wavelength, phase } => warp = [amplitude / scene_w, scene_h / wavelength, phase, warp[3]],
             DrawEffect::Grain { amount, seed } => grain = [amount, seed, 0.0, 0.0],
+            DrawEffect::Turbulence { amount, size, phase } => turb = [amount / scene_w, amount / scene_h, scene_w / size, phase],
         }
     }
-    let clamp_edges = if f.adjust { 1.0 } else { 0.0 };
-    plan.layer = fx.push(FxParams { a: [0.0, matte, 1.0, 0.0], b: [0.0, 0.0, clamp_edges, 0.0], adj: [hue, sat - 1.0, bright, contrast - 1.0], warp, grain, ..Default::default() });
+    // Warps pull pixels from around them: at the frame edge, repeat the edge instead of emptiness.
+    let clamp_edges = if f.adjust || turb[0] != 0.0 { 1.0 } else { 0.0 };
+    plan.layer = fx.push(FxParams { a: [0.0, matte, 1.0, 0.0], b: [0.0, 0.0, clamp_edges, 0.0], adj: [hue, sat - 1.0, bright, contrast - 1.0], warp, grain, turb, h0, h1, h2, ..Default::default() });
     if f.adjust {
         plan.copy = fx.push(FxParams::default());
     }

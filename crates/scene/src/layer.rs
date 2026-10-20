@@ -42,6 +42,17 @@ pub enum LayerContent {
         /// Text on a path: one line laid along it (path relative to the layer position).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         path: Option<TextPath>,
+        /// Counter: `{n}` in the text shows this number (`"{n}%"`, `"$ {n}"`), `decimals` places.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        count: Option<Animated>,
+        #[serde(default, skip_serializing_if = "is_zero_u8")]
+        decimals: u8,
+        /// Typewriter: how many characters are typed so far (e.g. `"t*18"`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reveal: Option<Animated>,
+        /// Blinking text caret after the typed characters (prompt boxes, search bars).
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        caret: bool,
     },
     /// A picture (brand logo, product screenshot…) by URL/key, fitted into the layer box.
     Image {
@@ -273,6 +284,17 @@ pub struct Layer {
     pub pivot: [f32; 2],
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repeat: Option<Repeater>,
+    /// 3D: tilt the layer and everything parented to it in perspective (a UI page lying back,
+    /// a dashboard turning). Degrees; top leans back with rotate_x > 0, right side goes away with
+    /// rotate_y > 0. `z` pushes it away (px), `perspective` is the camera distance (px).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub rotate_x: Animated,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub rotate_y: Animated,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub z: Animated,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub perspective: Option<f32>,
     /// Adjustment layer: its effects change everything below it, inside this layer's shape
     /// (a full-frame rect for the whole picture).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -297,6 +319,28 @@ pub struct MotionPath {
     /// Rotate the layer to follow the path direction (added to `rotation`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub orient: bool,
+}
+
+fn is_zero_u8(n: &u8) -> bool {
+    *n == 0
+}
+
+/// Caret blink rate (Hz) once typing pauses.
+const CARET_BLINK_HZ: f32 = 1.1;
+
+/// `n` with `decimals` places and thousands separators: 12,480.5
+fn format_count(n: f32, decimals: u8) -> String {
+    let s = format!("{:.*}", decimals as usize, n.abs());
+    let (int, frac) = s.split_once('.').map_or((s.as_str(), None), |(i, f)| (i, Some(f)));
+    let mut grouped = String::new();
+    for (k, c) in int.chars().enumerate() {
+        if k > 0 && (int.len() - k) % 3 == 0 {
+            grouped.push(',');
+        }
+        grouped.push(c);
+    }
+    let sign = if n < 0.0 && s.chars().any(|c| c.is_ascii_digit() && c != '0') { "-" } else { "" };
+    frac.map_or(format!("{sign}{grouped}"), |f| format!("{sign}{grouped}.{f}"))
 }
 
 fn is_zero(a: &Animated) -> bool {
@@ -420,6 +464,11 @@ pub enum DrawItem {
 }
 
 impl Layer {
+    /// Tilted or pushed in depth (drawn offscreen and projected, with its children).
+    pub fn is_3d(&self) -> bool {
+        [&self.rotate_x, &self.rotate_y, &self.z].iter().any(|a| !is_zero(a))
+    }
+
     /// Layer-local time at scene time `t`, after time remapping.
     pub fn local_time(&self, t: f32) -> f32 {
         let lt = t - self.start;
@@ -484,7 +533,8 @@ impl Layer {
             return None;
         }
         let (center, size, rotation, scale) = self.place(lt, ctx, xf, animated);
-        let gradient = self.gradient.as_ref().map(|g| g.resolve(lt, ctx.palette, opacity));
+        let stroke_gradient = self.stroke.as_ref().and_then(|s| s.gradient.as_ref()).map(|g| g.resolve(lt, ctx.palette, opacity));
+        let fill_gradient = self.gradient.as_ref().map(|g| g.resolve(lt, ctx.palette, opacity));
         let stroke = self.stroke.as_ref().map(|s| {
             let mut c = s.color.resolve(lt, ctx.palette);
             c.0[3] *= opacity;
@@ -496,7 +546,14 @@ impl Layer {
                     Shape::Ellipse => size[0].min(size[1]) / 2.0,
                     Shape::Rect => self.radius.sample(lt) * scale,
                 };
-                let style = ShapeStyle { gradient, stroke, soft: self.soft.sample(lt).max(0.0) * scale, dash: self.stroke.as_ref().and_then(|s| s.dash) };
+                // One gradient per shape on the GPU: an outline gradient wins over a fill one.
+                let style = ShapeStyle {
+                    gradient: stroke_gradient.or(fill_gradient),
+                    stroke_gradient: stroke_gradient.is_some(),
+                    stroke,
+                    soft: self.soft.sample(lt).max(0.0) * scale,
+                    dash: self.stroke.as_ref().and_then(|s| s.dash),
+                };
                 Some(DrawItem::Shape(DrawShape { center, size, radius, rotation, color, style }))
             }
             LayerContent::Path { d, trim_start, trim_end, trim_offset, filled, morph } => {
@@ -524,7 +581,7 @@ impl Layer {
                     stroke_end: None,
                     dash: self.stroke.as_ref().and_then(|s| s.dash),
                     bounds: (lo, hi),
-                    gradient,
+                    gradient: fill_gradient.or(stroke_gradient),
                 }))
             }
             LayerContent::Image { src, fit } => Some(DrawItem::Image(DrawImage {
@@ -540,12 +597,21 @@ impl Layer {
                 let feet = [center[0], center[1] + size[1] / 2.0];
                 Some(DrawItem::Group(draw_character(spec, feet, size[1], lt, color.0[3], ctx.palette)))
             }
-            LayerContent::Text { text, size: px, role, align, line_height, animate, letter_spacing, path } => {
+            LayerContent::Text { text, size: px, role, align, line_height, animate, letter_spacing, path, count, decimals, reveal, caret } => {
+                let text = match count {
+                    Some(n) => std::borrow::Cow::Owned(text.replace("{n}", &format_count(n.sample(lt), *decimals))),
+                    None => std::borrow::Cow::Borrowed(text.as_str()),
+                };
+                let shown = reveal.as_ref().map(|r| r.sample(lt).max(0.0));
+                let caret = caret.then(|| {
+                    let typing = reveal.as_ref().is_some_and(|r| (r.sample(lt) - r.sample(lt - 0.08)).abs() > 1e-3);
+                    if typing || (lt * CARET_BLINK_HZ).fract() < 0.5 { 1.0 } else { 0.0 }
+                });
                 let (family, weight) = ctx
                     .typography
                     .map_or((DEFAULT_FAMILY.to_owned(), 600), |t| (t.family.clone(), t.weight(*role)));
                 Some(DrawItem::Text(DrawText {
-                    gradient,
+                    gradient: fill_gradient,
                     animator: animate.as_ref().map(|a| a.resolve(lt)),
                     letter_spacing: *letter_spacing * scale,
                     path: path.as_ref().and_then(|p| {
@@ -556,7 +622,9 @@ impl Layer {
                         });
                         Some((points.collect(), p.offset.sample(lt) * scale))
                     }),
-                    spans: vec![TextSpan { text: text.clone(), color, scale: 1.0, highlight: None }],
+                    reveal: shown,
+                    caret,
+                    spans: vec![TextSpan { text: text.into_owned(), color, scale: 1.0, highlight: None }],
                     size: px * scale,
                     family,
                     weight,

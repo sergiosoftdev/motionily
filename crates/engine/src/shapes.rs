@@ -25,6 +25,7 @@ pub(crate) fn gradient_fields(g: Option<&scene::paint::DrawGradient>) -> ([f32; 
     let kind = match g.kind {
         scene::paint::GradientKind::Linear => 1.0,
         scene::paint::GradientKind::Radial => 2.0,
+        scene::paint::GradientKind::Conic => 3.0,
     };
     let mut pos = [1.0; 4];
     let mut cols = [[0.0; 4]; 4];
@@ -37,7 +38,11 @@ pub(crate) fn gradient_fields(g: Option<&scene::paint::DrawGradient>) -> ([f32; 
 
 impl From<&DrawShape> for Instance {
     fn from(s: &DrawShape) -> Self {
-        let (grad, grad_center, stop_pos, stops) = gradient_fields(s.style.gradient.as_ref());
+        let (mut grad, grad_center, stop_pos, stops) = gradient_fields(s.style.gradient.as_ref());
+        if s.style.stroke_gradient {
+            // Kinds 11.. paint the outline (the shader subtracts 10).
+            grad[0] += 10.0;
+        }
         let (sw, sc) = s.style.stroke.map_or((0.0, [0.0; 4]), |(w, c)| (w.max(0.0), c.0));
         Instance {
             rect: [s.center[0], s.center[1], s.size[0], s.size[1]],

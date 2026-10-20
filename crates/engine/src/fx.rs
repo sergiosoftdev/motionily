@@ -17,6 +17,11 @@ pub struct FxParams {
     pub adj: [f32; 4],
     pub warp: [f32; 4],
     pub grain: [f32; 4],
+    pub turb: [f32; 4],
+    /// 3D layers: inverse homography rows (xyz) + enabled, scene width, scene height (w).
+    pub h0: [f32; 4],
+    pub h1: [f32; 4],
+    pub h2: [f32; 4],
 }
 
 /// Uniform slot stride (WebGPU's minimum dynamic-offset alignment).

@@ -26,7 +26,8 @@ struct Quad {
     color: [f32; 4],
     pivot: [f32; 2],
     rotation: f32,
-    _pad: f32,
+    /// Blur radius in scene px (text animators blur units in and out).
+    blur: f32,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -159,8 +160,8 @@ impl TextPipeline {
             ..Default::default()
         });
         let shader = device.create_shader_module(wgpu::include_wgsl!("text.wgsl"));
-        const ATTRS: [wgpu::VertexAttribute; 6] = wgpu::vertex_attr_array![
-            0 => Float32x2, 1 => Float32x2, 2 => Float32x4, 3 => Float32x4, 4 => Float32x2, 5 => Float32
+        const ATTRS: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![
+            0 => Float32x2, 1 => Float32x2, 2 => Float32x4, 3 => Float32x4, 4 => Float32x2, 5 => Float32, 6 => Float32
         ];
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("text"),
@@ -351,6 +352,10 @@ impl TextPipeline {
         let mut glyphs: Vec<(usize, usize, usize, usize)> = Vec::new();
         let (mut char_i, mut word_i) = (0usize, 0usize);
         let mut first_baseline = None;
+        // Typewriter: characters past `shown` are hidden; the caret sits where typing is.
+        let shown = item.reveal.map(|r| r.floor() as usize);
+        let mut caret_at: Option<[f32; 2]> = None;
+        let mut last_end = [item.center[0], item.center[1]];
 
         for (line_i, (line, h)) in lines.iter().zip(&heights).enumerate() {
             let line_w: f32 = line.iter().map(|w| w.width).sum::<f32>() + space * line.len().saturating_sub(1) as f32;
@@ -374,7 +379,7 @@ impl TextPipeline {
                         color: bg.0,
                         pivot,
                         rotation: item.rotation,
-                        _pad: 0.0,
+                        blur: 0.0,
                     });
                 }
                 let px = item.size * w.scale;
@@ -384,7 +389,11 @@ impl TextPipeline {
                 for ch in w.text.chars() {
                     let Some(g) = self.glyph(queue, font, ch, px_q as u32) else { continue };
                     let m = g.metrics;
-                    if m.width > 0 && m.height > 0 {
+                    if shown == Some(char_i) {
+                        caret_at = Some([pen, baseline]);
+                    }
+                    let hidden = shown.is_some_and(|n| char_i >= n);
+                    if m.width > 0 && m.height > 0 && !hidden {
                         glyphs.push((out.len(), char_i, word_i, line_i));
                         out.push(Quad {
                             pos: [pen + m.xmin as f32 * k, baseline - (m.height as f32 + m.ymin as f32) * k],
@@ -393,10 +402,13 @@ impl TextPipeline {
                             color: span_color(span.color),
                             pivot,
                             rotation: item.rotation,
-                            _pad: 0.0,
+                            blur: 0.0,
                         });
                     }
                     pen += m.advance_width * k + item.letter_spacing;
+                    if !hidden {
+                        last_end = [pen, baseline];
+                    }
                     char_i += 1;
                 }
                 word_i += 1;
@@ -406,6 +418,22 @@ impl TextPipeline {
         }
         if let Some(g) = &item.gradient {
             recolor(out, &glyphs, g);
+        }
+        if let Some(alpha) = item.caret.filter(|a| *a > 0.0) {
+            let [x, baseline] = caret_at.unwrap_or(last_end);
+            let s = ATLAS_SIZE as f32;
+            let c = (WHITE_SIZE / 2) as f32 / s;
+            let mut color = item.spans.first().map_or([1.0; 4], |sp| span_color(sp.color));
+            color[3] *= alpha;
+            out.push(Quad {
+                pos: [x + item.size * 0.04, baseline - ascent * 0.95],
+                size: [(item.size * 0.055).max(2.0), (ascent - descent) * 0.95],
+                uv: [c, c, c, c],
+                color,
+                pivot,
+                rotation: item.rotation,
+                blur: 0.0,
+            });
         }
         if let Some(a) = &item.animator {
             animate(out, &glyphs, a);
@@ -486,6 +514,7 @@ fn animate(out: &mut [Quad], glyphs: &[(usize, usize, usize, usize)], a: &scene:
         q.pos = [center[0] + (q.pos[0] - center[0]) * s + from.x * inv, center[1] + (q.pos[1] - center[1]) * s + from.y * inv];
         q.size = [q.size[0] * s, q.size[1] * s];
         q.color[3] *= (from.opacity + (1.0 - from.opacity) * p).clamp(0.0, 1.0);
+        q.blur = from.blur * s * inv;
         if from.rotation != 0.0 {
             // Spin about the unit center, then the block's own rotation about its pivot: the
             // same as one rotation (sum) about the unit center carried by the block rotation.
