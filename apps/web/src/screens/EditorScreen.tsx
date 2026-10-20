@@ -13,7 +13,9 @@ import { ActivityLog } from "../components/ActivityLog";
 import { ConnectAgent } from "../components/ConnectAgent";
 import { FormatPicker } from "../components/FormatPicker";
 import { ExportButton } from "../export/ExportButton";
-import { GeneratePanel } from "../components/GeneratePanel";
+import { AgentBar } from "../components/AgentBar";
+import { ChangeComposer } from "../components/ChangeComposer";
+import { useGenerate } from "../components/useGenerate";
 import { CaptionsPanel } from "../captions/CaptionsPanel";
 import { Timeline } from "../timeline/Timeline";
 import { BuildOverlay } from "../timeline/BuildOverlay";
@@ -23,7 +25,13 @@ const SAVE_DEBOUNCE_MS = 800;
 /** Widest the preview gets, like a video player rather than a full-bleed canvas. */
 const PREVIEW_MAX_WIDTH = 960;
 
-const SidebarTab = { Video: "video", Feedback: "feedback" } as const;
+const SidebarTab = { Brief: "brief", Voice: "voice", Format: "format", Log: "log" } as const;
+const SIDEBAR_TABS: [SidebarTab, string][] = [
+  [SidebarTab.Brief, "Brief"],
+  [SidebarTab.Voice, "Voz"],
+  [SidebarTab.Format, "Formato"],
+  [SidebarTab.Log, "Log"],
+];
 type SidebarTab = (typeof SidebarTab)[keyof typeof SidebarTab];
 
 /** Rows of the user's prefab library, as the API returns them. */
@@ -53,7 +61,8 @@ export function EditorScreen({ id }: { id: string }) {
   const [project, setProject] = useState<Project | null>(null);
   const [bricks, setBricks] = useState<Brick[]>([]);
   const prefabs = useRef<PrefabRow[]>([]);
-  const [tab, setTab] = useState<SidebarTab>(SidebarTab.Video);
+  const [tab, setTab] = useState<SidebarTab>(SidebarTab.Brief);
+  const generation = useGenerate(id);
   const [error, setError] = useState<string | null>(null);
   const status = useEditor((s) => s.engineStatus);
   const engineError = useEditor((s) => s.engineError);
@@ -214,42 +223,47 @@ export function EditorScreen({ id }: { id: string }) {
           <Timeline audioUrl={project?.audio ? mediaUrl(project.audio.url) : null} />
         </main>
 
-        <aside className="relative flex w-full flex-col lg:w-96">
-          <div className="flex gap-1 px-5 pt-3">
-            {[
-              [SidebarTab.Video, "Vídeo"],
-              [SidebarTab.Feedback, "Feedback"],
-            ].map(([t, label]) => (
+        <aside className="relative flex min-h-0 w-full flex-col lg:w-96">
+          {project && (
+            <div className="px-5 pt-4 pb-5">
+              <AgentBar g={generation} hasScene={!!project.scene} runs={project.agentRuns ?? []} />
+            </div>
+          )}
+          <div className="flex gap-1 px-5">
+            {SIDEBAR_TABS.map(([t, label]) => (
               <button
                 key={t}
                 type="button"
-                onClick={() => setTab(t as SidebarTab)}
-                className={`rounded-md px-3 py-1.5 text-xs font-medium ${tab === t ? "bg-neutral-800 text-white" : "text-neutral-400 hover:text-white"}`}
+                onClick={() => setTab(t)}
+                className={`rounded-md px-2.5 py-1 text-xs font-medium ${tab === t ? "bg-neutral-800 text-white" : "text-neutral-500 hover:text-white"}`}
               >
                 {label}
               </button>
             ))}
           </div>
-          <div className="flex-1 overflow-y-auto px-5 py-4">
-            {project && tab === SidebarTab.Video && (
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+            {project && tab === SidebarTab.Brief && (
+              <BriefBox key={project.id} project={project} onBrief={(b) => void saveBrief(b)} onReferences={(references) => void api.updateProject(id, { references }).then(setProject)} />
+            )}
+            {project && tab === SidebarTab.Voice && (
               <div className="flex flex-col gap-6">
-                <BriefBox key={project.id} project={project} onBrief={(b) => void saveBrief(b)} onReferences={(references) => void api.updateProject(id, { references }).then(setProject)} />
                 {project.voiceScript.trim() && <VoiceScript script={project.voiceScript} hasVoice={!!project.audio} />}
-                <GeneratePanel projectId={id} hasScene={!!project.scene} runs={project.agentRuns} />
-                <div className="flex flex-col gap-2">
-                  <span className="text-xs font-medium text-neutral-300">Formato</span>
-                  <FormatPicker value={project.format} onChange={(f) => void changeFormat(f)} />
-                </div>
                 <CaptionsPanel project={project} onProject={setProject} />
               </div>
             )}
-            {tab === SidebarTab.Feedback && (
+            {project && tab === SidebarTab.Format && <FormatPicker value={project.format} onChange={(f) => void changeFormat(f)} />}
+            {tab === SidebarTab.Log && (
               <div className="flex flex-col gap-8">
                 <FeedbackBox projectId={id} />
                 <ActivityLog />
               </div>
             )}
           </div>
+          {project && (
+            <div className="px-5 pt-3 pb-4">
+              <ChangeComposer g={generation} hasScene={!!project.scene} />
+            </div>
+          )}
         </aside>
       </div>
     </div>
@@ -271,7 +285,7 @@ function VoiceScript({ script, hasVoice }: { script: string; hasVoice: boolean }
           {copied ? "Copiado" : "Copiar"}
         </button>
       </div>
-      <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg bg-neutral-900 px-3 py-2 font-mono text-[11px] leading-relaxed text-neutral-300">{script}</pre>
+      <p className="max-h-40 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed text-neutral-300">{script}</p>
       <span className="text-xs text-neutral-500">
         {hasVoice ? "Voz subida: el agente ata el vídeo a sus palabras." : "Pégalo en ElevenLabs, descarga el mp3 y súbelo en «Voz y subtítulos». Luego, Generar."}
       </span>
@@ -284,19 +298,19 @@ function BriefBox({ project, onBrief, onReferences }: { project: Project; onBrie
   const refs = useReferences(project.references, onReferences);
   return (
     <div className="flex flex-col gap-2">
-      <label htmlFor="brief" className="text-sm font-semibold">
-        ¿De qué va el vídeo?
+      <label htmlFor="brief" className="text-xs text-neutral-500">
+        De qué va el vídeo · Claude lo diseña entero a partir de esto
       </label>
-      <span className="-mt-1 text-xs text-neutral-500">Claude diseña el vídeo entero a partir de esto. Pega imágenes de referencia con ⌘V. Para cambiar algo concreto, clica en el objeto.</span>
       <textarea
         id="brief"
         defaultValue={project.brief}
         onBlur={(e) => onBrief(e.target.value)}
-        rows={4}
+        rows={6}
         placeholder="Ej.: anuncio de 20 s de mi app de reservas para fisios, tono cercano"
-        className="resize-none rounded-lg bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-white/40"
+        className="resize-none rounded-lg bg-neutral-900 px-3 py-2 text-[13px] leading-relaxed placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-white/40"
         {...refs.handlers}
       />
+      <span className="mt-3 text-xs text-neutral-500">Referencias · imágenes o vídeos (⌘V o arrastra)</span>
       <ReferenceStrip r={refs} />
     </div>
   );

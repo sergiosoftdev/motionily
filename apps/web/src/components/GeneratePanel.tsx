@@ -1,11 +1,5 @@
 import type { AgentRunUsage } from "@motionily/protocol";
-import { GENERATE_EVENT, takePipeline, VideoPipeline } from "../pipeline";
-import { useEffect, useRef, useState } from "react";
-import { useEditor } from "../store";
-import { ReferenceStrip, useReferences } from "./References";
-import { AgentWorkshop } from "./AgentWorkshop";
-import { ModePicker, type GenerationMode } from "./ModePicker";
-import { api } from "../api/client";
+import type { GenerationMode } from "./ModePicker";
 
 export const GenerateStatus = { Idle: "idle", Running: "running", Done: "done", Failed: "failed", Stopped: "stopped", Interrupted: "interrupted" } as const;
 export type GenerateStatus = (typeof GenerateStatus)[keyof typeof GenerateStatus];
@@ -34,7 +28,7 @@ export function UsageSummary({ runs }: { runs: AgentRunUsage[] }) {
   return (
     <details className="text-xs text-neutral-500">
       <summary className="cursor-pointer hover:text-neutral-300">
-        Coste del vídeo: {dollars(total)} en {runs.length} {runs.length === 1 ? "ejecución" : "ejecuciones"} · última: {usageLine(last)}
+        Gastado en este vídeo: {dollars(total)} · {runs.length} {runs.length === 1 ? "ejecución" : "ejecuciones"} · última {dollars(last.costUsd)}
       </summary>
       <ol className="mt-2 flex flex-col gap-1">
         {runs.map((r, i) => (
@@ -47,7 +41,6 @@ export function UsageSummary({ runs }: { runs: AgentRunUsage[] }) {
   );
 }
 
-const POLL_MS = 1500;
 const PREFS_KEY = "motionily.agent";
 
 export const AgentModel = { Fable: "fable", Opus: "opus", Sonnet: "sonnet", Haiku: "haiku" } as const;
@@ -106,132 +99,3 @@ export const TOOL_LABEL: Record<string, string> = {
   set_format: "Cambia el formato",
   ToolSearch: "Prepara sus herramientas",
 };
-
-/** The main action of the editor: let the agent build or change the video, no terminal needed. */
-export function GeneratePanel({ projectId, hasScene, runs = [] }: { projectId: string; hasScene: boolean; runs?: AgentRunUsage[] }) {
-  const [state, setState] = useState<GenerateState | null>(null);
-  const [instruction, setInstruction] = useState("");
-  const refs = useReferences();
-  const [error, setError] = useState<string | null>(null);
-  const [prefs, setPrefs] = useState<AgentPrefs>(loadPrefs);
-  const updatePrefs = (p: Partial<AgentPrefs>) => {
-    const next = { ...prefs, ...p };
-    setPrefs(next);
-    savePrefs(next);
-  };
-  const running = state?.status === GenerateStatus.Running;
-
-  /** The page opened while the team was already working (reload, or came back to the video). */
-  const [resumed, setResumed] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    let first = true;
-    const tick = () =>
-      api.generateStatus(projectId).then(
-        (s) => {
-          if (!alive) return;
-          if (first && s.status === GenerateStatus.Running) setResumed(true);
-          first = false;
-          setState(s);
-        },
-        () => undefined,
-      );
-    void tick();
-    const timer = setInterval(tick, POLL_MS);
-    return () => {
-      alive = false;
-      clearInterval(timer);
-    };
-  }, [projectId]);
-
-  // Videos fresh from the wizard start by themselves (after their captions, if they have a voice).
-  const startRef = useRef<() => Promise<void>>(async () => undefined);
-  useEffect(() => {
-    if (takePipeline(projectId, VideoPipeline.Generate)) void startRef.current();
-    const onGo = (e: Event) => (e as CustomEvent<string>).detail === projectId && void startRef.current();
-    window.addEventListener(GENERATE_EVENT, onGo);
-    return () => window.removeEventListener(GENERATE_EVENT, onGo);
-  }, [projectId]);
-
-  const start = async () => {
-    setError(null);
-    try {
-      setState(await api.generate(projectId, instruction, prefs, refs.refs));
-      refs.clear();
-      setInstruction("");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  };
-
-  startRef.current = start;
-
-  // The canvas overlay shows the build too.
-  useEffect(() => {
-    useEditor.setState({ agentRun: state });
-  }, [state]);
-  useEffect(() => () => useEditor.setState({ agentRun: null }), []);
-
-  const steps = (state?.events ?? []).filter((e) => e.kind !== GenerateEventKind.Text).slice(-6);
-  const lastThought = [...(state?.events ?? [])].reverse().find((e) => e.kind === GenerateEventKind.Text);
-
-  return (
-    <section className="flex flex-col gap-3">
-      {hasScene && !running && (
-        <input
-          value={instruction}
-          onChange={(e) => setInstruction(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void start()}
-          placeholder="Pide un cambio: «más ritmo», «título más grande»… (⌘V pega imágenes)"
-          className="rounded-lg bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-white/40"
-          {...refs.handlers}
-        />
-      )}
-      {hasScene && !running && <ReferenceStrip r={refs} />}
-      {!running && <ModePicker prefs={prefs} onChange={updatePrefs} />}
-      {running ? (
-        <button
-          type="button"
-          onClick={() => void api.stopGenerate(projectId).then(setState)}
-          className="rounded-lg bg-neutral-800 px-4 py-2.5 text-sm font-semibold hover:bg-neutral-700"
-        >
-          Parar al agente
-        </button>
-      ) : (
-        <button type="button" onClick={() => void start()} className="rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-neutral-900 hover:bg-neutral-200">
-          {hasScene ? (instruction.trim() ? "Aplicar cambio" : "Volver a generar") : "Generar vídeo"}
-        </button>
-      )}
-      {state?.status === GenerateStatus.Interrupted && (
-        <p className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-          La generación se cortó porque se reinició el servidor (sus agentes se pararon, no siguen gastando). Pulsa Generar para retomarla.
-        </p>
-      )}
-      {running && resumed && (
-        <p className="rounded-lg bg-emerald-500/10 px-3 py-2 text-xs text-emerald-200">
-          El agente ha seguido trabajando mientras no estabas. Puedes cerrar o recargar cuando quieras: no se para.
-        </p>
-      )}
-      {running && state && state.events.some((e) => e.kind === GenerateEventKind.Phase) && <AgentWorkshop state={state} />}
-      {running && !state?.events.some((e) => e.kind === GenerateEventKind.Phase) && (
-        <div className="flex flex-col gap-1.5 text-xs">
-          <span className="flex items-center gap-2 text-neutral-300">
-            <span className="size-2 animate-pulse rounded-full bg-emerald-400" /> El agente está trabajando…
-          </span>
-          {steps.map((e, i) => (
-            <span key={i} className={e.kind === GenerateEventKind.Error ? "text-red-400" : "text-neutral-500"}>
-              {TOOL_LABEL[e.text] ?? e.text}
-            </span>
-          ))}
-          {lastThought && <span className="line-clamp-3 text-neutral-400">{lastThought.text}</span>}
-        </div>
-      )}
-      {!running && state?.summary && state.status === GenerateStatus.Done && <p className="text-xs text-neutral-400">{state.summary}</p>}
-      <UsageSummary runs={state?.usage && !runs.some((r) => r.at === state.usage!.at) ? [...runs, state.usage] : runs} />
-      {!running && state?.status === GenerateStatus.Failed && (
-        <p className="text-xs text-red-400">{state.events.filter((e) => e.kind === GenerateEventKind.Error).at(-1)?.text ?? "El agente falló."}</p>
-      )}
-      {error && <p className="text-xs text-red-400">{error}</p>}
-    </section>
-  );
-}

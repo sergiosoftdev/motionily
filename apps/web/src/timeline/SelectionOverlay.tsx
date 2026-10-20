@@ -205,9 +205,7 @@ export function SelectionOverlay({
       setRun(
         await api.generate(
           projectId,
-          group
-            ? `Only about group '${group}' (around ${time.toFixed(1)}s): ${t}. Read it with get_group ${group} and change only that group — to redesign it, remove_group ${group} and add new layers with "group":"${group}" in the same time span and area. Do not touch other layers. Then render_frames at ${time.toFixed(1)}s to check.`
-            : `Only about layer '${selected}' (around ${time.toFixed(1)}s): ${t}. Read it with get_layer ${selected}, change just that layer, then render_frames at ${time.toFixed(1)}s to check.`,
+          scopedInstruction(t, time, group, selected),
           loadPrefs(),
           refs.refs,
         ),
@@ -349,4 +347,13 @@ export function SelectionOverlay({
       )}
     </>
   );
+}
+
+/** A request about one layer or group: the agent goes straight to it instead of re-reading the video. */
+export function scopedInstruction(request: string, time: number, group: string | null, layer: string | null): string {
+  const at = time.toFixed(1);
+  if (group)
+    return `Only about group '${group}' (around ${at}s): ${request}. Read it with get_group ${group} and change only that group — to redesign it, remove_group ${group} and add new layers with "group":"${group}" in the same time span and area. Do not touch other layers. Then render_frames at ${at}s to check.`;
+  if (layer) return `Only about layer '${layer}' (around ${at}s): ${request}. Read it with get_layer ${layer}, change just that layer, then render_frames at ${at}s to check.`;
+  return request;
 }

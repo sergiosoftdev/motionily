@@ -125,10 +125,10 @@ export function ReferenceStrip({ r, compact = false }: { r: References; compact?
           onClick={() => input.current?.click()}
           title="Adjunta o pega (⌘V) imágenes de referencia"
           className={`flex shrink-0 items-center justify-center gap-1.5 rounded-md text-neutral-400 ring-1 ring-white/10 transition hover:text-white hover:ring-white/30 ${
-            compact ? "size-8 text-sm" : "h-14 px-3 text-xs"
+            compact ? "size-8 text-sm" : "h-16 px-3 text-xs"
           }`}
         >
-          {compact ? "＋" : "＋ Imagen o vídeo de referencia"}
+          {compact ? "＋" : "＋ Añadir"}
         </button>
       )}
       <input
