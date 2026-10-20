@@ -191,6 +191,9 @@ impl Scene {
                 }
                 let mut layer = layer.clone();
                 crate::shader::check_layer(&layer).map_err(OpError::Shader)?;
+                if let LayerContent::Video { clip } = &layer.content {
+                    clip.check().map_err(OpError::Invalid)?;
+                }
                 crate::component::check_instance(&mut layer, &self.library)?;
                 self.layers.push(layer);
             }

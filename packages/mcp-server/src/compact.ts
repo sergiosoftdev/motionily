@@ -32,6 +32,8 @@
  *   component's lines any value may be `$param` (whole value), expressions read `($param*2)`, text interpolates "$param".
  * Custom shaders: `id shader START x= y= w= h= p0=… p7= "WGSL fn shade(uv: vec2f, px: vec2f) -> vec4f {…}"` fills the box;
  *   `fx="WGSL…" fx0=… fx7=` adds a shader effect reading src(uv) (on adj=1: everything below). Newlines: \n inside the quotes.
+ * Video: `clip video 0 x= y= w= h= src=/media/….mp4 fit=cover in=2 out=8 speed=1 loop=1 volume=0 rad=24` (muted unless volume>0).
+ * Audio-reactive expressions: vol bass mid high beat beats (now) · vol(T-0.1) · spec(i/n) — 0..1 from the project audio, 0 without it.
  */
 
 import { ICON_GRID, iconPath } from "./icons.js";
@@ -87,7 +89,12 @@ export type ParamType = (typeof PARAM_TYPES)[number];
 export type ParamDef = { name: string; type: ParamType; default?: unknown };
 // ── end components ──
 const PARTICLES = "particles";
-const TYPES = [...SHAPES, "text", "image", "path", "object", "text3d", PARTICLES, USE, SHADER];
+const TYPES = [...SHAPES, "text", "image", "video", "path", "object", "text3d", PARTICLES, USE, SHADER];
+// --- video clips: keys only `video` layers take (JSON names: in, out, speed, loop, volume) ---
+const VIDEO = "video";
+const VIDEO_NUM = ["in", "out", "speed", "volume"];
+const VIDEO_DEFAULTS: Record<string, number> = { in: 0, speed: 1, volume: 0 };
+// --- end video clips ---
 /** Short keys for animated numbers. */
 const NUM: Record<string, string> = {
   x: "x",
@@ -557,6 +564,11 @@ export function parseLine(line: string): Layer {
     else if (k === "accent") layer.accent = colorAnim(v, line);
     else if (k === "g") layer.group = v;
     else if (PLAIN_NUM[k]) layer[PLAIN_NUM[k]] = plainNum(v, line);
+    else if (VIDEO_NUM.includes(k) || k === "loop") {
+      if (type !== VIDEO) throw new Error(`'${k}=' is only for video layers: ${line}`);
+      if (k === "loop") layer.loop = v !== "0" && v !== "false";
+      else layer[k] = num(v, line);
+    }
     else if (PLAIN_STR.includes(k)) layer[k] = v;
     else if (k === "grad") layer.gradient = gradient(v, line);
     else if (k === "sgrad") layer.stroke = { width: 2, ...(layer.stroke as object), gradient: gradient(v, line) };
@@ -873,6 +885,14 @@ export function formatLayer(l: Layer): string {
       extra.lights = l.lights;
     }
     done.add("lights");
+  }
+  if (type === VIDEO) {
+    for (const k of VIDEO_NUM) {
+      if (typeof l[k] === "number" && l[k] !== VIDEO_DEFAULTS[k]) parts.push(`${k}=${r3(l[k] as number)}`);
+      if (typeof l[k] === "number") done.add(k);
+    }
+    if (l.loop === true) parts.push("loop=1");
+    if (typeof l.loop === "boolean") done.add("loop");
   }
   for (const [key, short] of SHORT_FORMS) {
     if (l[key] === undefined) continue;

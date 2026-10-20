@@ -27,6 +27,8 @@ export function ExportButton({ name, audioUrl }: { name: string; audioUrl: strin
     setError(null);
     abort.current = new AbortController();
     try {
+      // Audio-reactive curves and video files must be ready before the first frame.
+      await engineHost.mediaReady();
       const res = await exportVideo({
         sceneJson: engineHost.sceneJson(),
         shortSide,
@@ -34,6 +36,7 @@ export function ExportButton({ name, audioUrl }: { name: string; audioUrl: strin
         stage: await engineHost.stageAssets(),
         images: await engineHost.imageAssets(),
         audioUrl,
+        videos: engineHost.videoLibrary(),
         onProgress: setProgress,
         signal: abort.current.signal,
       });

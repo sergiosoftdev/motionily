@@ -12,17 +12,26 @@ import {
   WebMOutputFormat,
 } from "mediabunny";
 import { Engine } from "../engine/pkg/engine_wasm.js";
+import { VIDEO_LAYER, clipSounds, type ClipSound, type VideoLibrary } from "../engine/video";
 
 type AudioTrack = { start: number; trim_in: number; trim_out: number | null };
-type SceneInfo = { width: number; height: number; fps: number; duration: number; audio?: AudioTrack | null; sfx?: SfxCue[] };
+type SceneInfo = {
+  width: number;
+  height: number;
+  fps: number;
+  duration: number;
+  audio?: AudioTrack | null;
+  sfx?: SfxCue[];
+  layers?: { type: string; volume?: number }[];
+};
 
 export type ExportResult = { blob: Blob; extension: "mp4" | "webm" };
 export type FontFile = { family: string; weight: number; bytes: Uint8Array };
 
 const AUDIO_RATE = 48_000;
 
-/** Mix the voice-over (with its trim and offset) and every sound effect into one buffer the length of the video. */
-async function renderAudio(url: string | null, track: AudioTrack, cues: SfxCue[], duration: number): Promise<AudioBuffer> {
+/** Mix the voice-over (with its trim and offset), every sound effect and the video clips' own sound into one buffer the length of the video. */
+async function renderAudio(url: string | null, track: AudioTrack, cues: SfxCue[], duration: number, clips: ClipSound[]): Promise<AudioBuffer> {
   const decodeCtx = new AudioContext();
   const decode = async (u: string) => decodeCtx.decodeAudioData(await (await fetch(u)).arrayBuffer());
   const ctx = new OfflineAudioContext(2, Math.ceil(duration * AUDIO_RATE), AUDIO_RATE);
@@ -46,6 +55,19 @@ async function renderAudio(url: string | null, track: AudioTrack, cues: SfxCue[]
     src.connect(g).connect(ctx.destination);
     src.start(cue.at);
   }
+  for (const clip of clips) {
+    if (!buffers.has(clip.src)) buffers.set(clip.src, await decode(mediaUrl(clip.src)).catch(() => null));
+    const buf = buffers.get(clip.src);
+    if (!buf || clip.at >= duration) continue;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = clip.rate;
+    const g = ctx.createGain();
+    g.gain.value = clip.volume;
+    src.connect(g).connect(ctx.destination);
+    // `seconds` of video play `seconds × rate` of the file.
+    src.start(clip.at, clip.offset, clip.seconds * clip.rate);
+  }
   void decodeCtx.close();
   return ctx.startRendering();
 }
@@ -62,6 +84,8 @@ export async function exportVideo(opts: {
   stage: { models: { key: string; bytes: Uint8Array }[]; textures: { pack: string; rgba: Uint8Array; width: number; height: number }[] };
   images: { src: string; rgba: Uint8Array; width: number; height: number }[];
   audioUrl: string | null;
+  /** Decoders of the scene's video layers (each frame is decoded exactly before it renders). */
+  videos?: VideoLibrary;
   onProgress: (ratio: number) => void;
   signal: AbortSignal;
 }): Promise<ExportResult> {
@@ -75,7 +99,8 @@ export async function exportVideo(opts: {
   const videoCodec = mp4 ? "avc" : "vp9";
   const audioCodec = mp4 ? "aac" : "opus";
   const cues = scene.sfx ?? [];
-  const withAudio = (!!opts.audioUrl || cues.length > 0) && (await canEncodeAudio(audioCodec));
+  const hasClipSound = (scene.layers ?? []).some((l) => l.type === VIDEO_LAYER && (l.volume ?? 0) > 0);
+  const withAudio = (!!opts.audioUrl || cues.length > 0 || hasClipSound) && (await canEncodeAudio(audioCodec));
 
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -88,6 +113,7 @@ export async function exportVideo(opts: {
     for (const t of opts.stage.textures) engine.addTexture(t.pack, t.rgba, t.width, t.height);
     for (const i of opts.images) engine.addImage(i.src, i.rgba, i.width, i.height);
     engine.loadScene(opts.sceneJson);
+    const frameCache = new Map<string, boolean>();
 
     const output = new Output({ format: mp4 ? new Mp4OutputFormat() : new WebMOutputFormat(), target: new BufferTarget() });
     const video = new CanvasSource(canvas, { codec: videoCodec, quality: new Quality("high") });
@@ -103,12 +129,14 @@ export async function exportVideo(opts: {
         throw new DOMException("Export cancelled", "AbortError");
       }
       const t = i / scene.fps;
+      await opts.videos?.prepare(engine, t, frameCache);
       engine.render(t);
       await video.add(t, 1 / scene.fps);
       opts.onProgress((i + 1) / (frames + (audio ? frames * 0.1 : 0)));
     }
     if (audio) {
-      await audio.add(await renderAudio(opts.audioUrl, scene.audio ?? { start: 0, trim_in: 0, trim_out: null }, cues, scene.duration));
+      const clips = clipSounds(engine, scene.fps, scene.duration);
+      await audio.add(await renderAudio(opts.audioUrl, scene.audio ?? { start: 0, trim_in: 0, trim_out: null }, cues, scene.duration, clips));
     }
     await output.finalize();
     opts.onProgress(1);

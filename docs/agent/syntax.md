@@ -3,8 +3,9 @@
 ```
 id type start[-end] key=value… "text or path data" {optional JSON merged into the layer}
 ```
-- types: `rect | ellipse | text | image | path | object | text3d | particles | use | shader` (`use` = a component instance,
-  see Components; `shader` = custom WGSL, see Custom shaders). Scene pixels, origin top-left, y down, x/y = the layer's CENTER.
+- types: `rect | ellipse | text | image | video | path | object | text3d | particles | use | shader` (`use` = a component
+  instance, see Components; `shader` = custom WGSL, see Custom shaders; `video` = a clip, see Video clips). Scene pixels,
+  origin top-left, y down, x/y = the layer's CENTER.
   `w` and `h` are required (not for path). `end` defaults to the end of the video. Same id again = that layer is replaced.
 - frame size by format: 9:16 = 1080×1920 · 16:9 = 1920×1080 · 1:1 = 1080×1080 · 4:5 = 1080×1350.
 - value of any animatable key: number · tween `from>to@t0-t1[:ease]` · keys `t:v[:ease],t:v,…` · `(expression)`.
@@ -18,6 +19,7 @@ id type start[-end] key=value… "text or path data" {optional JSON merged into 
   smoothstep step mod noise(x) rand(x) wiggle(freq,amp[,seed]) ease ease_in ease_out back elastic bounce
   spring(t[,freq,damping]) pulse(x,period) saw tri · operators `+ - * / % ^ < >`.
   other layers: `(card.x)` `(card.y(T-0.15))` — props x y w h s r o of another layer, now or at a scene time (follow-through, echoes).
+  audio: `vol bass mid high beat beats spec(k)` — see "Audio-reactive expressions".
 
 ### Keys
 | key | meaning |
@@ -223,6 +225,50 @@ badge shader .5 x=1500 y=300 w=320 h=320 s=0>1@0-.6:b fill=accent "fn shade(uv: 
   outgoing shot until the cut at 4.0 s (cut your layers' start/end there), then opens from the center onto the new one.
   glitch: 0.5 s of band jumps and RGB split fading out. badge: metaball blob + pulsing ring drawn with SDFs in `fill`.
 <!-- custom-shaders:end -->
+
+<!-- video clips + audio-reactive: begin -->
+### Video clips
+`id video START x= y= w= h= src=/media/….mp4 fit=cover|contain in=S out=S speed=K loop=1 volume=V rad=PX`
+- `src`: a clip from `get_brand` (kind `video`, its length and size are listed; `view_asset` shows a 4×3 contact sheet with
+  the second of each frame). mp4 (H.264), webm (VP8/VP9/AV1) and mov decode in the editor; anything else fails to load.
+- File second shown at layer time t (seconds since the layer start, after `time=` remap): `in + t × speed` (t < 0 → `in`).
+  `out` (default: end of file; cut to the file length) ends the clip: past it the **last frame holds**, or with `loop=1` it
+  wraps to `in`. The frame drawn is the last one whose timestamp ≤ that second (+1 ms) — exact in export, render_frames and
+  review, whatever order frames are rendered in.
+- Defaults: `fit=cover` (crop to fill the box; `contain` letterboxes), `in=0`, `speed=1` (0 < speed ≤ 16), `loop` off,
+  `volume=0` = **muted** (0..1 plays the clip's own sound, following in/out/speed/loop; the `time=` remap is followed in
+  export only in straight stretches). Freeze, reverse or ramp with `time=` keys: `time=0:0,1:1:h,2.5:1` freezes 1 s.
+- Bounds/`get_layout` = the layer box (like an image); layout rows add `video@S/LENs` (file second on screen / file length)
+  or `VIDEO failed to load: …`. `review_video` flags clips that fail to load, start past the file end, or run out and
+  freeze while the layer is still on (fix: end the layer at `start + (out − in)/speed`, `loop=1`, or a lower speed).
+- Everything else works as on any layer: `rad`, effects, mattes (`matte=` a device screen), blend, camera, 3D planes.
+
+### Audio-reactive expressions
+The project voice-over/music is analysed in the editor (mono, 24 kHz, 100 frames/s; recomputed whenever the audio loads,
+never saved). On the **scene timeline** (through the audio's start/trim), inside any `(expression)`:
+| name | value |
+| --- | --- |
+| `vol` | loudness 0..1: 1 = the track's loud level (98th percentile), 0 = 40 dB below or silence; rises in ~15 ms, falls over ~150 ms |
+| `bass` `mid` `high` | the same for < 250 Hz, 250–2000 Hz, > 2000 Hz, each against **its own** loud level |
+| `spec(k)` | spectrum band at k = 0..1 (16 log bands, 40 Hz → 8 kHz, interpolated), each against its own loud level |
+| `beat` | 1 exactly at a detected beat, then exp(−seconds/0.15) (0.37 after 0.15 s); 0 before the first beat |
+| `beats` | number of beats so far (0, 1, 2…): `mod(beats,2)` alternates |
+- Function forms read another scene second: `vol(T-0.1)`, `beat(T+0.05)` (anticipate), `spec(i/(n-1), T)`.
+- Beats = onsets (kicks/snares on music, stressed syllables on a voice), ≥ 0.15 s apart — not a tempo grid. The scene
+  summary (`get_scene`) lists them in scene seconds with a BPM estimate: put keyframes and cuts on those times.
+- No audio (or outside the audio's window): every one reads 0 (`beat` keeps decaying after the audio ends).
+
+Recipes:
+```
+screen rect 0 g=device x=540 y=900 w=820 h=1600 rad=96 fill=#0d0f14 stroke=6:#2a2f3a s=1>1.05@0-6:io shadow=0,40,90,#000000,.4
+clip video 0 g=device parent=screen x=0 y=0 w=760 h=1540 rad=64 src=/media/…mp4 fit=cover in=1.5 out=7.5
+cap text 0 g=cap x=540 y=1640 w=900 h=150 size=88 role=heading s=(1+0.12*vol) o=(0.55+0.45*vol) "Every *word* lands"
+bar rect 0 g=eq x=155 y=(1780-(15+150*spec(i/(n-1)))) w=50 h=(30+300*spec(i/(n-1))) rad=12 fill=accent rep=12:70,0
+flash rect 0 g=fx x=540 y=960 w=1080 h=1920 fixed=1 fill=#ffffff o=(0.3*beat) blend=add
+kick ellipse 0 g=fx x=540 y=960 w=500 h=500 fill=accent soft=120 s=(1+0.25*pow(beat,2)) fill=(mod(beats,2)<1 ? …)
+```
+(`bar`: bottom-anchored bars = `y = BOTTOM − h/2`; `kick`: alternate colors with two layers and `o=(mod(beats,2))`.)
+<!-- video clips + audio-reactive: end -->
 
 ## World, camera and depth — exact rules
 Trust these formulas; `get_layout` prints the resulting screen boxes if you want numbers. Never render test shapes to find out.

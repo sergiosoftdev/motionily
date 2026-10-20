@@ -342,3 +342,46 @@ describe("projects (brand kits) and their videos", () => {
     assert.ok(v.brandId);
   });
 });
+
+// --- video clips as brand assets ---
+describe("video clips in the brand kit", () => {
+  it("accepts mp4/webm/mov as kind video, with length, size and a contact sheet when ffmpeg can read it", async () => {
+    const auth = await login("clips@example.com");
+    const { body: brand } = await http.post("/brands").set(auth).send({ name: "Clips" }).expect(201);
+    // Unreadable bytes still upload (the editor reports a failed load); no facts are invented.
+    const junk = await http
+      .post(`/brands/${brand.id}/assets`)
+      .set(auth)
+      .field("kind", "screenshot")
+      .attach("file", Buffer.from("not a video"), { filename: "demo.mp4", contentType: "video/mp4" })
+      .expect(201);
+    const clip = junk.body.assets[0];
+    assert.equal(clip.kind, "video");
+    assert.equal(clip.mime, "video/mp4");
+    assert.equal(clip.duration, undefined);
+    // An image can not pose as a clip.
+    const png = Buffer.from("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0005fe02fea7d6a4c50000000049454e44ae426082", "hex");
+    const img = await http.post(`/brands/${brand.id}/assets`).set(auth).field("kind", "video").attach("file", png, { filename: "a.png", contentType: "image/png" }).expect(201);
+    assert.equal(img.body.assets[1].kind, "other");
+
+    const { spawnSync } = await import("node:child_process");
+    const { mkdtempSync, readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { tmpdir } = await import("node:os");
+    const dir = mkdtempSync(join(tmpdir(), "e2e-clip-"));
+    const made = spawnSync("ffmpeg", ["-v", "error", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=30:duration=2", "-pix_fmt", "yuv420p", join(dir, "c.mp4")]);
+    if (made.status !== 0) return; // no ffmpeg on this machine: the facts are optional
+    const real = await http
+      .post(`/brands/${brand.id}/assets`)
+      .set(auth)
+      .attach("file", readFileSync(join(dir, "c.mp4")), { filename: "c.mp4", contentType: "video/mp4" })
+      .expect(201);
+    const facts = real.body.assets[2];
+    assert.equal(facts.kind, "video");
+    assert.ok(Math.abs(facts.duration - 2) < 0.1, String(facts.duration));
+    assert.deepEqual([facts.width, facts.height], [320, 180]);
+    assert.match(facts.poster, /^\/media\/.+\.jpg$/);
+    await http.get(facts.poster).expect(200);
+  });
+});
+// --- end video clips ---

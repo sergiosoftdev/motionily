@@ -64,6 +64,12 @@ pub enum LayerContent {
         #[serde(default)]
         fit: ImageFit,
     },
+    /// A video clip (`/media/…` mp4/webm/mov) fitted into the layer box like an image; which
+    /// frame shows is [`crate::video::VideoClip::media_time`] of the layer's (remapped) clock.
+    Video {
+        #[serde(flatten)]
+        clip: crate::video::VideoClip,
+    },
     /// Procedural character standing at the bottom of its box (`h` is its height).
     Character {
         #[serde(flatten)]
@@ -264,6 +270,18 @@ pub struct DrawImage {
     pub radius: f32,
     pub rotation: f32,
     pub opacity: f32,
+    /// Video layers: file second of `src` shown (quantized to 1 ms); `None` for pictures.
+    pub frame: Option<f32>,
+}
+
+impl DrawImage {
+    /// Texture the engine draws it with: the picture's src, or the decoded video frame's key.
+    pub fn texture_key(&self) -> std::borrow::Cow<'_, str> {
+        match self.frame {
+            Some(t) => std::borrow::Cow::Owned(crate::video::frame_key(&self.src, t)),
+            None => std::borrow::Cow::Borrowed(&self.src),
+        }
+    }
 }
 
 fn default_line_height() -> f32 {
@@ -277,6 +295,7 @@ impl LayerContent {
             LayerContent::Shape { shape } => crate::enum_name(shape),
             LayerContent::Text { text, .. } => format!("text \"{}\"", text.chars().take(40).collect::<String>()),
             LayerContent::Image { src, .. } => format!("image {}", src.rsplit('/').next().unwrap_or(src)),
+            LayerContent::Video { clip } => format!("video {} {}", clip.src.rsplit('/').next().unwrap_or(&clip.src), clip.describe()),
             LayerContent::Path { d, .. } => format!("path ({} chars)", d.d.len()),
             LayerContent::Object { finish, .. } => format!("object {}", crate::enum_name(finish)),
             LayerContent::Shader { code, .. } => format!("shader ({} chars)", code.as_str().len()),
@@ -722,6 +741,17 @@ impl Layer {
                 radius: self.radius.sample(lt) * scale,
                 rotation,
                 opacity: color.0[3],
+                frame: None,
+            })),
+            LayerContent::Video { clip } => Some(DrawItem::Image(DrawImage {
+                src: clip.src.clone(),
+                fit: clip.fit,
+                center,
+                size,
+                radius: self.radius.sample(lt) * scale,
+                rotation,
+                opacity: color.0[3],
+                frame: Some(crate::video::quantize(clip.media_time(lt, crate::video::media_duration(&clip.src)))),
             })),
             LayerContent::Object { node, finish, spin, fov, lights } => {
                 use glam::{Mat4, Quat};

@@ -31,7 +31,7 @@ applied: fix it and resend the call.
 | tool | use |
 | --- | --- |
 | `get_project` | brief, format, voice script/captions, scene state (and this manual the first time) |
-| `get_brand` · `view_asset` · `view_image` | product notes, palettes, logos/screenshots (src for image layers); user's references |
+| `get_brand` · `view_asset` · `view_image` | product notes, palettes, logos/screenshots (src for image layers), video clips (src for video layers, with length; view_asset = contact sheet); user's references |
 | `search_fonts` · `set_font` | any Google Font for the whole video |
 | `find_icons` | Lucide icon names for `ic=NAME:SIZE` |
 | `search_images` · `import_image` | real photos from Wikimedia Commons / Openverse (reusable licenses only) → src for image layers |

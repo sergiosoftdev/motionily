@@ -34,6 +34,8 @@ export enum AssetKind {
   /** A screen of the product (app, dashboard…). */
   Screenshot = "screenshot",
   Photo = "photo",
+  /** A clip (mp4/webm/mov) for video layers. */
+  Video = "video",
   Other = "other",
 }
 
@@ -48,6 +50,11 @@ export class BrandAsset {
   /** File name in the media folder. */
   @Prop({ required: true }) file: string;
   @Prop({ required: true }) mime: string;
+  /** Videos: seconds, pixel size and a contact-sheet image (media path), when ffmpeg could read them. */
+  @Prop() duration?: number;
+  @Prop() width?: number;
+  @Prop() height?: number;
+  @Prop() poster?: string;
 }
 
 export type BrandAssetDocument = HydratedDocument<BrandAsset>;

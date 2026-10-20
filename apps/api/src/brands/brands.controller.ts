@@ -2,7 +2,9 @@ import { BadRequestException, Body, Controller, Delete, Get, HttpCode, Param, Pa
 import { FileInterceptor } from "@nestjs/platform-express";
 import { diskStorage } from "multer";
 import { CurrentUser, type AuthUser } from "../auth/auth";
-import { MEDIA_DIR, mediaName } from "../media";
+import { join } from "node:path";
+import { MEDIA_DIR, mediaName, removeMedia } from "../media";
+import { describeVideo, MAX_VIDEO_BYTES, VIDEO_TYPES } from "./video-asset";
 import { ProjectsService } from "../projects/projects.service";
 import { BrandsService } from "./brands.service";
 import { ConceptsRequestDto, ConceptsService } from "./concepts";
@@ -70,19 +72,29 @@ export class BrandsController {
     return (await this.projects.list(user.id, b._id)).map((p) => ({ ...p, generating: this.generator.isRunning(String(p._id)) }));
   }
 
-  /** Logo, screenshot or photo for the brand kit, with an optional description. */
+  /** Logo, screenshot, photo or video clip (mp4/webm/mov) for the brand kit, with an optional description. */
   @Post(":brandId/assets")
   @UseInterceptors(
     FileInterceptor("file", {
       storage: diskStorage({ destination: MEDIA_DIR, filename: (_req, f, cb) => cb(null, mediaName(f.originalname)) }),
-      limits: { fileSize: MAX_IMAGE_BYTES },
-      fileFilter: (_req, f, cb) => cb(null, f.mimetype.startsWith("image/")),
+      limits: { fileSize: MAX_VIDEO_BYTES },
+      fileFilter: (_req, f, cb) => cb(null, f.mimetype.startsWith("image/") || VIDEO_TYPES.includes(f.mimetype)),
     }),
   )
   async upload(@CurrentUser() user: AuthUser, @Param("brandId") brandId: string, @Body() meta: AssetMetaDto, @UploadedFile() file?: Express.Multer.File) {
-    if (!file) throw new BadRequestException("send an image in 'file'");
-    const b = await this.brands.get(user.id, brandId);
-    await this.brands.addAsset(b._id, file, meta);
+    if (!file) throw new BadRequestException("send an image or a video (mp4, webm, mov) in 'file'");
+    const isVideo = VIDEO_TYPES.includes(file.mimetype);
+    if (!isVideo && file.size > MAX_IMAGE_BYTES) {
+      await removeMedia(file.filename);
+      throw new BadRequestException("images are limited to 15 MB");
+    }
+    const b = await this.brands.get(user.id, brandId).catch(async (e: unknown) => {
+      await removeMedia(file.filename);
+      throw e;
+    });
+    // Clips: length, size and a contact sheet, so agents can trim them without probing.
+    const video = isVideo ? await describeVideo(join(MEDIA_DIR, file.filename)) : undefined;
+    await this.brands.addAsset(b._id, file, meta, video);
     return this.full(user, brandId);
   }
 
@@ -108,13 +120,33 @@ export class BrandsController {
 
 export function brandView(
   b: { _id: { toString(): string }; name: string; notes: string; palettes: unknown[] },
-  assets: { _id: { toString(): string }; kind: string; name: string; description: string; file: string; mime: string }[],
+  assets: {
+    _id: { toString(): string };
+    kind: string;
+    name: string;
+    description: string;
+    file: string;
+    mime: string;
+    duration?: number;
+    width?: number;
+    height?: number;
+    poster?: string;
+  }[],
 ) {
   return {
     id: b._id.toString(),
     name: b.name,
     notes: b.notes,
     palettes: b.palettes,
-    assets: assets.map((a) => ({ id: a._id.toString(), kind: a.kind, name: a.name, description: a.description, url: `/media/${a.file}`, mime: a.mime })),
+    assets: assets.map((a) => ({
+      id: a._id.toString(),
+      kind: a.kind,
+      name: a.name,
+      description: a.description,
+      url: `/media/${a.file}`,
+      mime: a.mime,
+      ...(a.duration !== undefined ? { duration: a.duration, width: a.width, height: a.height } : {}),
+      ...(a.poster ? { poster: a.poster } : {}),
+    })),
   };
 }

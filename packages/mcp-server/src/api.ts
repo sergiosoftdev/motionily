@@ -67,11 +67,11 @@ export class ProjectApi {
       name: string;
       notes: string;
       palettes: { name: string; background: string; surface: string; primary: string; accent: string; text: string }[];
-      assets: { id: string; kind: string; name: string; description: string; url: string; mime: string }[];
+      assets: BrandAsset[];
     }>("GET", "/brand");
   }
 
-  /** Raw bytes of a media file the API serves (brand images). */
+  /** Raw bytes of a media file the API serves (brand images, clip contact sheets). */
   async media(path: string) {
     const res = await fetch(`${this.baseUrl}${path}`);
     if (!res.ok) throw new Error(`image not found (${res.status})`);
@@ -110,3 +110,34 @@ export class ProjectApi {
     return (await res.json()) as T;
   }
 }
+
+// --- video clips in the brand kit ---
+/** A brand image or clip. Clips (`kind: "video"`) carry length, size and a contact sheet when the API could read them. */
+export type BrandAsset = {
+  id: string;
+  kind: string;
+  name: string;
+  description: string;
+  url: string;
+  mime: string;
+  duration?: number;
+  width?: number;
+  height?: number;
+  poster?: string;
+};
+
+export const VIDEO_ASSET = "video";
+/** Frames in a clip's contact sheet (4 × 3, the API's reference-film sheet). */
+const POSTER_FRAMES = 12;
+
+/** Seconds of each frame of a clip's contact sheet, left to right, top to bottom. */
+export function posterTimes(duration: number): number[] {
+  return Array.from({ length: POSTER_FRAMES }, (_, i) => +((duration * (i + 0.5)) / POSTER_FRAMES).toFixed(2));
+}
+
+/** `12.40s 1920×1080 · video layer` — what get_brand prints for a clip. */
+export function clipFacts(a: BrandAsset): string {
+  const size = a.width && a.height ? ` ${a.width}×${a.height}` : "";
+  return a.duration ? `${a.duration.toFixed(2)}s${size} · use in a video layer` : "length unknown (render_frames to check it) · use in a video layer";
+}
+// --- end video clips ---

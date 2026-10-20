@@ -98,6 +98,8 @@ export type LayoutRow = {
   ink?: boolean;
   /** Particle layers: live particles (`screen` is their extent, or the emitter box when none). */
   particles?: LayoutParticles;
+  /** Video layers: file second on screen (`at`), file length once open, or why nothing shows. */
+  video?: { src: string; at: number; duration?: number; error?: string };
 };
 
 /** A particle layer at one instant: `live === max` means the cap is dropping the oldest. */

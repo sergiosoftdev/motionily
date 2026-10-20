@@ -86,13 +86,20 @@ impl Engine {
         let layout = self.scene.layout(t);
         let mut json = serde_json::to_value(&layout).expect("layout always serializes");
         if let Some(rows) = json.get_mut("layers").and_then(|l| l.as_array_mut()) {
-            for row in rows {
+            for row in rows.iter_mut() {
                 let id = row["id"].as_str().unwrap_or_default().to_owned();
                 // Also layers inside component instances (`card1/title`).
                 let is_text = self.scene.resolve_layer(&id).is_some_and(|l| matches!(l.content, scene::LayerContent::Text { .. }));
                 if let Some(ink) = is_text.then(|| self.renderer.text_ink(&self.scene, &id, t)).flatten() {
                     row["screen"] = serde_json::json!(ink);
                     row["ink"] = serde_json::Value::Bool(true);
+                }
+            }
+            // Video rows say which second of the file is on screen.
+            let clips = self.scene.video_clips(t);
+            for row in rows.iter_mut() {
+                if let Some(c) = clips.iter().find(|c| row["id"].as_str() == Some(c.id.as_str())) {
+                    row["video"] = serde_json::json!({ "src": c.src, "at": (c.time * 1000.0).round() / 1000.0 });
                 }
             }
         }
@@ -184,6 +191,49 @@ impl Engine {
         self.scene.image_sources().into_iter().filter(|s| !self.renderer.has_image(s)).collect()
     }
 
+    // --- video layers (see scene::video) ---
+
+    /// Video files the layers use (for the host to open).
+    #[wasm_bindgen(js_name = videoSources)]
+    pub fn video_sources(&self) -> Vec<String> {
+        self.scene.video_sources()
+    }
+
+    /// JSON `[{key, src, time}]`: every decoded frame a render at `t` draws. Upload each with
+    /// `setVideoFrame(key, …)` (the frame of `src` shown at file second `time`) before `render(t)`.
+    #[wasm_bindgen(js_name = videoFrames)]
+    pub fn video_frames(&self, t: f32) -> String {
+        serde_json::to_string(&self.scene.video_frames(t)).expect("frames serialize")
+    }
+
+    /// JSON `[{id, src, time, rate, volume}]`: what each active video layer plays at `t`.
+    #[wasm_bindgen(js_name = videoClips)]
+    pub fn video_clips(&self, t: f32) -> String {
+        serde_json::to_string(&self.scene.video_clips(t)).expect("clips serialize")
+    }
+
+    /// Store a decoded frame drawn into `canvas` under `key` (GPU copy; works on WebGPU and WebGL2).
+    #[wasm_bindgen(js_name = setVideoFrame)]
+    pub fn set_video_frame(&mut self, key: &str, canvas: &HtmlCanvasElement) {
+        let source = wgpu::CopyExternalImageSourceInfo {
+            source: wgpu::ExternalImageSource::HTMLCanvasElement(canvas.clone()),
+            origin: wgpu::Origin2d::ZERO,
+            flip_y: false,
+        };
+        self.renderer.copy_video_frame(key, &source);
+    }
+
+    #[wasm_bindgen(js_name = hasVideoFrame)]
+    pub fn has_video_frame(&self, key: &str) -> bool {
+        self.renderer.has_video_frame(key)
+    }
+
+    /// Free the frames a render no longer needs (call with the keys of the next render).
+    #[wasm_bindgen(js_name = retainVideoFrames)]
+    pub fn retain_video_frames(&mut self, keys: Vec<String>) {
+        self.renderer.retain_video_frames(&keys);
+    }
+
     /// Model keys the current scene uses that are not loaded yet.
     #[wasm_bindgen(js_name = missingModels)]
     pub fn missing_models(&self) -> Vec<String> {
@@ -227,6 +277,34 @@ fn model_keys(node: &scene::Node3D) -> Vec<String> {
 #[wasm_bindgen(js_name = checkSceneShaders)]
 pub fn check_scene_shaders(json: &str) -> Option<String> {
     Scene::from_json(json).ok()?.check_shaders().err()
+}
+
+/// Duration (s) of a video file once the host opened it: loops and holds need it.
+#[wasm_bindgen(js_name = setMediaDuration)]
+pub fn set_media_duration(src: &str, seconds: f32) {
+    scene::video::set_media_duration(src, seconds);
+}
+
+/// Analyse the project audio (mono samples at `rate` Hz, ideally `audioSampleRate()`) for the
+/// audio-reactive expressions of every engine. Returns `{duration, beats, bpm}` as JSON.
+#[wasm_bindgen(js_name = analyzeAudio)]
+pub fn analyze_audio(samples: &[f32], rate: f32) -> String {
+    let a = scene::reactive::analyze(samples, rate);
+    let json = serde_json::json!({ "duration": a.duration, "beats": a.beats, "bpm": a.bpm }).to_string();
+    scene::reactive::set_analysis(Some(a));
+    json
+}
+
+/// No project audio: audio-reactive expressions read 0.
+#[wasm_bindgen(js_name = clearAudioAnalysis)]
+pub fn clear_audio_analysis() {
+    scene::reactive::set_analysis(None);
+}
+
+/// Sample rate the audio should be decoded at before `analyzeAudio`.
+#[wasm_bindgen(js_name = audioSampleRate)]
+pub fn audio_sample_rate() -> f32 {
+    scene::reactive::SAMPLE_RATE
 }
 
 /// Style presets, as JSON, so the UI never hardcodes the list.

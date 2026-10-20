@@ -1078,6 +1078,7 @@ impl Particles {
                         size: [p.size * p.width, p.size * self.aspect],
                         radius: 0.0,
                         rotation: p.rotation,
+                        frame: None,
                         opacity: fade,
                     }));
                 }

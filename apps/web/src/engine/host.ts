@@ -1,10 +1,12 @@
-import init, { Engine, captionStyles, checkSceneShaders, stylePalettes, stylePresets } from "./pkg/engine_wasm.js";
+import init, { Engine, analyzeAudio, captionStyles, checkSceneShaders, clearAudioAnalysis, stylePalettes, stylePresets } from "./pkg/engine_wasm.js";
 import { sfxPlayer, type SfxCue } from "../audio/sfxPlayer";
 import type { CaptionStyle, FrameLayout, Op, ReviewReport, StylePreset } from "@motionily/protocol";
 import { DEFAULT_FONT_FAMILY, fontFilesFor, text3dFonts } from "./fonts";
 import { decodeBytes, decodePng, modelFileUrl, modelUrl, packOf, packTextureUrl, type Pixels } from "./models";
 import { mediaUrl } from "../api/client";
 import { EngineStatus, useEditor } from "../store";
+import { ClipSounds, VIDEO_LAYER, VideoLibrary, VideoStatus, type ClipState, type FrameCache } from "./video";
+import { decodeMono, type AudioAnalysisInfo } from "./audioReactive";
 
 type AudioTrack = { start: number; trim_in: number; trim_out: number | null };
 type ReviewLayer = {
@@ -19,10 +21,13 @@ type ReviewLayer = {
   [prop: string]: unknown;
 };
 /** `use` = a component instance: reviews measure the layers inside it (`instance/layer`) instead. */
-const LayerType = { Shape: "shape", Text: "text", Image: "image", Character: "character", Particles: "particles", Use: "use", Shader: "shader" } as const;
+const LayerType = { Shape: "shape", Text: "text", Image: "image", Video: VIDEO_LAYER, Character: "character", Particles: "particles", Use: "use", Shader: "shader" } as const;
 /** Box-like layers: backgrounds may bleed off frame, and text sits inside them (shader layers fill a box like a rect). */
 const BOX_TYPES: LayerType[] = [LayerType.Shape, LayerType.Shader];
 type LayerType = (typeof LayerType)[keyof typeof LayerType];
+/** Absolute URL of a layer's media src. */
+const mediaSrc = (src: string) => (src.startsWith("/media/") ? mediaUrl(src) : src);
+
 /** A new video starts blank: the agent designs everything. */
 const EMPTY_SCENE = JSON.stringify({ width: 1080, height: 1920, fps: 30, duration: 6, layers: [] });
 const REVIEW_PROBE = 32;
@@ -87,6 +92,14 @@ class EngineHost {
 
   /** Voice-over/music played in sync with the preview (not saved yet). */
   private audio: HTMLAudioElement | null = null;
+  private audioUrl: string | null = null;
+  /** Analysis of `audioUrl` for audio-reactive expressions; resolves once installed in the engine. */
+  private audioAnalysis: Promise<void> = Promise.resolve();
+  audioInfo: AudioAnalysisInfo | null = null;
+  /** Video files (decoders shared with export engines), frames uploaded to this engine, clip sounds. */
+  private videos = new VideoLibrary(mediaSrc, () => this.draw());
+  private frames: FrameCache = new Map();
+  private sounds = new ClipSounds(mediaSrc);
   private audioTrack: AudioTrack = { start: 0, trim_in: 0, trim_out: null };
   private size: [number, number] = [1080, 1920];
 
@@ -120,6 +133,7 @@ class EngineHost {
         return;
       }
       this.engine = engine;
+      this.frames = new Map();
       this.buildOps = [];
       this.loadedFonts.clear();
       this.loadingModels.clear();
@@ -140,7 +154,10 @@ class EngineHost {
   unmount() {
     this.pause();
     this.loop = false;
-    this.setAudio(null);
+    void this.setAudio(null);
+    this.videos.dispose();
+    this.videos = new VideoLibrary(mediaSrc, () => this.draw());
+    this.sounds.dispose();
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     this.engine?.free();
@@ -370,9 +387,45 @@ class EngineHost {
     this.draw();
   }
 
-  setAudio(url: string | null) {
+  /** Use `url` as the project audio (preview + audio-reactive analysis). Resolves once analysed. */
+  setAudio(url: string | null): Promise<void> {
+    if (url === this.audioUrl) return this.audioAnalysis;
+    this.audioUrl = url;
     this.audio?.pause();
     this.audio = url ? new Audio(url) : null;
+    this.audioInfo = null;
+    this.audioAnalysis = this.analyzeAudio(url);
+    return this.audioAnalysis;
+  }
+
+  private async analyzeAudio(url: string | null) {
+    if (!this.wasmReady) return;
+    await this.wasmReady;
+    if (!url) {
+      clearAudioAnalysis();
+      this.draw();
+      return;
+    }
+    try {
+      const { samples, rate } = await decodeMono(url);
+      // A newer file replaced this one while it decoded.
+      if (url !== this.audioUrl) return;
+      this.audioInfo = JSON.parse(analyzeAudio(samples, rate)) as AudioAnalysisInfo;
+    } catch {
+      if (url === this.audioUrl) clearAudioAnalysis();
+    }
+    this.draw();
+  }
+
+  /** Resolves once the audio is analysed and every video file is open: export and agent renders wait for it. */
+  async mediaReady() {
+    await this.audioAnalysis;
+    if (this.engine) await this.videos.ready(this.engine);
+  }
+
+  /** Video decoders, for export engines. */
+  videoLibrary(): VideoLibrary {
+    return this.videos;
   }
 
   play() {
@@ -389,6 +442,7 @@ class EngineHost {
   pause() {
     cancelAnimationFrame(this.raf);
     this.audio?.pause();
+    this.sounds.stop();
     sfxPlayer.stop();
     useEditor.setState({ playing: false });
   }
@@ -396,6 +450,7 @@ class EngineHost {
   seek(t: number) {
     useEditor.setState({ time: Math.max(0, Math.min(t, useEditor.getState().duration)) });
     this.syncAudio(false);
+    this.syncClipSounds(useEditor.getState().playing);
     if (useEditor.getState().playing) void sfxPlayer.start(useEditor.getState().time, this.sfxCues());
     this.draw();
   }
@@ -426,8 +481,15 @@ class EngineHost {
     useEditor.setState({ time: next });
     this.syncAudio(true);
     this.draw();
+    this.syncClipSounds(true);
     this.raf = requestAnimationFrame(this.tick);
   };
+
+  /** Video layers with volume > 0 play their own sound in the preview. */
+  private syncClipSounds(playing: boolean) {
+    if (!this.engine) return;
+    this.sounds.sync(JSON.parse(this.engine.videoClips(useEditor.getState().time)) as ClipState[], playing);
+  }
 
   /** Keep the audio element on the timeline: play inside its trimmed window, silent outside. */
   private syncAudio(playing: boolean) {
@@ -447,21 +509,30 @@ class EngineHost {
     if (!playing && !a.paused) a.pause();
   }
 
+  /** Render the exact frame at `t` (video frames decoded, audio analysed) into the canvas. */
+  private async renderExact(t: number) {
+    const engine = this.engine!;
+    await this.videos.prepare(engine, t, this.frames);
+    engine.render(t);
+  }
+
   /** Small JPEG of the frame at each time, for the agent to look at. Restores the current frame. */
-  snapshots(times: number[], width = 360): string[] {
+  async snapshots(times: number[], width = 360): Promise<string[]> {
     const canvas = this.canvas;
     if (!canvas || !this.engine) return [];
+    await this.mediaReady();
     const [sw, sh] = this.size;
     const out = document.createElement("canvas");
     out.width = width;
     out.height = Math.round((width * sh) / sw);
     const g = out.getContext("2d")!;
-    const images = times.map((t) => {
-      this.engine!.render(t);
+    const images: string[] = [];
+    for (const t of times) {
+      await this.renderExact(t);
       // Copy in the same task as the render: a WebGPU canvas is cleared once presented.
       g.drawImage(canvas, 0, 0, out.width, out.height);
-      return out.toDataURL("image/jpeg", 0.72);
-    });
+      images.push(out.toDataURL("image/jpeg", 0.72));
+    }
     this.draw();
     return images;
   }
@@ -470,10 +541,11 @@ class EngineHost {
    * Self-review for the agent: renders `frames` evenly spaced frames into one contact sheet
    * and flags visible problems (layers off frame, overlapping text, dead stretches, blank frames).
    */
-  review(frames: number): ReviewReport {
+  async review(frames: number): Promise<ReviewReport> {
     const canvas = this.canvas;
     const duration = this.duration();
     if (!canvas || !this.engine) return { duration, times: [], sheet: "", issues: ["engine not ready"], motion: [], strips: [] };
+    await this.mediaReady();
     const [sw, sh] = this.size;
     const n = Math.max(4, Math.min(24, frames));
     const times = Array.from({ length: n }, (_, i) => +((duration * (i + 0.5)) / n).toFixed(2));
@@ -505,8 +577,8 @@ class EngineHost {
     const swarms = new Map<string, boolean>();
     const hues = { violet: 0, magenta: 0, cyan: 0 };
 
-    times.forEach((t, i) => {
-      this.engine!.render(t);
+    for (const [i, t] of times.entries()) {
+      await this.renderExact(t);
       const x = (i % cols) * cellW;
       const y = Math.floor(i / cols) * (cellH + labelH);
       g.drawImage(canvas, x, y + labelH, cellW, cellH);
@@ -589,7 +661,8 @@ class EngineHost {
           else if (tx.x0 - sp.x0 < EDGE_PADDING || sp.x1 - tx.x1 < EDGE_PADDING || tx.y0 - sp.y0 < EDGE_PADDING || sp.y1 - tx.y1 < EDGE_PADDING)
             flag(`text '${tx.l.id}' touches the edge of '${sp.l.id}' (give it padding)`, t);
         }
-    });
+    }
+    for (const note of this.videoIssues(layers, duration)) found.set(note, []);
 
     for (const [id, seen] of swarms)
       if (!seen) found.set(`particles '${id}' never has a live particle at the review times: set rate= and/or burst= inside its span (and life=)`, [times[0]!]);
@@ -598,7 +671,7 @@ class EngineHost {
       flag(`palette: ${Math.round(share * 100)}% of the frame is saturated color — pro films keep neutrals (near-black/white/warm grey) ≥60% and save saturation for small accents`, times[0]!);
     if (saturated > 0 && Object.values(hues).every((n) => n / saturated > NEON_TRIO_SHARE))
       flag("palette: violet + magenta + cyan neon is the generic AI look — pick ONE hue family plus one small contrasting accent", times[0]!);
-    const issues = [...found].map(([what, ts]) => `${what} (${ts.length > 1 ? `${ts[0]}s-${ts[ts.length - 1]}s` : `${ts[0]}s`})`);
+    const issues = [...found].map(([what, ts]) => (ts.length ? `${what} (${ts.length > 1 ? `${ts[0]}s-${ts[ts.length - 1]}s` : `${ts[0]}s`})` : what));
     for (const [id, why] of JSON.parse(this.engine!.shaderFailures()) as [string, string][]) issues.push(`custom shader on '${id}' draws nothing: ${why}`);
     const diff = (a: Float32Array, b: Float32Array) => a.reduce((s, v, k) => s + Math.abs(v - b[k]!), 0) / a.length;
     const deltas = probes.slice(1).map((p, i) => diff(probes[i]!, p));
@@ -617,13 +690,14 @@ class EngineHost {
       .sort((a, b) => b.d - a.d)
       .slice(0, STRIPS)
       .sort((a, b) => a.t - b.t);
-    const strips = peaks.map(({ t }) => this.strip(Math.max(0, t - STRIP_FRAMES / 2 / MOTION_FPS), duration));
+    const strips: ReviewReport["strips"] = [];
+    for (const { t } of peaks) strips.push(await this.strip(Math.max(0, t - STRIP_FRAMES / 2 / MOTION_FPS), duration));
     this.draw();
     return { duration, times, sheet: sheet.toDataURL("image/jpeg", 0.8), issues, motion, strips };
   }
 
   /** `STRIP_FRAMES` consecutive frames at `MOTION_FPS` from `from`, in one row of 4 × 2. */
-  private strip(from: number, duration: number): { from: number; to: number; image: string } {
+  private async strip(from: number, duration: number): Promise<{ from: number; to: number; image: string }> {
     const canvas = this.canvas!;
     const [sw, sh] = this.size;
     const cellW = 300;
@@ -638,7 +712,7 @@ class EngineHost {
     for (let k = 0; k < STRIP_FRAMES; k++) {
       const t = Math.min(duration - 0.01, from + k / MOTION_FPS);
       last = t;
-      this.engine!.render(t);
+      await this.renderExact(t);
       const x = (k % cols) * cellW;
       const y = Math.floor(k / cols) * cellH;
       g.drawImage(canvas, x, y, cellW, cellH);
@@ -648,6 +722,41 @@ class EngineHost {
       g.fillText(`${t.toFixed(2)}s`, x + 4, y + 12);
     }
     return { from: +from.toFixed(2), to: +last.toFixed(2), image: out.toDataURL("image/jpeg", 0.75) };
+  }
+
+  /**
+   * Video layers that will not show what the agent expects: file failed to load, `in` past the end
+   * of the file, or a clip that runs out and freezes on its last frame while the layer is still on.
+   */
+  private videoIssues(layers: ReviewLayer[], duration: number): string[] {
+    const notes: string[] = [];
+    for (const l of layers) {
+      if (l.type !== LayerType.Video || typeof l.src !== "string") continue;
+      const st = this.videos.status(l.src);
+      if (!st || st.status === VideoStatus.Loading) {
+        notes.push(`video '${l.id}' is still loading ${l.src}: nothing is drawn yet`);
+        continue;
+      }
+      if (st.status === VideoStatus.Failed) {
+        notes.push(`video '${l.id}' failed to load ${l.src} (${st.error}): it draws nothing — use a src from get_brand`);
+        continue;
+      }
+      const at = Number(l.in ?? 0);
+      const out = Math.min(Number(l.out ?? st.duration), st.duration);
+      if (at >= st.duration) {
+        notes.push(`video '${l.id}' starts at in=${at}s but ${l.src} is only ${st.duration.toFixed(2)}s long: it shows its last frame`);
+        continue;
+      }
+      if (l.loop || l.time) continue;
+      const speed = Number(l.speed ?? 1);
+      const runsOut = (l.start ?? 0) + (out - at) / speed;
+      const end = l.end ?? duration;
+      if (end - runsOut > 0.1)
+        notes.push(
+          `video '${l.id}' runs out at ${runsOut.toFixed(2)}s (in=${at} out=${out.toFixed(2)} of a ${st.duration.toFixed(2)}s file, speed ${speed}) and freezes on its last frame until ${end.toFixed(2)}s: end the layer there, add loop=1 or lower speed`,
+        );
+    }
+    return notes;
   }
 
   /** Per-layer motion checks from the layers' boxes at `MOTION_FPS`, plus keyframe easing. */
@@ -713,7 +822,18 @@ class EngineHost {
   /** Where every layer lands on screen at each time (what the agent checks instead of test renders). */
   layout(times: number[]): FrameLayout[] {
     if (!this.engine) return [];
-    return times.map((t) => ({ t, ...(JSON.parse(this.engine!.layout(t)) as Omit<FrameLayout, "t">) }));
+    return times.map((t) => {
+      const frame = { t, ...(JSON.parse(this.engine!.layout(t)) as Omit<FrameLayout, "t">) };
+      // Video rows: which second of the file is on screen, and whether the file loaded.
+      for (const row of frame.layers) {
+        if (!row.video) continue;
+        const st = this.videos.status(row.video.src);
+        if (st?.status === VideoStatus.Failed) row.video.error = `failed to load: ${st.error}`;
+        else if (st?.status !== VideoStatus.Ready) row.video.error = "still loading";
+        else row.video.duration = +st.duration.toFixed(3);
+      }
+      return frame;
+    });
   }
 
   sceneSize(): [number, number] {
@@ -735,8 +855,16 @@ class EngineHost {
     return b ? Array.from(b) : undefined;
   }
 
+  /** Render the current time now; video frames still decoding are refined right after. */
   private draw() {
-    this.engine?.render(useEditor.getState().time);
+    const engine = this.engine;
+    if (!engine) return;
+    const t = useEditor.getState().time;
+    const exact = this.videos.show(engine, t, this.frames);
+    engine.render(t);
+    void exact?.then((done) => {
+      if (done && engine === this.engine && useEditor.getState().time === t) engine.render(t);
+    });
   }
 
   private changed() {
