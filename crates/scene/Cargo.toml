@@ -4,8 +4,15 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = ["glsl-check"]
+# Custom shaders must also translate to GLSL ES 3.0 (the WebGL2 fallback); ~180 KB of wasm.
+glsl-check = ["naga/glsl-out"]
+
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
 glam.workspace = true
 ttf-parser = "0.25"
+# Validates agent-written shaders at op time (same version wgpu uses).
+naga = { version = "30.0.1", features = ["wgsl-in"] }

@@ -321,3 +321,46 @@ test("define_component params parse and format back", () => {
   assert.throws(() => parseParams("title:string"), /unknown param type/);
   assert.throws(() => parseParams("title"), /name:type/);
 });
+// ---- custom shaders ----
+test("shader layers and shader effects parse and read back", () => {
+  const code = "fn shade(uv: vec2f, px: vec2f) -> vec4f {\n  // \"quoted\" comment\n  return vec4f(uv, p2, 1.0);\n}";
+  const l = parseLine(`sky shader 0-4 x=960 y=540 w=1920 h=1080 fixed=1 p0=(T*0.2) p2=0>1@0-2:eo ${JSON.stringify(code)}`);
+  assert.equal(l.type, "shader");
+  assert.equal(l.code, code);
+  assert.deepEqual(l.params, ["T*0.2", 0, [{ t: 0, v: 0, ease: "expo_out" }, { t: 2, v: 1 }]]);
+  const line = formatLayer(l);
+  assert.ok(line.startsWith("sky shader 0-4 ") && line.includes("p0=(T*0.2) p1=0 p2=0>1@0-2:eo") && line.endsWith("}\""), line);
+  assert.deepEqual(parseLine(line), l);
+
+  const fx = "fn shade(uv: vec2f, px: vec2f) -> vec4f { return src(uv + vec2f(p1, 0.0) / size); }";
+  const t = parseLine(`title text 1 x=960 y=540 w=1400 h=200 size=150 blur=4 fx1=(t*8) fx=${JSON.stringify(fx)} grain=.05 "Liquid"`);
+  assert.equal(t.text, "Liquid");
+  assert.deepEqual(t.effects, [{ fx: "blur", radius: 4 }, { fx: "shader", code: fx, params: [0, "t*8"] }, { fx: "grain", amount: 0.05 }]);
+  const back = formatLayer(t);
+  assert.ok(back.includes(`fx=${JSON.stringify(fx)} fx0=0 fx1=(t*8)`), back);
+  assert.deepEqual(parseLine(back), t);
+
+  // Two shader effects (or bezier params) have no line form: they stay exact in the JSON tail.
+  const two = { ...t, effects: [{ fx: "shader", code: fx }, { fx: "shader", code: fx, params: [1] }] };
+  assert.deepEqual(parseLine(formatLayer(two)), two);
+  const bez = { ...l, params: [[{ t: 0, v: 0, bezier: [0.2, 0, 0, 1] }, { t: 1, v: 1 }]] };
+  assert.deepEqual(parseLine(formatLayer(bez)), bez);
+
+  assert.throws(() => parseLine("s shader 0 w=10 h=10 p0=1"), /WGSL in quotes/);
+  assert.throws(() => parseLine("c rect 0 w=10 h=10 fx0=1"), /fx="fn shade/);
+  assert.throws(() => parseLine('c rect 0 w=10 h=10 p0=1 fx="fn shade(uv: vec2f, px: vec2f) -> vec4f { return src(uv); }"'), /fx0=/);
+  assert.throws(() => parseLine("c rect 0 w=10 h=10 fx=src"), /quoted WGSL/);
+});
+
+test("every custom shader recipe in the manual parses and reads back unchanged", () => {
+  const doc = readFileSync(new URL("../../../docs/agent/syntax.md", import.meta.url), "utf8");
+  const block = doc.split("<!-- custom-shaders:start -->")[1]!.split("<!-- custom-shaders:end -->")[0]!;
+  const lines = block.split("```")[1]!.split("\n").filter((x) => x.trim());
+  assert.equal(lines.length, 7);
+  for (const layer of parseLines(lines.join("\n"))) {
+    const shaders = [layer.code, ...((layer.effects as { code?: string }[] | undefined) ?? []).map((e) => e.code)].filter(Boolean);
+    assert.equal(shaders.length, 1, String(layer.id));
+    assert.deepEqual(parseLine(formatLayer(layer)), layer);
+  }
+});
+// ---- end custom shaders ----

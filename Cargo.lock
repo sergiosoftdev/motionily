@@ -860,6 +860,7 @@ name = "scene"
 version = "0.1.0"
 dependencies = [
  "glam",
+ "naga",
  "serde",
  "serde_json",
  "ttf-parser",

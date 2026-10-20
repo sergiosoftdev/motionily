@@ -124,6 +124,8 @@ pub enum OpError {
     UnknownBrick { key: String, available: Vec<String> },
     /// A component definition or instance that does not hold together (says exactly why).
     Component(String),
+    /// Custom shader code that does not compile (names the layer, the WGSL line and why).
+    Shader(String),
 }
 
 impl fmt::Display for OpError {
@@ -132,6 +134,7 @@ impl fmt::Display for OpError {
             OpError::UnknownLayer(id) => write!(f, "unknown layer id '{id}'"),
             OpError::DuplicateLayer(id) => write!(f, "layer id '{id}' already exists"),
             OpError::Invalid(why) => f.write_str(why),
+            OpError::Shader(why) => f.write_str(why),
             OpError::UnknownBrick { key, available } => {
                 write!(f, "unknown brick '{key}'; available: {}", available.join(", "))
             }
@@ -182,6 +185,7 @@ impl Scene {
                     self.check_anchor(anchor)?;
                 }
                 let mut layer = layer.clone();
+                crate::shader::check_layer(&layer).map_err(OpError::Shader)?;
                 crate::component::check_instance(&mut layer, &self.library)?;
                 self.layers.push(layer);
             }

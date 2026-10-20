@@ -330,6 +330,13 @@ pub enum Effect {
         #[serde(default = "blur_samples")]
         samples: u32,
     },
+    /// Custom GPU effect: the agent's WGSL `fn shade(uv, px) -> vec4f` rewrites every pixel,
+    /// reading the layer's own pixels with `src(uv)` (on an adjustment layer: everything below).
+    Shader {
+        code: crate::shader::ShaderCode,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        params: Vec<Animated>,
+    },
 }
 
 fn turbulence_size() -> Animated {
@@ -375,6 +382,9 @@ pub enum DrawEffect {
     Grain { amount: f32, seed: f32 },
     /// `phase` = flow time.
     Turbulence { amount: f32, size: f32, phase: f32 },
+    /// Custom shader (code by `hash`, see `Scene::shader_codes`) at layer time `time`; `zoom`
+    /// = screen px per layer px (camera depth).
+    Shader { hash: u64, params: [f32; crate::shader::MAX_PARAMS], time: f32, scene_time: f32, zoom: f32 },
 }
 
 impl DrawEffect {
@@ -395,6 +405,7 @@ impl DrawEffect {
                 *amount *= s;
                 *size *= s;
             }
+            DrawEffect::Shader { zoom, .. } => *zoom *= s,
             DrawEffect::Color { .. } | DrawEffect::Grain { .. } => {}
         }
     }
@@ -430,6 +441,13 @@ impl Effect {
             Effect::Grain { amount } => DrawEffect::Grain { amount: amount.sample(t).clamp(0.0, 1.0), seed: (t * 24.0).floor() },
             Effect::Turbulence { amount, size, speed } => DrawEffect::Turbulence { amount: amount.sample(t), size: size.sample(t).max(4.0), phase: speed.sample(t) * t },
             Effect::MotionBlur { .. } => return None,
+            Effect::Shader { code, params } => DrawEffect::Shader {
+                hash: code.hash(),
+                params: crate::shader::sample_params(params, t),
+                time: t,
+                scene_time: crate::expr::scene_time(),
+                zoom: 1.0,
+            },
         })
     }
 }

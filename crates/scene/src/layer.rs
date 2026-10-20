@@ -117,6 +117,13 @@ pub enum LayerContent {
         #[serde(skip)]
         bound: crate::component::BoundCache,
     },
+    /// Custom GPU shader filling the layer box: the agent's WGSL `fn shade(uv, px) -> vec4f`
+    /// (see `shader.rs` and docs/agent/syntax.md). `params` are `p0..p7` in the shader.
+    Shader {
+        code: crate::shader::ShaderCode,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        params: Vec<Animated>,
+    },
 }
 
 /// `{"d":"M-600 0 C-200 -300 200 300 600 0","offset":[{"t":0,"v":-900},{"t":3,"v":0}]}` — animate
@@ -266,6 +273,7 @@ impl LayerContent {
             LayerContent::Image { src, .. } => format!("image {}", src.rsplit('/').next().unwrap_or(src)),
             LayerContent::Path { d, .. } => format!("path ({} chars)", d.d.len()),
             LayerContent::Object { finish, .. } => format!("object {}", crate::enum_name(finish)),
+            LayerContent::Shader { code, .. } => format!("shader ({} chars)", code.as_str().len()),
             LayerContent::Character { spec } => format!(
                 "character {}/{}/{} hair={}",
                 crate::enum_name(&spec.character),
@@ -562,6 +570,8 @@ pub enum DrawItem {
     Fx(Box<crate::paint::DrawFx>),
     /// A 3D object rendered into its screen box.
     Object(Box<DrawObject>),
+    /// A custom shader filling its screen box.
+    Shader(Box<crate::shader::DrawShader>),
 }
 
 impl Layer {
@@ -741,6 +751,23 @@ impl Layer {
             }
             // Instances are expanded by the scene (component.rs), never drawn as one item.
             LayerContent::Use { .. } => None,
+            LayerContent::Shader { code, params } => {
+                let mut fill = self.fill.resolve(lt, ctx.palette);
+                fill.0[3] = fill.0[3].clamp(0.0, 1.0);
+                Some(DrawItem::Shader(Box::new(crate::shader::DrawShader {
+                    code: code.clone(),
+                    center,
+                    size,
+                    rotation,
+                    radius: self.radius.sample(lt).max(0.0) * scale,
+                    opacity,
+                    box_size: [self.w.sample(lt), self.h.sample(lt)],
+                    time: lt,
+                    scene_time: crate::expr::scene_time(),
+                    params: crate::shader::sample_params(params, lt),
+                    fill,
+                })))
+            }
             LayerContent::Character { spec } => {
                 let feet = [center[0], center[1] + size[1] / 2.0];
                 Some(DrawItem::Group(draw_character(spec, feet, size[1], lt, color.0[3], ctx.palette)))
@@ -877,6 +904,8 @@ impl Layer {
             DrawItem::Shape(s) => Some(Bounds { center: s.center, size: s.size, rotation: s.rotation }),
             DrawItem::Image(i) => Some(Bounds { center: i.center, size: i.size, rotation: i.rotation }),
             DrawItem::Object(o) => Some(Bounds { center: o.center, size: o.size, rotation: o.rotation }),
+            // The box the shader fills (what it paints inside is up to its alpha).
+            DrawItem::Shader(s) => Some(Bounds { center: s.center, size: s.size, rotation: s.rotation }),
             DrawItem::Text(t) => {
                 let scale = self.scale.sample(lt);
                 Some(Bounds { center: t.center, size: [t.max_width, self.h.sample(lt) * scale * xf.scale], rotation: t.rotation })

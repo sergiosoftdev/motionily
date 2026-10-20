@@ -3,8 +3,8 @@
 ```
 id type start[-end] key=value… "text or path data" {optional JSON merged into the layer}
 ```
-- types: `rect | ellipse | text | image | path | object | text3d | particles | use` (`use` = a component instance, see Components).
-  Scene pixels, origin top-left, y down, x/y = the layer's CENTER.
+- types: `rect | ellipse | text | image | path | object | text3d | particles | use | shader` (`use` = a component instance,
+  see Components; `shader` = custom WGSL, see Custom shaders). Scene pixels, origin top-left, y down, x/y = the layer's CENTER.
   `w` and `h` are required (not for path). `end` defaults to the end of the video. Same id again = that layer is replaced.
 - frame size by format: 9:16 = 1080×1920 · 16:9 = 1920×1080 · 1:1 = 1080×1080 · 4:5 = 1080×1350.
 - value of any animatable key: number · tween `from>to@t0-t1[:ease]` · keys `t:v[:ease],t:v,…` · `(expression)`.
@@ -40,6 +40,7 @@ id type start[-end] key=value… "text or path data" {optional JSON merged into 
 | `color=HUE°,SAT,BRIGHT,CONTRAST` | color correction |
 | `rgb=PX` | RGB split · `wave=AMP,WAVELENGTH,SPEED` warp · `grain=AMOUNT` |
 | `turb=AMOUNT,CELL_PX,SPEED` | turbulent displacement (on huge soft blobs = liquid/cloud backgrounds) |
+| `fx="WGSL" fx0=… fx7=` | custom shader effect (your own distortion/color/glitch; on `adj=1` a full-frame post effect or transition) — see Custom shaders |
 | `blend=add|screen|multiply` | add = light (glows, trails, flares on dark) |
 | `adj=1` | adjustment layer: its effects apply to everything below, inside its own shape (full-frame rect = whole picture) |
 | `matte=ID[:inv|:luma|:lumainv]` | that layer's alpha/brightness masks this one (give the matte `vis=0`) |
@@ -131,6 +132,97 @@ snow particles 0 emit=rect x=960 y=-40 w=2400 h=10 rate=40 prewarm=16 life=16 sp
 ```
 (snow: falls at g/K = 90 px/s, so life 16 s crosses 1080 px + margins; 40/s × 16 s = 640 < max.)
 <!-- particles:end -->
+
+<!-- custom-shaders:start -->
+### Custom shaders (WGSL) — when nothing built in gives the look
+You write ONE WGSL function; the engine runs it on the GPU for every pixel of every frame. Use it for procedural
+backgrounds (aurora, mesh gradients, noise fields, light leaks), patterns, and your own distortions, glitches, grades and
+transitions. Prefer a built-in key when one does the job (shorter, and it reads back as a key).
+
+- **shader layer**: `id shader START[-END] x= y= w= h= [rad=] [o=] [fill=] [p0=… p7=] "WGSL"` — a rect box that your code
+  fills. Every layer key works on it (s r o pivot parent anims z fixed rx/ry cam depth, effects, blend, matte, rep); `rad=`
+  rounds its corners; `fill=` (or color keys) reaches the code as `tint`. grad/stroke/soft/inner/sheen/bevel do nothing.
+- **shader effect**: `fx="WGSL" [fx0=… fx7=]` on ANY layer (text, image, group parent…): your code rewrites the layer's
+  own pixels, read with `src(uv)`. On an adjustment layer (`adj=1`, usually a full-frame `fixed=1` rect) `src` is
+  everything drawn below it, inside its box: a full-frame post effect or transition. One `fx=` per line; more in JSON.
+- JSON: layer `{"type":"shader","code":"…","params":[0.5,"T*0.2",[{"t":0,"v":0},{"t":1,"v":1}]]}` · effect
+  `{"fx":"shader","code":"…","params":[…]}`. Params are animatable values (number, keys, tween or expression with t, T, i, n).
+- In a compact line the code is ONE JSON string in quotes: newlines as `\n`, quotes as `\"`, backslash `\\`. A `//`
+  comment runs to the next `\n`, so end every comment with `\n` (or use `/* … */`).
+
+**Your code** must define `fn shade(uv: vec2f, px: vec2f) -> vec4f` (helpers and `const`s around it are fine):
+- shader layer: `uv` (0,0) = top-left corner of the box, (1,1) = bottom-right (y down); `px = uv * size`; `size` =
+  the layer's `w,h` in its own px, unchanged by `s=`, parents and the camera (the pattern scales with the box, like an
+  image). The box keeps its rotation and anti-aliased edge.
+- shader effect: `uv` spans the WHOLE frame ((0,0) top-left); `px = uv * size`; `size` = frame size (1920×1080…), so `px`
+  is scene px. `src(uv)` = the layer's pixels there; a layer with effects is drawn flat first, so on a tilted (`rx/ry`)
+  layer `uv` is the flat layer's frame before projection.
+- return straight (NOT premultiplied) sRGB: rgb 0..1 and alpha 0..1, clamped. Layer: final alpha = a × layer opacity
+  (alpha 0 shows what is below; blend modes apply after). Effect: the result REPLACES that pixel; `return src(uv);`
+  leaves it unchanged; return alpha too (`vec4f(rgb, c.a)`), or the pixel turns transparent.
+- every frame is computed from scratch (any frame renders alone, in any order): animate with `t`, `T` and params.
+
+**Prelude** (always available; never redeclare these names, `mly_*` is reserved):
+| name | value |
+| --- | --- |
+| `t` `T` | f32: layer seconds (after `time=` remap) · scene seconds |
+| `size` | vec2f: px that uv 0..1 spans (layer box w,h · effect: frame w,h) |
+| `p0` … `p7` | f32: `p0=`…`p7=` (layer) or `fx0=`…`fx7=` (effect), sampled at `t`; unset = 0 |
+| `background` `surface` `primary` `accent` `text` | vec4f: the palette, straight sRGB, alpha 1 |
+| `tint` | vec4f: the layer's `fill` (default: the palette primary); effects get white |
+| `zoom` | f32: screen px per layer px (layer: `s` × parents × camera depth; effect: camera depth, 1 when flat) — multiply px offsets in effects by it |
+| `PI` `TAU` | 3.14159265 · 6.28318531 |
+| `src(uv)` `src_pm(uv)` | effects only: the layer's pixel (straight / premultiplied), bilinear; uv outside 0..1 repeats the edge pixel |
+| `hash11(x) hash21(v2) hash31(v3)` | f32 0..1 pseudo-random (deterministic); `hash22(v2)` vec2f 0..1 |
+| `noise(v2) noise3(v3)` | smooth value noise 0..1, cell size 1 (animate: `noise3(vec3f(q, T))`) |
+| `snoise(v2)` | 2D simplex noise -1..1 |
+| `fbm(v2) fbm3(v3)` | 5 octaves of value noise, 0..1 (mean ≈ 0.5) |
+| `rot2(a)` | mat2x2f: `rot2(a) * v` turns v by a radians clockwise on screen |
+| `wrap(x, y)` | floor modulo for f32, 0..y (WGSL has no `mod`; `%` truncates) |
+| `sd_circle(p, r)` `sd_box(p, half)` `sd_round_box(p, half, r)` `sd_segment(p, a, b)` | signed distance (px if p is px; < 0 inside) |
+| `smin(a, b, k)` `smax(a, b, k)` | smooth union / intersection of distances, blend width k |
+| `fill(d)` | anti-aliased coverage 0..1 of a distance (1 inside) · `stroke(d, w)` = a line of width w along d = 0 |
+| `cos_palette(x, a, b, c, d)` | `a + b*cos(TAU*(c*x + d))` (vec3f) |
+| `luma(rgb)` `hsv2rgb(hsv)` `rgb2hsv(rgb)` | Rec.709 luma; hue/sat/value all 0..1 |
+| `over(top, below)` | straight-alpha "over" of two vec4f colors |
+
+**WGSL, not GLSL**: `f32 i32 vec2f vec3f vec4f mat2x2f`; `let` is constant, `var` is mutable; `1` is i32 and `1.0` f32 and
+they never mix (`f32(i)`); `select(if_false, if_true, cond)` instead of `?:`; `atan2(y, x)`; `fract mix clamp smoothstep
+step length dot normalize abs sin cos pow exp fwidth` as usual; swizzles `c.rgb`, `p.yx`. No textures besides `src`.
+
+**Limits (enforced, the op is rejected)**: code ≤ 8192 bytes · ≤ 8 params · loops only as
+`for (var i = 0; i < N; i++)` with N a number or `const` (also `<= > >=`, `i--`, `i += K`, `i *= K`), ≤ 64 iterations
+each and ≤ 256 nested (product) · no `while`/`loop`, `@group`/`@binding`/`@vertex`/`@fragment`, `var<uniform|storage|workgroup>`,
+directives. Cost: a full-frame shader with a few `fbm` calls is fine; avoid more than ~4 full-frame shaders at once.
+
+**Errors** come back as the op error, and nothing in that call is applied:
+`shader layer 'aurora': WGSL line 3:14: no definition in scope for identifier: 'nois' (unknown identifier)` — line 1 is
+the first line of your code string (count `\n`s). Fix that line and resend the line.
+
+**Measuring**: `get_layout`, selection and review checks see the shader layer's box (like a rect: it may bleed off frame
+as a background, and text crossing its edge is flagged), not what your alpha paints; effect displacement is not
+measured. `review_video` lists any custom shader that cannot draw.
+
+**Order on a layer**: `fx=` and `blur=` run first, in the order written; then `shadow=` (under), `color= rgb= wave=
+grain= turb=` (at composite), `glow=` (over). Adjustment layers act on what is listed BEFORE them (with a camera: drawn
+before them — keep them `fixed=1` and last).
+
+Recipes (copy, then change colors and numbers; frame 1920×1080):
+```
+aurora shader 0 x=960 y=540 w=1920 h=1080 fixed=1 p0=0.25 "fn shade(uv: vec2f, px: vec2f) -> vec4f {\n  let q = px / size.y;\n  let n = fbm3(vec3f(q * 1.6, T * p0));\n  let m = fbm3(vec3f(q * 2.3 + n, T * p0 * 0.7 + 5.0));\n  var c = mix(background.rgb, primary.rgb, smoothstep(0.35, 0.75, n));\n  c = mix(c, accent.rgb, smoothstep(0.5, 0.85, m) * 0.6);\n  return vec4f(c, 1.0);\n}"
+grain rect 0 x=960 y=540 w=1920 h=1080 fixed=1 adj=1 fx0=0.07 fx="fn shade(uv: vec2f, px: vec2f) -> vec4f {\n  let c = src(uv);\n  let g = hash21(floor(px) + floor(T * 24.0) * 17.0) - 0.5;\n  let v = 1.0 - 0.35 * dot(uv - 0.5, uv - 0.5);\n  return vec4f((c.rgb + g * p0 * (1.2 - luma(c.rgb))) * v, c.a);\n}"
+leak shader 0 x=960 y=540 w=1920 h=1080 fixed=1 blend=screen o=.85 "fn shade(uv: vec2f, px: vec2f) -> vec4f {\n  let c = vec2f(0.1 + 0.8 * fract(T * 0.06), 0.25);\n  let d = length((uv - c) * vec2f(size.x / size.y, 1.0));\n  let flicker = 0.8 + 0.2 * noise(vec2f(T * 3.0, 0.0));\n  let warm = mix(vec3f(1.0, 0.45, 0.15), vec3f(1.0, 0.85, 0.55), smoothstep(0.0, 0.7, d));\n  return vec4f(warm, exp(-d * d * 3.0) * flicker);\n}"
+liquid text 1 x=960 y=540 w=1400 h=220 size=160 role=heading fx0=26>0@0-1.4:eo fx="fn shade(uv: vec2f, px: vec2f) -> vec4f {\n  let q = px / 150.0;\n  let n = vec2f(snoise(q + T * 0.5), snoise(q + 17.0 - T * 0.5));\n  return src(uv + n * p0 * zoom / size);\n}" "Liquid"
+wipe rect 3.5-4.5 x=960 y=540 w=1920 h=1080 fixed=1 adj=1 fx0=0>1@0-1:io fx="fn shade(uv: vec2f, px: vec2f) -> vec4f {\n  let a = vec2f(size.x / size.y, 1.0);\n  let r = length((uv - 0.5) * a) / length(0.5 * a);\n  let grow = clamp(p0 * 2.0, 0.0, 1.0);\n  let hole = clamp(p0 * 2.0 - 1.0, 0.0, 1.0);\n  let ink = fill(r - grow) * (1.0 - fill(r - hole));\n  return mix(src(uv), primary, ink);\n}"
+glitch rect 5.8-6.3 x=960 y=540 w=1920 h=1080 fixed=1 adj=1 fx0=(1 - t/0.5) fx="fn shade(uv: vec2f, px: vec2f) -> vec4f {\n  let k = clamp(p0, 0.0, 1.0);\n  let band = floor(uv.y * 24.0) + floor(T * 30.0) * 7.0;\n  let jump = step(0.7, hash11(band)) * (hash11(band + 3.1) - 0.5) * 0.12 * k;\n  let q = vec2f(uv.x + jump, uv.y);\n  let s = 0.006 * k;\n  let c = src(q);\n  return vec4f(src(q + vec2f(s, 0.0)).r, c.g, src(q - vec2f(s, 0.0)).b, c.a);\n}"
+badge shader .5 x=1500 y=300 w=320 h=320 s=0>1@0-.6:b fill=accent "fn shade(uv: vec2f, px: vec2f) -> vec4f {\n  let p = px - size * 0.5;\n  let d = smin(sd_circle(p, 110.0), sd_circle(p - vec2f(70.0 * sin(t * 2.0), 0.0), 60.0), 40.0);\n  let ring = stroke(sd_circle(p, 140.0 + 6.0 * sin(t * 3.0)), 4.0);\n  return vec4f(tint.rgb, max(fill(d), ring * 0.6));\n}"
+```
+- aurora: drifting two-layer fbm mesh in the palette (`p0` = flow speed). grain: animated film grain stronger in the
+  shadows plus a soft vignette over everything below. leak: warm light sweeping across, screen-blended. liquid: text
+  wobbling like liquid that settles (`fx0` = px of displacement). wipe: radial transition — a primary disk grows over the
+  outgoing shot until the cut at 4.0 s (cut your layers' start/end there), then opens from the center onto the new one.
+  glitch: 0.5 s of band jumps and RGB split fading out. badge: metaball blob + pulsing ring drawn with SDFs in `fill`.
+<!-- custom-shaders:end -->
 
 ## World, camera and depth — exact rules
 Trust these formulas; `get_layout` prints the resulting screen boxes if you want numbers. Never render test shapes to find out.

@@ -127,7 +127,7 @@ pub fn set_scene_time(gt: f32) {
     });
 }
 
-/// The scene time expressions currently see (`T`).
+/// The scene time expressions currently see (`T`; custom shaders receive it too).
 pub fn scene_time() -> f32 {
     VARS.with(|v| v.get().0)
 }

@@ -20,6 +20,7 @@ mod library;
 mod node3d;
 mod ops;
 pub mod particles;
+pub mod shader;
 mod style;
 mod text;
 mod transition;
@@ -638,6 +639,17 @@ impl Scene {
         v.sort();
         v.dedup();
         v
+    }
+
+    /// Every custom shader the layers use (layer contents and effects), for the engine to compile
+    /// before drawing, so the first frame that shows one is already complete.
+    pub fn shader_codes(&self) -> impl Iterator<Item = (shader::ShaderStage, &shader::ShaderCode)> {
+        self.layers.iter().flat_map(shader::layer_codes)
+    }
+
+    /// The first custom shader that does not compile, as an op error would name it.
+    pub fn check_shaders(&self) -> Result<(), String> {
+        self.layers.iter().try_for_each(shader::check_layer)
     }
 
     /// One layer as JSON, for agents that only need to touch that object.
