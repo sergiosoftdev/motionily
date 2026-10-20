@@ -88,7 +88,8 @@ impl Engine {
         if let Some(rows) = json.get_mut("layers").and_then(|l| l.as_array_mut()) {
             for row in rows {
                 let id = row["id"].as_str().unwrap_or_default().to_owned();
-                let is_text = self.scene.layer(&id).is_some_and(|l| matches!(l.content, scene::LayerContent::Text { .. }));
+                // Also layers inside component instances (`card1/title`).
+                let is_text = self.scene.resolve_layer(&id).is_some_and(|l| matches!(l.content, scene::LayerContent::Text { .. }));
                 if let Some(ink) = is_text.then(|| self.renderer.text_ink(&self.scene, &id, t)).flatten() {
                     row["screen"] = serde_json::json!(ink);
                     row["ink"] = serde_json::Value::Bool(true);
@@ -101,6 +102,19 @@ impl Engine {
     #[wasm_bindgen(js_name = layerJson)]
     pub fn layer_json(&self, id: &str) -> Option<String> {
         self.scene.layer_json(id)
+    }
+
+    /// JSON array of every layer, each component instance followed by its layers (ids
+    /// `instance/layer`, start/end in scene seconds): what reviews walk.
+    #[wasm_bindgen(js_name = flatLayers)]
+    pub fn flat_layers(&self) -> String {
+        self.scene.flat_layers_json()
+    }
+
+    /// Every image source the scene draws, also inside component instances.
+    #[wasm_bindgen(js_name = imageSources)]
+    pub fn image_sources(&self) -> Vec<String> {
+        self.scene.image_sources()
     }
 
     pub fn duration(&self) -> f32 {

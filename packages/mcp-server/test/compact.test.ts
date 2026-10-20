@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { formatLayer, parseLine, parseLines } from "../src/compact.js";
+import { formatLayer, formatParams, parseLine, parseLines, parseParams } from "../src/compact.js";
 
 test("parses tweens, keys, colors and text", () => {
   const l = parseLine('hook_w1 text 0-3 g=hook x=540 y=420>380@0-.4:b w=900 h=180 o=0>1@0-.3 size=140 fill=text "Tu \\"agenda\\""');
@@ -249,3 +249,75 @@ test("particles: explains mistakes", () => {
   assert.throws(() => parseLine("p particles 0 rate=5 grav=900"), /X,Y/);
 });
 // ---- particles: end ----
+
+// ── components ──
+test("component definitions: $params as whole values, in expressions and inside text", () => {
+  const lines = [
+    "card rect 0 w=$w h=240 rad=32 fill=surface shadow=0,24,60,$accent,.16 vis=$show",
+    "chip rect .1 x=(-$w/2+70) y=-55 w=72 h=72 rad=22 fill=$accent",
+    'glyph path .15 x=(-$w/2+70) y=-55 stroke=2.5:#ffffff "$icon"',
+    'label text .2 x=40 y=-55 w=($w-140) h=40 size=$size align=left fill=text "${title} ($$)"',
+    'num text .3 y=40 w=($w-60) h=96 size=80 count=($value*ease_out(min(1,t/1.2))) dec=$dec caret=$typing "{n}$unit"',
+  ];
+  const layers = parseLines(lines.join("\n"));
+  assert.equal(layers[0]!.w, "$w");
+  assert.equal(layers[0]!.visible, "$show");
+  assert.deepEqual(layers[0]!.effects, [{ fx: "shadow", x: 0, y: 24, blur: 60, color: "$accent", opacity: 0.16 }]);
+  assert.equal(layers[1]!.x, "-$w/2+70");
+  assert.equal(layers[2]!.d, "$icon");
+  assert.equal(layers[3]!.size, "$size");
+  assert.equal(layers[3]!.text, "${title} ($$)");
+  assert.equal(layers[4]!.decimals, "$dec");
+  assert.equal(layers[4]!.caret, "$typing");
+  for (const l of layers) {
+    const out = formatLayer(l);
+    assert.ok(!out.includes('{"'), `no JSON tail: ${out}`);
+    assert.deepEqual(parseLine(out), l, out);
+  }
+  assert.throws(() => parseLine("g path 0 ic=$icon:40"), /path param/);
+});
+
+test("instances: use lines with comp= and $param=value read back the same", () => {
+  const l = parseLine(
+    's1 use 0.3 comp=stat x=360 y=540 s=.9>1@0-.6:eo g=stats $title="Monthly revenue" $value=12480 $accent=#ff5a36 $icon=ic:trending-up:40 $show=false $grow=0>1@0-1.2:eo $wob=(sin(t*3)*4)',
+  );
+  assert.equal(l.type, "use");
+  assert.equal(l.comp, "stat");
+  assert.equal(l.w, undefined, "instances need no w/h");
+  const params = l.params as Record<string, unknown>;
+  assert.equal(params.title, "Monthly revenue");
+  assert.equal(params.value, 12480);
+  assert.equal(params.accent, "#ff5a36");
+  assert.equal(params.show, false);
+  assert.deepEqual(params.grow, [{ t: 0, v: 0, ease: "expo_out" }, { t: 1.2, v: 1 }]);
+  assert.equal(params.wob, "sin(t*3)*4");
+  const icon = params.icon as { ic: string; d: string };
+  assert.equal(icon.ic, "trending-up:40");
+  assert.match(icon.d, /^M/);
+  const out = formatLayer(l);
+  assert.ok(out.startsWith("s1 use 0.3 comp=stat g=stats") && out.includes("$icon=ic:trending-up:40") && !out.includes('{"'), out);
+  assert.deepEqual(parseLine(out), l);
+  // The engine serializes an instance with w/h 0 and the default fill: read back without that noise.
+  assert.equal(formatLayer({ ...l, w: 0, h: 0, fill: "primary" }), out);
+  // Bare words stay strings (colors, sources, words); numbers stay numbers.
+  const b = parseLine("b use 0-4 comp=pill $label=Nuevo $bg=primary $src=/media/a.png $n=-2 $q=3D");
+  assert.deepEqual(b.params, { label: "Nuevo", bg: "primary", src: "/media/a.png", n: -2, q: "3D" });
+  assert.deepEqual(parseLine(formatLayer(b)), b);
+  assert.throws(() => parseLine("b use 0"), /comp=NAME/);
+  assert.throws(() => parseLine('b use 0 comp=pill "hola"'), /param/);
+  assert.throws(() => parseLine("b rect 0 w=1 h=1 $x=1"), /only use lines/);
+});
+
+test("define_component params parse and format back", () => {
+  const text = 'title:text="Monthly revenue" value:number=12480 unit:text icon:path=ic:trending-up:40 accent:color=accent show:bool=1 grow:number=0>1@0-1:eo';
+  const params = parseParams(text);
+  assert.deepEqual(params.slice(0, 3), [
+    { name: "title", type: "text", default: "Monthly revenue" },
+    { name: "value", type: "number", default: 12480 },
+    { name: "unit", type: "text" },
+  ]);
+  assert.equal(params[5]!.default, true);
+  assert.deepEqual(parseParams(formatParams(params)), params);
+  assert.throws(() => parseParams("title:string"), /unknown param type/);
+  assert.throws(() => parseParams("title"), /name:type/);
+});

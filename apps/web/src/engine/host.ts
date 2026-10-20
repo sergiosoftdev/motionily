@@ -18,7 +18,8 @@ type ReviewLayer = {
   camera?: unknown;
   [prop: string]: unknown;
 };
-const LayerType = { Shape: "shape", Text: "text", Image: "image", Character: "character", Particles: "particles" } as const;
+/** `use` = a component instance: reviews measure the layers inside it (`instance/layer`) instead. */
+const LayerType = { Shape: "shape", Text: "text", Image: "image", Character: "character", Particles: "particles", Use: "use" } as const;
 type LayerType = (typeof LayerType)[keyof typeof LayerType];
 /** A new video starts blank: the agent designs everything. */
 const EMPTY_SCENE = JSON.stringify({ width: 1080, height: 1920, fps: 30, duration: 6, layers: [] });
@@ -271,8 +272,8 @@ class EngineHost {
 
   /** Decoded images for another engine (export). */
   async imageAssets(): Promise<({ src: string } & Pixels)[]> {
-    const scene = JSON.parse(this.require().sceneJson()) as { layers: { type: string; src?: string }[] };
-    const srcs = [...new Set(scene.layers.filter((l) => l.type === "image" && l.src).map((l) => l.src!))];
+    // Also the images inside component instances.
+    const srcs = this.require().imageSources().filter(Boolean);
     const out = await Promise.all(srcs.map(async (src) => ({ src, px: await this.fetchImage(src) })));
     return out.filter((o): o is { src: string; px: Pixels } => o.px !== null).map((o) => ({ src: o.src, ...o.px }));
   }
@@ -458,7 +459,8 @@ class EngineHost {
     // Same problem across frames is reported once, with when it happens.
     const found = new Map<string, number[]>();
     const flag = (what: string, t: number) => found.set(what, [...(found.get(what) ?? []), t]);
-    const layers = (JSON.parse(this.sceneJson()) as { layers?: ReviewLayer[] }).layers ?? [];
+    // Instances are followed by their layers (`instance/layer`), which the checks measure one by one.
+    const layers = JSON.parse(this.require().flatLayers()) as ReviewLayer[];
     let saturated = 0;
     let sampled = 0;
     /** Particle layers seen at the review times, and whether any particle was ever alive. */
@@ -509,7 +511,7 @@ class EngineHost {
         else if (p.live > 0 && p.on_screen === 0) flag(`particles '${row.id}': all ${p.live} live particles are off frame`, t);
       }
       for (const b of boxes) {
-        if (b.area <= 0 || b.l.type === LayerType.Shape || b.l.type === LayerType.Particles) continue;
+        if (b.area <= 0 || b.l.type === LayerType.Shape || b.l.type === LayerType.Particles || b.l.type === LayerType.Use) continue;
         const inside = Math.max(0, Math.min(b.x1, sw) - Math.max(b.x0, 0)) * Math.max(0, Math.min(b.y1, sh) - Math.max(b.y0, 0));
         if (inside / b.area < 1 - OFF_FRAME_TOLERANCE) flag(`${b.l.type} '${b.l.id}' goes off frame`, t);
       }
@@ -621,8 +623,8 @@ class EngineHost {
     const steps = Math.floor(duration * MOTION_FPS);
     const fmt = (t: number) => `${t.toFixed(1)}s`;
     for (const l of layers) {
-      // A particle layer's box is its swarm: it grows and shrinks by design.
-      if (l.visible === false || l.camera || l.type === LayerType.Particles) continue;
+      // A particle layer's box is its swarm: it grows and shrinks by design. Instances are measured by their inner layers.
+      if (l.visible === false || l.camera || l.type === LayerType.Particles || l.type === LayerType.Use) continue;
       let prev: number[] | null = null;
       let prevSpeed = 0;
       let stillSince: number | null = null;

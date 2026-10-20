@@ -108,6 +108,15 @@ pub enum LayerContent {
         #[serde(flatten)]
         system: Box<crate::particles::Particles>,
     },
+    /// An instance of a component (`define_component`): the component's layers drawn as if
+    /// parented to this layer, with `params` filling their `$name` references (component.rs).
+    Use {
+        comp: String,
+        #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+        params: std::collections::BTreeMap<String, serde_json::Value>,
+        #[serde(skip)]
+        bound: crate::component::BoundCache,
+    },
 }
 
 /// `{"d":"M-600 0 C-200 -300 200 300 600 0","offset":[{"t":0,"v":-900},{"t":3,"v":0}]}` — animate
@@ -265,6 +274,7 @@ impl LayerContent {
                 crate::enum_name(&spec.hair)
             ),
             LayerContent::Particles { system } => system.describe(),
+            LayerContent::Use { comp, params, .. } => crate::component::instance_name(comp, params),
         }
     }
 }
@@ -729,6 +739,8 @@ impl Layer {
                 let items = system.draw(self, lt, ctx, xf, animated, &paint);
                 (!items.is_empty()).then_some(DrawItem::Group(items))
             }
+            // Instances are expanded by the scene (component.rs), never drawn as one item.
+            LayerContent::Use { .. } => None,
             LayerContent::Character { spec } => {
                 let feet = [center[0], center[1] + size[1] / 2.0];
                 Some(DrawItem::Group(draw_character(spec, feet, size[1], lt, color.0[3], ctx.palette)))
@@ -782,6 +794,11 @@ impl Layer {
 }
 
 impl Layer {
+    /// Opacity factor of the animation bricks at `lt` (what an instance passes to its layers).
+    pub(crate) fn anim_opacity(&self, lt: f32, library: &Library) -> f32 {
+        self.anim_offsets(lt, library).opacity
+    }
+
     fn anim_offsets(&self, lt: f32, library: &Library) -> AnimOffsets {
         let mut o = AnimOffsets { opacity: 1.0, scale: 1.0, dx: 0.0, dy: 0.0, rotation: 0.0 };
         for r in &self.anims {

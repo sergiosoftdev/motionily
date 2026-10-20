@@ -53,8 +53,9 @@ function rowLine(row: LayoutRow, size: [number, number]): string {
 
 /** Compact text for the agent: one line per layer and instant. */
 export function formatLayouts(layouts: FrameLayout[], size: [number, number], filter: LayoutFilter): string {
-  const wanted = (row: LayoutRow) =>
-    (!filter.ids?.length || filter.ids.includes(row.id)) && (!filter.group || row.group === filter.group) && (row.visible || filter.hidden || !!filter.ids?.length);
+  // Asking for a component instance also lists the layers inside it (`instance/layer`).
+  const byId = (id: string) => !filter.ids?.length || filter.ids.some((want) => id === want || id.startsWith(`${want}/`));
+  const wanted = (row: LayoutRow) => byId(row.id) && (!filter.group || row.group === filter.group) && (row.visible || filter.hidden || !!filter.ids?.length);
   return layouts
     .map((frame) => {
       const head = [`t=${frame.t}s · frame ${size[0]}×${size[1]}`];
@@ -66,7 +67,7 @@ export function formatLayouts(layouts: FrameLayout[], size: [number, number], fi
       // Layers entirely outside the frame are one line: usually fine (waiting off screen), sometimes the bug.
       const outside = matching.filter((row) => offFrame(row, size)).map((row) => row.id);
       const rows = matching.filter((row) => !offFrame(row, size)).map((row) => rowLine(row, size));
-      const behind = frame.behind.filter((id) => !filter.ids?.length || filter.ids.includes(id));
+      const behind = frame.behind.filter(byId);
       return [
         head.join(" · "),
         ...(rows.length ? rows : ["(no matching layers on screen at this time)"]),

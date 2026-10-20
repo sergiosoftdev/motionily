@@ -121,6 +121,9 @@ pub struct Library {
     /// Named anchor -> normalized position (0..1) from the composition brick.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub anchors: BTreeMap<String, [f32; 2]>,
+    /// Reusable components (precomps with params) the agent defined, by name (component.rs).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub components: BTreeMap<String, crate::component::Component>,
 }
 
 /// Anchors every scene has regardless of the composition brick (for templates).
@@ -136,7 +139,7 @@ impl Library {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.animations.is_empty() && self.transitions.is_empty() && self.anchors.is_empty() && self.prefabs.is_empty()
+        self.animations.is_empty() && self.transitions.is_empty() && self.anchors.is_empty() && self.prefabs.is_empty() && self.components.is_empty()
     }
 }
 

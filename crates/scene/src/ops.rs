@@ -86,6 +86,12 @@ pub enum Op {
     SetEmphasis { words: Vec<usize>, emphasis: bool },
     /// Add or replace one animation template (e.g. a brick the agent just created).
     DefineAnim { key: String, template: AnimTemplate },
+    // ── components (component.rs) ──
+    /// Add or replace a reusable component: `{"op":"define_component","name":"stat","component":
+    /// {"params":[{"name":"title","type":"text","default":"Revenue"}],"duration":4,"layers":[…]}}`.
+    DefineComponent { name: String, component: crate::component::Component },
+    /// Delete a component no layer or other component uses any more.
+    RemoveComponent { name: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -116,6 +122,8 @@ pub enum OpError {
     Invalid(&'static str),
     /// A brick key the scene library doesn't have; carries what is available.
     UnknownBrick { key: String, available: Vec<String> },
+    /// A component definition or instance that does not hold together (says exactly why).
+    Component(String),
 }
 
 impl fmt::Display for OpError {
@@ -127,6 +135,7 @@ impl fmt::Display for OpError {
             OpError::UnknownBrick { key, available } => {
                 write!(f, "unknown brick '{key}'; available: {}", available.join(", "))
             }
+            OpError::Component(why) => f.write_str(why),
         }
     }
 }
@@ -172,7 +181,9 @@ impl Scene {
                 if let Some(anchor) = &layer.anchor {
                     self.check_anchor(anchor)?;
                 }
-                self.layers.push(layer.clone());
+                let mut layer = layer.clone();
+                crate::component::check_instance(&mut layer, &self.library)?;
+                self.layers.push(layer);
             }
             Op::SetGroup { ids, group } => {
                 for id in ids {
@@ -385,6 +396,8 @@ impl Scene {
             Op::DefineAnim { key, template } => {
                 self.library.animations.insert(key.clone(), template.clone());
             }
+            Op::DefineComponent { name, component } => self.define_component(name, component)?,
+            Op::RemoveComponent { name } => self.remove_component(name)?,
         }
         Ok(())
     }

@@ -7,6 +7,7 @@
 //! ease_in ease_out back elastic bounce spring pulse saw tri.
 //! Other layers: `card.x`, `card.y(T - 0.2)` (at another scene time: delays, echoes, follow
 //! through); properties x y w h scale rotation opacity (s r o for short).
+//! Component params: `$value` inside a component's layers (see component.rs).
 //! Parsed once and cached; a malformed expression evaluates to 0 (and `check` reports why).
 
 use std::cell::Cell;
@@ -83,6 +84,33 @@ fn resolve_ref(layer: &str, prop: Prop, gt: f32) -> f32 {
     v
 }
 
+// ── components: `$name` reads a number param of the instance being drawn ──────────────
+thread_local! {
+    static PARAMS: Cell<Option<*const [(String, f32)]>> = const { Cell::new(None) };
+}
+
+/// Run `f` with `$name` reading `params` (a component instance's number params, already sampled).
+/// Each instance sees only its own params; outside every instance `$name` reads 0.
+pub fn with_params<R>(params: &[(String, f32)], f: impl FnOnce() -> R) -> R {
+    struct Restore(Option<*const [(String, f32)]>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            PARAMS.with(|c| c.set(self.0));
+        }
+    }
+    // SAFETY: the pointer only lives in the thread-local while `params` is borrowed by this call;
+    // the previous value is restored before returning (also on unwind via the guard).
+    let _restore = Restore(PARAMS.with(|c| c.replace(Some(params as *const [(String, f32)]))));
+    f()
+}
+
+fn param(name: &str) -> f32 {
+    let Some(ptr) = PARAMS.with(|c| c.get()) else { return 0.0 };
+    // SAFETY: see `with_params` — set only while the slice is alive.
+    unsafe { &*ptr }.iter().find(|(n, _)| n == name).map_or(0.0, |(_, v)| *v)
+}
+// ── end components ──────────────────────────────────────────────────────────────────────
+
 /// Run `f` with scene time `gt` and repeater copy `i` of `n` visible to expressions.
 pub fn with_vars<R>(gt: f32, i: f32, n: f32, f: impl FnOnce() -> R) -> R {
     let prev = VARS.with(|v| v.replace((gt, i, n)));
@@ -122,6 +150,8 @@ enum Node {
     Call(Func, Vec<Node>),
     /// Another layer's property, at the current scene time or at the given one.
     Ref(String, Prop, Option<Box<Node>>),
+    /// `$name`: a number param of the component instance being drawn.
+    Param(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -228,6 +258,7 @@ fn eval(n: &Node, t: f32, vars @ (gt, i, cnt): (f32, f32, f32)) -> f32 {
             let when = at.as_ref().map_or(gt, |a| e(a));
             resolve_ref(layer, *prop, when)
         }
+        Node::Param(name) => param(name),
         Node::Bin(op, a, b) => {
             let (a, b) = (e(a), e(b));
             match op {
@@ -418,6 +449,19 @@ impl<'a> Parser<'a> {
         }
         let start = self.p;
         let c = *self.s.get(self.p).ok_or("unexpected end")?;
+        if c == b'$' {
+            // Component param: `$value` (letters, digits, _; not starting with a digit).
+            self.p += 1;
+            let from = self.p;
+            while self.p < self.s.len() && (self.s[self.p].is_ascii_alphanumeric() || self.s[self.p] == b'_') {
+                self.p += 1;
+            }
+            let name = std::str::from_utf8(&self.s[from..self.p]).unwrap();
+            if name.is_empty() || name.as_bytes()[0].is_ascii_digit() {
+                return Err(format!("expected a param name after '$' at {start}"));
+            }
+            return Ok(Node::Param(name.to_owned()));
+        }
         if c.is_ascii_digit() || c == b'.' {
             while self.p < self.s.len() && (self.s[self.p].is_ascii_digit() || self.s[self.p] == b'.') {
                 self.p += 1;

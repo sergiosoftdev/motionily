@@ -8,6 +8,9 @@ import { ActivitySource, logActivity } from "../store";
  * would (ops), so autosave, undo by agent and the agent's view all stay in sync.
  */
 
+/** Layer type of a component instance (`define_component` + `use`). */
+const COMPONENT_INSTANCE = "use";
+
 type Keyframe = { t: number; v: number; ease?: string };
 /** A layer number: static or keyframed. */
 export type Animated = number | Keyframe[];
@@ -48,6 +51,9 @@ export function resizeOps(
   k: number,
   size: [number, number],
 ): Op[] {
+  // A component instance has no box of its own: it grows by its scale.
+  if (base.type === COMPONENT_INSTANCE)
+    return [{ op: OpName.SetProp, id, prop: "scale", value: scale(base.scale as Animated, k, 1) }];
   return [
     {
       op: OpName.SetProp,
