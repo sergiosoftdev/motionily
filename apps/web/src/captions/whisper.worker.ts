@@ -13,7 +13,7 @@ function load() {
   asr ??= pipeline("automatic-speech-recognition", MODEL, {
     device: "gpu" in navigator ? "webgpu" : "wasm",
     progress_callback: (p: { status: string; file?: string; progress?: number }) => {
-      if (p.status === "progress") post({ type: WhisperMsg.Progress, label: `Descargando modelo (${p.file ?? ""})`, ratio: (p.progress ?? 0) / 100 });
+      if (p.status === "progress") post({ type: WhisperMsg.Progress, label: `Downloading model (${p.file ?? ""})`, ratio: (p.progress ?? 0) / 100 });
     },
   }) as Promise<AutomaticSpeechRecognitionPipeline>;
   return asr;

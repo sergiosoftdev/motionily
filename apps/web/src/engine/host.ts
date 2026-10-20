@@ -458,7 +458,9 @@ class EngineHost {
   /** The scene's sound effect cues. */
   sfxCues(): SfxCue[] {
     if (!this.engine) return [];
-    return (JSON.parse(this.sceneJson()) as { sfx?: SfxCue[] }).sfx ?? [];
+    const scene = JSON.parse(this.sceneJson()) as { sfx?: SfxCue[]; sfx_volume?: number };
+    // The user's effects slider scales every cue.
+    return (scene.sfx ?? []).map((c) => ({ ...c, gain: (c.gain ?? 1) * (scene.sfx_volume ?? 1) }));
   }
 
   private tick = (now: number) => {

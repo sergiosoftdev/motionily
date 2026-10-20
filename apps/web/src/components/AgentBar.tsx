@@ -22,10 +22,10 @@ export function AgentBar({ g, hasScene, runs }: { g: Generation; hasScene: boole
             <span className="size-2 animate-pulse rounded-full bg-emerald-400" /> Generando
           </span>
           <button type="button" onClick={g.stop} className="rounded-md px-2.5 py-1 text-xs text-neutral-300 ring-1 ring-white/15 hover:bg-white/5 hover:text-white">
-            Parar
+            Stop
           </button>
         </div>
-        {g.resumed && <p className="text-xs text-emerald-300/80">Ha seguido trabajando mientras no estabas; puedes cerrar o recargar.</p>}
+        {g.resumed && <p className="text-xs text-emerald-300/80">It kept working while you were away; you can close or reload.</p>}
         {state.events.some((e) => e.kind === GenerateEventKind.Phase) ? (
           <AgentWorkshop state={state} />
         ) : (
@@ -45,15 +45,15 @@ export function AgentBar({ g, hasScene, runs }: { g: Generation; hasScene: boole
   return (
     <section className="flex flex-col gap-3">
       {state?.status === GenerateStatus.Interrupted && (
-        <p className="text-xs text-amber-200/90">Se cortó porque se reinició el servidor (los agentes se pararon y no gastan). Genera de nuevo para retomarlo.</p>
+        <p className="text-xs text-amber-200/90">It stopped because the server restarted (the agents were stopped and aren't spending). Generate again to resume.</p>
       )}
       {state?.status === GenerateStatus.Failed && (
-        <p className="text-xs text-red-400">{state.events.filter((e) => e.kind === GenerateEventKind.Error).at(-1)?.text ?? "El agente falló."}</p>
+        <p className="text-xs text-red-400">{state.events.filter((e) => e.kind === GenerateEventKind.Error).at(-1)?.text ?? "The agent failed."}</p>
       )}
       {state?.status === GenerateStatus.Done && state.summary && <p className="line-clamp-4 text-xs leading-relaxed text-neutral-400">{state.summary}</p>}
       <ModePicker prefs={g.prefs} onChange={g.updatePrefs} />
       <button type="button" onClick={() => void g.start()} className="rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-neutral-900 hover:bg-neutral-200">
-        {hasScene ? "Volver a generar desde cero" : "Generar vídeo"}
+        {hasScene ? "Regenerate from scratch" : "Generate video"}
       </button>
       {g.error && <p className="text-xs text-red-400">{g.error}</p>}
       <UsageSummary runs={allRuns} />

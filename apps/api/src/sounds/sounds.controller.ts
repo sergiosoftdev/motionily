@@ -22,7 +22,7 @@ class DescribeSoundDto {
 
 /** Recipe format the model writes; mirrors apps/web/src/audio/synth.ts. */
 const RECIPE_GUIDE = `You design sound effects for motion graphics as JSON synth recipes. Answer ONLY JSON:
-{"name":"snake_case_name","category":"whoosh|pop|click|riser|impact|chime|glitch|ui|texture","description":"short Spanish description","recipe":{
+{"name":"snake_case_name","category":"whoosh|pop|click|riser|impact|chime|glitch|ui|texture","description":"short English description","recipe":{
  "duration":0.4,"reverb":0..1(optional),"drive":0..1(optional),"volume":0..1(optional),
  "voices":[{"wave":"sine|square|sawtooth|triangle|noise","freq":440 or [start,end] (exp sweep, not for noise),
    "gain":0..1,"start":0,"length":secs,"attack":s,"decay":s,"sustain":0..1,"release":s,

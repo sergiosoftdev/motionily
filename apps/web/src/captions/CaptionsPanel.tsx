@@ -52,7 +52,7 @@ export function CaptionsPanel({ project, onProject }: { project: Project; onProj
       agentBridge.sceneChanged();
       setWords(result.length);
       setStatus(Status.Done);
-      logActivity(ActivitySource.User, `Subtítulos: ${result.length} palabras transcritas`);
+      logActivity(ActivitySource.User, `Captions: ${result.length} words transcribed`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setStatus(Status.Error);
@@ -80,15 +80,15 @@ export function CaptionsPanel({ project, onProject }: { project: Project; onProj
 
   return (
     <section className="flex flex-col gap-2">
-      <h3 className="px-2 text-[11px] font-medium text-neutral-500">Voz y subtítulos</h3>
+      <h3 className="px-2 text-[11px] font-medium text-neutral-500">Voice & captions</h3>
       <input ref={input} type="file" accept="audio/*,video/*" className="hidden" onChange={(e) => void choose(e.target.files?.[0])} />
       <div className="flex items-center gap-2 px-2">
         <button type="button" onClick={() => input.current?.click()} className="rounded-lg bg-neutral-800 px-3 py-1.5 text-xs hover:bg-neutral-700">
-          {audio ? "Cambiar audio" : "Subir voz o vídeo"}
+          {audio ? "Change audio" : "Upload voice or video"}
         </button>
         {audio && status !== Status.Working && (
           <button type="button" onClick={() => void run()} className="rounded-lg bg-neutral-800 px-3 py-1.5 text-xs hover:bg-neutral-700">
-            {words ? "Volver a transcribir" : "Generar subtítulos"}
+            {words ? "Transcribe again" : "Generate captions"}
           </button>
         )}
       </div>
@@ -96,14 +96,14 @@ export function CaptionsPanel({ project, onProject }: { project: Project; onProj
         {status === Status.Working
           ? `${progress.label}${progress.ratio !== null ? ` ${Math.round(progress.ratio * 100)}%` : ""}`
           : status === Status.Done
-            ? `${words} palabras. Las palabras clave salen resaltadas según el tipo de subtítulos.`
+            ? `${words} words. Key words are highlighted according to the caption style.`
             : audio
-              ? `${audio.name} · suena con el preview y puedes recortarlo abajo. La transcripción se hace en tu navegador.`
-              : "La primera vez descarga el modelo de voz (~150 MB) y queda en caché."}
+              ? `${audio.name} · plays with the preview and you can trim it below. Transcription runs in your browser.`
+              : "The first time it downloads the speech model (~150 MB), then it stays cached."}
       </p>
       {status === Status.Done && (
         <button type="button" onClick={clear} className="self-start px-2 text-xs text-neutral-500 hover:text-white">
-          Quitar subtítulos
+          Remove captions
         </button>
       )}
       {error && <p className="px-2 text-xs text-red-400">{error}</p>}

@@ -35,7 +35,7 @@ export function transcribe(audio: Float32Array, onProgress: (label: string, rati
           break;
       }
     };
-    w.postMessage({ type: WhisperMsg.Transcribe, audio, language: "spanish" }, [audio.buffer]);
+    w.postMessage({ type: WhisperMsg.Transcribe, audio, language: "english" }, [audio.buffer]);
   });
 }
 

@@ -26,7 +26,7 @@ export function LoginScreen() {
       <div className="flex w-full max-w-sm flex-col items-center gap-8 text-center">
         <div className="flex flex-col gap-2">
           <Logo size="text-4xl" />
-          <p className="text-sm text-neutral-400">Elige un estilo. Tu agente monta el vídeo.</p>
+          <p className="text-sm text-neutral-400">Pick a style. Your agent builds the video.</p>
         </div>
         <form
           className="flex w-full flex-col gap-3"
@@ -54,7 +54,7 @@ export function LoginScreen() {
               <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z" />
               <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z" />
             </svg>
-            Continuar con Google
+            Continue with Google
           </button>
           <p className="text-xs text-neutral-500">Login simulado: entra con cualquier email.</p>
           {error && <p className="text-xs text-red-400">{error}</p>}

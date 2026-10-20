@@ -14,19 +14,19 @@ export function SettingsScreen() {
   };
 
   return (
-    <MotionilyLayout title="Configuración" description="Tu cuenta y cómo trabaja el agente por defecto.">
+    <MotionilyLayout title="Settings" description="Your account and how the agent works by default.">
       <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-semibold">Cuenta</h2>
+        <h2 className="text-sm font-semibold">Account</h2>
         <p className="text-sm text-neutral-300">{user?.name}</p>
         <p className="text-sm text-neutral-400">{user?.email} · acceso simulado de Google</p>
         <button type="button" onClick={logout} className="self-start text-sm text-neutral-400 hover:text-white">
-          Cerrar sesión
+          Sign out
         </button>
       </section>
       <section className="flex flex-col gap-3">
         <div>
-          <h2 className="text-sm font-semibold">Agente</h2>
-          <p className="text-xs text-neutral-500">Modelo y esfuerzo por defecto al generar vídeos o editar prefabs.</p>
+          <h2 className="text-sm font-semibold">Agent</h2>
+          <p className="text-xs text-neutral-500">Default model and effort when generating videos or editing prefabs.</p>
         </div>
         <div className="flex gap-2">
           <select value={prefs.model} onChange={(e) => update({ model: e.target.value as AgentModel })} className="rounded-lg bg-neutral-900 px-3 py-2 text-sm focus:outline-none" aria-label="Modelo">

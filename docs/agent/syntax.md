@@ -16,7 +16,8 @@ id type start[-end] key=value… "text or path data" {optional JSON merged into 
   vars: `t` layer seconds, `T` scene seconds, `i`/`n` repeater copy index/count, `pi`, `$name` a component's number
   param (inside components; elsewhere it reads 0).
   funcs: sin cos tan asin acos atan atan2 abs sign floor ceil round fract sqrt pow exp log min max clamp lerp mix
-  smoothstep step mod noise(x) rand(x) wiggle(freq,amp[,seed]) ease ease_in ease_out back elastic bounce
+  smoothstep step mod noise(x) rand(x) wiggle(freq,amp[,seed]) ease ease_in ease_out ease_in_out expo_in expo_out
+  expo_in_out linear back elastic bounce (easing functions take 0..1 progress, e.g. `(expo_out(min(1,t/0.8)))`)
   spring(t[,freq,damping]) pulse(x,period) saw tri · operators `+ - * / % ^ < >`.
   other layers: `(card.x)` `(card.y(T-0.15))` — props x y w h s r o of another layer, now or at a scene time (follow-through, echoes).
   audio: `vol bass mid high beat beats spec(k)` — see "Audio-reactive expressions".
@@ -348,8 +349,8 @@ grade rect 0 x=960 y=540 w=1920 h=1080 fixed=1 adj=1 grain=.04 color=0,1.05,0,1.
 glitch rect 5.8-6.2 x=960 y=540 w=1920 h=1080 fixed=1 adj=1 rgb=8 wave=6,120,3 grain=.06
 tile object .5 x=1500 y=420 w=260 h=260 s=0>1@0-.6:b spin=(10*sin(t)),(t*40),0 {"node":{"shape":"box","size":[1,1,0.3],"radius":0.22,"color":"#57a0db"}}
 logo text3d 1 x=960 y=540 w=1100 h=360 depth=0.3 finish=chrome fill=#d7dde8 s=.8>1@0-1.2:eo spin=(-70*(1-ease_out(min(1,t/1.2)))),(25*(1-ease_out(min(1,t/1.2)))),0 "Lumen"
-glassy text3d .5 x=960 y=400 w=1400 h=300 depth=0.2 finish=glass fill=#57a0db glow=40,1.2,#9fd2ff spin=0,(8*sin(t*0.8)),0 "Día claro"
-pop text3d 2 x=960 y=700 w=700 h=240 finish=toon fill=accent s=0:0,.35:1.15:b,.6:1 spin=0,0,(6*sin(t*3)) "¡Listo!"
+glassy text3d .5 x=960 y=400 w=1400 h=300 depth=0.2 finish=glass fill=#57a0db glow=40,1.2,#9fd2ff spin=0,(8*sin(t*0.8)),0 "Clear day"
+pop text3d 2 x=960 y=700 w=700 h=240 finish=toon fill=accent s=0:0,.35:1.15:b,.6:1 spin=0,0,(6*sin(t*3)) "Done!"
 whip rect 0 vis=0 w=1 h=1 cam=1800 x=0:960,2.8:960,3.3:2900:eio y=540 r=0:0,2.8:0,3.05:-16:ei,3.3:0:eo
 ring object 0 x=1400 y=540 w=520 h=520 light=-80,20,#fff1e0,1.5 {"node":{"shape":"torus","radius":0.5,"tube":0.16,"color":"#d9dee8"},"finish":"chrome","spin":[70,"t*35",0],"lights":{"ambient":{"intensity":0.7},"contact":0.4}}
 ```
@@ -433,8 +434,8 @@ bg rect 0 w=$w h=56 rad=28 fill=$bg s=.6>1@0-.45:b o=0>1@0-.2
 txt text .08 w=($w-36) h=40 size=26 fill=$ink o=0>1@0-.3 "$label"
 
 add_layers:
-tag1 use 1.2 comp=pill x=300 y=200 $label=Nuevo $w=150
-tag2 use 1.3 comp=pill x=480 y=200 $label="Más vendido" $w=230 $bg=primary
+tag1 use 1.2 comp=pill x=300 y=200 $label=New $w=150
+tag2 use 1.3 comp=pill x=480 y=200 $label="Best seller" $w=230 $bg=primary
 ```
 Bar chart driven by params (a bar component nested four times; baseline at the instance's y):
 ```

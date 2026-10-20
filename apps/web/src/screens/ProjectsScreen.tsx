@@ -22,12 +22,12 @@ export function ProjectsScreen() {
 
   return (
     <MotionilyLayout
-      title="Proyectos"
-      description="Un proyecto por marca o producto: su kit (logos, capturas, paletas) y sus vídeos."
+      title="Projects"
+      description="One project per brand or product: its kit (logos, screenshots, palettes) and its videos."
       actions={
         !creating && (
           <button type="button" onClick={() => setCreating(true)} className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-200">
-            Nuevo proyecto
+            New project
           </button>
         )
       }
@@ -44,14 +44,14 @@ export function ProjectsScreen() {
             autoFocus
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Nombre de la marca o producto"
+            placeholder="Brand or product name"
             className="flex-1 rounded-lg bg-neutral-900 px-4 py-2.5 text-sm placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-white/40"
           />
           <button type="submit" className="rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-neutral-900 hover:bg-neutral-200">
-            Crear
+            Create
           </button>
           <button type="button" onClick={() => setCreating(false)} className="rounded-lg px-3 text-sm text-neutral-400 hover:text-white">
-            Cancelar
+            Cancel
           </button>
         </form>
       )}
@@ -68,7 +68,7 @@ export function ProjectsScreen() {
               </span>
               <span className="px-1 font-semibold">{b.name}</span>
               <span className="-mt-2 px-1 text-xs text-neutral-400">
-                {b.videos} {b.videos === 1 ? "vídeo" : "vídeos"}
+                {b.videos} {b.videos === 1 ? "video" : "videos"}
               </span>
             </a>
           );

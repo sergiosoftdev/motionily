@@ -22,6 +22,8 @@ type SceneInfo = {
   duration: number;
   audio?: AudioTrack | null;
   sfx?: SfxCue[];
+  /** The user's master level for every effect. */
+  sfx_volume?: number;
   layers?: { type: string; volume?: number }[];
 };
 
@@ -98,7 +100,7 @@ export async function exportVideo(opts: {
   const mp4 = await canEncodeVideo("avc", { width, height });
   const videoCodec = mp4 ? "avc" : "vp9";
   const audioCodec = mp4 ? "aac" : "opus";
-  const cues = scene.sfx ?? [];
+  const cues = (scene.sfx ?? []).map((c) => ({ ...c, gain: (c.gain ?? 1) * (scene.sfx_volume ?? 1) }));
   const hasClipSound = (scene.layers ?? []).some((l) => l.type === VIDEO_LAYER && (l.volume ?? 0) > 0);
   const withAudio = (!!opts.audioUrl || cues.length > 0 || hasClipSound) && (await canEncodeAudio(audioCodec));
 

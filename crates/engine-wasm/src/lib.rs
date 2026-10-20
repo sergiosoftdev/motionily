@@ -46,7 +46,7 @@ impl Engine {
     /// Apply a JSON array of ops atomically. Errors name the failing op index.
     #[wasm_bindgen(js_name = applyOps)]
     pub fn apply_ops(&mut self, json: &str) -> Result<(), JsError> {
-        let ops: Vec<Op> = serde_json::from_str(json).map_err(|e| JsError::new(&format!("invalid ops: {e}")))?;
+        let ops = Op::parse_list(json).map_err(|e| JsError::new(&e))?;
         self.scene
             .apply(&ops)
             .map_err(|(i, e)| JsError::new(&format!("op #{i}: {e}")))

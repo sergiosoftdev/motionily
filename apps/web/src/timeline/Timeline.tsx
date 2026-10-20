@@ -39,6 +39,7 @@ type SceneView = {
   } | null;
   audio?: AudioTrack | null;
   sfx?: SfxCue[];
+  sfx_volume?: number;
 };
 
 const LABEL_W = 92;
@@ -241,7 +242,7 @@ export function Timeline({ audioUrl }: { audioUrl: string | null }) {
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
-      if (moved) commit(`Mueve el efecto ${cue.sound} a ${at.toFixed(2)} s`);
+      if (moved) commit(`Moves the effect ${cue.sound} to ${at.toFixed(2)} s`);
       else void sfxPlayer.preview(cue.src, cue.gain);
     };
     window.addEventListener("pointermove", move);
@@ -265,7 +266,7 @@ export function Timeline({ audioUrl }: { audioUrl: string | null }) {
       window.removeEventListener("pointermove", move);
       if (dt)
         commit(
-          `Mueve el grupo ${group} ${dt > 0 ? "+" : ""}${dt.toFixed(2)} s`,
+          `Moves group ${group} ${dt > 0 ? "+" : ""}${dt.toFixed(2)} s`,
         );
     };
     window.addEventListener("pointermove", move);
@@ -343,12 +344,12 @@ export function Timeline({ audioUrl }: { audioUrl: string | null }) {
           </div>
         ) : (
           <span className="absolute inset-y-0 left-2 flex items-center text-neutral-600">
-            Sube una voz en «Voz y subtítulos»
+            Upload a voice under “Voice & captions”
           </span>
         )}
       </Track>
 
-      <Track label="Subtítulos">
+      <Track label="Captions">
         {words.map((w, i) => (
           <button
             key={i}
@@ -371,24 +372,25 @@ export function Timeline({ audioUrl }: { audioUrl: string | null }) {
         ))}
       </Track>
 
-      <Track label="Efectos">
+      <Track label="Effects">
         {(scene?.sfx ?? []).map((c, i, all) => (
           <span
             key={c.id}
-            title={`${c.sound} · ${c.at.toFixed(2)} s — arrastra para mover, clic para escuchar`}
+            title={`${c.sound} · ${c.at.toFixed(2)} s · ${Math.round((c.gain ?? 1) * 100)}% — drag to move, click to listen, scroll to change its volume`}
             onPointerDown={dragSfx(c)}
+            onWheel={(e) => cueVolume(c, e.deltaY)}
             className="group absolute inset-y-0.5 flex cursor-grab items-center gap-1 overflow-hidden rounded bg-amber-500/25 pr-1 pl-1.5 text-[11px] whitespace-nowrap text-amber-100 hover:bg-amber-500/40"
             // Never wider than the gap to the next cue, so close cues stay readable.
             style={{ left: pct(c.at), maxWidth: all[i + 1] ? `calc(${pct(all[i + 1]!.at - c.at)} - 2px)` : 140 }}
           >
-            ♪ {c.sound}
+            ♪ {c.sound} <span className="text-amber-200/60">{Math.round((c.gain ?? 1) * 100)}%</span>
             <button
               type="button"
-              aria-label={`Quitar ${c.sound}`}
+              aria-label={`Remove ${c.sound}`}
               onPointerDown={(e) => e.stopPropagation()}
               onClick={() => {
                 engineHost.applyOps([{ op: OpName.RemoveSfx, id: c.id }]);
-                commit(`Quita el efecto ${c.sound}`);
+                commit(`Removes the effect ${c.sound}`);
               }}
               className="hidden text-amber-200/70 group-hover:inline hover:text-white"
             >
@@ -397,6 +399,7 @@ export function Timeline({ audioUrl }: { audioUrl: string | null }) {
           </span>
         ))}
       </Track>
+      {(scene?.sfx?.length ?? 0) > 0 && <SfxVolume volume={scene?.sfx_volume ?? 1} />}
 
       {entries.map((e) =>
         e.group ? (
@@ -498,6 +501,45 @@ function GroupTrack({
         {children}
       </div>
       <div className="w-3 shrink-0" />
+    </div>
+  );
+}
+
+/** Steps of the effects volume controls. */
+const VOLUME_STEP = 0.05;
+const MAX_CUE_GAIN = 2;
+const MAX_SFX_VOLUME = 1.5;
+/** A burst of wheel ticks becomes one entry in the activity log. */
+const WHEEL_COMMIT_MS = 400;
+let wheelCommit: ReturnType<typeof setTimeout> | undefined;
+
+/** Scroll over an effect to turn it down (or up). */
+function cueVolume(cue: SfxCue, deltaY: number) {
+  const gain = Math.min(MAX_CUE_GAIN, Math.max(0, +((cue.gain ?? 1) - Math.sign(deltaY) * VOLUME_STEP).toFixed(2)));
+  preview([{ op: OpName.PutSfx, cue: { ...cue, gain } }]);
+  clearTimeout(wheelCommit);
+  wheelCommit = setTimeout(() => commit(`Effect ${cue.sound} volume ${Math.round(gain * 100)}%`), WHEEL_COMMIT_MS);
+}
+
+/** The user's master level for every effect: agents place the cues, the user decides how loud. */
+function SfxVolume({ volume }: { volume: number }) {
+  return (
+    <div className="flex items-center gap-2 py-1 text-[11px] text-neutral-500">
+      <span style={{ width: LABEL_W }} className="shrink-0 pl-3">
+        Effects volume
+      </span>
+      <input
+        type="range"
+        min={0}
+        max={MAX_SFX_VOLUME}
+        step={VOLUME_STEP}
+        value={volume}
+        aria-label="Effects volume"
+        onChange={(e) => preview([{ op: OpName.SetSfxVolume, volume: Number(e.target.value) }])}
+        onPointerUp={() => commit(`Effects volume ${Math.round(volume * 100)}%`)}
+        className="w-40 accent-amber-400"
+      />
+      <span className="tabular-nums text-neutral-400">{Math.round(volume * 100)}%</span>
     </div>
   );
 }

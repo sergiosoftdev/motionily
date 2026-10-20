@@ -80,7 +80,7 @@ export class ProjectsService {
     if (found) return found;
     const kit = await this.bricks.get("motion_style/cartoon");
     const build = this.buildFromKit(kit.key, kit.payload as KitPayload);
-    return this.projects.create({ ownerId, brandId, name: "Taller de prefabs", hidden: true, build, brief: "Prefab workshop" });
+    return this.projects.create({ ownerId, brandId, name: "Prefab workshop", hidden: true, build, brief: "Prefab workshop" });
   }
 
   /** Give videos without a project to `brandId`. */

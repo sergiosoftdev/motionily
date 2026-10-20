@@ -187,6 +187,8 @@ macro_rules! funcs {
             fn parse(s: &str) -> Option<(Func, std::ops::RangeInclusive<usize>)> {
                 match s { $($text => Some((Func::$name, $arity)),)* _ => None }
             }
+            /// Every function name, for error messages.
+            const NAMES: &'static [&'static str] = &[$($text),*];
         }
     };
 }
@@ -200,6 +202,9 @@ funcs! {
     lerp => "lerp" / 3..=3, mix => "mix" / 3..=3, smoothstep => "smoothstep" / 3..=3, step => "step" / 2..=2,
     modulo => "mod" / 2..=2, noise => "noise" / 1..=2, rand => "rand" / 1..=1, wiggle => "wiggle" / 2..=3,
     ease => "ease" / 1..=1, ease_in => "ease_in" / 1..=1, ease_out => "ease_out" / 1..=1, back => "back" / 1..=1,
+    // The keyframe ease names work as functions too (agents write them naturally).
+    ease_in_out => "ease_in_out" / 1..=1, expo_in => "expo_in" / 1..=1, expo_out => "expo_out" / 1..=1,
+    expo_in_out => "expo_in_out" / 1..=1, linear => "linear" / 1..=1,
     elastic => "elastic" / 1..=1, bounce => "bounce" / 1..=1, spring => "spring" / 1..=3, pulse => "pulse" / 2..=2,
     saw => "saw" / 1..=1, tri => "tri" / 1..=1,
 }
@@ -313,12 +318,16 @@ fn eval(n: &Node, t: f32, vars @ (gt, i, cnt): (f32, f32, f32)) -> f32 {
                 Func::rand => hash(x),
                 // wiggle(freq, amp[, seed]): smooth random drift around 0, different per repeater copy.
                 Func::wiggle => noise(t * x + 17.0 * (i + arg(2, 0.0)) + 3.1) * a[1],
-                Func::ease => {
+                Func::ease | Func::ease_in_out => {
                     let u = x.clamp(0.0, 1.0);
                     if u < 0.5 { 4.0 * u * u * u } else { 1.0 - (-2.0 * u + 2.0).powi(3) / 2.0 }
                 }
                 Func::ease_in => x.clamp(0.0, 1.0).powi(3),
                 Func::ease_out => 1.0 - (1.0 - x.clamp(0.0, 1.0)).powi(3),
+                Func::expo_in => crate::Easing::ExpoIn.apply(x),
+                Func::expo_out => crate::Easing::ExpoOut.apply(x),
+                Func::expo_in_out => crate::Easing::ExpoInOut.apply(x),
+                Func::linear => x.clamp(0.0, 1.0),
                 Func::back => crate::Easing::Back.apply(x),
                 Func::elastic => crate::Easing::Elastic.apply(x),
                 Func::bounce => crate::Easing::Bounce.apply(x),
@@ -533,7 +542,7 @@ impl<'a> Parser<'a> {
                 return Ok(Node::Audio(ch, args));
             }
             if self.eat(b'(') {
-                let (f, arity) = Func::parse(name).ok_or_else(|| format!("unknown function '{name}'"))?;
+                let (f, arity) = Func::parse(name).ok_or_else(|| format!("unknown function '{name}' (functions: {})", Func::NAMES.join(" ")))?;
                 let mut args = Vec::new();
                 if !self.eat(b')') {
                     loop {

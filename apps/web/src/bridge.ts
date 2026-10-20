@@ -57,7 +57,7 @@ class AgentBridge {
     ws.onmessage = (e) => this.handle(JSON.parse(e.data) as ServerMessage);
     ws.onclose = () => {
       if (this.ws !== ws) return;
-      if (useEditor.getState().agentConnected) logActivity(ActivitySource.System, "Agente desconectado");
+      if (useEditor.getState().agentConnected) logActivity(ActivitySource.System, "Agent disconnected");
       useEditor.setState({ agentConnected: false });
       this.ws = null;
       this.retry = setTimeout(() => this.connect(), RECONNECT_MS);
@@ -78,23 +78,23 @@ class AgentBridge {
   private handle(msg: ServerMessage) {
     switch (msg.type) {
       case ServerMessageType.Attached:
-        if (!useEditor.getState().agentConnected) logActivity(ActivitySource.System, "Agente conectado");
+        if (!useEditor.getState().agentConnected) logActivity(ActivitySource.System, "Agent connected");
         useEditor.setState({ agentConnected: true });
         // A new agent must start from what is on screen right now, not a cached copy.
         this.hello();
         return;
       case ServerMessageType.Detached:
-        if (useEditor.getState().agentConnected) logActivity(ActivitySource.System, "Agente desconectado");
+        if (useEditor.getState().agentConnected) logActivity(ActivitySource.System, "Agent disconnected");
         useEditor.setState({ agentConnected: false });
         return;
       case ServerMessageType.ProjectChanged:
-        logActivity(ActivitySource.Agent, "Cambia las opciones del vídeo");
+        logActivity(ActivitySource.Agent, "Changes the video options");
         this.onProjectChanged?.();
         return;
       case ServerMessageType.Review: {
         // Async: video frames are decoded exactly for every sampled instant.
         void engineHost.review(msg.frames).then((review) => {
-          logActivity(ActivitySource.Agent, `Revisa el vídeo (${review.issues.length} avisos)`);
+          logActivity(ActivitySource.Agent, `Reviews the video (${review.issues.length} warnings)`);
           this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, review });
         }, (e: unknown) => this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error: String(e) }));
         return;
@@ -128,7 +128,7 @@ class AgentBridge {
           const why = scenePresetViolation(JSON.parse(msg.scene) as Record<string, unknown>);
           if (why) throw new Error(why);
           engineHost.loadScene(msg.scene);
-          logActivity(ActivitySource.Agent, "Escena nueva");
+          logActivity(ActivitySource.Agent, "New scene");
           break;
         }
       }
@@ -141,7 +141,7 @@ class AgentBridge {
       });
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
-      logActivity(ActivitySource.System, `Cambio del agente rechazado: ${error}`);
+      logActivity(ActivitySource.System, `Agent change rejected: ${error}`);
       this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error });
     }
   }

@@ -32,7 +32,7 @@ export class PrefabsController {
     const instruction =
       `PREFAB WORKSHOP, not a video. Create a NEW prefab: ${dto.instruction}. ` +
       `list_prefabs first (reuse pieces with {"prefab":…} inside the tree when useful), design it from primitives/rigs ` +
-      `(see get_reference: 3D procedural building), pick a short snake_case name in Spanish, save_prefab with a clear description, ` +
+      `(see get_reference: 3D procedural building), pick a short snake_case name in English, save_prefab with a clear description, ` +
       `then show it on the turntable: apply_ops [{"op":"put_prop","prop":{"id":"preview","prefab":<name>}}]. ` +
       `render_frames at 0.5 and 3 to check it reads well from every side; fix and save again if needed. Do not add 2D layers.`;
     const status = await this.generator.start(user.id, user.email, w.id, { instruction, model: dto.model, effort: dto.effort });

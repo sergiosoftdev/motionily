@@ -5,14 +5,14 @@ import { GenerateEventKind, TOOL_LABEL, type GenerateState } from "./GeneratePan
 export const Phase = { Plan: "plan", Build: "build", Review: "review" } as const;
 type Phase = (typeof Phase)[keyof typeof Phase];
 const PHASES: { id: Phase; label: string }[] = [
-  { id: Phase.Plan, label: "Dirección de arte" },
-  { id: Phase.Build, label: "Montaje en paralelo" },
-  { id: Phase.Review, label: "Revisión" },
+  { id: Phase.Plan, label: "Art direction" },
+  { id: Phase.Build, label: "Parallel build" },
+  { id: Phase.Review, label: "Review" },
 ];
 /** Premium mode: one designer plans and builds the whole film, then the reviewer. */
 const SOLO_PHASES: { id: Phase; label: string }[] = [
-  { id: Phase.Build, label: "Diseño y montaje" },
-  { id: Phase.Review, label: "Revisión" },
+  { id: Phase.Build, label: "Design and build" },
+  { id: Phase.Review, label: "Review" },
 ];
 /** Role tag of the premium designer's events. */
 const DESIGN_ROLE = "design";
@@ -22,16 +22,16 @@ const SCENE_LINE = /^Escena \d+\s*[:.·-]\s*(.*)$/i;
 const QUIET_MS = 20_000;
 
 const GAGS = [
-  "Discutiendo si ese verde es menta o pistacho…",
-  "Quitando una Comic Sans que alguien coló…",
-  "Convenciendo al rebote de que no se pase de frenada…",
-  "Midiendo márgenes con una regla de verdad…",
-  "Calentando los keyframes, que salen fríos…",
-  "Pidiendo al becario que alinee los píxeles…",
-  "Negociando con el título para que quepa en una línea…",
-  "Lijando las curvas de animación…",
-  "Haciendo que el fondo deje de estar quieto…",
-  "Poniendo el café para el revisor…",
+  "Arguing whether that green is mint or pistachio…",
+  "Removing a Comic Sans someone snuck in…",
+  "Convincing the bounce not to overshoot…",
+  "Measuring margins with a real ruler…",
+  "Warming up the keyframes, they come out cold…",
+  "Asking the intern to align the pixels…",
+  "Negotiating with the title so it fits on one line…",
+  "Sanding the animation curves…",
+  "Getting the background to stop sitting still…",
+  "Brewing coffee for the reviewer…",
 ];
 const GAG_MS = 3400;
 const TAG = /^\[([^\]]+)\] ([\s\S]*)$/;
@@ -116,7 +116,7 @@ export function AgentWorkshop({ state }: { state: GenerateState }) {
         <span className="font-mono">
           {clock(secs)}
         </span>
-        <span>{quiet !== null ? `Escribiendo · último paso hace ${clock(quiet)}` : "El vídeo se monta en directo a la izquierda"}</span>
+        <span>{quiet !== null ? `Writing · last step ${clock(quiet)} ago` : "The video builds live on the left"}</span>
       </div>
 
       {/* Phase rail */}
@@ -139,9 +139,9 @@ export function AgentWorkshop({ state }: { state: GenerateState }) {
             <Builder working />
             <div className="flex min-w-0 flex-col text-xs">
               <span className="truncate text-neutral-200">
-                {design.scenes.length ? `Escena ${design.scenes.length} · ${design.scenes.at(-1)}` : direction ? "Montando el mundo y la cámara" : "Leyendo el brief y tu marca…"}
+                {design.scenes.length ? `Scene ${design.scenes.length} · ${design.scenes.at(-1)}` : direction ? "Building the world and the camera" : "Reading the brief and your brand…"}
               </span>
-              <span className="truncate text-neutral-500">{design.last ? `${design.tools} pasos · ${design.last}` : "Afilando el lápiz…"}</span>
+              <span className="truncate text-neutral-500">{design.last ? `${design.tools} steps · ${design.last}` : "Sharpening the pencil…"}</span>
             </div>
           </div>
           {design.scenes.length > 1 && (
@@ -158,8 +158,8 @@ export function AgentWorkshop({ state }: { state: GenerateState }) {
         <div className="flex items-center gap-3">
           <Director />
           <div className="flex flex-col text-xs">
-            <span className="text-neutral-200">La directora de arte está pensando el vídeo</span>
-            <span className="text-neutral-500">{plannerSteps ? `${plannerSteps} decisiones tomadas` : "Leyendo el brief y tu marca…"}</span>
+            <span className="text-neutral-200">The art director is thinking the video through</span>
+            <span className="text-neutral-500">{plannerSteps ? `${plannerSteps} decisions made` : "Reading the brief and your brand…"}</span>
           </div>
         </div>
       ) : (
@@ -180,9 +180,9 @@ export function AgentWorkshop({ state }: { state: GenerateState }) {
                     {Array.from({ length: Math.min(MAX_BRICKS, l.tools * 2) }, (_, b) => (
                       <span key={b} className="ws-brick h-2.5 w-3 rounded-[2px] bg-emerald-400/80" style={{ animationDelay: `${(b % 2) * 0.12}s` }} />
                     ))}
-                    {l.done && <span className="ml-1 text-[10px] text-emerald-400">✓ listo</span>}
+                    {l.done && <span className="ml-1 text-[10px] text-emerald-400">✓ done</span>}
                   </div>
-                  {!l.done && <span className="truncate text-[10px] text-neutral-500">{l.last ?? "Afilando el lápiz…"}</span>}
+                  {!l.done && <span className="truncate text-[10px] text-neutral-500">{l.last ?? "Sharpening the pencil…"}</span>}
                 </div>
               </div>
             ))}

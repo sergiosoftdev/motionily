@@ -50,7 +50,7 @@ export function PrefabsScreen() {
   return (
     <MotionilyLayout
       title="Prefabs"
-      description="Objetos, personajes y espacios que el agente ha creado. Se reutilizan en todos tus proyectos."
+      description="Objects, characters and spaces the agent has built. They're reused across all your projects."
       sidebar={
         listed &&
         prefabs.map((p) => (
@@ -80,11 +80,11 @@ export function PrefabsScreen() {
           value={idea}
           disabled={creating}
           onChange={(e) => setIdea(e.target.value)}
-          placeholder="Crea con IA: «monigote con bata», «camilla eléctrica», «recepción de clínica»…"
+          placeholder="Create with AI: “stick figure in a lab coat”, “electric treatment table”, “clinic front desk”…"
           className="flex-1 rounded-lg bg-neutral-900 px-4 py-2.5 text-sm placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-white/40"
         />
         <button type="submit" disabled={creating || !idea.trim()} className="rounded-lg bg-white px-5 py-2.5 text-sm font-semibold text-neutral-900 hover:bg-neutral-200 disabled:opacity-40">
-          Crear
+          Create
         </button>
       </form>
       {creating && (
@@ -174,14 +174,14 @@ function PrefabDetail({
 
   const duplicate = async () => {
     if (!prefab) return;
-    const name = prompt("Nombre del duplicado (snake_case)", `${prefab.name}_v2`);
+    const name = prompt("Name of the copy (snake_case)", `${prefab.name}_v2`);
     if (!name) return;
     await api.clonePrefab(prefab.name, name).then(onChanged, (e: Error) => alert(e.message));
   };
 
   const remove = async () => {
     if (!prefab) return;
-    if (!confirm(`¿Borrar el prefab "${prefab.name}"? Los vídeos que lo usan dejarán de mostrarlo.`)) return;
+    if (!confirm(`Delete the prefab "${prefab.name}"? Videos that use it will stop showing it.`)) return;
     await api.deletePrefab(prefab.name);
     onGone();
   };
@@ -191,11 +191,11 @@ function PrefabDetail({
     <div className="flex min-w-0 flex-1 flex-col gap-4">
       <div className="relative aspect-square max-h-[520px] w-full max-w-[520px] overflow-hidden rounded-xl bg-neutral-900">
         <canvas ref={canvas} className="size-full" />
-        {status === EngineStatus.Loading && <p className="absolute inset-0 flex items-center justify-center text-sm text-neutral-500">Cargando vista 3D…</p>}
+        {status === EngineStatus.Loading && <p className="absolute inset-0 flex items-center justify-center text-sm text-neutral-500">Loading 3D view…</p>}
       </div>
       <div className="flex max-w-[520px] flex-col gap-1">
         <h2 className="font-semibold">{prefab?.name ?? "Creando…"}</h2>
-        <p className="text-sm text-neutral-400">{prefab ? prefab.description || "Sin descripción." : idea}</p>
+        <p className="text-sm text-neutral-400">{prefab ? prefab.description || "No description." : idea}</p>
       </div>
       {prefab && (
       <form
@@ -209,7 +209,7 @@ function PrefabDetail({
           value={instruction}
           disabled={running}
           onChange={(e) => setInstruction(e.target.value)}
-          placeholder={running ? "El agente está en ello…" : "Pide un cambio: «más alta», «con ruedas», «versión azul»…"}
+          placeholder={running ? "The agent is on it…" : "Ask for a change: “taller”, “with wheels”, “blue version”…"}
           className="flex-1 rounded-lg bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-white/40"
         />
         <button type="submit" disabled={running || !instruction.trim()} className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-200 disabled:opacity-40">
@@ -221,7 +221,7 @@ function PrefabDetail({
         <div className="flex max-w-[520px] flex-col gap-1 text-xs">
           {running && (
             <span className="flex items-center gap-2 text-neutral-300">
-              <span className="size-2 animate-pulse rounded-full bg-emerald-400" /> {prefab ? "El agente está modificando el prefab…" : "El agente está diseñando tu prefab…"}
+              <span className="size-2 animate-pulse rounded-full bg-emerald-400" /> {prefab ? "The agent is changing the prefab…" : "The agent is designing your prefab…"}
             </span>
           )}
           {steps.map((e, i) => (
@@ -235,10 +235,10 @@ function PrefabDetail({
       {prefab && (
       <div className="flex gap-4 text-xs">
         <button type="button" onClick={() => void duplicate()} className="text-neutral-400 hover:text-white">
-          Duplicar
+          Duplicate
         </button>
         <button type="button" onClick={() => void remove()} className="text-neutral-500 hover:text-red-400">
-          Borrar
+          Delete
         </button>
       </div>
       )}

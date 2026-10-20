@@ -59,7 +59,7 @@ applied: fix it and resend the call.
 {"op":"reorder","id":"card","index":0}                  // 0 = back (only matters without a camera or at equal depth)
 {"op":"define_anim","key":"my/rise","template":{"keys":{"opacity":[[0,0],[0.4,1]],"dy":[[0,60,"back"],[0.5,0]]}}}
 {"op":"add_anim","id":"card","anim":{"use":"my/rise","at":0.2}}  {"op":"clear_anims","id":"card"}
-{"op":"set_captions","captions":{"words":[{"text":"Hola","start":0.2,"end":0.5}]}}   // words:[] hides the built-in line
+{"op":"set_captions","captions":{"words":[{"text":"Hello","start":0.2,"end":0.5}]}}   // words:[] hides the built-in line
 {"op":"put_sfx","cue":{…}} {"op":"remove_sfx","id":"…"} {"op":"clear_sfx"}           // prefer add_sfx
 {"op":"define_component","name":"stat","component":{"params":[…],"duration":6,"layers":[…]}}  {"op":"remove_component","name":"stat"}  // prefer the define_component tool
 3D stage: put_prop, remove_prop, set_camera, set_shots, set_stage, set_lights, define_prefab (below)
@@ -75,13 +75,19 @@ Rejected on purpose: `set_size` (use `set_format`), `set_style`, `set_library`, 
 - Comments arrive through `get_feedback`, pinned to a second and/or a layer: `get_layer` that layer and change just it.
 
 ## Voice, captions and sound
+- **Voice timeline** (in `get_scene`'s summary once a voice is uploaded): the audio is analysed for you —
+  `voice timeline (N phrases, M long pauses; scene s): 0.31–2.40 "Every word you hear is moving." · pause 0.82s LONG · …`.
+  Phrases are speech between silences ≥ 0.25 s (with their caption words); LONG pauses (≥ 0.6 s) are the script's scene
+  changes. Use it directly, never guess or re-measure: start each beat's motion on a phrase start, land its key word on
+  that word's time, cut or move the camera inside LONG pauses, keep text readable until its phrase ends, and give short
+  pauses a small accent (a pop, a settle) instead of a cut. Without an analysis it falls back to the gaps between words.
 - If the user uploaded a voice-over, the editor transcribes it into `captions.words` (`{text,start,end,emphasis}`; all
   timings in `get_scene full=true`): time every beat and on-screen phrase to those words. Design captions yourself as text
   layers and hide the built-in line with `set_captions` words:[] if it gets in the way.
 - Only a voice script: ~2.3 words/s, one paragraph per beat, `[long pause]` = beat change.
 - `set_voice_script`: ElevenLabs v3 — one tone tag like `[warm]` first, one paragraph per scene, `[long pause] [long pause]`
   between scenes, numbers in letters, last sentence = CTA.
-- `add_sfx` lines `id sound_name at [gain]`: whoosh ~0.1 s before moves and transitions, pop on entrances, click/tick on UI
+- `add_sfx` lines `id sound_name at [gain]` (gain default 0.45; 0.3-0.6 under a voice, never above 0.8 — the user also has an effects volume slider, shown as `sfx volume` in get_scene: never fight it): whoosh ~0.1 s before moves and transitions, pop on entrances, click/tick on UI
   and counters, impact on hero text, riser before reveals, chime on the payoff; ≤ 2 at once.
 
 ## Real photos
@@ -108,26 +114,26 @@ Most videos are 2D layers; 3D objects inside them (`object` layers, see syntax) 
   · `{"shape":"text","text":"Lumen","size":1,"depth":0.25,"family":"…","weight":700,"align":"center","letter_spacing":0,"line_height":1.2}`
   (3D words from the font's glyphs, centered on their ink box; size = em in meters; family/weight default to the video's
   heading font; letter_spacing and line_height in em — see 3D text in the syntax).
-- a node without shape is a group; `{"prefab":"camilla","position":[…]}` reuses a saved prefab; color is inherited.
+- a node without shape is a group; `{"prefab":"table","position":[…]}` reuses a saved prefab; color is inherited.
 - shapes sit centered on their position (a box of height h at y=h/2 rests on the floor).
 - people are ALWAYS stickman rigs (black silhouette, round faceless head, tube limbs, no hands/feet; only clothes change):
   `{"rig":{"style":"tee|shirt|sweater|hoodie|coat|labcoat|suit|scrubs|dress","top":"primary","bottom":"#…","long_sleeves":true,
   "shorts":false,"hair":"none|bun|pony|cap|beanie","hat":"accent","steth":true,"badge":true,"tie":"primary","scarf":"accent",
-  "height":1.64,"action":"idle|walk|wave|point|jump|sit|celebrate|stressed"}}`. Doctor: labcoat white + steth. Physio: scrubs
+  "height":1.64,"action":"idle|walk|wave|point|jump|sit|celebrate|stressed"}}`. Doctor: labcoat white + steth. Physical therapist: scrubs
   green + badge. Child: height 1.1.
 - library: `list_prefabs` first and reuse; `save_prefab` (kind object|character|space) what you build so the user's
   library grows; `clone_prefab` → `get_prefab` → edit → `save_prefab` to make variants.
 
 **Stage** (a 3D set drawn behind every 2D layer, toon-shaded with outlines):
 ```
-{"op":"put_prop","prop":{"id":"fisio","prefab":"fisio","x":0.9,"z":-0.4,"rotation":-40,"action":"wave","scale":[{"t":0,"v":0},{"t":0.4,"v":1,"ease":"back"}],"start":0,"end":null}}
+{"op":"put_prop","prop":{"id":"therapist","prefab":"therapist","x":0.9,"z":-0.4,"rotation":-40,"action":"wave","scale":[{"t":0,"v":0},{"t":0.4,"v":1,"ease":"back"}],"start":0,"end":null}}
 {"op":"put_prop","prop":{"id":"mesa","node":{…procedural tree…}}}     // one-off, unsaved
-{"op":"remove_prop","id":"fisio"}
+{"op":"remove_prop","id":"therapist"}
 {"op":"set_stage","stage":{"floor":"surface","props":[…],"shots":[…]}}  // whole set at once
 ```
 - x/z/rotation/scale take keyframes. Behaviour with `beats` (times from the prop's start; walks auto-play "walk" and face
-  where they go): `[{"at":0.5,"duration":2,"go_to":"fisio","action":"wave"},{"at":3,"duration":1.2,"sit_on":"camilla","seat_height":0.6},
-  {"at":5,"face":"fisio","action":"point"},{"at":6,"duration":1.5,"walk_to":[2,1]}]` — prefer beats over hand-keyed x/z.
+  where they go): `[{"at":0.5,"duration":2,"go_to":"therapist","action":"wave"},{"at":3,"duration":1.2,"sit_on":"table","seat_height":0.6},
+  {"at":5,"face":"therapist","action":"point"},{"at":6,"duration":1.5,"walk_to":[2,1]}]` — prefer beats over hand-keyed x/z.
 <!-- stage-lights:start -->
 - **Lights** (`{"op":"set_lights","lights":{…}}` or `"lights"` inside `set_stage`; `null` = default). Without lights the
   stage keeps its original look: a soft light that follows the camera, no shadows. With `lights` (even `{}`):
@@ -150,8 +156,8 @@ Most videos are 2D layers; 3D objects inside them (`object` layers, see syntax) 
   - `set_camera` takes `"roll"` (degrees, keyframable, clockwise camera = counter-clockwise picture; applies to shots too).
 <!-- stage-lights:end -->
 - camera: shots auto-frame a target: `{"op":"set_shots","shots":[{"start":0,"end":2.5,"kind":"reveal","target":"all"},
-  {"start":2.5,"end":5,"kind":"push_in","target":"fisio","yaw":-30,"framing":0.8,"blend":0.4},{"start":5,"end":7,"kind":"orbit","target":"camilla","sweep":60},
-  {"start":7,"end":9,"kind":"follow","target":"paciente"}]}` — kinds static, orbit, push_in, pull_out, crane, follow, reveal;
+  {"start":2.5,"end":5,"kind":"push_in","target":"therapist","yaw":-30,"framing":0.8,"blend":0.4},{"start":5,"end":7,"kind":"orbit","target":"table","sweep":60},
+  {"start":7,"end":9,"kind":"follow","target":"patient"}]}` — kinds static, orbit, push_in, pull_out, crane, follow, reveal;
   target a prop id, "all" or [x,y,z]; framing 1 = fit (0.6 tight, 1.5 wide); yaw/pitch degrees; blend = seconds of smooth
   move from the previous shot (0 = cut). Or keyframe it: `{"op":"set_camera","camera":{"kind":"perspective|isometric","yaw":[…],"pitch":[…],"distance":[…],"target_x":…,"fov":30}}`.
 

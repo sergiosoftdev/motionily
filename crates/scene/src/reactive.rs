@@ -30,6 +30,16 @@ pub const RELEASE_S: f32 = 0.15;
 pub const BEAT_DECAY_S: f32 = 0.15;
 /// Two beats are never closer than this (keeps the stronger one).
 pub const MIN_BEAT_GAP_S: f32 = 0.15;
+/// Silences at least this long are pauses (breaths between words are shorter).
+pub const MIN_PAUSE_S: f32 = 0.25;
+/// Pauses this long read as a change of scene in a voice-over ("[long pause]" in the script).
+pub const LONG_PAUSE_S: f32 = 0.6;
+/// Loudness (0..1 of the track's range, ≈ -35 dB under its loud level) below which a frame is silent.
+pub const SILENCE_LEVEL: f32 = 0.12;
+/// Phrases listed in the scene summary (the rest are counted).
+const MAX_PHRASES: usize = 40;
+/// Characters of a phrase's words shown in the summary.
+const PHRASE_CHARS: usize = 70;
 /// Level (dBFS) under which a whole track counts as silence (everything reads 0).
 const SILENCE_DB: f32 = -70.0;
 /// Percentile of the levels used as the track's "loud" reference.
@@ -95,6 +105,10 @@ pub struct AudioAnalysis {
     pub beats: Vec<f32>,
     /// Tempo estimate when the beats are regular enough.
     pub bpm: Option<f32>,
+    /// Silences ≥ `MIN_PAUSE_S` between the first and the last sound, file seconds `[from, to]`.
+    pub pauses: Vec<[f32; 2]>,
+    /// First and last audible moment, file seconds.
+    pub sound: Option<[f32; 2]>,
 }
 
 thread_local! {
@@ -307,10 +321,14 @@ pub fn analyze(samples: &[f32], rate: f32) -> AudioAnalysis {
     }
     let frame_s = hop as f32 / rate;
     let beats: Vec<f32> = onsets(&raw_bands, frames).into_iter().map(|f| f as f32 * frame_s).collect();
+    let loud = normalize(&full);
+    let (pauses, sound) = silences(&loud, frame_s);
     AudioAnalysis {
         duration: samples.len() as f32 / rate,
         frame_s,
-        vol: smooth(&normalize(&full)),
+        pauses,
+        sound,
+        vol: smooth(&loud),
         bass: smooth(&normalize(&range(0.0, BASS_MAX_HZ))),
         mid: smooth(&normalize(&range(BASS_MAX_HZ, MID_MAX_HZ))),
         high: smooth(&normalize(&range(MID_MAX_HZ, f32::MAX))),
@@ -318,6 +336,80 @@ pub fn analyze(samples: &[f32], rate: f32) -> AudioAnalysis {
         bpm: tempo(&beats),
         beats,
     }
+}
+
+/// Pauses (silences ≥ `MIN_PAUSE_S` between sounds) and the span from the first to the last sound,
+/// in file seconds. Raw loudness, not the smoothed `vol`: its release would shorten every pause.
+fn silences(level: &[f32], frame_s: f32) -> (Vec<[f32; 2]>, Option<[f32; 2]>) {
+    let quiet = |f: usize| level[f] < SILENCE_LEVEL;
+    let Some(first) = (0..level.len()).position(|f| !quiet(f)) else { return (Vec::new(), None) };
+    let last = (0..level.len()).rposition(|f| !quiet(f)).unwrap_or(first);
+    let mut pauses = Vec::new();
+    let mut f = first;
+    while f <= last {
+        if !quiet(f) {
+            f += 1;
+            continue;
+        }
+        let from = f;
+        while f <= last && quiet(f) {
+            f += 1;
+        }
+        let span = [from as f32 * frame_s, f as f32 * frame_s];
+        if span[1] - span[0] >= MIN_PAUSE_S {
+            pauses.push(span);
+        }
+    }
+    (pauses, Some([first as f32 * frame_s, (last + 1) as f32 * frame_s]))
+}
+
+/// The voice laid out for timing, in scene seconds: phrases (with their caption words) and the
+/// pauses between them; LONG ones are where a script's scenes change. From the analysed audio, or
+/// from the gaps between caption words when there is no analysis (e.g. music under the voice).
+pub fn voice_timeline(track: Option<AudioTrack>, words: &[crate::Word]) -> Option<String> {
+    let track = track.unwrap_or_default();
+    let scene = |t: f32| track.start + t - track.trim_in;
+    let (pauses, sound): (Vec<[f32; 2]>, [f32; 2]) = match analysis() {
+        Some(a) => {
+            let end = a.end(&track);
+            let inside = |p: &&[f32; 2]| p[1] > track.trim_in && p[0] < end;
+            let sound = a.sound?;
+            (a.pauses.iter().filter(inside).map(|p| [scene(p[0].max(track.trim_in)), scene(p[1].min(end))]).collect(), [scene(sound[0].max(track.trim_in)), scene(sound[1].min(end))])
+        }
+        None => {
+            let (first, last) = (words.first()?, words.last()?);
+            let gaps = words.windows(2).filter(|w| w[1].start - w[0].end >= MIN_PAUSE_S).map(|w| [w[0].end, w[1].start]).collect();
+            (gaps, [first.start, last.end])
+        }
+    };
+    let mut cuts = vec![sound[0]];
+    for p in &pauses {
+        cuts.push(p[0]);
+        cuts.push(p[1]);
+    }
+    cuts.push(sound[1]);
+    let phrase = |from: f32, to: f32| {
+        let text: Vec<&str> = words.iter().filter(|w| (w.start + w.end) / 2.0 >= from && (w.start + w.end) / 2.0 < to).map(|w| w.text.as_str()).collect();
+        let mut line = text.join(" ");
+        if line.chars().count() > PHRASE_CHARS {
+            line = format!("{}…", line.chars().take(PHRASE_CHARS).collect::<String>().trim_end());
+        }
+        if line.is_empty() { format!("{from:.2}–{to:.2}") } else { format!("{from:.2}–{to:.2} \"{line}\"") }
+    };
+    let mut parts = Vec::new();
+    for (i, span) in cuts.chunks(2).enumerate() {
+        if i == MAX_PHRASES {
+            parts.push(format!("… {} more phrases", cuts.len() / 2 - MAX_PHRASES));
+            break;
+        }
+        parts.push(phrase(span[0], span[1]));
+        if let Some(p) = pauses.get(i) {
+            let len = p[1] - p[0];
+            parts.push(format!("pause {len:.2}s{}", if len >= LONG_PAUSE_S { " LONG" } else { "" }));
+        }
+    }
+    let long = pauses.iter().filter(|p| p[1] - p[0] >= LONG_PAUSE_S).count();
+    Some(format!("voice timeline ({} phrases, {long} long pauses; scene s): {}", cuts.len() / 2, parts.join(" · ")))
 }
 
 /// Frames of the beats: peaks of the weighted spectral flux (rises of band level) above an
@@ -493,5 +585,41 @@ mod tests {
         assert!(Expr::new("spec(i/n)".into()).check().is_ok());
         assert!(Expr::new("vol(1, 2)".into()).check().is_err());
         set_analysis(None);
+    }
+}
+
+#[cfg(test)]
+mod voice_timeline_tests {
+    use super::*;
+
+    fn tone(out: &mut Vec<f32>, secs: f32, amp: f32) {
+        let n = (secs * SAMPLE_RATE) as usize;
+        let start = out.len();
+        out.extend((0..n).map(|i| amp * ((start + i) as f32 * 220.0 * std::f32::consts::TAU / SAMPLE_RATE).sin()));
+    }
+
+    #[test]
+    fn finds_long_and_short_pauses_and_labels_the_phrases() {
+        let mut s = Vec::new();
+        tone(&mut s, 0.3, 0.0);
+        tone(&mut s, 0.6, 0.5);
+        tone(&mut s, 0.8, 0.0);
+        tone(&mut s, 0.5, 0.5);
+        tone(&mut s, 0.3, 0.0);
+        tone(&mut s, 0.6, 0.5);
+        let a = analyze(&s, SAMPLE_RATE);
+        assert_eq!(a.pauses.len(), 2, "{:?}", a.pauses);
+        assert!((a.pauses[0][0] - 0.9).abs() < 0.05 && (a.pauses[0][1] - 1.7).abs() < 0.05, "{:?}", a.pauses);
+        assert!((a.pauses[1][1] - a.pauses[1][0] - 0.3).abs() < 0.06, "{:?}", a.pauses);
+        set_analysis(Some(a));
+        let word = |text: &str, start: f32, end: f32| crate::Word { text: text.into(), start, end, emphasis: false };
+        let words = [word("Every", 0.35, 0.6), word("word", 0.6, 0.85), word("moves.", 1.75, 2.2), word("Now.", 2.55, 3.1)];
+        let line = voice_timeline(None, &words).unwrap();
+        set_analysis(None);
+        assert!(line.contains("3 phrases, 1 long pauses"), "{line}");
+        assert!(line.contains("\"Every word\" · pause 0.80s LONG"), "{line}");
+        assert!(line.contains("\"moves.\" · pause 0.3"), "{line}");
+        // Without analysis the gaps between caption words stand in for the pauses.
+        assert!(voice_timeline(None, &words).unwrap().contains("pause 0.90s LONG"));
     }
 }

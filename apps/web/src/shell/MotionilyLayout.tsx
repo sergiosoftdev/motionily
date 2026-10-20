@@ -4,10 +4,10 @@ import { href, RouteName, useRoute, type Route } from "../router";
 import { useSession } from "../session";
 
 const NAV: { route: Route; label: string; icon: string; match: RouteName[] }[] = [
-  { route: { name: RouteName.Projects }, label: "Proyectos", icon: "M3 7h18M3 12h18M3 17h12", match: [RouteName.Projects, RouteName.Brand, RouteName.NewVideo] },
+  { route: { name: RouteName.Projects }, label: "Projects", icon: "M3 7h18M3 12h18M3 17h12", match: [RouteName.Projects, RouteName.Brand, RouteName.NewVideo] },
   { route: { name: RouteName.Prefabs }, label: "Prefabs", icon: "M12 3 3 8l9 5 9-5-9-5zM3 8v8l9 5 9-5V8", match: [RouteName.Prefabs] },
-  { route: { name: RouteName.Sounds }, label: "Sonidos", icon: "M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2", match: [RouteName.Sounds] },
-  { route: { name: RouteName.Settings }, label: "Configuración", icon: "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM4 12h2M18 12h2M12 4v2M12 18v2", match: [RouteName.Settings] },
+  { route: { name: RouteName.Sounds }, label: "Sounds", icon: "M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2", match: [RouteName.Sounds] },
+  { route: { name: RouteName.Settings }, label: "Settings", icon: "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM4 12h2M18 12h2M12 4v2M12 18v2", match: [RouteName.Settings] },
 ];
 
 export type LayoutTab = { label: string; href: string; active: boolean };
@@ -103,7 +103,7 @@ function AppNav() {
       <div className="mt-auto flex flex-col gap-1 px-3 text-xs text-neutral-500">
         <span className="truncate">{user?.email}</span>
         <button type="button" onClick={logout} className="self-start hover:text-white">
-          Salir
+          Sign out
         </button>
       </div>
     </aside>

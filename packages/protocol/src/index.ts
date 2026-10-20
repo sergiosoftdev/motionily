@@ -180,6 +180,8 @@ export const OpName = {
   SetGroup: "set_group",
   PutSfx: "put_sfx",
   RemoveSfx: "remove_sfx",
+  /** Master volume of the sound effects (the user's slider). */
+  SetSfxVolume: "set_sfx_volume",
   // components
   DefineComponent: "define_component",
   RemoveComponent: "remove_component",

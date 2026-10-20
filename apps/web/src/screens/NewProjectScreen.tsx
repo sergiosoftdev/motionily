@@ -23,20 +23,20 @@ type Step = (typeof Step)[keyof typeof Step];
 /** Steps shown in the progress bar (thinking belongs to "pick"). */
 const VISIBLE: { step: Step; label: string }[] = [
   { step: Step.Idea, label: "Idea" },
-  { step: Step.Format, label: "Formato" },
+  { step: Step.Format, label: "Format" },
   { step: Step.Count, label: "Propuestas" },
   { step: Step.Pick, label: "Enfoque" },
-  { step: Step.Script, label: "Guion" },
-  { step: Step.Voice, label: "Voz" },
+  { step: Step.Script, label: "Script" },
+  { step: Step.Voice, label: "Voice" },
 ];
 const COUNTS = [1, 2, 3, 4, 5, 6];
 
 const THINKING_LINES = [
-  "Leyendo tu kit de marca…",
-  "Buscando ganchos que paren el scroll…",
-  "Probando metáforas visuales distintas…",
-  "Escribiendo guiones con ritmo de voz…",
-  "Repartiendo los planos en el tiempo…",
+  "Reading your brand kit…",
+  "Looking for scroll-stopping hooks…",
+  "Trying different visual metaphors…",
+  "Writing scripts with a spoken rhythm…",
+  "Laying the shots out in time…",
 ];
 const THINKING_LINE_MS = 2600;
 
@@ -129,21 +129,21 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
       <header className="relative z-10 flex items-center justify-between px-8 py-6">
         <Logo />
         <a href={back} className="text-sm text-neutral-500 hover:text-white">
-          Salir
+          Exit
         </a>
       </header>
       <Progress index={index} onJump={(i) => i < index && step !== Step.Thinking && setStep(VISIBLE[i]!.step)} />
 
       <main className="relative z-10 mx-auto flex w-full max-w-5xl flex-1 flex-col px-8 pt-[12vh] pb-16">
         {step === Step.Idea && (
-          <Panel key={step} kicker="Paso 1" title="¿Qué quieres contar?" hint="En tus palabras: para quién es, qué problema resuelve, qué tono. Claude se encarga del resto.">
+          <Panel key={step} kicker="Step 1" title="What do you want to say?" hint="In your own words: who it's for, what problem it solves, what tone. Claude takes care of the rest.">
             <textarea
               value={idea}
               onChange={(e) => setIdea(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && idea.trim() && setStep(Step.Format)}
               rows={5}
               autoFocus
-              placeholder="Ej.: reel para fisios que pierden huecos por cancelaciones de última hora; con la lista de espera se rellenan solos. Cercano, con humor. (Pega o arrastra imágenes o vídeos de referencia)"
+              placeholder="E.g. a reel for physical therapists who lose slots to last-minute cancellations; with the waitlist they fill themselves. Warm, with humor. (Paste or drop reference images or videos)"
               {...refs.handlers}
               className="w-full resize-none rounded-2xl bg-white/5 px-6 py-5 text-lg leading-relaxed ring-1 ring-white/10 transition placeholder:text-neutral-600 focus:bg-white/[0.07] focus:outline-none focus:ring-white/30"
             />
@@ -153,7 +153,7 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
         )}
 
         {step === Step.Format && (
-          <Panel key={step} kicker="Paso 2" title="¿Dónde se va a ver?" hint="Cambia la composición entera, así que mejor decidirlo ahora.">
+          <Panel key={step} kicker="Step 2" title="Where will it be watched?" hint="It changes the whole composition, so better decide now.">
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
               {FORMAT_OPTIONS.map((o, i) => (
                 <button
@@ -180,7 +180,7 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
         )}
 
         {step === Step.Count && (
-          <Panel key={step} kicker="Paso 3" title="¿Cuántas ideas quieres ver?" hint="Cada una será un enfoque distinto, con su guion para ElevenLabs. Más ideas tardan un poco más.">
+          <Panel key={step} kicker="Step 3" title="How many ideas do you want to see?" hint="Each one is a different angle, with its own ElevenLabs script. More ideas take a little longer.">
             <div className="flex flex-wrap gap-3">
               {COUNTS.map((n, i) => (
                 <button
@@ -201,14 +201,14 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
               Pensar más las ideas (Opus, más lento) — por defecto van rápidas (~20 s)
             </label>
             {error && <p className="text-sm text-red-400">{error}</p>}
-            <Next label={`Proponer ${count === 1 ? "una idea" : `${count} ideas`}`} onClick={() => void pitch()} />
+            <Next label={`Pitch ${count === 1 ? "one idea" : `${count} ideas`}`} onClick={() => void pitch()} />
           </Panel>
         )}
 
         {step === Step.Thinking && <Thinking count={count} />}
 
         {step === Step.Pick && (
-          <Panel key={`pick-${seen.length}`} kicker="Paso 4" title="Elige un enfoque" hint="Todas cuentan tu idea, cada una a su manera. Podrás retocar el guion en el siguiente paso.">
+          <Panel key={`pick-${seen.length}`} kicker="Step 4" title="Pick an angle" hint="They all tell your idea, each in its own way. You can tweak the script in the next step.">
             <div className={`grid gap-5 ${count > 1 ? "md:grid-cols-2" : ""} ${count > 4 ? "xl:grid-cols-3" : ""}`}>
               {concepts.map((c, i) => (
                 <button
@@ -244,7 +244,7 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
               <input
                 value={steer}
                 onChange={(e) => setSteer(e.target.value)}
-                placeholder="¿Ninguna te convence? Dile qué cambiar: más humor, otro gancho, menos texto…"
+                placeholder="None of them? Tell it what to change: more humor, another hook, less text…"
                 className="flex-1 rounded-xl bg-white/5 px-5 py-3 text-sm ring-1 ring-white/10 placeholder:text-neutral-600 focus:outline-none focus:ring-white/30"
               />
               <button type="button" onClick={() => void pitch(true)} className="rounded-xl bg-white/10 px-5 py-3 text-sm font-semibold transition hover:bg-white/20">
@@ -255,7 +255,7 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
         )}
 
         {step === Step.Script && chosen && (
-          <Panel key={step} kicker="Paso 5" title="Tu guion" hint="El vídeo se monta sobre esta voz. Retócalo hasta que suene a ti; va en formato ElevenLabs v3.">
+          <Panel key={step} kicker="Step 5" title="Your script" hint="The video is built on this voice. Tweak it until it sounds like you; it's in ElevenLabs v3 format.">
             <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
               <textarea
                 value={chosen.voiceover}
@@ -272,15 +272,15 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
                 <CopyButton text={chosen.voiceover} />
               </aside>
             </div>
-            <Next label="Ya tengo el guion" onClick={() => setStep(Step.Voice)} />
+            <Next label="I have my script" onClick={() => setStep(Step.Voice)} />
           </Panel>
         )}
 
         {step === Step.Voice && chosen && (
-          <Panel key={step} kicker="Paso 6" title="Pon la voz" hint="Pega el guion en ElevenLabs, genera y descarga el mp3. Súbelo aquí y Claude atará cada plano a tus palabras.">
+          <Panel key={step} kicker="Step 6" title="Add the voice" hint="Paste the script into ElevenLabs, generate and download the mp3. Upload it here and Claude will tie every shot to your words.">
             <VoiceDrop busy={busy} onFile={(f) => void finish(f)} />
             <div className="flex max-w-xl flex-col gap-2">
-              <span className="text-sm text-neutral-400">¿Cómo lo montamos?</span>
+              <span className="text-sm text-neutral-400">How should we build it?</span>
               <ModePicker prefs={prefs} onChange={updatePrefs} />
             </div>
             {error && <p className="text-sm text-red-400">{error}</p>}
@@ -328,7 +328,7 @@ function Panel({ kicker, title, hint, children }: { kicker: string; title: strin
   );
 }
 
-function Next({ label = "Siguiente", onClick, disabled, hint }: { label?: string; onClick: () => void; disabled?: boolean; hint?: string }) {
+function Next({ label = "Next", onClick, disabled, hint }: { label?: string; onClick: () => void; disabled?: boolean; hint?: string }) {
   return (
     <div className="flex items-center gap-4">
       <button
@@ -393,7 +393,7 @@ function Thinking({ count }: { count: number }) {
     <section className="flex flex-col gap-10">
       <div className="wiz-in flex flex-col gap-3">
         <span className="font-mono text-xs text-neutral-500">Paso 4</span>
-        <h1 className="text-5xl font-semibold leading-[1.05] sm:text-6xl">Componiendo {count === 1 ? "una idea" : `${count} ideas`}</h1>
+        <h1 className="text-5xl font-semibold leading-[1.05] sm:text-6xl">Composing {count === 1 ? "one idea" : `${count} ideas`}</h1>
         <p className="font-mono text-base text-neutral-400">
           {THINKING_LINES[line]!.slice(0, typed)}
           <span className="comp-caret ml-0.5 inline-block h-4 w-2 translate-y-0.5 bg-neutral-300" />
@@ -473,7 +473,7 @@ function CopyButton({ text }: { text: string }) {
       onClick={() => void navigator.clipboard.writeText(text).then(() => setCopied(true))}
       className="mt-2 rounded-xl bg-white/10 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/20"
     >
-      {copied ? "Copiado ✓" : "Copiar para ElevenLabs"}
+      {copied ? "Copied ✓" : "Copy for ElevenLabs"}
     </button>
   );
 }
@@ -500,8 +500,8 @@ function VoiceDrop({ busy, onFile }: { busy: boolean; onFile: (f: File) => void 
       }`}
     >
       <input ref={input} type="file" accept="audio/*,video/*" className="hidden" onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
-      <span className="text-2xl font-semibold">{busy ? "Preparando tu vídeo…" : "Suelta aquí el mp3 de ElevenLabs"}</span>
-      <span className="text-sm text-neutral-500">{busy ? "Subiendo la voz y abriendo el editor" : "o haz clic para elegirlo"}</span>
+      <span className="text-2xl font-semibold">{busy ? "Preparing your video…" : "Drop your ElevenLabs mp3 here"}</span>
+      <span className="text-sm text-neutral-500">{busy ? "Uploading the voice and opening the editor" : "or click to choose it"}</span>
     </div>
   );
 }

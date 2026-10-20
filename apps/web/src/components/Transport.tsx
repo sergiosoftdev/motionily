@@ -12,7 +12,7 @@ export function Transport() {
         type="button"
         onClick={() => (playing ? engineHost.pause() : engineHost.play())}
         className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white text-neutral-950 hover:bg-neutral-200"
-        aria-label={playing ? "Pausar" : "Reproducir"}
+        aria-label={playing ? "Pause" : "Play"}
       >
         {playing ? (
           <svg viewBox="0 0 16 16" className="size-3.5 fill-current"><rect x="3" y="2" width="3.5" height="12" rx="1" /><rect x="9.5" y="2" width="3.5" height="12" rx="1" /></svg>

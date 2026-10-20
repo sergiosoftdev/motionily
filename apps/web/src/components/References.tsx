@@ -101,7 +101,7 @@ export function ReferenceStrip({ r, compact = false }: { r: References; compact?
     <div className="flex flex-wrap items-center gap-2">
       {r.refs.map((url) => (
         <span key={url} className={`group relative ${size} shrink-0 overflow-hidden rounded-md ring-1 ring-white/15`}>
-          <button type="button" onClick={() => setZoom(mediaUrl(url))} aria-label="Ver referencia" className="size-full cursor-zoom-in">
+          <button type="button" onClick={() => setZoom(mediaUrl(url))} aria-label="View reference" className="size-full cursor-zoom-in">
             <img src={mediaUrl(url)} alt="Referencia" className="size-full object-cover" />
           </button>
           <button
@@ -123,12 +123,12 @@ export function ReferenceStrip({ r, compact = false }: { r: References; compact?
         <button
           type="button"
           onClick={() => input.current?.click()}
-          title="Adjunta o pega (⌘V) imágenes de referencia"
+          title="Attach or paste (⌘V) reference images"
           className={`flex shrink-0 items-center justify-center gap-1.5 rounded-md text-neutral-400 ring-1 ring-white/10 transition hover:text-white hover:ring-white/30 ${
             compact ? "size-8 text-sm" : "h-16 px-3 text-xs"
           }`}
         >
-          {compact ? "＋" : "＋ Añadir"}
+          {compact ? "＋" : "＋ Add"}
         </button>
       )}
       <input

@@ -16,7 +16,7 @@ export function TopBar({ children }: { children?: ReactNode }) {
         <div className="flex items-center gap-3 text-xs text-neutral-400">
           <span className="hidden sm:inline">{user.email}</span>
           <button type="button" onClick={logout} className="hover:text-white">
-            Salir
+            Sign out
           </button>
         </div>
       )}

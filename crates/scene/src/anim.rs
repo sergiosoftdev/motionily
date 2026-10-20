@@ -112,7 +112,7 @@ pub fn cubic_bezier([x1, y1, x2, y2]: [f32; 4], t: f32) -> f32 {
 
 /// A scalar property: either a plain number or a list of keyframes.
 /// `"opacity": 1` and `"opacity": [{"t":0,"v":0},{"t":0.4,"v":1}]` both parse.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum Animated {
     Static(f32),
@@ -133,6 +133,27 @@ impl<'de> Deserialize<'de> for crate::expr::Expr {
         let e = crate::expr::Expr::new(src);
         e.check().map_err(serde::de::Error::custom)?;
         Ok(e)
+    }
+}
+
+/// By hand instead of `untagged`: serde's untagged error ("did not match any variant") hides the
+/// real problem, so agents could not tell which value or expression to fix.
+impl<'de> Deserialize<'de> for Animated {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        use serde_json::Value;
+        match Value::deserialize(d)? {
+            Value::Number(n) => n.as_f64().map(|v| Animated::Static(v as f32)).ok_or_else(|| D::Error::custom(format!("number {n} is out of range"))),
+            Value::String(src) => {
+                let e = crate::expr::Expr::new(src.clone());
+                e.check().map_err(|why| D::Error::custom(format!("expression \"{src}\": {why}")))?;
+                Ok(Animated::Expr(e))
+            }
+            keys @ Value::Array(_) => serde_json::from_value::<Vec<Keyframe>>(keys.clone())
+                .map(Animated::Keys)
+                .map_err(|why| D::Error::custom(format!("keyframes {keys} must be [{{\"t\":seconds,\"v\":number,\"ease\"?:name}}, …]: {why}"))),
+            other => Err(D::Error::custom(format!("expected a number, keyframes [{{\"t\":0,\"v\":1}}, …] or an expression string, got {other}"))),
+        }
     }
 }
 

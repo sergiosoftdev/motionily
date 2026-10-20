@@ -82,6 +82,8 @@ pub enum Op {
     PutSfx { cue: crate::SfxCue },
     RemoveSfx { id: String },
     ClearSfx,
+    /// Master volume of all sound effects, 0..2 (1 = as placed).
+    SetSfxVolume { volume: f32 },
     /// Start a video from scratch: every layer, sound cue and transition goes (palette, font,
     /// voice and captions stay).
     ClearLayers,
@@ -95,6 +97,24 @@ pub enum Op {
     DefineComponent { name: String, component: crate::component::Component },
     /// Delete a component no layer or other component uses any more.
     RemoveComponent { name: String },
+}
+
+impl Op {
+    /// A JSON list of ops, or an error naming the op that fails (index, kind, layer id) and why,
+    /// instead of serde's bare "invalid type at column N".
+    pub fn parse_list(json: &str) -> Result<Vec<Op>, String> {
+        serde_json::from_str(json).map_err(|e| {
+            let Ok(serde_json::Value::Array(items)) = serde_json::from_str::<serde_json::Value>(json) else { return format!("invalid ops: {e}") };
+            for (i, v) in items.into_iter().enumerate() {
+                if let Err(why) = serde_json::from_value::<Op>(v.clone()) {
+                    let kind = v.get("op").and_then(|o| o.as_str()).unwrap_or("?");
+                    let id = v.get("layer").and_then(|l| l.get("id")).or_else(|| v.get("id")).and_then(|x| x.as_str());
+                    return format!("op #{i} ({kind}{}): {why}", id.map(|id| format!(" '{id}'")).unwrap_or_default());
+                }
+            }
+            format!("invalid ops: {e}")
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -379,6 +399,12 @@ impl Scene {
             }
             Op::RemoveSfx { id } => self.sfx.retain(|c| &c.id != id),
             Op::ClearSfx => self.sfx.clear(),
+            Op::SetSfxVolume { volume } => {
+                if !(0.0..=2.0).contains(volume) {
+                    return Err(OpError::Invalid("sfx volume must be in 0..2"));
+                }
+                self.sfx_volume = *volume;
+            }
             Op::ClearLayers => {
                 self.layers.clear();
                 self.sfx.clear();
@@ -556,5 +582,22 @@ mod palette_tests {
         assert_eq!(scene.palette(), StylePreset::Clean.palette());
         let bad: Result<Vec<Op>, _> = serde_json::from_str(r#"[{"op":"set_palette","palette":{"background":"red"}}]"#);
         assert!(bad.is_err());
+    }
+}
+
+#[cfg(test)]
+mod parse_list_tests {
+    use super::Op;
+
+    #[test]
+    fn a_bad_value_names_its_op_layer_and_expression() {
+        let ok = r#"[{"op":"add_layer","layer":{"id":"ball","type":"shape","shape":"ellipse","w":10,"h":10,"motion_path":{"d":"M0 0 L100 0","progress":"ease_in_out(mod(t,1.6)/1.6)"}}}]"#;
+        assert!(Op::parse_list(ok).is_ok(), "{:?}", Op::parse_list(ok).err());
+        let bad = ok.replace("ease_in_out", "smooth_in");
+        let err = Op::parse_list(&bad).unwrap_err();
+        assert!(err.contains("op #0 (add_layer 'ball')"), "{err}");
+        assert!(err.contains("smooth_in") && err.contains("functions:"), "{err}");
+        let keys = r#"[{"op":"set_prop","id":"ball","prop":"x","value":[{"time":0,"value":1}]}]"#;
+        assert!(Op::parse_list(keys).unwrap_err().contains("keyframes"), "{}", Op::parse_list(keys).unwrap_err());
     }
 }

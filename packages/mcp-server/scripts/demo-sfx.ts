@@ -8,6 +8,6 @@ const bridge = new EditorBridge(apiUrl, process.env.MOTIONILY_TOKEN!, process.en
 await new Promise((r) => setTimeout(r, 800));
 const lib = new Map((await api.sounds()).map((s) => [s.name, s]));
 const cue = (id: string, name: string, at: number) => ({ op: "put_sfx", cue: { id, sound: name, src: lib.get(name)!.url, at, gain: 0.7 } });
-const res = await bridge.applyOps([cue("s1", "whoosh_rapido", 0.4), cue("s2", "pop", 0.9), cue("s3", "impacto", 1.6), cue("s4", "ding", 3)] as never);
+const res = await bridge.applyOps([cue("s1", "whoosh_fast", 0.4), cue("s2", "pop", 0.9), cue("s3", "impact", 1.6), cue("s4", "ding", 3)] as never);
 console.log("sfx", lib.size, res.ok, res.error ?? "");
 process.exit(0);

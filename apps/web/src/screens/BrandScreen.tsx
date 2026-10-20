@@ -10,17 +10,17 @@ const ASSET_ACCEPT = "image/*,video/mp4,video/webm,video/quicktime";
 
 const KIND_LABEL: Record<AssetKind, string> = {
   [AssetKind.Logo]: "Logo",
-  [AssetKind.Screenshot]: "Captura",
-  [AssetKind.Photo]: "Foto",
-  [AssetKind.Video]: "Vídeo",
+  [AssetKind.Screenshot]: "Screenshot",
+  [AssetKind.Photo]: "Photo",
+  [AssetKind.Video]: "Video",
   [AssetKind.Other]: "Otro",
 };
 
-const TAB_LABEL: Record<BrandTab, string> = { [BrandTab.Videos]: "Vídeos", [BrandTab.Kit]: "Kit de marca" };
+const TAB_LABEL: Record<BrandTab, string> = { [BrandTab.Videos]: "Videos", [BrandTab.Kit]: "Brand kit" };
 
-const EMPTY_PALETTE: BrandPalette = { name: "Paleta", background: "#ffffff", surface: "#f4f4f5", primary: "#16a34a", accent: "#f59e0b", text: "#111827" };
+const EMPTY_PALETTE: BrandPalette = { name: "Palette", background: "#ffffff", surface: "#f4f4f5", primary: "#16a34a", accent: "#f59e0b", text: "#111827" };
 const PALETTE_SLOTS = ["background", "surface", "primary", "accent", "text"] as const;
-const SLOT_LABEL: Record<(typeof PALETTE_SLOTS)[number], string> = { background: "Fondo", surface: "Superficie", primary: "Principal", accent: "Acento", text: "Texto" };
+const SLOT_LABEL: Record<(typeof PALETTE_SLOTS)[number], string> = { background: "Background", surface: "Surface", primary: "Primary", accent: "Accent", text: "Text" };
 
 export function BrandScreen({ id, tab }: { id: string; tab: BrandTab }) {
   const [kit, setKit] = useState<BrandKit | null>(null);
@@ -39,7 +39,7 @@ export function BrandScreen({ id, tab }: { id: string; tab: BrandTab }) {
             defaultValue={kit.name}
             onBlur={(e) => e.target.value.trim() && e.target.value !== kit.name && void api.updateBrand(id, { name: e.target.value.trim() }).then(setKit)}
             className="w-full rounded-md bg-transparent focus:bg-neutral-900 focus:outline-none"
-            aria-label="Nombre del proyecto"
+            aria-label="Project name"
           />
         )
       }
@@ -47,7 +47,7 @@ export function BrandScreen({ id, tab }: { id: string; tab: BrandTab }) {
         kit &&
         tab === BrandTab.Videos && (
           <a href={href({ name: RouteName.NewVideo, brandId: id })} className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-200">
-            Nuevo vídeo
+            New video
           </a>
         )
       }
@@ -69,7 +69,7 @@ function Videos({ brandId }: { brandId: string }) {
   }, [brandId]);
 
   const remove = async (v: ProjectListItem) => {
-    if (!confirm(`¿Borrar "${v.name}"? No se puede deshacer.`)) return;
+    if (!confirm(`Delete "${v.name}"? This can't be undone.`)) return;
     await api.deleteProject(v._id);
     setVideos((vs) => vs?.filter((x) => x._id !== v._id) ?? null);
   };
@@ -77,7 +77,7 @@ function Videos({ brandId }: { brandId: string }) {
   if (videos?.length === 0) {
     return (
       <a href={href({ name: RouteName.NewVideo, brandId })} className="rounded-xl border border-dashed border-neutral-700 p-10 text-center text-sm text-neutral-400 hover:border-neutral-500 hover:text-neutral-200">
-        Aún no hay vídeos en este proyecto. Crea el primero.
+        No videos in this project yet. Create the first one.
       </a>
     );
   }
@@ -98,7 +98,7 @@ function Videos({ brandId }: { brandId: string }) {
                 )}
               </span>
               <span className="-mt-2 px-1 text-xs text-neutral-400">
-                {new Date(v.updatedAt).toLocaleDateString("es-ES")}
+                {new Date(v.updatedAt).toLocaleDateString("en-US")}
               </span>
             </a>
             <button
@@ -106,7 +106,7 @@ function Videos({ brandId }: { brandId: string }) {
               onClick={() => void remove(v)}
               className="absolute top-4 right-4 rounded-md bg-black/60 px-2 py-1 text-xs text-neutral-300 opacity-0 group-hover:opacity-100 hover:text-red-400"
             >
-              Borrar
+              Delete
             </button>
           </div>
         );
@@ -138,14 +138,14 @@ function Kit({ kit, onKit }: { kit: BrandKit; onKit: (k: BrandKit) => void }) {
   return (
     <div className="flex flex-col gap-10">
       <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-semibold">Sobre el producto</h2>
-        <p className="text-xs text-neutral-500">Qué hace, para quién, tono de marca, qué destacar. El agente lo lee antes de cada vídeo.</p>
+        <h2 className="text-sm font-semibold">About the product</h2>
+        <p className="text-xs text-neutral-500">What it does, who it's for, brand tone, what to highlight. The agent reads it before every video.</p>
         <textarea
           key={kit.id}
           defaultValue={kit.notes}
           onBlur={(e) => e.target.value !== kit.notes && void api.updateBrand(kit.id, { notes: e.target.value }).then(onKit)}
           rows={5}
-          placeholder="Ej.: Clinily es un software para fisios: agenda, fichas, cobros… Tono cercano y profesional."
+          placeholder="E.g. Clinily is software for physical therapists: scheduling, patient records, payments… Warm and professional tone."
           className="resize-y rounded-lg bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-white/40"
         />
       </section>
@@ -153,11 +153,11 @@ function Kit({ kit, onKit }: { kit: BrandKit; onKit: (k: BrandKit) => void }) {
       <section className="flex flex-col gap-3">
         <div className="flex items-baseline justify-between">
           <div>
-            <h2 className="text-sm font-semibold">Paletas de la marca</h2>
-            <p className="text-xs text-neutral-500">Aparecen primero en "Colores" de cada vídeo del proyecto.</p>
+            <h2 className="text-sm font-semibold">Brand palettes</h2>
+            <p className="text-xs text-neutral-500">They show up first under "Colors" in every video of the project.</p>
           </div>
           <button type="button" onClick={() => savePalettes([...kit.palettes, EMPTY_PALETTE])} className="text-xs text-neutral-400 hover:text-white">
-            Añadir paleta
+            Add palette
           </button>
         </div>
         {kit.palettes.map((p, i) => (
@@ -166,7 +166,7 @@ function Kit({ kit, onKit }: { kit: BrandKit; onKit: (k: BrandKit) => void }) {
               defaultValue={p.name}
               onBlur={(e) => savePalettes(kit.palettes.map((x, j) => (j === i ? { ...x, name: e.target.value || x.name } : x)))}
               className="w-36 rounded-md bg-neutral-900 px-2 py-1.5 text-sm focus:outline-none"
-              aria-label="Nombre de la paleta"
+              aria-label="Palette name"
             />
             {PALETTE_SLOTS.map((slot) => (
               <label key={slot} className="flex items-center gap-1.5 text-xs text-neutral-400">
@@ -189,8 +189,8 @@ function Kit({ kit, onKit }: { kit: BrandKit; onKit: (k: BrandKit) => void }) {
       <section className="flex flex-col gap-3">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold">Logos, capturas, fotos y clips</h2>
-            <p className="text-xs text-neutral-500">Describe cada imagen o clip (qué es, cómo funciona) y el agente podrá explicarlo y usarlo en los vídeos.</p>
+            <h2 className="text-sm font-semibold">Logos, screenshots, photos and clips</h2>
+            <p className="text-xs text-neutral-500">Describe each image or clip (what it is, how it works) so the agent can explain it and use it in your videos.</p>
           </div>
           <div className="flex items-center gap-2">
             <select value={kind} onChange={(e) => setKind(e.target.value as AssetKind)} className="rounded-md bg-neutral-900 px-2 py-1.5 text-xs focus:outline-none" aria-label="Tipo">
@@ -203,7 +203,7 @@ function Kit({ kit, onKit }: { kit: BrandKit; onKit: (k: BrandKit) => void }) {
             </select>
             <input ref={fileInput} type="file" accept={ASSET_ACCEPT} multiple className="hidden" onChange={(e) => void upload(e.target.files)} />
             <button type="button" disabled={uploading} onClick={() => fileInput.current?.click()} className="rounded-lg bg-neutral-800 px-3 py-1.5 text-xs font-semibold hover:bg-neutral-700 disabled:opacity-50">
-              {uploading ? "Subiendo…" : "Subir imágenes o clips"}
+              {uploading ? "Uploading…" : "Upload images or clips"}
             </button>
           </div>
         </div>
@@ -229,7 +229,7 @@ function Kit({ kit, onKit }: { kit: BrandKit; onKit: (k: BrandKit) => void }) {
                   defaultValue={a.name}
                   onBlur={(e) => e.target.value !== a.name && void api.updateAsset(kit.id, a.id, { name: e.target.value }).then(onKit)}
                   className="min-w-0 flex-1 rounded-md bg-transparent px-1 text-sm font-medium focus:bg-neutral-900 focus:outline-none"
-                  aria-label="Nombre"
+                  aria-label="Name"
                 />
                 <span className="text-[11px] text-neutral-500">{KIND_LABEL[a.kind]}</span>
                 <button type="button" onClick={() => void api.deleteAsset(kit.id, a.id).then(onKit)} className="text-[11px] text-neutral-500 hover:text-red-400">
@@ -240,7 +240,7 @@ function Kit({ kit, onKit }: { kit: BrandKit; onKit: (k: BrandKit) => void }) {
                 defaultValue={a.description}
                 onBlur={(e) => e.target.value !== a.description && void api.updateAsset(kit.id, a.id, { description: e.target.value }).then(onKit)}
                 rows={3}
-                placeholder="Qué muestra y cómo funciona…"
+                placeholder="What it shows and how it works…"
                 className="resize-y rounded-lg bg-neutral-900 px-3 py-2 text-xs placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-white/40"
               />
             </div>
@@ -251,12 +251,12 @@ function Kit({ kit, onKit }: { kit: BrandKit; onKit: (k: BrandKit) => void }) {
       <button
         type="button"
         onClick={async () => {
-          if (!confirm(`¿Borrar el proyecto "${kit.name}"? Debe estar vacío de vídeos.`)) return;
+          if (!confirm(`Delete the project "${kit.name}"? It must have no videos.`)) return;
           await api.deleteBrand(kit.id).then(() => navigate({ name: RouteName.Projects }), (e: Error) => alert(e.message));
         }}
         className="self-start text-xs text-neutral-500 hover:text-red-400"
       >
-        Borrar proyecto
+        Delete project
       </button>
     </div>
   );

@@ -62,7 +62,7 @@ export function OptionRow({ brick, selected, fit, onClick }: Omit<Props, "byKey"
         <span className="flex items-center gap-2 text-sm font-medium">
           {brick.name}
           {fit === FitLevel.Recommended && <span className="text-[11px] font-normal text-emerald-400">Recomendado</span>}
-          {brick.visibility === BrickVisibility.Private && <span className="text-[11px] font-normal text-sky-400">Creada por el agente</span>}
+          {brick.visibility === BrickVisibility.Private && <span className="text-[11px] font-normal text-sky-400">Made by the agent</span>}
         </span>
         <span className="text-xs leading-snug text-neutral-400">{brick.description}</span>
       </span>

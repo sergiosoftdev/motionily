@@ -116,7 +116,8 @@ export const api = {
   agentToken: (id: string) => call<{ token: string; projectId: string }>(HttpMethod.Post, `/projects/${id}/agent-token`),
   saveScene: (id: string, scene: unknown, baseRevision: number) =>
     call<{ sceneRevision: number }>(HttpMethod.Put, `/projects/${id}/scene`, { scene, baseRevision }),
-  addComment: (id: string, text: string, at: number, layerId?: string) =>
+  /** A note for the agent; without `at` it is about the whole video. */
+  addComment: (id: string, text: string, at?: number, layerId?: string) =>
     call<unknown>(HttpMethod.Post, `/projects/${id}/feedback`, { kind: "comment", text, at, layerId }),
   googleFonts: (q: string, category?: string) =>
     call<GoogleFont[]>(HttpMethod.Get, `/fonts?${new URLSearchParams({ q, ...(category ? { category } : {}) })}`),

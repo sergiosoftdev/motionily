@@ -2,8 +2,8 @@ import { ActivitySource, useEditor } from "../store";
 import { Section } from "./Section";
 
 const WHO: Record<ActivitySource, string> = {
-  [ActivitySource.Agent]: "Agente",
-  [ActivitySource.User]: "Tú",
+  [ActivitySource.Agent]: "Agent",
+  [ActivitySource.User]: "You",
   [ActivitySource.System]: "·",
 };
 

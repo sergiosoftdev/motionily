@@ -53,14 +53,14 @@ export function ExportButton({ name, audioUrl }: { name: string; audioUrl: strin
   return (
     <>
       <button type="button" onClick={() => setOpen(true)} className="rounded-lg bg-neutral-800 px-3 py-1.5 text-xs font-semibold hover:bg-neutral-700">
-        Exportar
+        Export
       </button>
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" onClick={() => stage !== Stage.Rendering && setOpen(false)}>
           <div className="flex w-full max-w-sm flex-col gap-5 rounded-2xl bg-neutral-900 p-6" onClick={(e) => e.stopPropagation()}>
             <div>
-              <h2 className="text-lg font-bold">Exportar vídeo</h2>
-              <p className="mt-1 text-sm text-neutral-400">Se renderiza fotograma a fotograma en tu GPU, con el audio recortado.</p>
+              <h2 className="text-lg font-bold">Export video</h2>
+              <p className="mt-1 text-sm text-neutral-400">Rendered frame by frame on your GPU, with the trimmed audio.</p>
             </div>
             <div className="grid grid-cols-2 gap-1 rounded-lg bg-neutral-950 p-1">
               {QUALITIES.map((q) => (
@@ -83,7 +83,7 @@ export function ExportButton({ name, audioUrl }: { name: string; audioUrl: strin
                 <div className="flex justify-between text-xs text-neutral-400">
                   <span>Renderizando… {Math.round(progress * 100)}%</span>
                   <button type="button" onClick={() => abort.current?.abort()} className="hover:text-white">
-                    Cancelar
+                    Cancel
                   </button>
                 </div>
               </div>
@@ -96,7 +96,7 @@ export function ExportButton({ name, audioUrl }: { name: string; audioUrl: strin
             {stage === Stage.Error && <p className="text-xs text-red-400">{error}</p>}
             {(stage === Stage.Idle || stage === Stage.Error) && (
               <button type="button" onClick={() => void start()} className="rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-neutral-900 hover:bg-neutral-200">
-                Exportar
+                Export
               </button>
             )}
           </div>

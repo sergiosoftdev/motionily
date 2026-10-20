@@ -10,16 +10,16 @@ const creditLine = (c: ImageCredit) => `"${c.title}" — ${c.author} · ${c.lice
 export function ImageCredits({ credits }: { credits: ImageCredit[] }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {
-    void navigator.clipboard.writeText(`Imágenes:\n${credits.map(creditLine).join("\n")}`);
+    void navigator.clipboard.writeText(`Images:\n${credits.map(creditLine).join("\n")}`);
     setCopied(true);
     setTimeout(() => setCopied(false), COPIED_MS);
   };
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-xs text-neutral-500">Fotos reales · créditos para la descripción del post</span>
+        <span className="text-xs text-neutral-500">Real photos · credits for the post caption</span>
         <button type="button" onClick={copy} className="shrink-0 text-xs text-neutral-400 hover:text-white">
-          {copied ? "Copiado" : "Copiar"}
+          {copied ? "Copied" : "Copy"}
         </button>
       </div>
       <ul className="flex flex-col gap-2">

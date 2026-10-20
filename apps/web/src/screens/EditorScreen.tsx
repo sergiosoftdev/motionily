@@ -29,8 +29,8 @@ const PREVIEW_MAX_WIDTH = 960;
 const SidebarTab = { Brief: "brief", Voice: "voice", Format: "format", Log: "log" } as const;
 const SIDEBAR_TABS: [SidebarTab, string][] = [
   [SidebarTab.Brief, "Brief"],
-  [SidebarTab.Voice, "Voz"],
-  [SidebarTab.Format, "Formato"],
+  [SidebarTab.Voice, "Voice"],
+  [SidebarTab.Format, "Format"],
   [SidebarTab.Log, "Log"],
 ];
 type SidebarTab = (typeof SidebarTab)[keyof typeof SidebarTab];
@@ -145,7 +145,7 @@ export function EditorScreen({ id }: { id: string }) {
           revision.current = res.sceneRevision;
         } catch (e) {
           if (e instanceof ApiError && e.status === 409) {
-            logActivity(ActivitySource.System, "La escena cambió en otro sitio; recarga para ver la última");
+            logActivity(ActivitySource.System, "The scene changed somewhere else; reload to see the latest");
           }
         }
       }, SAVE_DEBOUNCE_MS);
@@ -185,7 +185,7 @@ export function EditorScreen({ id }: { id: string }) {
       <TopBar>
         {project?.brandId && (
           <a href={href({ name: RouteName.Brand, id: project.brandId, tab: BrandTab.Videos })} className="text-xs text-neutral-500 hover:text-white">
-            ← Proyecto
+            ← Project
           </a>
         )}
         {project && (
@@ -195,12 +195,12 @@ export function EditorScreen({ id }: { id: string }) {
             onBlur={(e) => void rename(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
             className="min-w-0 rounded-md bg-transparent px-2 py-1 text-sm font-medium hover:bg-neutral-900 focus:bg-neutral-900 focus:outline-none"
-            aria-label="Nombre del proyecto"
+            aria-label="Project name"
           />
         )}
         <span className="ml-auto flex items-center gap-1.5 text-xs text-neutral-400">
           <span className={`size-2 rounded-full ${agentConnected ? "bg-emerald-400" : "bg-neutral-600"}`} />
-          {agentConnected ? "Agente conectado" : "Esperando al agente"}
+          {agentConnected ? "Agent connected" : "Waiting for the agent"}
         </span>
         {project && <ExportButton name={project.name} audioUrl={project.audio ? mediaUrl(project.audio.url) : null} />}
         <ConnectAgent projectId={id} />
@@ -219,7 +219,7 @@ export function EditorScreen({ id }: { id: string }) {
             <SelectionOverlay canvas={canvasRef} projectId={id} />
             {status === EngineStatus.Loading && !error && <p className="absolute text-sm text-neutral-400">Arrancando motor…</p>}
             {(error || status === EngineStatus.Failed) && (
-              <p className="absolute max-w-sm text-center text-sm text-red-400">{error ?? `No se pudo iniciar el motor: ${engineError}`}</p>
+              <p className="absolute max-w-sm text-center text-sm text-red-400">{error ?? `The engine could not start: ${engineError}`}</p>
             )}
           </div>
           <Transport />
@@ -265,7 +265,7 @@ export function EditorScreen({ id }: { id: string }) {
           </div>
           {project && (
             <div className="px-5 pt-3 pb-4">
-              <ChangeComposer g={generation} hasScene={!!project.scene} />
+              <ChangeComposer g={generation} hasScene={!!project.scene} projectId={id} />
             </div>
           )}
         </aside>
@@ -280,18 +280,18 @@ function VoiceScript({ script, hasVoice }: { script: string; hasVoice: boolean }
   return (
     <section className="flex flex-col gap-2">
       <div className="flex items-baseline justify-between">
-        <span className="text-sm font-semibold">Guion de la voz</span>
+        <span className="text-sm font-semibold">Voice script</span>
         <button
           type="button"
           onClick={() => void navigator.clipboard.writeText(script).then(() => setCopied(true))}
           className="text-xs text-neutral-400 hover:text-white"
         >
-          {copied ? "Copiado" : "Copiar"}
+          {copied ? "Copied" : "Copy"}
         </button>
       </div>
       <p className="max-h-40 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed text-neutral-300">{script}</p>
       <span className="text-xs text-neutral-500">
-        {hasVoice ? "Voz subida: el agente ata el vídeo a sus palabras." : "Pégalo en ElevenLabs, descarga el mp3 y súbelo en «Voz y subtítulos». Luego, Generar."}
+        {hasVoice ? "Voice uploaded: the agent ties the video to its words." : "Paste it into ElevenLabs, download the mp3 and upload it under “Voice & captions”. Then hit Generate."}
       </span>
     </section>
   );
@@ -303,18 +303,18 @@ function BriefBox({ project, onBrief, onReferences }: { project: Project; onBrie
   return (
     <div className="flex flex-col gap-2">
       <label htmlFor="brief" className="text-xs text-neutral-500">
-        De qué va el vídeo · Claude lo diseña entero a partir de esto
+        What the video is about · Claude designs all of it from this
       </label>
       <textarea
         id="brief"
         defaultValue={project.brief}
         onBlur={(e) => onBrief(e.target.value)}
         rows={6}
-        placeholder="Ej.: anuncio de 20 s de mi app de reservas para fisios, tono cercano"
+        placeholder="E.g. a 20 s ad for my booking app for physical therapists, warm tone"
         className="resize-none rounded-lg bg-neutral-900 px-3 py-2 text-[13px] leading-relaxed placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-white/40"
         {...refs.handlers}
       />
-      <span className="mt-3 text-xs text-neutral-500">Referencias · imágenes o vídeos (⌘V o arrastra)</span>
+      <span className="mt-3 text-xs text-neutral-500">References · images or videos (⌘V or drag)</span>
       <ReferenceStrip r={refs} />
       {project.imageCredits.length > 0 && (
         <div className="mt-6">

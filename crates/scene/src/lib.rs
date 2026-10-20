@@ -95,6 +95,17 @@ pub struct Scene {
     /// Sound effects placed on the timeline (from the user's sound library).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sfx: Vec<SfxCue>,
+    /// Master level of every sound effect (cue gain × this), set by the user in the editor.
+    #[serde(default = "unit_volume", skip_serializing_if = "is_unit_volume")]
+    pub sfx_volume: f32,
+}
+
+fn unit_volume() -> f32 {
+    1.0
+}
+
+fn is_unit_volume(v: &f32) -> bool {
+    *v == 1.0
 }
 
 fn scene_version() -> u32 {
@@ -141,6 +152,7 @@ impl Default for Scene {
             captions: None,
             transitions: Vec::new(),
             sfx: Vec::new(),
+            sfx_volume: 1.0,
         }
     }
 }
@@ -695,6 +707,10 @@ impl Scene {
             self.layers.len(),
             self.sfx.iter().map(|c| format!("{}@{:.2}", c.sound, c.at)).collect::<Vec<_>>().join(",")
         );
+        // The user turned effects down (or up) by hand: keep new cues in proportion, never undo it.
+        if self.sfx_volume != 1.0 {
+            let _ = writeln!(s, "sfx volume: {:.0}% (set by the user; leave it)", self.sfx_volume * 100.0);
+        }
         for l in &self.layers {
             let end = l.end.unwrap_or(self.duration);
             let animated: Vec<&str> = [
@@ -756,6 +772,10 @@ impl Scene {
             let _ = writeln!(s, "audio: plays from {:.2}s, file {:.2}-{}", a.start, a.trim_in, out);
         }
         if let Some(line) = reactive::summary_line(self.audio) {
+            let _ = writeln!(s, "{line}");
+        }
+        let words = self.captions.as_ref().map_or(&[][..], |c| &c.words[..]);
+        if let Some(line) = reactive::voice_timeline(self.audio, words) {
             let _ = writeln!(s, "{line}");
         }
         if let Some(c) = &self.captions {

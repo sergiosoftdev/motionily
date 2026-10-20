@@ -68,8 +68,8 @@ export function SoundsScreen() {
 
   return (
     <MotionilyLayout
-      title="Sonidos"
-      description="Efectos para motion graphics sintetizados en Motionily. Se guardan en tu biblioteca y Claude los coloca en tus vídeos."
+      title="Sounds"
+      description="Motion graphics sound effects synthesized in Motionily. They're saved to your library and Claude places them in your videos."
       actions={
         (sounds?.length ?? 0) < STARTER_PACK.length && (
           <button
@@ -95,11 +95,11 @@ export function SoundsScreen() {
           <input
             value={describe}
             onChange={(e) => setDescribe(e.target.value)}
-            placeholder="Describe un sonido: «whoosh metálico que acaba en un clic», «pop de burbuja grave»…"
+            placeholder="Describe a sound: “metallic whoosh ending in a click”, “deep bubble pop”…"
             className="flex-1 rounded-lg bg-neutral-900 px-4 py-2.5 text-sm placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-white/40"
           />
           <button type="submit" disabled={designing || !describe.trim()} className="rounded-lg bg-neutral-800 px-4 py-2.5 text-sm font-semibold hover:bg-neutral-700 disabled:opacity-50">
-            {designing ? "Diseñando…" : "Crear con IA"}
+            {designing ? "Designing…" : "Create with AI"}
           </button>
         </form>
         {draft && (
@@ -111,7 +111,7 @@ export function SoundsScreen() {
             </div>
             <Wave buffer={draft.buffer} />
             <button type="button" onClick={() => void saveDraft()} className="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-neutral-900 hover:bg-neutral-200">
-              Guardar
+              Save
             </button>
             <button type="button" onClick={() => setDraft(null)} className="text-xs text-neutral-500 hover:text-white">
               Descartar
@@ -137,7 +137,7 @@ export function SoundsScreen() {
       )}
 
       {sounds?.length === 0 && packProgress === null && (
-        <p className="rounded-xl border border-dashed border-neutral-800 p-10 text-center text-sm text-neutral-500">Aún no tienes sonidos. Crea el pack inicial o describe uno.</p>
+        <p className="rounded-xl border border-dashed border-neutral-800 p-10 text-center text-sm text-neutral-500">No sounds yet. Create the starter pack or describe one.</p>
       )}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -165,7 +165,7 @@ function SoundCard({ sound, onDelete }: { sound: SoundRow; onDelete: () => void 
       </div>
       <span className="shrink-0 font-mono text-[10px] text-neutral-600">{sound.duration.toFixed(2)}s</span>
       <button type="button" onClick={onDelete} className="text-[11px] text-neutral-600 opacity-0 group-hover:opacity-100 hover:text-red-400">
-        Borrar
+        Delete
       </button>
     </div>
   );

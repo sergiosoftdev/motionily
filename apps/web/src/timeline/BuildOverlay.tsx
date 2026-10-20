@@ -100,7 +100,7 @@ function Blueprint({ w, h, sketch, direction }: { w: number; h: number; sketch: 
             <path d="M27 8 Q30 12 27 16 M31 6 Q35 12 31 18" stroke="#34d399" strokeWidth="1.6" fill="none" strokeLinecap="round" />
           </g>
         </svg>
-        <p className="font-mono text-[11px] leading-snug text-sky-100/90">{direction ? `“${direction}”` : "Plano de obra: la directora decide la dirección de arte y reparte los planos…"}</p>
+        <p className="font-mono text-[11px] leading-snug text-sky-100/90">{direction ? `“${direction}”` : "Blueprint: the director sets the art direction and splits up the shots…"}</p>
       </div>
     </div>
   );

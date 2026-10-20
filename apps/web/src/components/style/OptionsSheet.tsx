@@ -45,7 +45,7 @@ export function OptionsSheet({ projectId, onNewBrick, brandPalettes, slot, build
   return (
     <div className="absolute inset-0 z-10 flex flex-col bg-neutral-950">
       <div className="flex items-center gap-2 px-4 pt-4 pb-2">
-        <button type="button" onClick={onClose} className="rounded-md p-1.5 text-neutral-400 hover:bg-neutral-900 hover:text-white" aria-label="Volver">
+        <button type="button" onClick={onClose} className="rounded-md p-1.5 text-neutral-400 hover:bg-neutral-900 hover:text-white" aria-label="Back">
           <svg viewBox="0 0 16 16" className="size-4" fill="none" stroke="currentColor" strokeWidth={1.8}>
             <path d="M10 3 5 8l5 5" />
           </svg>
@@ -56,7 +56,7 @@ export function OptionsSheet({ projectId, onNewBrick, brandPalettes, slot, build
       {slot === BrickSlot.MotionStyle && (
         <label className="mx-5 mb-3 flex items-center gap-2 text-xs text-neutral-300">
           <input type="checkbox" checked={applyDefaults} onChange={(e) => setApplyDefaults(e.target.checked)} className="accent-white" />
-          Aplicar también sus colores, tipografía y animaciones
+          Also apply its colors, typography and animations
         </label>
       )}
       {slot === BrickSlot.Typography && (
@@ -71,7 +71,7 @@ export function OptionsSheet({ projectId, onNewBrick, brandPalettes, slot, build
       )}
       {slot === BrickSlot.Palette && brandPalettes.length > 0 && (
         <div className="flex flex-col gap-2 px-3 pb-4">
-          <span className="px-2 text-[11px] font-medium text-neutral-500">De tu marca</span>
+          <span className="px-2 text-[11px] font-medium text-neutral-500">From your brand</span>
           <div className="grid grid-cols-2 gap-1">
             {brandPalettes.map((p) => (
               <button
@@ -83,7 +83,7 @@ export function OptionsSheet({ projectId, onNewBrick, brandPalettes, slot, build
                     slot: BrickSlot.Palette,
                     id: `brand_${name.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 30) || "palette"}`,
                     name,
-                    description: "Paleta de la marca",
+                    description: "Brand palette",
                     payload: colors,
                   });
                   onNewBrick(brick);

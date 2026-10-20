@@ -109,7 +109,7 @@ rules below are exact. To know where something lands on screen, get_layout retur
 const ROLE_TOOLS = {
   planner: ["get_project", "get_brand", "view_image", "view_asset", "search_fonts", "set_font", "apply_ops", "add_layers", "search_images", "import_image", "define_component", "get_component"],
   builder: ["add_layers", "apply_ops", "get_layout", "render_frames", "view_asset", "view_image", "get_brand", "find_icons", "define_component", "get_component"],
-  finisher: ["review_video", "get_layout", "render_frames", "get_group", "add_layers", "apply_ops", "list_sounds", "add_sfx", "get_component"],
+  finisher: ["get_feedback", "review_video", "get_layout", "render_frames", "get_group", "add_layers", "apply_ops", "list_sounds", "add_sfx", "get_component", "set_font", "search_fonts"],
 } as const;
 
 /** Plans the video and sets the look; builders do the heavy writing in parallel. */
@@ -160,6 +160,9 @@ ${MOTION_2D}
 Reply with one short sentence when done.`;
 
 const FINISHER_GUIDE = `You are the finishing editor of a Motionily video built by a team in parallel.
+0. get_feedback FIRST: the user may have left notes while the team worked. Apply notes about the WHOLE video (font →
+   set_font, background, palette → set_palette, pace, colors) across every group before anything else; then the notes
+   pinned to a second or a layer. Call get_feedback again before you finish.
 1. review_video. If there is a reference film, put your sheet next to its sheets (view_image) and name the 3
 biggest gaps (palette, density, camera, transitions, rhythm); fix them first. 2. Fix only what is wrong (overlaps between beats, off-frame, dead air, broken transitions,
 unreadable text): get_group to read a group as compact lines, get_layout for exact screen boxes, add_layers to fix.
@@ -169,7 +172,7 @@ changed a lot (max 2 rounds).
    (whoosh on transitions, pop on entrances, impact on hero text, ticks on counters, riser before the reveal,
    chime on the payoff). If the library is empty, skip this.
 ${COMPACT_REF}
-Finish with a 2-3 sentence summary in Spanish: the art direction and what the video shows.
+Finish with a 2-3 sentence summary in English: the art direction and what the video shows.
 ${CRAFT}`;
 
 /**
@@ -179,7 +182,7 @@ ${CRAFT}`;
 const SOLO_STEPS = `Build it STEP BY STEP, as ONE continuous world the camera travels through:
 1. Gather: get_project, get_brand, references and photos. Decide the direction and the beat list briefly; do not
    compose every beat in your head now.
-2. Write ONE short line of plain text in Spanish: the art direction. Then apply_ops (palette, duration), set_font and
+2. Write ONE short line of plain text in English: the art direction. Then apply_ops (palette, duration), set_font and
    ONE add_layers with ONLY the world: the background and the camera "cam" keyed for the whole film, visiting one
    region per beat.
 3. Then each beat IN ORDER: first a plain-text line "Escena N: <what it shows>" (the user sees it), then ONE add_layers
@@ -219,14 +222,15 @@ exactly like a motion designer building a spot by hand. Avoid generic videos. Wo
    motion designer would reject: cut or off-screen characters, overlapping or tiny text, dead air, flat camera,
    generic look. Use render_frames to zoom into a moment. Review again until it is clean (max 3 rounds).
    Never hand back a video you have not reviewed.
-5. Check get_feedback at the end and apply it.
+5. The user can leave notes while you work: call get_feedback after each beat you finish and at the end, and apply
+   them right away (notes about the WHOLE video change every beat: font, background, palette, pace).
 ${NO_PROBING}
 ${CRAFT}
 ${MOTION_2D}
 Prefer add_layers (compact lines) over JSON for writing layers. Sound: list_sounds + add_sfx to sync effects to the motion.
 ${MANUAL}
 ${COMPACT_REF}
-Finish with a 2-3 sentence summary in Spanish: the art direction you chose and what the video shows.`;
+Finish with a 2-3 sentence summary in English: the art direction you chose and what the video shows.`;
 
 type RoleModel = { model: AgentModel; effort: AgentEffort };
 type TeamSetup = {
@@ -417,7 +421,7 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
   /** Plan, build beats in parallel, finish. Wall time ≈ planner + slowest beat + finisher. */
   private async team(run: Run, refs: string, base: AgentOpts, team: TeamSetup, mode: GenerateMode): Promise<AgentRunUsage> {
     // The cost log names the mode rather than one model (each role may run a different one).
-    const label: AgentOpts = { ...base, model: `modo ${mode}`, effort: undefined };
+    const label: AgentOpts = { ...base, model: `${mode} mode`, effort: undefined };
     const o: AgentOpts = { ...base, ...team.plan };
     const results: ResultLine[] = [];
     const t0 = Date.now();
@@ -525,12 +529,12 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
       });
       let stderr = "";
       child.stderr!.on("data", (c: Buffer) => (stderr = (stderr + c.toString()).slice(-2000)));
-      child.on("error", (e) => reject(new Error(`No se pudo lanzar Claude Code: ${e.message}`)));
+      child.on("error", (e) => reject(new Error(`Could not start Claude Code: ${e.message}`)));
       child.on("close", (code) => {
         run.processes.delete(child);
         if (child.pid && run.projectId) void this.projects.trackPid(run.projectId, child.pid, false);
         if (code === 0 && final) return resolvePromise({ text: final.result?.trim() ?? "", result: final });
-        reject(new Error(stderr.trim().split("\n").slice(-3).join(" ") || `claude terminó con código ${code}`));
+        reject(new Error(stderr.trim().split("\n").slice(-3).join(" ") || `claude exited with code ${code}`));
       });
     });
   }
@@ -590,7 +594,7 @@ function parsePlan(text: string): Plan {
     if (!beats.length) throw new Error("no beats");
     return { direction: plan.direction ?? "", motif: plan.motif, reference: plan.reference, beats };
   } catch {
-    throw new Error("El planificador no devolvió un plan válido; vuelve a intentarlo.");
+    throw new Error("The planner did not return a valid plan; try again.");
   }
 }
 

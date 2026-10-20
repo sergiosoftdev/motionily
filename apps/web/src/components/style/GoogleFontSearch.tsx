@@ -56,7 +56,7 @@ export function GoogleFontSearch({ projectId, current, onChosen }: { projectId: 
       <input
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        placeholder="Buscar en Google Fonts…"
+        placeholder="Search Google Fonts…"
         className="rounded-lg bg-neutral-900 px-3 py-2 text-sm placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-white/40"
       />
       <div className="flex flex-wrap gap-1">

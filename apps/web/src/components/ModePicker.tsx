@@ -6,10 +6,10 @@ export type GenerationMode = (typeof GenerationMode)[keyof typeof GenerationMode
 
 /** Costs: economy measured (~0,8 $ / 2,5 min for 12 s); the others are estimates until measured. */
 const MODES: { id: GenerationMode; label: string; team: string; estimate: string }[] = [
-  { id: GenerationMode.Economy, label: "Económico", team: "Todo Sonnet con esfuerzo bajo. Rápido y barato para probar ideas.", estimate: "Todo Sonnet · ≈ 0,8 $ · 2–3 min" },
-  { id: GenerationMode.Balanced, label: "Equilibrado", team: "Directora Opus, montadores Sonnet. Buen diseño a buen precio.", estimate: "Directora Opus + equipo Sonnet · ≈ 1,5 $ · 4 min" },
-  { id: GenerationMode.Premium, label: "Máxima calidad", team: "Un solo diseñador Opus hace todo el vídeo como un mundo continuo y un revisor Opus lo compara con tus referencias.", estimate: "Un diseñador Opus · ≈ 4–8 $ · 8–15 min" },
-  { id: GenerationMode.Custom, label: "Personalizado", team: "Eliges modelo y esfuerzo para todo el equipo.", estimate: "" },
+  { id: GenerationMode.Economy, label: "Economy", team: "All Sonnet at low effort. Fast and cheap for trying ideas.", estimate: "All Sonnet · ≈ $0.80 · 2–3 min" },
+  { id: GenerationMode.Balanced, label: "Balanced", team: "Opus art director, Sonnet builders. Good design at a good price.", estimate: "Opus director + Sonnet team · ≈ $1.50 · 4 min" },
+  { id: GenerationMode.Premium, label: "Max quality", team: "A single Opus designer builds the whole video as one continuous world and an Opus reviewer compares it with your references.", estimate: "One Opus designer · ≈ $4–8 · 8–15 min" },
+  { id: GenerationMode.Custom, label: "Custom", team: "You choose the model and effort for the whole team.", estimate: "" },
 ];
 
 /** The three everyday modes side by side; "Personalizado" opens model + effort. */
@@ -66,8 +66,8 @@ export function ModePicker({ prefs, onChange }: { prefs: AgentPrefs; onChange: (
 
 /** Labels short enough for one segmented row. */
 const SHORT: Record<GenerationMode, string> = {
-  [GenerationMode.Economy]: "Económico",
+  [GenerationMode.Economy]: "Economy",
   [GenerationMode.Balanced]: "Equilibrado",
-  [GenerationMode.Premium]: "Máxima",
+  [GenerationMode.Premium]: "Max",
   [GenerationMode.Custom]: "Personalizado",
 };

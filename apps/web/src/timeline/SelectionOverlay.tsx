@@ -235,7 +235,7 @@ export function SelectionOverlay({
         style={{ ...box, transform: `rotate(${box.rotation}rad)` }}
         onPointerDown={drag(false)}
         onDoubleClick={() => setEditingText(layerText())}
-        title="Arrastra para mover · doble clic para editar el texto · Supr para borrar"
+        title="Drag to move · double-click to edit the text · Delete to remove"
       >
         <span
           className="absolute -right-1.5 -bottom-1.5 size-3 cursor-nwse-resize rounded-sm bg-white ring-2 ring-sky-400"
@@ -254,7 +254,7 @@ export function SelectionOverlay({
                 if (editingText.trim())
                   apply(
                     [{ op: OpName.SetText, id: selected, text: editingText }],
-                    `Texto de ${selected}: ${editingText}`,
+                    `Text of ${selected}: ${editingText}`,
                   );
                 setEditingText(null);
               }
@@ -286,10 +286,10 @@ export function SelectionOverlay({
           onChange={(e) => setText(e.target.value)}
           placeholder={
             running
-              ? "El agente está en ello…"
+              ? "The agent is on it…"
               : group
-                ? "Ej.: rediséñalo para que quede más limpio"
-                : "Pídele algo sobre esto…"
+                ? "E.g. redesign it so it looks cleaner"
+                : "Ask for something about this…"
           }
           className="min-w-0 flex-1 bg-transparent px-1 text-xs placeholder:text-neutral-500 focus:outline-none"
         />
@@ -304,7 +304,7 @@ export function SelectionOverlay({
             {running && (
               <span className="size-2 animate-pulse rounded-full bg-emerald-400" />
             )}
-            {running ? "Trabajando en " : "Listo: "}
+            {running ? "Working on " : "Done: "}
             <span className="text-sky-300">
               {group ? `▣ ${group}` : selected}
             </span>
@@ -332,7 +332,7 @@ export function SelectionOverlay({
               onClick={() => void api.stopGenerate(projectId).then(setRun)}
               className="self-start text-neutral-500 hover:text-white"
             >
-              Parar
+              Stop
             </button>
           ) : (
             <button
@@ -340,7 +340,7 @@ export function SelectionOverlay({
               onClick={() => setRun(null)}
               className="self-start text-neutral-500 hover:text-white"
             >
-              Cerrar
+              Close
             </button>
           )}
         </div>

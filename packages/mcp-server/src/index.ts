@@ -143,7 +143,7 @@ server.registerTool(
 server.registerTool(
   "clone_prefab",
   {
-    description: "Copy a prefab under a new name (e.g. a blue, lower version of the camilla), then reshape the copy with get_prefab + save_prefab. The original stays untouched.",
+    description: "Copy a prefab under a new name (e.g. a blue, lower version of the treatment table), then reshape the copy with get_prefab + save_prefab. The original stays untouched.",
     inputSchema: { from: z.string(), name: z.string().regex(PREFAB_NAME), description: z.string().max(400).optional() },
   },
   guard(async ({ from, name, description }) => {
@@ -305,7 +305,7 @@ async function currentScene(): Promise<Record<string, unknown> | null> {
 const ORPHAN_CHECK_MS = 5_000;
 
 /** Default level for effects so they sit under a voice-over. */
-const SFX_GAIN = 0.7;
+const SFX_GAIN = 0.45;
 
 const layersOf = (scene: Record<string, unknown> | null) => (scene?.layers as Record<string, unknown>[] | undefined) ?? [];
 
@@ -485,7 +485,7 @@ server.registerTool(
   "add_sfx",
   {
     description:
-      "Place sound effects on the timeline, one per line: `id sound_name at [gain]` (at = seconds from the video start, gain 0.2-1, default 0.7). Same id moves/replaces it. Sync them to motion: whoosh/swipe on moves and transitions (start ~0.1 s before), pop on entrances, click/tick on UI and counters, impact on hero text landing, riser before reveals, chime on positive results. 1 sound per meaningful event; never stack more than 2 at once.",
+      "Place sound effects on the timeline, one per line: `id sound_name at [gain]` (at = seconds from the video start, gain 0.1-1, default 0.45; keep 0.3-0.6 under a voice, never above 0.8 — the user has an effects volume slider). Same id moves/replaces it. Sync them to motion: whoosh/swipe on moves and transitions (start ~0.1 s before), pop on entrances, click/tick on UI and counters, impact on hero text landing, riser before reveals, chime on positive results. 1 sound per meaningful event; never stack more than 2 at once.",
     inputSchema: { lines: z.string().min(1) },
   },
   guard(async ({ lines }) => {
@@ -662,7 +662,7 @@ function describeProject(p: Project): string {
   if (p.voiceScript.trim()) lines.push(`Voice script (ElevenLabs; the video is built on it):\n${p.voiceScript.trim()}`);
   if (p.references?.length) lines.push(`Reference images from the user (look with view_image): ${p.references.join(", ")}`);
   if (p.imageCredits?.length) lines.push(`Imported photos (src for image layers): ${p.imageCredits.map((c) => `${c.src} "${c.title}"`).join(", ")}`);
-  lines.push(p.audio ? `Voice uploaded: ${p.audio.name} (captions carry word timings).` : "Voice: not uploaded yet.");
+  lines.push(p.audio ? `Voice uploaded: ${p.audio.name}. get_scene's summary has its voice timeline (phrases, pauses, LONG pauses = scene changes) and captions carry word timings: time the beats to them.` : "Voice: not uploaded yet.");
   lines.push("No presets exist: you design and animate everything yourself (palette, font, keyframes, cuts, 3D).");
   lines.push(p.scene ? `Scene: exists (rev ${p.sceneRevision}); see get_scene.` : "Scene: empty. Build the first cut with load_scene.");
   lines.push(bridge.connected ? "Editor: open (your edits render live)." : "Editor: NOT open on this project — ask the user to open it before editing.");
@@ -674,7 +674,9 @@ function feedbackLine(f: Feedback): string {
     case FeedbackKind.Comment:
       return f.layerId
         ? `comment on layer '${f.layerId}' @${(f.at ?? 0).toFixed(1)}s: ${f.text} (get_layer ${f.layerId} to see it)`
-        : `comment @${(f.at ?? 0).toFixed(1)}s: ${f.text}`;
+        : f.at == null
+          ? `comment on the WHOLE video (apply it everywhere: font, background, palette, pace…): ${f.text}`
+          : `comment @${f.at.toFixed(1)}s: ${f.text}`;
     case FeedbackKind.BrickChosen:
       return `user set ${f.slot} = ${JSON.stringify(f.value)}`;
   }

@@ -5,7 +5,7 @@ import { removeMedia } from "../media";
 import { AssetKind, Brand, BrandAsset } from "./brand.schema";
 import type { AssetMetaDto, CreateBrandDto, UpdateBrandDto } from "./brands.dto";
 
-export const DEFAULT_BRAND_NAME = "Mi proyecto";
+export const DEFAULT_BRAND_NAME = "My project";
 
 @Injectable()
 export class BrandsService {

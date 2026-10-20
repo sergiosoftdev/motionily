@@ -27,6 +27,7 @@ function checkLayer(layer: Json | undefined): string | null {
 export function presetViolation(ops: Op[]): string | null {
   for (const op of ops) {
     if (PRESET_OPS.includes(op.op)) return `'${op.op}' is disabled. ${HINT}`;
+    if (op.op === OpName.SetSfxVolume) return "the effects volume is the user's slider: place your cues with a lower gain instead (add_sfx … 0.3).";
     if (op.op === OpName.PutProp && (op.prop as Json | undefined)?.model) return `stock 3D models are disabled. ${HINT}`;
     const why = checkLayer(op.layer as Json | undefined);
     if (why) return `${why}. ${HINT}`;

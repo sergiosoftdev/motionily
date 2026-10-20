@@ -66,8 +66,8 @@ visual worlds — never variations of one idea. Short-form rules: hook in the fi
 per beat, end with a clear payoff/CTA. The video is built ON TOP of the voice-over, so the script comes first.
 "voiceover" is the script ready to paste in ElevenLabs v3:
 - One tone tag first line only: [confident], [warm] or [playful].
-- Storytelling, one short paragraph per scene, each flowing from the previous; natural spoken Spanish, irregular
-  rhythm, never "Martes, diez de la mañana." openings or three punchy fragments in a row.
+- Storytelling, one short paragraph per scene, each flowing from the previous; natural spoken American English, irregular
+  rhythm, never "Tuesday, ten a.m." openings or three punchy fragments in a row.
 - Paragraph 1 = cold hook without the brand name; the brand appears in paragraph 2.
 - Between scenes exactly "[long pause] [long pause]" on its own line; inside a paragraph only commas/periods.
 - Numbers and times written in letters. Only true claims about the product.
@@ -75,9 +75,9 @@ per beat, end with a clear payoff/CTA. The video is built ON TOP of the voice-ov
 - What is said mirrors the text that will appear on screen.
 Answer ONLY with JSON: {"concepts":[{"title","hook","direction","beats":[{"at":"0-1.5s","what":"…"}],"voiceover","prompt"}]}.
 "direction" = art direction in 1-2 sentences (concept, palette, type, motion, camera). "prompt" = the complete brief
-for the builder agent (in Spanish, 80-200 words): beats tied to the script's paragraphs, art direction, what to show
+for the builder agent (in English, 80-200 words): beats tied to the script's paragraphs, art direction, what to show
 of the product. Beats' "at" follow the script timing.
-All text in Spanish.`;
+All text in American English: the audience is mostly in the United States.`;
 
 /** Asks Claude (no tools, one shot) for N different ways to make a video. */
 @Injectable()
