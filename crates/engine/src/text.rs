@@ -275,6 +275,15 @@ impl TextPipeline {
     /// Largest size (≤ requested) at which the block fits its box: no word wider than the
     /// wrap width and, when the layer has a height, all lines inside it.
     fn fit_size(&self, font: usize, item: &DrawText) -> f32 {
+        // On a path, lay the line out centered and unrotated (the path carries the layer's
+        // rotation); `follow_path` aligns it along the path.
+        let on_path;
+        let item = if item.path.is_some() {
+            on_path = DrawText { align: TextAlign::Center, rotation: 0.0, ..item.clone() };
+            &on_path
+        } else {
+            item
+        };
         let words = self.measure_words(font, item);
         let space = self.fonts[font].font.metrics(' ', item.size).advance_width;
         let mut k = 1.0_f32;
@@ -302,6 +311,7 @@ impl TextPipeline {
 
     fn layout(&mut self, queue: &wgpu::Queue, item: &DrawText, out: &mut Vec<Quad>) {
         let Some(font) = self.pick_font(&item.family, item.weight) else { return };
+        let original_align = item.align;
         let fitted;
         let item = {
             let size = self.fit_size(font, item);
@@ -340,6 +350,7 @@ impl TextPipeline {
         // (quad index, char, word, line) of every glyph, for gradients and text animators.
         let mut glyphs: Vec<(usize, usize, usize, usize)> = Vec::new();
         let (mut char_i, mut word_i) = (0usize, 0usize);
+        let mut first_baseline = None;
 
         for (line_i, (line, h)) in lines.iter().zip(&heights).enumerate() {
             let line_w: f32 = line.iter().map(|w| w.width).sum::<f32>() + space * line.len().saturating_sub(1) as f32;
@@ -349,6 +360,7 @@ impl TextPipeline {
                 TextAlign::Right => item.center[0] + item.max_width / 2.0 - line_w,
             };
             let baseline = top + (h - (ascent - descent) * line_scale(line)) / 2.0 + ascent * line_scale(line);
+            first_baseline.get_or_insert(baseline);
             for w in line {
                 let span = &item.spans[w.span];
                 if let Some(bg) = span.highlight {
@@ -396,7 +408,10 @@ impl TextPipeline {
             recolor(out, &glyphs, g);
         }
         if let Some(a) = &item.animator {
-            animate(out, &glyphs, a, item.rotation);
+            animate(out, &glyphs, a);
+        }
+        if let (Some((points, offset)), Some(baseline)) = (&item.path, first_baseline) {
+            follow_path(out, &glyphs, points, *offset, baseline, original_align);
         }
     }
 
@@ -441,7 +456,7 @@ fn recolor(out: &mut [Quad], glyphs: &[(usize, usize, usize, usize)], g: &scene:
 }
 
 /// Text animator: every unit (char / word / line) eases from its offset pose to rest.
-fn animate(out: &mut [Quad], glyphs: &[(usize, usize, usize, usize)], a: &scene::paint::DrawTextAnim, block_rotation: f32) {
+fn animate(out: &mut [Quad], glyphs: &[(usize, usize, usize, usize)], a: &scene::paint::DrawTextAnim) {
     use scene::paint::TextUnit;
     let (by, .., from, _) = a.anim;
     let unit = |g: &(usize, usize, usize, usize)| match by {
@@ -471,11 +486,68 @@ fn animate(out: &mut [Quad], glyphs: &[(usize, usize, usize, usize)], a: &scene:
         q.pos = [center[0] + (q.pos[0] - center[0]) * s + from.x * inv, center[1] + (q.pos[1] - center[1]) * s + from.y * inv];
         q.size = [q.size[0] * s, q.size[1] * s];
         q.color[3] *= (from.opacity + (1.0 - from.opacity) * p).clamp(0.0, 1.0);
-        // Per-unit spin only when the block itself is not rotated (one rotation per quad).
-        if from.rotation != 0.0 && block_rotation == 0.0 {
-            q.pivot = [center[0] + from.x * inv, center[1] + from.y * inv];
-            q.rotation = (from.rotation * inv).to_radians();
+        if from.rotation != 0.0 {
+            // Spin about the unit center, then the block's own rotation about its pivot: the
+            // same as one rotation (sum) about the unit center carried by the block rotation.
+            let c = [center[0] + from.x * inv, center[1] + from.y * inv];
+            let moved = rotate_about(c, q.pivot, q.rotation);
+            q.pos = [q.pos[0] + moved[0] - c[0], q.pos[1] + moved[1] - c[1]];
+            q.pivot = moved;
+            q.rotation += (from.rotation * inv).to_radians();
         }
+    }
+}
+
+fn rotate_about(p: [f32; 2], pivot: [f32; 2], angle: f32) -> [f32; 2] {
+    let (sn, cs) = angle.sin_cos();
+    let d = [p[0] - pivot[0], p[1] - pivot[1]];
+    [pivot[0] + d[0] * cs - d[1] * sn, pivot[1] + d[0] * sn + d[1] * cs]
+}
+
+/// Lay a laid-out line along a polyline: each glyph goes to the point at its distance along the
+/// path, turned to the path direction, keeping its height above the baseline. Glyphs past
+/// either end are hidden, so animating the offset makes text crawl in.
+fn follow_path(out: &mut [Quad], glyphs: &[(usize, usize, usize, usize)], points: &[[f32; 2]], offset: f32, baseline: f32, align: TextAlign) {
+    let mut acc = vec![0.0f32];
+    for w in points.windows(2) {
+        acc.push(acc.last().unwrap() + (w[1][0] - w[0][0]).hypot(w[1][1] - w[0][1]));
+    }
+    let total = *acc.last().unwrap();
+    if points.len() < 2 || total <= 0.0 {
+        return;
+    }
+    let (mut lo, mut hi) = (f32::MAX, f32::MIN);
+    for &(q, ..) in glyphs {
+        lo = lo.min(out[q].pos[0]);
+        hi = hi.max(out[q].pos[0] + out[q].size[0]);
+    }
+    let start = offset
+        + match align {
+            TextAlign::Left => 0.0,
+            TextAlign::Center => (total - (hi - lo)) / 2.0,
+            TextAlign::Right => total - (hi - lo),
+        };
+    for &(qi, ..) in glyphs {
+        let q = &mut out[qi];
+        let c = [q.pos[0] + q.size[0] / 2.0, q.pos[1] + q.size[1] / 2.0];
+        let along = start + c[0] - lo;
+        if !(0.0..=total).contains(&along) {
+            q.color[3] = 0.0;
+            continue;
+        }
+        let i = acc.partition_point(|d| *d <= along).clamp(1, points.len() - 1);
+        let (a, b) = (points[i - 1], points[i]);
+        let seg = (acc[i] - acc[i - 1]).max(1e-6);
+        let k = ((along - acc[i - 1]) / seg).clamp(0.0, 1.0);
+        let angle = (b[1] - a[1]).atan2(b[0] - a[0]);
+        let (sn, cs) = angle.sin_cos();
+        let up = c[1] - baseline;
+        let p = [a[0] + (b[0] - a[0]) * k - sn * up, a[1] + (b[1] - a[1]) * k + cs * up];
+        // A per-unit spin from an animator stays on top of the path direction.
+        let spin = q.rotation;
+        q.pos = [p[0] - q.size[0] / 2.0, p[1] - q.size[1] / 2.0];
+        q.pivot = p;
+        q.rotation = angle + spin;
     }
 }
 

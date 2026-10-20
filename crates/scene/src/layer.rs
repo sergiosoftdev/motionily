@@ -39,6 +39,9 @@ pub enum LayerContent {
         /// Extra letter spacing in pixels (negative tightens big headlines).
         #[serde(default)]
         letter_spacing: f32,
+        /// Text on a path: one line laid along it (path relative to the layer position).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        path: Option<TextPath>,
     },
     /// A picture (brand logo, product screenshot…) by URL/key, fitted into the layer box.
     Image {
@@ -69,6 +72,15 @@ pub enum LayerContent {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         morph: Vec<PathKey>,
     },
+}
+
+/// `{"d":"M-600 0 C-200 -300 200 300 600 0","offset":[{"t":0,"v":-900},{"t":3,"v":0}]}` — animate
+/// `offset` (px along the path) to make the text crawl along it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TextPath {
+    pub d: PathData,
+    #[serde(default)]
+    pub offset: Animated,
 }
 
 /// One morph keyframe.
@@ -528,7 +540,7 @@ impl Layer {
                 let feet = [center[0], center[1] + size[1] / 2.0];
                 Some(DrawItem::Group(draw_character(spec, feet, size[1], lt, color.0[3], ctx.palette)))
             }
-            LayerContent::Text { text, size: px, role, align, line_height, animate, letter_spacing } => {
+            LayerContent::Text { text, size: px, role, align, line_height, animate, letter_spacing, path } => {
                 let (family, weight) = ctx
                     .typography
                     .map_or((DEFAULT_FAMILY.to_owned(), 600), |t| (t.family.clone(), t.weight(*role)));
@@ -536,6 +548,14 @@ impl Layer {
                     gradient,
                     animator: animate.as_ref().map(|a| a.resolve(lt)),
                     letter_spacing: *letter_spacing * scale,
+                    path: path.as_ref().and_then(|p| {
+                        let lines = p.d.lines().as_ref().ok()?;
+                        let points = lines.iter().flat_map(|l| &l.points).map(|q| {
+                            let r = rot([q[0] * scale, q[1] * scale], rotation);
+                            [center[0] + r[0], center[1] + r[1]]
+                        });
+                        Some((points.collect(), p.offset.sample(lt) * scale))
+                    }),
                     spans: vec![TextSpan { text: text.clone(), color, scale: 1.0, highlight: None }],
                     size: px * scale,
                     family,
@@ -543,8 +563,9 @@ impl Layer {
                     align: *align,
                     line_height: *line_height,
                     center,
-                    max_width: fit_width(size[0], center[0], ctx.scene_size[0]),
-                    max_height: Some(size[1].max(1.0)),
+                    // On a path the text is one line of its full size.
+                    max_width: if path.is_some() { f32::MAX } else { fit_width(size[0], center[0], ctx.scene_size[0]) },
+                    max_height: if path.is_some() { None } else { Some(size[1].max(1.0)) },
                     rotation,
                 }))
             }

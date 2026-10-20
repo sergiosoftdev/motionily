@@ -80,6 +80,10 @@ impl DrawItem {
                 text.size *= s;
                 text.max_width *= s;
                 text.max_height = text.max_height.map(|h| h * s);
+                if let Some((points, offset)) = &mut text.path {
+                    points.iter_mut().for_each(|p| *p = [origin[0] + (p[0] - origin[0]) * s, origin[1] + (p[1] - origin[1]) * s]);
+                    *offset *= s;
+                }
             }
             DrawItem::Image(img) => {
                 img.center = [origin[0] + (img.center[0] - origin[0]) * s, origin[1] + (img.center[1] - origin[1]) * s];

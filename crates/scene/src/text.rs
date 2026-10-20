@@ -59,6 +59,8 @@ pub struct DrawText {
     pub animator: Option<crate::paint::DrawTextAnim>,
     /// Extra space between letters, in pixels.
     pub letter_spacing: f32,
+    /// Text on a path: the baseline follows this polyline (scene pixels), starting `offset` px in.
+    pub path: Option<(Vec<[f32; 2]>, f32)>,
     pub spans: Vec<TextSpan>,
     /// Font size in scene pixels.
     pub size: f32,
@@ -203,6 +205,7 @@ pub(crate) fn caption_frame(scene: &Scene, palette: &Palette, t: f32) -> Option<
         gradient: None,
         animator: None,
         letter_spacing: 0.0,
+        path: None,
         spans,
         size: CAPTION_SIZE,
         weight: typo.heading,
