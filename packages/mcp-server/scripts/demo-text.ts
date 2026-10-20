@@ -16,5 +16,5 @@ await call("load_scene", { scene: JSON.stringify({ width: 1080, height: 1920, fp
   { id: "sub", type: "text", text: "Citas online para fisios", size: 56, role: "body", anchor: "hero", w: 700, h: 200, fill: "primary", anims: [{ use: "animation/fade_up", at: 0.5 }] },
 ] }) });
 await call("apply_ops", { ops: [{ op: "set_captions", captions: { words } }, { op: "set_emphasis", words: [4, 5, 11], emphasis: true }] });
-await call("get_scene");
+await call("inspect");
 await client.close();

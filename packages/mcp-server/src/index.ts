@@ -18,6 +18,7 @@ import {
   OpName,
   VideoFormat,
   type Feedback,
+  type FrameLayout,
   type Op,
   type Project,
 } from "@motionily/protocol";
@@ -26,6 +27,13 @@ import { HeadlessEditor } from "./headless.js";
 import { formatLayer, formatParams, parseLines, parseParams, parsePartial, type ParamDef } from "./compact.js";
 import { ProjectApi, VIDEO_ASSET, clipFacts, posterTimes } from "./api.js";
 import { formatLayouts } from "./layout.js";
+import { isRef, resolveLayerTimes, type Word } from "./timing.js";
+import { formatIssues, lintLayers, type Layer as LintLayer, type Palette } from "./lint.js";
+import { placementPatches, type Box } from "./place.js";
+import { Checkpoints, diffScenes } from "./checkpoints.js";
+import { describeExample, examplesDir, loadExamples, rankExamples, saveExample } from "./examples.js";
+import { nextSteps, type ProjectState } from "./nextstep.js";
+import { frameStats } from "./review.js";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const doc = (name: string) => readFileSync(resolve(here, "../../../docs/agent", name), "utf8").trim();
@@ -309,6 +317,107 @@ const SFX_GAIN = 0.45;
 
 const layersOf = (scene: Record<string, unknown> | null) => (scene?.layers as Record<string, unknown>[] | undefined) ?? [];
 
+// ── write-time checks: timing references, lint with fixes, placement, and the session's state for next_step ──
+const checkpoints = new Checkpoints();
+const session = { editsSinceReview: false, reviewed: false, lintIds: [] as string[] };
+/** Used only when the scene carries no palette of its own: white paper with a blue and an orange accent. */
+const DEFAULT_PALETTE: Palette = { background: "#ffffff", surface: "#ffffff", primary: "#3c8cff", accent: "#ff8a3d", text: "#0b0b14" };
+const wordsOf = (scene: Record<string, unknown> | null): Word[] =>
+  ((scene?.captions as { words?: { text: string; start: number; end: number }[] } | undefined)?.words ?? []).map((w) => ({ text: String(w.text), start: Number(w.start), end: Number(w.end) }));
+/** The palette the frames were drawn with (engine, hex); the scene's own palette, else the fallback. */
+const paletteOf = (scene: Record<string, unknown> | null, frames: FrameLayout[] = []): Palette => {
+  const engine = frames.find((f) => f.palette)?.palette;
+  const own = scene?.palette && typeof scene.palette === "object" ? (scene.palette as Partial<Palette>) : {};
+  return { ...DEFAULT_PALETTE, ...own, ...(engine ?? {}) };
+};
+const sizeOf = (scene: Record<string, unknown> | null): [number, number] => [Number(scene?.width ?? 1080), Number(scene?.height ?? 1920)];
+const durationOf = (scene: Record<string, unknown> | null) => Number(scene?.duration ?? 6);
+
+/** Up to `n` evenly spaced instants out of `ts`. */
+function spread(ts: number[], n: number): number[] {
+  const u = [...new Set(ts.map((t) => +Math.max(0, t).toFixed(3)))].sort((a, b) => a - b);
+  if (u.length <= n) return u;
+  return Array.from({ length: n }, (_, i) => u[Math.round((i * (u.length - 1)) / (n - 1))]!);
+}
+
+/** Layout at these instants from the editor; null when it is not connected. */
+async function layoutAt(times: number[]): Promise<FrameLayout[] | null> {
+  const out: FrameLayout[] = [];
+  const picks = spread(times, 24);
+  for (let i = 0; i < picks.length; i += 12) {
+    const res = await bridge.layout(picks.slice(i, i + 12));
+    if (!res.ok || !res.layouts) return null;
+    out.push(...res.layouts);
+  }
+  return out;
+}
+
+/** Screen box lookup over a set of frames: the frame nearest to `t`. */
+function boxFinder(list: FrameLayout[]) {
+  return (id: string, t: number): Box | null => {
+    const frame = list.reduce((best, f) => (Math.abs(f.t - t) < Math.abs(best.t - t) ? f : best), list[0]!);
+    const row = frame?.layers.find((r) => r.id === id);
+    return row ? (row.screen as Box) : null;
+  };
+}
+
+/** Resolve `@phrase`/`@word` times inside ops (start/end on the op, its fields, or its new layer). */
+function resolveOpTimes(ops: Record<string, unknown>[], words: Word[]) {
+  for (const op of ops) {
+    for (const holder of [op, op.fields, op.layer]) if (holder && typeof holder === "object") resolveLayerTimes([holder as Record<string, unknown>], words);
+  }
+}
+
+/** Layer ids an ops batch writes to. */
+function opsIds(ops: Record<string, unknown>[]): string[] {
+  return ops.flatMap((op) => {
+    const ids = [op.id, (op.layer as { id?: unknown } | undefined)?.id, ...(Array.isArray(op.ids) ? op.ids : [])];
+    return ids.filter((x): x is string | number => typeof x === "string" || typeof x === "number").map(String);
+  });
+}
+
+/**
+ * After a write: move layers placed with place= to their anchors, then lint the touched layers
+ * at their own times. Returns the lines to show the agent (placements, issues with fix ops).
+ */
+async function settle(touched: string[], hint: Record<string, unknown>[] = []): Promise<string[]> {
+  const live = await currentScene();
+  const byId = new Map(layersOf(live).map((l) => [String(l.id), l]));
+  for (const l of hint) byId.set(String(l.id), { ...byId.get(String(l.id)), ...l });
+  const layers = [...byId.values()] as LintLayer[];
+  const scene = live ?? {};
+  const duration = durationOf(scene);
+  const size = sizeOf(scene);
+  const notes: string[] = [];
+  const placed = layers.filter((l) => l.place);
+  if (placed.length) {
+    const times = placed.flatMap((l) => [Number(l.start ?? 0), Number((byId.get(String((l.place as { of?: string }).of))?.start ?? 0))]);
+    const list = await layoutAt(times);
+    if (!list) notes.push("placement skipped: the editor is not connected");
+    else {
+      const patches = placementPatches(layers, boxFinder(list), size);
+      if (patches.length) {
+        const res = await bridge.applyOps(patches.map((p) => p.op) as Op[]);
+        notes.push(res.ok ? `placed (place=): ${patches.map((p) => `${p.id} at x=${p.x} y=${p.y}`).join("; ")}` : `placement rejected: ${res.error ?? "?"}`);
+      }
+    }
+  }
+  const ids = new Set(touched);
+  const times: number[] = [];
+  for (const l of layers) {
+    if (!ids.has(String(l.id)) || l.visible === false) continue;
+    const start = Number(l.start ?? 0);
+    const end = l.end == null ? duration : Math.min(Number(l.end), duration);
+    times.push(start, (start + Math.max(start, end)) / 2);
+  }
+  if (!times.length) return notes;
+  const list = await layoutAt(times);
+  if (!list) return [...notes, "lint skipped: the editor is not connected"];
+  const issues = lintLayers({ layers, frames: list, palette: paletteOf(scene, list), size }).filter((i) => i.id.split("+").some((part) => ids.has(part)));
+  session.lintIds = [...new Set(issues.map((i) => i.id))];
+  return [...notes, ...(issues.length ? formatIssues(issues) : ["lint: clean"])];
+}
+
 server.registerTool(
   "add_layers",
   {
@@ -320,13 +429,17 @@ server.registerTool(
     let layers;
     try {
       layers = parseLines(lines);
+      resolveLayerTimes(layers, wordsOf(await currentScene()));
     } catch (e) {
       return fail((e as Error).message);
     }
     const existing = new Set(layersOf(await currentScene()).map((l) => String(l.id)));
     const ops = layers.flatMap((layer) => [...(existing.has(String(layer.id)) ? [{ op: "remove_layer", id: layer.id }] : []), { op: "add_layer", layer }]);
     const res = await bridge.applyOps(ops as Op[]);
-    return res.ok ? text(`${layers.length} layers ok`) : fail(res.error ?? "rejected");
+    if (!res.ok) return fail(res.error ?? "rejected");
+    session.editsSinceReview = true;
+    const notes = await settle(layers.map((l) => String(l.id)), layers);
+    return text([`${layers.length} layers ok`, ...notes].join("\n"));
   }),
 );
 
@@ -503,51 +616,125 @@ server.registerTool(
 );
 
 server.registerTool(
-  "get_scene",
-  {
-    description: "Current scene: compact summary by default; full=true for exact keyframes.",
-    inputSchema: { full: z.boolean().optional() },
-  },
-  guard(async ({ full }) => {
-    if (!full && bridge.connected && bridge.lastSummary) return text(bridge.lastSummary);
-    const { scene } = await api.project();
-    if (!scene) return text("Empty project: no scene yet. Start with load_scene.");
-    if (!full) return text(`${bridge.connected ? "" : "(editor closed) "}${JSON.stringify(scene).slice(0, 2000)}`);
-    const { layers, ...rest } = scene as Record<string, unknown>;
-    return text(`${JSON.stringify(rest)}\nlayers (compact lines):\n${layersOf({ layers }).map(formatLayer).join("\n")}`);
-  }),
-);
-
-server.registerTool(
-  "get_layer",
+  "inspect",
   {
     description:
-      "One layer as JSON (the one a comment points at, or any id from the summary). Use it instead of reading the whole scene.",
-    inputSchema: { id: z.string() },
+      "Read the scene: no target or 'scene' = the summary (full=true for exact keyframes and every layer as compact lines); a layer id = that layer as compact lines; 'group:NAME' = every layer of a group with its times. Read before you change something you did not write this session.",
+    inputSchema: {
+      target: z.string().optional().describe("scene (default) · LAYER_ID · group:NAME"),
+      full: z.boolean().optional(),
+    },
   },
-  guard(async ({ id }) => {
-    const live = bridge.lastScene;
-    const scene = live ? (JSON.parse(live) as Record<string, unknown>) : (await api.project()).scene;
-    const layers = (scene?.layers as { id: string }[] | undefined) ?? [];
+  guard(async ({ target, full }) => {
+    const want = target?.trim() || "scene";
+    if (want === "scene") {
+      if (!full && bridge.connected && bridge.lastSummary) return text(bridge.lastSummary);
+      const { scene } = await api.project();
+      if (!scene) return text("Empty project: no scene yet. Start with load_scene.");
+      if (!full) return text(`${bridge.connected ? "" : "(editor closed) "}${JSON.stringify(scene).slice(0, 2000)}`);
+      const { layers, ...rest } = scene as Record<string, unknown>;
+      return text(`${JSON.stringify(rest)}\nlayers (compact lines):\n${layersOf({ layers }).map(formatLayer).join("\n")}`);
+    }
+    const scene = await currentScene();
+    const layers = layersOf(scene) as { id: string; group?: string; start?: number; end?: number | null }[];
+    if (want.startsWith("group:")) {
+      const group = want.slice(6);
+      const members = layers.filter((l) => l.group === group);
+      if (!members.length) return fail(`No group '${group}'. Groups: ${[...new Set(layers.map((l) => l.group).filter(Boolean))].join(", ") || "none"}`);
+      const start = Math.min(...members.map((l) => l.start ?? 0));
+      return text(`group ${group}: ${members.length} layers from ${start}s (compact lines; edit with add_layers)\n${members.map((l) => formatLayer(l as Record<string, unknown>)).join("\n")}`);
+    }
+    const id = want.replace(/^layer:/, "");
     const layer = layers.find((l) => l.id === id);
-    return layer ? text(formatLayer(layer as Record<string, unknown>)) : fail(`No layer '${id}'. Layers: ${layers.map((l) => l.id).join(", ") || "none"}`);
+    return layer ? text(formatLayer(layer as Record<string, unknown>)) : fail(`No layer '${id}'. Layers: ${layers.map((l) => l.id).join(", ") || "none"}. Groups: group:NAME`);
   }),
 );
 
 server.registerTool(
-  "get_group",
+  "checkpoint",
   {
     description:
-      "Every layer of a group (e.g. 'dashboard') as JSON, plus its time span. Use it when the user points at a group: redesign or tweak just those layers (remove_group + add_layer with the same group, or set_prop), not the whole video.",
-    inputSchema: { group: z.string() },
+      "Named snapshots of the scene for this session. save NAME before a risky change; diff NAME [OTHER] says what changed since (layer by layer, scene keys too; OTHER defaults to the current scene); restore NAME puts the snapshot back (replaces the whole scene); list shows what is saved.",
+    inputSchema: {
+      action: z.enum(["save", "restore", "diff", "list"]),
+      name: z.string().optional(),
+      other: z.string().optional(),
+    },
   },
-  guard(async ({ group }) => {
-    const live = bridge.lastScene;
-    const scene = live ? (JSON.parse(live) as Record<string, unknown>) : (await api.project()).scene;
-    const layers = ((scene?.layers as { id: string; group?: string; start?: number; end?: number | null }[] | undefined) ?? []).filter((l) => l.group === group);
-    if (!layers.length) return fail(`No group '${group}'.`);
-    const start = Math.min(...layers.map((l) => l.start ?? 0));
-    return text(`group ${group}: ${layers.length} layers from ${start}s (compact lines; edit with add_layers)\n${layers.map((l) => formatLayer(l as Record<string, unknown>)).join("\n")}`);
+  guard(async ({ action, name, other }) => {
+    if (action === "list") return text(checkpoints.list());
+    if (!name) return fail(`checkpoint ${action} needs a name`);
+    try {
+      if (action === "save") {
+        const scene = await currentScene();
+        if (!scene) return fail("no scene to save yet");
+        return text(checkpoints.save(name, scene));
+      }
+      if (action === "diff") {
+        const before = checkpoints.get(name);
+        const after = other ? checkpoints.get(other) : ((await currentScene()) ?? {});
+        return text(diffScenes(before, after).join("\n"));
+      }
+      const res = await bridge.loadScene(JSON.stringify(checkpoints.get(name)));
+      if (!res.ok) return fail(res.error ?? "restore rejected");
+      session.editsSinceReview = true;
+      return text(`restored '${name}'${res.summary ? `: ${res.summary}` : ""}`);
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+  }),
+);
+
+server.registerTool(
+  "next_step",
+  {
+    description:
+      "What to do next, from the project's state: one to three steps in workflow order (empty scene, placement and lint issues, review, sound, checkpoints, done). Call it when you are unsure what comes next.",
+  },
+  guard(async () => {
+    const scene = await currentScene();
+    const layers = layersOf(scene);
+    const duration = durationOf(scene);
+    const state: ProjectState = {
+      layers: layers.length,
+      duration,
+      sfx: ((scene?.sfx as unknown[] | undefined) ?? []).length,
+      editsSinceReview: session.editsSinceReview,
+      reviewed: session.reviewed,
+      lintIds: session.lintIds,
+      pastEnd: layers.filter((l) => Number(l.start ?? 0) > duration).map((l) => String(l.id)),
+      checkpoints: checkpoints.names().length,
+    };
+    return text(nextSteps(state).map((step, i) => `${i + 1}. ${step}`).join("\n"));
+  }),
+);
+
+server.registerTool(
+  "examples",
+  {
+    description:
+      "Videos the user approved, kept outside the repo. save LABEL [tags] keeps the current video as one (only after the user approves it). find QUERY [width height] returns up to three: their techniques and first layers. Reference only: learn the technique, then write your own scene; never paste one in whole.",
+    inputSchema: {
+      action: z.enum(["save", "find"]),
+      label: z.string().optional(),
+      tags: z.string().optional().describe("comma-separated, e.g. 'clinic,vertical,booking'"),
+      query: z.string().optional(),
+      width: z.number().optional(),
+      height: z.number().optional(),
+    },
+  },
+  guard(async ({ action, label, tags, query, width, height }) => {
+    const dir = examplesDir();
+    if (action === "save") {
+      if (!label) return fail("examples save needs a label");
+      const scene = await currentScene();
+      if (!scene) return fail("no scene to save");
+      const file = saveExample(dir, label, (tags ?? "").split(",").map((t) => t.trim()).filter(Boolean), scene);
+      return text(`saved '${label}' (${file})`);
+    }
+    const found = rankExamples(loadExamples(dir), query ?? "", width, height).slice(0, 3);
+    if (!found.length) return text(`no approved examples${query ? ` match '${query}'` : ""} yet. examples save LABEL after the user approves a video.`);
+    return text(found.map((e) => describeExample(e, (l) => formatLayer(l))).join("\n\n"));
   }),
 );
 
@@ -563,8 +750,18 @@ server.registerTool(
     inputSchema: { ops: z.array(z.looseObject({ op: z.string() })).min(1) },
   },
   guard(async ({ ops }) => {
-    const res = await bridge.applyOps(ops as Op[]);
-    if (res.ok) return text(res.summary ?? "ok");
+    const batch = ops as Record<string, unknown>[];
+    try {
+      resolveOpTimes(batch, wordsOf(await currentScene()));
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+    const res = await bridge.applyOps(batch as Op[]);
+    if (res.ok) {
+      session.editsSinceReview = true;
+      const notes = await settle(opsIds(batch));
+      return text([res.summary ?? "ok", ...notes].join("\n"));
+    }
     // The whole batch is lost when one op is wrong: say which one and the cheap way to do it, so the retry is right.
     const unknown = /unknown variant `([^`]+)`/.exec(res.error ?? "")?.[1];
     return fail(`${res.error ?? "rejected"}\nNothing was applied${unknown ? ` (\`${unknown}\` does not exist here)` : ""}: resend the whole batch fixed.\n${EDIT_HINT}`);
@@ -591,13 +788,20 @@ server.registerTool(
         return fail(`no layer matches '${target}'. Groups: ${groups || "none"}. Ids: ${layers.map((l) => l.id).slice(0, 40).join(", ")}`);
       }
       try {
-        for (const l of picked) ops.push({ op: "patch", id: l.id, fields: parsePartial(rest, l) } as Op);
+        for (const l of picked) {
+          const fields = parsePartial(rest, l);
+          resolveLayerTimes([fields], wordsOf(await currentScene()));
+          ops.push({ op: "patch", id: l.id, fields } as Op);
+        }
       } catch (e) {
         return fail((e as Error).message);
       }
     }
     const res = await bridge.applyOps(ops);
-    return res.ok ? text(`${ops.length} layer(s) changed`) : fail(`${res.error ?? "rejected"}\n${EDIT_HINT}`);
+    if (!res.ok) return fail(`${res.error ?? "rejected"}\n${EDIT_HINT}`);
+    session.editsSinceReview = true;
+    const notes = await settle(opsIds(ops as Record<string, unknown>[]));
+    return text([`${ops.length} layer(s) changed`, ...notes].join("\n"));
   }),
 );
 
@@ -630,7 +834,7 @@ server.registerTool(
   "review_video",
   {
     description:
-      "SELF-REVIEW the whole video before saying it's done: one contact sheet of evenly spaced frames, 12 fps strips of the moments that change most (judge easing and continuity there), automatic checks (layers off frame, text colliding or crossing card edges, palette too saturated/neon, dead air, blank frames) and motion notes (abrupt stops, linear keys, crowded entrances, held layers, no camera). Look at the sheet critically like a motion designer (framing, characters cut off or tiny, camera, readability, rhythm), fix everything with apply_ops and review again. Repeat until it is clean (max ~3 rounds). Works even if the user has no editor open.",
+      "SELF-REVIEW the whole video before saying it's done: one contact sheet of evenly spaced frames, 12 fps strips of the moments that change most (judge easing and continuity there), automatic checks (layers off frame, text colliding or crossing card edges, text too small to read on a phone, palette too saturated/neon, dead air, blank frames) and motion notes (abrupt stops, linear keys, crowded entrances, held layers, no camera). Look at the sheet critically like a motion designer (framing, characters cut off or tiny, camera, readability, rhythm), fix everything with apply_ops and review again. Repeat until it is clean (max ~3 rounds). Works even if the user has no editor open.",
     inputSchema: { frames: z.number().int().min(4).max(24).default(12).describe("frames in the sheet") },
   },
   async ({ frames }) => {
@@ -638,8 +842,19 @@ server.registerTool(
       const res = await bridge.review(frames);
       const r = res.review;
       if (!res.ok || !r) return fail(res.error ?? "review failed");
+      const scene = await currentScene();
+      const layers = layersOf(scene) as LintLayer[];
+      const textIds = new Set(layers.filter((l) => l.type === "text").map((l) => String(l.id)));
+      const list = await layoutAt(r.times);
+      const numbers = list ? list.map((f) => { const s = frameStats(f, sizeOf(scene), textIds); return `t=${f.t}s · ${s.onScreen} layers on screen · text covers ${s.textCover}% of the frame`; }) : [];
+      const lint = list ? lintLayers({ layers, frames: list, palette: paletteOf(scene, list), size: sizeOf(scene) }) : [];
+      session.reviewed = true;
+      session.editsSinceReview = false;
+      session.lintIds = [...new Set(lint.map((i) => i.id))];
       const report = [
         `duration ${r.duration}s · frames at ${r.times.join(", ")}s`,
+        numbers.length ? `per frame (numbers):\n- ${numbers.join("\n- ")}` : "",
+        lint.length ? `lint (apply the fix ops with apply_ops):\n- ${formatIssues(lint).join("\n- ")}` : list ? "lint: clean on the sampled frames." : "",
         r.issues.length ? `automatic checks found ${r.issues.length} issue(s):\n- ${r.issues.join("\n- ")}` : "automatic checks: no issues (still look at the sheet).",
         r.motion?.length ? `motion notes:\n- ${r.motion.join("\n- ")}` : "",
         r.strips?.length ? `motion strips (consecutive frames at 12 fps) of the moments that change most: ${r.strips.map((s) => `${s.from}-${s.to}s`).join(", ")} — judge the easing, spacing and continuity there.` : "",
@@ -699,9 +914,9 @@ function describeProject(p: Project): string {
   if (p.voiceScript.trim()) lines.push(`Voice script (ElevenLabs; the video is built on it):\n${p.voiceScript.trim()}`);
   if (p.references?.length) lines.push(`Reference images from the user (look with view_image): ${p.references.join(", ")}`);
   if (p.imageCredits?.length) lines.push(`Imported photos (src for image layers): ${p.imageCredits.map((c) => `${c.src} "${c.title}"`).join(", ")}`);
-  lines.push(p.audio ? `Voice uploaded: ${p.audio.name}. get_scene's summary has its voice timeline (phrases, pauses, LONG pauses = scene changes) and captions carry word timings: time the beats to them.` : "Voice: not uploaded yet.");
+  lines.push(p.audio ? `Voice uploaded: ${p.audio.name}. inspect's summary has its voice timeline (phrases, pauses, LONG pauses = scene changes) and captions carry word timings: time the beats to them.` : "Voice: not uploaded yet.");
   lines.push("No presets exist: you design and animate everything yourself (palette, font, keyframes, cuts, 3D).");
-  lines.push(p.scene ? `Scene: exists (rev ${p.sceneRevision}); see get_scene.` : "Scene: empty. Build the first cut with load_scene.");
+  lines.push(p.scene ? `Scene: exists (rev ${p.sceneRevision}); see inspect.` : "Scene: empty. Build the first cut with load_scene.");
   lines.push(bridge.connected ? "Editor: open (your edits render live)." : "Editor: NOT open on this project — ask the user to open it before editing.");
   return lines.join("\n");
 }
@@ -710,7 +925,7 @@ function feedbackLine(f: Feedback): string {
   switch (f.kind) {
     case FeedbackKind.Comment:
       return f.layerId
-        ? `comment on layer '${f.layerId}' @${(f.at ?? 0).toFixed(1)}s: ${f.text} (get_layer ${f.layerId} to see it)`
+        ? `comment on layer '${f.layerId}' @${(f.at ?? 0).toFixed(1)}s: ${f.text} (inspect ${f.layerId} to see it)`
         : f.at == null
           ? `comment on the WHOLE video (apply it everywhere: font, background, palette, pace…): ${f.text}`
           : `comment @${f.at.toFixed(1)}s: ${f.text}`;

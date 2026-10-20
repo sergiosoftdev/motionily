@@ -16,7 +16,7 @@
  * Eases: l i o io b h · eo ei eio (expo) · el (elastic) · bo (bounce).
  * Colors: palette slot (background|surface|primary|accent|text) or #rrggbb[aa]; fill keys `0:#fff,1.2:primary:eo`.
  * Motion path `mp="M…" mpp=0>1@0-2 orient=1` · text on path `tp="M…" tpo=-900>0@0-1.5:eo` · time remap `time=(mod(t,2))`.
- * Effects: shadow glow blur · color=HUE,SAT,BRIGHT,CONTRAST · rgb=PX · wave=AMP,LEN,SPEED · grain=AMT · mblur=SHUTTER,SAMPLES
+ * Effects: shadow glow=R,S,COLOR,THRESHOLD blur · color=HUE,SAT,BRIGHT,CONTRAST · rgb=PX · wave=AMP,LEN,SPEED · grain=AMT · mblur=SHUTTER,SAMPLES
  *   · turb=AMT,SIZE,SPEED · adj=1 (adjustment layer) · matte=id[:inv|:luma|:lumainv].
  * World: cam=FOCAL[,FOCUS,APERTURE] on a vis=0 layer = the camera (x/y look, z dolly, s zoom, r roll) · z= depth (parallax)
  *   · fixed=1 pinned to the screen · rx= ry= tilt a layer and its children in perspective · persp= (animatable).
@@ -37,6 +37,7 @@
  */
 
 import { ICON_GRID, iconPath } from "./icons.js";
+import { checkRef } from "./timing.js";
 
 type Keyframe = { t: number; v: number; ease?: string; bezier?: number[] };
 type Animated = number | string | Keyframe[];
@@ -54,6 +55,7 @@ const EASE: Record<string, string> = {
   eio: "expo_in_out",
   el: "elastic",
   bo: "bounce",
+  sp: "spring",
 };
 const EASE_SHORT: Record<string, string> = Object.fromEntries(Object.entries(EASE).map(([k, v]) => [v, k]));
 const SHAPES = ["rect", "ellipse"];
@@ -121,6 +123,15 @@ const PLAIN_NUM: Record<string, string> = { size: "size", lh: "line_height", ls:
 const PLAIN_STR = ["role", "align", "src", "fit", "anchor", "parent", "blend"];
 const DEFAULTS: Record<string, unknown> = { rotate_x: 0, rotate_y: 0, z: 0,  scale: 1, rotation: 0, opacity: 1, radius: 0, x: 0, y: 0, soft: 0, trim_start: 0, trim_end: 1, trim_offset: 0 };
 
+/** A time in seconds, or a timing reference (`@phrase:3`, `@word:ready+0.2`) resolved when the lines are written. */
+function timeToken(s: string, line: string): number | string {
+  if (s.startsWith("@")) {
+    checkRef(s, line);
+    return s;
+  }
+  return num(s, line);
+}
+
 function num(s: string, line: string): number {
   const n = Number(s);
   if (s.trim() === "" || !Number.isFinite(n)) throw new Error(`bad number '${s}' in: ${line}`);
@@ -152,6 +163,30 @@ export function parseValue(v: string, line: string): Animated {
     });
   }
   return num(v, line);
+}
+
+const PLACE_SIDES = ["above", "below", "left", "right", "inside"];
+const PLACE_ALIGNS = ["start", "center", "end"];
+
+/**
+ * `place=below:card,gap=40,align=center`: this layer sits below layer `card`, 40 px apart, centered
+ * on it. Sides: above|below|left|right|inside. The tools resolve it into x and y.
+ */
+function placeValue(v: string, line: string): Record<string, unknown> {
+  const [head, ...opts] = v.split(",");
+  const [side, of] = (head ?? "").split(":");
+  if (!PLACE_SIDES.includes(side ?? "")) throw new Error(`place= starts with above|below|left|right|inside: place=below:card (got '${v}'): ${line}`);
+  if (!of) throw new Error(`place=${side}:ID names the layer to place against: ${line}`);
+  const place: Record<string, unknown> = { of, side };
+  for (const o of opts) {
+    const [key, val] = o.split("=");
+    if (key === "gap") place.gap = num(val ?? "", line);
+    else if (key === "align") {
+      if (!PLACE_ALIGNS.includes(val ?? "")) throw new Error(`align= is start|center|end (got '${val}'): ${line}`);
+      place.align = val;
+    } else throw new Error(`unknown place option '${o}' (gap=PX, align=start|center|end): ${line}`);
+  }
+  return place;
 }
 
 /** Colors go through as written: palette slots and #hex are both understood by the engine. */
@@ -509,8 +544,8 @@ export function parseLine(line: string, partial = false): Layer {
   const node: Layer = { shape: "text" };
   const layer: Layer = SHAPES.includes(type) ? { id, type: "shape", shape: type } : text3d ? { id, type: "object", node } : { id, type };
   const [start, end] = span.split("-");
-  layer.start = num(start!, line);
-  if (end) layer.end = num(end, line);
+  layer.start = timeToken(start!, line);
+  if (end) layer.end = timeToken(end, line);
   const effects: unknown[] = [];
   let shaderFx: ShaderFx | undefined;
   let merge: Layer = {};
@@ -561,6 +596,7 @@ export function parseLine(line: string, partial = false): Layer {
       if (!shaderFx) effects.push((shaderFx = { fx: SHADER }));
       shaderFx.code = quoted(v, line, 'WGSL code, like fx="fn shade(uv: vec2f, px: vec2f) -> vec4f { return src(uv); }"');
     }
+    else if (k === "place") layer.place = placeValue(v, line);
     else if (k === "fill") layer.fill = colorAnim(v, line);
     else if (k === "accent") layer.accent = colorAnim(v, line);
     else if (k === "g") layer.group = v;
@@ -620,8 +656,14 @@ export function parseLine(line: string, partial = false): Layer {
       const [x, y, blur, c, op] = list(v, line, 3);
       effects.push({ fx: "shadow", x: parseValue(x!, line), y: parseValue(y!, line), blur: parseValue(blur!, line), ...(c ? { color: color(c) } : {}), ...(op ? { opacity: parseValue(op, line) } : {}) });
     } else if (k === "glow") {
-      const [radius, strength, c] = v.split(",");
-      effects.push({ fx: "glow", radius: parseValue(radius!, line), ...(strength ? { strength: parseValue(strength, line) } : {}), ...(c ? { color: color(c) } : {}) });
+      const [radius, strength, c, th] = v.split(",");
+      effects.push({
+        fx: "glow",
+        radius: parseValue(radius!, line),
+        ...(strength ? { strength: parseValue(strength, line) } : {}),
+        ...(c ? { color: color(c) } : {}),
+        ...(th ? { threshold: parseValue(th, line) } : {}),
+      });
     } else if (k === "blur") effects.push({ fx: "blur", radius: parseValue(v, line) });
     else if (k === "matte") {
       const [src, mode] = v.split(":");
@@ -713,8 +755,8 @@ export function parsePartial(rest: string, layer: Layer): Record<string, unknown
   }
   if (timing) {
     const [start, end] = timing.slice(2).split("-");
-    fields.start = num(start!, rest);
-    if (end !== undefined) fields.end = num(end, rest);
+    fields.start = timeToken(start!, rest);
+    if (end !== undefined) fields.end = timeToken(end, rest);
   }
   if (!Object.keys(fields).length) throw new Error(`nothing to change in '${layer.id} ${rest}': write key=value pairs (the add_layers keys)`);
   return fields;
@@ -795,7 +837,11 @@ function formatEffects(list: Record<string, unknown>[]): string[] {
     if (e.fx === "wave") return `wave=${[inner(e.amplitude), inner(e.wavelength ?? 200), inner(e.speed ?? 1)].join(",")}`;
     if (e.fx === "turbulence") return `turb=${[inner(e.amount), inner(e.size ?? 320), inner(e.speed ?? 1)].join(",")}`;
     if (e.fx === "motion_blur") return `mblur=${r3(Number(e.shutter ?? 180))},${Number(e.samples ?? 8)}`;
-    if (e.fx === "glow") return `glow=${[inner(e.radius), inner(e.strength ?? 1), ...(e.color ? [formatColor(e.color)] : [])].join(",")}`;
+    if (e.fx === "glow") {
+      // Threshold is the 4th value; an empty color slot keeps its place.
+      const vals = [inner(e.radius), inner(e.strength ?? 1), e.color ? formatColor(e.color) : "", ...(e.threshold ? [inner(e.threshold)] : [])];
+      return `glow=${vals.join(",").replace(/,+$/, "")}`;
+    }
     if (e.fx === "shadow") {
       const vals = [inner(e.x ?? 0), inner(e.y ?? 18), inner(e.blur ?? 36), formatColor(e.color ?? "#0f121f"), inner(e.opacity ?? 0.25)];
       return `shadow=${vals.join(",")}`;

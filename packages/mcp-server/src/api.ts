@@ -93,22 +93,58 @@ export class ProjectApi {
     return this.call<Feedback[]>("POST", "/feedback/consume");
   }
 
-  private async call<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await fetch(`${this.baseUrl}/projects/${this.projectId}${path}`, {
-      method,
-      headers: {
-        Authorization: `Bearer ${this.token}`,
-        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
-      },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-    if (!res.ok) {
-      const err = (await res.json().catch(() => ({}))) as { message?: string | string[] };
-      const msg = [err.message ?? res.statusText].flat().join(", ");
-      throw new Error(res.status === 401 ? "Motionily token expired or invalid. Ask the user for a new one (Conectar agente)." : msg);
-    }
-    return (await res.json()) as T;
+  private call<T>(method: string, path: string, body?: unknown): Promise<T> {
+    if (!this.projectId) return Promise.reject(new Error(NO_PROJECT));
+    return request<T>(this.baseUrl, this.token, method, `/projects/${this.projectId}${path}`, body);
   }
+}
+
+export const NO_PROJECT = "No video is open yet. Call list_projects, then open_project or create_project.";
+
+/** A video as the account lists it. */
+export type VideoRow = { _id: string; name: string; format: string; brandId?: string; updatedAt: string };
+/** A brand kit (what the API calls a project in the UI) that videos live in. */
+export type BrandRow = { id: string; name: string; notes: string; videos: number };
+
+/** Account-level client: lists and creates videos and gets each one's project token. Nothing else. */
+export class AccountApi {
+  constructor(
+    private readonly baseUrl: string,
+    private readonly token: string,
+  ) {}
+
+  videos() {
+    return request<VideoRow[]>(this.baseUrl, this.token, "GET", "/projects");
+  }
+
+  brands() {
+    return request<BrandRow[]>(this.baseUrl, this.token, "GET", "/brands");
+  }
+
+  create(video: { name: string; brief?: string; format?: string; voiceScript?: string; brandId?: string }) {
+    return request<Project>(this.baseUrl, this.token, "POST", "/projects", video);
+  }
+
+  projectToken(id: string) {
+    return request<{ token: string; projectId: string }>(this.baseUrl, this.token, "POST", `/projects/${id}/agent-token`);
+  }
+}
+
+async function request<T>(baseUrl: string, token: string, method: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(`${baseUrl}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { message?: string | string[] };
+    const msg = [err.message ?? res.statusText].flat().join(", ");
+    throw new Error(res.status === 401 ? "Motionily token expired or invalid. Ask the user for a new one (Conectar agente)." : msg);
+  }
+  return (await res.json()) as T;
 }
 
 // --- video clips in the brand kit ---

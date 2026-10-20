@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
 import type { HeadlessEditor } from "./headless.js";
+import { NO_PROJECT } from "./api.js";
 import {
   BRIDGE_PATH,
   BridgeRole,
@@ -42,6 +43,8 @@ export class EditorBridge {
   private waiters: (() => void)[] = [];
   /** Whether a real editor has been seen (then a disconnect is probably a reload). */
   private everOpen = false;
+  /** Set when the agent switches to another video: stop reconnecting. */
+  private closed = false;
 
   private waitForEditor(ms: number): Promise<boolean> {
     if (this.socket && this.editorOpen) return Promise.resolve(true);
@@ -63,6 +66,7 @@ export class EditorBridge {
     token: string,
     private readonly projectId: string,
   ) {
+    if (!projectId) return;
     const url = new URL(BRIDGE_PATH, apiUrl.replace(/^http/, "ws"));
     url.search = new URLSearchParams({ role: BridgeRole.Agent, token }).toString();
     this.connect(url.toString());
@@ -101,6 +105,15 @@ export class EditorBridge {
     return this.request({ type: ServerMessageType.LoadScene, requestId: randomUUID(), projectId: this.projectId, scene });
   }
 
+  /** Leave this video for good: the agent opened another one. */
+  async close() {
+    this.closed = true;
+    this.socket?.close();
+    for (const p of this.pending.values()) clearTimeout(p.timer);
+    this.pending.clear();
+    await this.headless?.close();
+  }
+
   private connect(url: string) {
     const ws = new WebSocket(url);
     ws.on("open", () => {
@@ -113,6 +126,7 @@ export class EditorBridge {
     ws.on("close", (code) => {
       if (this.socket === ws) this.socket = null;
       this.editorOpen = false;
+      if (this.closed) return;
       if (code === 4401) {
         console.error("[motionily] the agent token was rejected; get a new one with 'Conectar agente'.");
         return;
@@ -153,6 +167,7 @@ export class EditorBridge {
 
   /** Make sure some editor (the user's or our headless one) is attached. */
   private async ensureEditor() {
+    if (!this.projectId) throw new Error(NO_PROJECT);
     if (this.socket && this.editorOpen) return;
     // The user may just be reloading the page: give their editor a moment to come back.
     if (this.everOpen && (await this.waitForEditor(RELOAD_GRACE_MS))) return;

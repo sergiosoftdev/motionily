@@ -431,3 +431,22 @@ test("partial lines change only the keys written, merge strokes and replace one 
   assert.deepEqual(parsePartial('"Clear day" size=80', title), { text: "Clear day", size: 80 });
   assert.throws(() => parsePartial("", title), /nothing to change/);
 });
+
+test("glow threshold and spring ease parse and read back", () => {
+  const l = parseLine("dot rect 0-2 x=540 y=540 w=40 h=40 y=0>540@0-.8:sp glow=60,1,,0.7");
+  assert.deepEqual(l.y, [{ t: 0, v: 0, ease: "spring" }, { t: 0.8, v: 540 }]);
+  assert.deepEqual(l.effects, [{ fx: "glow", radius: 60, strength: 1, threshold: 0.7 }]);
+  const back = formatLayer(l);
+  assert.match(back, /glow=60,1,,0\.7/);
+  assert.match(back, /:sp/);
+});
+
+test("place= and @reference times parse; bad ones name the fix", () => {
+  const l = parseLine("sub text @phrase:2+0.2-@word:ready w=300 h=80 place=below:card,gap=40,align=start fill=on_primary \"Hi\"");
+  assert.equal(l.start, "@phrase:2+0.2");
+  assert.equal(l.end, "@word:ready");
+  assert.deepEqual(l.place, { of: "card", side: "below", gap: 40, align: "start" });
+  assert.equal(l.fill, "on_primary");
+  assert.throws(() => parseLine("a rect 0-2 w=10 h=10 place=under:card"), /above\|below\|left\|right\|inside/);
+  assert.throws(() => parseLine("a rect @phrase:x w=10 h=10"), /bad time reference/);
+});

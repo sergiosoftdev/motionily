@@ -108,6 +108,8 @@ export type LayoutParticles = { live: number; on_screen: number; max: number };
 /** Where the layers land on screen at one instant. */
 export type FrameLayout = {
   t: number;
+  /** The palette the frame is drawn with (the style's when the scene has none), as hex. */
+  palette?: { background: string; surface: string; primary: string; accent: string; text: string };
   /** `roll`: camera roll in degrees, clockwise (the picture turns counter-clockwise). */
   camera: { look: [number, number]; dolly: number; focal: number; roll?: number } | null;
   layers: LayoutRow[];
