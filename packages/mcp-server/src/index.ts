@@ -22,7 +22,7 @@ import {
 } from "@motionily/protocol";
 import { EditorBridge } from "./bridge.js";
 import { HeadlessEditor } from "./headless.js";
-import { formatLayer, parseLines } from "./compact.js";
+import { formatLayer, formatParams, parseLines, parseParams, type ParamDef } from "./compact.js";
 import { ProjectApi } from "./api.js";
 import { formatLayouts } from "./layout.js";
 
@@ -296,7 +296,7 @@ server.registerTool(
   "add_layers",
   {
     description:
-      "Add or replace layers with COMPACT LINES (far cheaper than JSON): `id type start[-end] key=value… \"text or path data\" {json}`. Types rect|ellipse|text|image|path|object. Values: number, tween `from>to@t0-t1[:ease]`, keys `t:v[:ease],…`, or `(expression)`. Keys: x y w h s r o rad pivot parent fill grad stroke soft shadow glow blur blend matte vis rep size role align lh ls ts te to filled g src fit z rx ry cam fixed. A trailing {json} merges any field (e.g. text animators). Full syntax, camera math and recipes are in the manual (get_project / get_reference). An existing id is replaced.",
+      "Add or replace layers with COMPACT LINES (far cheaper than JSON): `id type start[-end] key=value… \"text or path data\" {json}`. Types rect|ellipse|text|image|path|object|use (`id use START comp=NAME x= y= s= $param=value…` places a component from define_component). Values: number, tween `from>to@t0-t1[:ease]`, keys `t:v[:ease],…`, or `(expression)`. Keys: x y w h s r o rad pivot parent fill grad stroke soft shadow glow blur blend matte vis rep size role align lh ls ts te to filled g src fit z rx ry cam fixed. A trailing {json} merges any field (e.g. text animators). Full syntax, camera math and recipes are in the manual (get_project / get_reference). An existing id is replaced.",
     inputSchema: { lines: z.string().min(1) },
   },
   guard(async ({ lines }) => {
@@ -312,6 +312,57 @@ server.registerTool(
     return res.ok ? text(`${layers.length} layers ok`) : fail(res.error ?? "rejected");
   }),
 );
+
+// ── components ──
+type ComponentDef = { params?: ParamDef[]; duration?: number; layers: Record<string, unknown>[] };
+const COMPONENT_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,39}$/;
+
+function componentsOf(scene: Record<string, unknown> | null): Record<string, ComponentDef> {
+  return (scene?.library as { components?: Record<string, ComponentDef> } | undefined)?.components ?? {};
+}
+
+server.registerTool(
+  "define_component",
+  {
+    description:
+      "Define or redefine a reusable component (a precomp with params): typed params + compact lines (add_layers syntax; x/y relative to the instance center). In the lines any value may be `$param`, expressions read `($param*2)`, text interpolates \"$param\". Place it with add_layers `id use START comp=NAME x= y= $param=value…`; redefining updates every instance. Exact rules: manual, Components.",
+    inputSchema: {
+      name: z.string().regex(COMPONENT_NAME),
+      params: z.string().optional().describe('name:type[=default] … — types number|color|text|src|bool|path, e.g. title:text="Revenue" value:number=0 icon:path=ic:chart-line:40 accent:color=accent'),
+      duration: z.number().positive().optional().describe("seconds an instance added without end lasts (default: until the video ends)"),
+      lines: z.string().min(1),
+    },
+  },
+  guard(async ({ name, params, duration, lines }) => {
+    let component: ComponentDef;
+    try {
+      component = { params: params ? parseParams(params) : [], ...(duration ? { duration } : {}), layers: parseLines(lines) };
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+    const res = await bridge.applyOps([{ op: OpName.DefineComponent, name, component }]);
+    if (!res.ok) return fail(res.error ?? "rejected");
+    const ps = component.params ?? [];
+    return text(`component '${name}': ${component.layers.length} layers, params ${ps.map((p) => `$${p.name}`).join(" ") || "none"}. Place it: \`id use START comp=${name} x= y= ${ps.map((p) => `$${p.name}=…`).join(" ")}\``);
+  }),
+);
+
+server.registerTool(
+  "get_component",
+  {
+    description: "Read a component back as define_component input (params + compact lines). Without name: every component and its params.",
+    inputSchema: { name: z.string().optional() },
+  },
+  guard(async ({ name }) => {
+    const comps = componentsOf(await currentScene());
+    if (!name)
+      return text(Object.entries(comps).map(([n, c]) => `${n}${c.duration ? ` ${c.duration}s` : ""}: ${formatParams(c.params ?? []) || "(no params)"}`).join("\n") || "No components yet: define_component.");
+    const c = comps[name];
+    if (!c) return fail(`No component '${name}'. Defined: ${Object.keys(comps).join(", ") || "none"}`);
+    return text([`name=${name}${c.duration ? ` duration=${c.duration}` : ""}`, `params=${formatParams(c.params ?? [])}`, "lines:", ...c.layers.map(formatLayer)].join("\n"));
+  }),
+);
+// ── end components ──
 
 server.registerTool(
   "list_sounds",

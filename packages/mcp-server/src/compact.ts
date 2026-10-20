@@ -24,6 +24,8 @@
  * Materials: inner=X,Y,BLUR,COLOR,OP · sheen=AT,ANGLE,WIDTH,OP · bevel=WIDTH,STRENGTH · backdrop=BLUR (frosted glass).
  * Gradients: grad=lin:… | rad:… | con:CX,CY:ANGLE:stops (conic) · sgrad= paints the stroke.
  * Text: "Just *ask.*" colors the marked words with accent= (default palette accent) · count=0>12480@0-2:eo dec=0 with {n} in the text · reveal=(t*16) caret=1 (typewriter).
+ * Components: `id use START comp=NAME x= y= s= … $param=value` places a component (define_component); inside a
+ *   component's lines any value may be `$param` (whole value), expressions read `($param*2)`, text interpolates "$param".
  */
 
 import { ICON_GRID, iconPath } from "./icons.js";
@@ -47,7 +49,17 @@ const EASE: Record<string, string> = {
 };
 const EASE_SHORT: Record<string, string> = Object.fromEntries(Object.entries(EASE).map(([k, v]) => [v, k]));
 const SHAPES = ["rect", "ellipse"];
-const TYPES = [...SHAPES, "text", "image", "path", "object"];
+// ── components ──
+/** Layer type of a component instance. */
+export const USE = "use";
+/** `$name` / `${name}`: a whole value that is a component param. */
+const PARAM_REF = /^\$(\{[A-Za-z_]\w*\}|[A-Za-z_]\w*)$/;
+/** Param types of define_component. */
+export const PARAM_TYPES = ["number", "color", "text", "src", "bool", "path"] as const;
+export type ParamType = (typeof PARAM_TYPES)[number];
+export type ParamDef = { name: string; type: ParamType; default?: unknown };
+// ── end components ──
+const TYPES = [...SHAPES, "text", "image", "path", "object", USE];
 /** Short keys for animated numbers. */
 const NUM: Record<string, string> = {
   x: "x",
@@ -88,6 +100,7 @@ function ease(s: string | undefined): string | undefined {
 
 export function parseValue(v: string, line: string): Animated {
   if (v.startsWith("(") && v.endsWith(")")) return v.slice(1, -1).trim();
+  if (PARAM_REF.test(v)) return v;
   const tween = /^(-?[\d.]+)>(-?[\d.]+)@([\d.]+)-([\d.]+)(?::(\w+))?$/.exec(v);
   if (tween) {
     const [, a, b, t0, t1, e] = tween;
@@ -186,6 +199,64 @@ function gradient(v: string, line: string) {
   throw new Error(`grad must be lin:ANGLE:stops, rad:CX,CY:R:stops or con:CX,CY:ANGLE:stops in: ${line}`);
 }
 
+// ── components ──
+/** An on/off key: `1`/`0`, or a `$param` inside a component. */
+function flag(v: string): boolean | string {
+  return PARAM_REF.test(v) ? v : v !== "0" && v !== "false";
+}
+
+/** A plain number key, or a `$param` inside a component. */
+function plainNum(v: string, line: string): number | string {
+  return PARAM_REF.test(v) ? v : num(v, line);
+}
+
+/** `ic:NAME[:SIZE]` -> a Lucide icon as path data that remembers its name. */
+function iconValue(v: string, line: string): { ic: string; d: string } | undefined {
+  const m = /^ic:([\w-]+)(?::([\d.]+))?$/.exec(v);
+  if (!m) return undefined;
+  const size = m[2] ? num(m[2], line) : ICON_GRID * 2;
+  return { ic: `${m[1]}:${size}`, d: iconPath(m[1]!, size) };
+}
+
+/** A `$param=value` of an instance: "quoted" text, true/false, ic:NAME[:SIZE], numbers/tweens/keys/(expr), else a bare word (color, src…). */
+export function parseParamValue(v: string, line: string): unknown {
+  if (v.startsWith('"')) return JSON.parse(v) as string;
+  if (v === "true" || v === "false") return v === "true";
+  const icon = iconValue(v, line);
+  if (icon) return icon;
+  if (v.startsWith("(") || /^-?[\d.]+$/.test(v) || /^-?[\d.]+[>:]/.test(v)) return parseValue(v, line);
+  return v;
+}
+
+const BARE = /^[A-Za-z#/_$][\w#./$-]*$/;
+
+/** An instance param value back to its line form. */
+export function formatParamValue(v: unknown): string {
+  if (typeof v === "boolean") return String(v);
+  if (typeof v === "number" || Array.isArray(v)) return formatValue(v as Animated);
+  if (v && typeof v === "object" && typeof (v as { ic?: unknown }).ic === "string") return `ic:${(v as { ic: string }).ic}`;
+  if (typeof v === "string") return BARE.test(v) && v !== "true" && v !== "false" ? v : JSON.stringify(v);
+  throw new Error("needs JSON");
+}
+
+/** define_component params: `title:text="Revenue" value:number=0 icon:path=ic:trending-up:40 accent:color=accent show:bool=1`. */
+export function parseParams(text: string): ParamDef[] {
+  return tokenize(text.trim()).map((tok) => {
+    const m = /^([A-Za-z_]\w*):(\w+)(?:=(.*))?$/s.exec(tok);
+    if (!m) throw new Error(`param must be name:type[=default] (types ${PARAM_TYPES.join(", ")}), got '${tok}'`);
+    const [, name, type, raw] = m;
+    if (!(PARAM_TYPES as readonly string[]).includes(type!)) throw new Error(`unknown param type '${type}' in '${tok}' (${PARAM_TYPES.join(", ")})`);
+    const def: ParamDef = { name: name!, type: type as ParamType };
+    if (raw !== undefined && raw !== "") def.default = type === "bool" ? flag(raw) : parseParamValue(raw, tok);
+    return def;
+  });
+}
+
+export function formatParams(params: ParamDef[]): string {
+  return params.map((p) => `${p.name}:${p.type}${p.default === undefined ? "" : `=${formatParamValue(p.default)}`}`).join(" ");
+}
+// ── end components ──
+
 function list(v: string, line: string, min: number): string[] {
   const p = v.split(",");
   if (p.length < min) throw new Error(`expected at least ${min} comma-separated values in '${v}': ${line}`);
@@ -204,8 +275,23 @@ export function parseLine(line: string): Layer {
   if (end) layer.end = num(end, line);
   const effects: unknown[] = [];
   let merge: Layer = {};
+  const params: Record<string, unknown> = {};
   for (const tok of rest) {
+    // ── components: comp= and $param= on instance lines ──
+    if (type === USE && tok.startsWith("comp=")) {
+      layer.comp = tok.slice(5);
+      continue;
+    }
+    if (tok.startsWith("$")) {
+      const eq = tok.indexOf("=");
+      const name = tok.slice(1, eq);
+      if (type !== USE) throw new Error(`'${tok}' sets a component param: only use lines take $param=value (inside a component write key=$param): ${line}`);
+      if (eq < 2 || !/^[A-Za-z_]\w*$/.test(name)) throw new Error(`expected $param=value, got '${tok}': ${line}`);
+      params[name] = parseParamValue(tok.slice(eq + 1), line);
+      continue;
+    }
     if (tok.startsWith('"')) {
+      if (type === USE) throw new Error(`a use line has no quoted text: pass it as a param ($title="…"): ${line}`);
       const s = JSON.parse(tok) as string;
       layer[type === "path" ? "d" : "text"] = s;
       continue;
@@ -225,7 +311,7 @@ export function parseLine(line: string): Layer {
     else if (k === "fill") layer.fill = colorAnim(v, line);
     else if (k === "accent") layer.accent = colorAnim(v, line);
     else if (k === "g") layer.group = v;
-    else if (PLAIN_NUM[k]) layer[PLAIN_NUM[k]] = num(v, line);
+    else if (PLAIN_NUM[k]) layer[PLAIN_NUM[k]] = plainNum(v, line);
     else if (PLAIN_STR.includes(k)) layer[k] = v;
     else if (k === "grad") layer.gradient = gradient(v, line);
     else if (k === "sgrad") layer.stroke = { width: 2, ...(layer.stroke as object), gradient: gradient(v, line) };
@@ -234,14 +320,15 @@ export function parseLine(line: string): Layer {
       effects.push({ fx: "turbulence", amount: parseValue(amount!, line), ...(size ? { size: parseValue(size, line) } : {}), ...(speed ? { speed: parseValue(speed, line) } : {}) });
     } else if (k === "count") layer.count = parseValue(v, line);
     else if (k === "reveal") layer.reveal = parseValue(v, line);
-    else if (k === "caret") layer.caret = v !== "0" && v !== "false";
+    else if (k === "caret") layer.caret = flag(v);
     else if (k === "ic") {
+      if (v.startsWith("$")) throw new Error(`ic= takes an icon name; inside a component make the icon a path param and write "${v.split(":")[0]}" as the path data with stroke=W:COLOR: ${line}`);
       const [name, size] = v.split(":");
       const px = size ? num(size, line) : ICON_GRID * 2;
       layer.icon = `${name}:${px}`;
       layer.d = iconPath(name!, px);
       layer.stroke ??= { width: Math.max(1.5, px / 12), color: "text" };
-    } else if (k === "fixed") layer.fixed = v !== "0" && v !== "false";
+    } else if (k === "fixed") layer.fixed = flag(v);
     else if (k === "cam") {
       const [focal, focus, aperture] = v.split(",");
       layer.camera = { focal: num(focal!, line), ...(focus ? { focus: parseValue(focus, line) } : {}), ...(aperture ? { aperture: parseValue(aperture, line) } : {}) };
@@ -281,13 +368,13 @@ export function parseLine(line: string): Layer {
     } else if (k === "mblur") {
       const [shutter, samples] = v.split(",");
       effects.push({ fx: "motion_blur", ...(shutter && shutter !== "1" ? { shutter: num(shutter, line) } : {}), ...(samples ? { samples: num(samples, line) } : {}) });
-    } else if (k === "adj") layer.adjustment = v !== "0" && v !== "false";
+    } else if (k === "adj") layer.adjustment = flag(v);
     else if (k === "mp") layer.motion_path = { ...(layer.motion_path as object), d: quoted(v, line) };
     else if (k === "mpp") layer.motion_path = { ...(layer.motion_path as object), progress: parseValue(v, line) };
-    else if (k === "orient") layer.motion_path = { ...(layer.motion_path as object), orient: v !== "0" && v !== "false" };
+    else if (k === "orient") layer.motion_path = { ...(layer.motion_path as object), orient: flag(v) };
     else if (k === "tp") layer.path = { ...(layer.path as object), d: quoted(v, line) };
-    else if (k === "tpo") layer.path = { ...(layer.path as object), offset: parseValue(v, line) }; else if (k === "vis") layer.visible = v !== "0" && v !== "false";
-    else if (k === "filled") layer.filled = v !== "0" && v !== "false";
+    else if (k === "tpo") layer.path = { ...(layer.path as object), offset: parseValue(v, line) }; else if (k === "vis") layer.visible = flag(v);
+    else if (k === "filled") layer.filled = flag(v);
     else if (k === "pivot") layer.pivot = list(v, line, 2).map((n) => num(n, line));
     else if (k === "rep") {
       const [count, step, ...opts] = v.split(":");
@@ -303,8 +390,10 @@ export function parseLine(line: string): Layer {
     } else throw new Error(`unknown key '${k}': ${line}`);
   }
   if (effects.length) layer.effects = effects;
+  if (Object.keys(params).length) layer.params = params;
   Object.assign(layer, merge);
-  if (type !== "path" && (layer.w === undefined || layer.h === undefined)) throw new Error(`w and h are required: ${line}`);
+  if (type === USE && typeof layer.comp !== "string") throw new Error(`a use line needs comp=NAME (a component from define_component): ${line}`);
+  if (type !== "path" && type !== USE && (layer.w === undefined || layer.h === undefined)) throw new Error(`w and h are required: ${line}`);
   if (type === "path" && typeof layer.d !== "string") throw new Error(`path needs its "M… path data" in quotes (or ic=NAME:SIZE): ${line}`);
   if (layer.motion_path && typeof (layer.motion_path as { d?: unknown }).d !== "string") throw new Error(`mpp/orient need mp="M… path": ${line}`);
   if (layer.path && typeof (layer.path as { d?: unknown }).d !== "string") throw new Error(`tpo needs tp="M… path": ${line}`);
@@ -322,7 +411,7 @@ export function parseLines(text: string): Layer[] {
 const r3 = (n: number) => +n.toFixed(3);
 
 function formatValue(v: Animated): string {
-  if (typeof v === "string") return `(${v})`;
+  if (typeof v === "string") return PARAM_REF.test(v) ? v : `(${v})`;
   if (!Array.isArray(v)) return String(r3(v));
   if (v.some((k) => k.bezier)) throw new Error("bezier keys have no compact form");
   // The last key's ease never plays, so two keys are always a tween.
@@ -395,6 +484,11 @@ function formatEffects(list: Record<string, unknown>[]): string[] {
   });
 }
 
+/** An on/off key back to its line form (`key=1`, or `key=$param` inside a component). */
+function flagOut(key: string, v: boolean | string): string[] {
+  return typeof v === "string" ? [`${key}=${v}`] : v ? [`${key}=1`] : [];
+}
+
 function formatRepeat(r: Record<string, number>): string[] {
   const opts = Object.entries({ cols: r.columns, rot: r.rotation, sc: r.scale, op: r.opacity, delay: r.delay })
     .filter(([k, v]) => v !== undefined && v !== (k === "sc" || k === "op" ? 1 : 0))
@@ -408,11 +502,11 @@ const SHORT_FORMS: [string, (v: never) => string[]][] = [
   ["effects", formatEffects],
   ["repeat", formatRepeat],
   ["matte", (m: { layer: string; mode?: string }) => [`matte=${m.layer}${m.mode && m.mode !== "alpha" ? `:${MATTE_SHORT[m.mode]}` : ""}`]],
-  ["adjustment", (a: boolean) => (a ? ["adj=1"] : [])],
+  ["adjustment", (a: boolean | string) => flagOut("adj", a)],
   ["count", (c: Animated) => [`count=${formatValue(c)}`]],
   ["reveal", (r: Animated) => [`reveal=${formatValue(r)}`]],
-  ["caret", (c: boolean) => (c ? ["caret=1"] : [])],
-  ["fixed", (f: boolean) => (f ? ["fixed=1"] : [])],
+  ["caret", (c: boolean | string) => flagOut("caret", c)],
+  ["fixed", (f: boolean | string) => flagOut("fixed", f)],
   ["backdrop", (b: Animated) => [`backdrop=${formatValue(b)}`]],
   [
     "camera",
@@ -428,10 +522,10 @@ const SHORT_FORMS: [string, (v: never) => string[]][] = [
   ["bevel", (b: Record<string, unknown>) => [`bevel=${[inner(b.width ?? 6), inner(b.strength ?? 0.35)].join(",")}`]],
   [
     "motion_path",
-    (m: { d: string; progress?: Animated; orient?: boolean }) => [
+    (m: { d: string; progress?: Animated; orient?: boolean | string }) => [
       `mp=${JSON.stringify(m.d)}`,
       ...(m.progress !== undefined ? [`mpp=${formatValue(m.progress)}`] : []),
-      ...(m.orient ? ["orient=1"] : []),
+      ...flagOut("orient", m.orient ?? false),
     ],
   ],
   ["path", (p: { d: string; offset?: Animated }) => [`tp=${JSON.stringify(p.d)}`, ...(p.offset !== undefined ? [`tpo=${formatValue(p.offset)}`] : [])]],
@@ -442,11 +536,17 @@ const SHORT_FORMS: [string, (v: never) => string[]][] = [
 export function formatLayer(l: Layer): string {
   const type = l.type === "shape" ? String(l.shape ?? "rect") : String(l.type);
   const parts = [String(l.id), type, `${r3(Number(l.start ?? 0))}${l.end == null ? "" : `-${r3(Number(l.end))}`}`];
-  const done = new Set(["id", "type", "shape", "start", "end"]);
+  const done = new Set(["id", "type", "shape", "start", "end", "comp", "params"]);
   const extra: Layer = {};
+  if (type === USE) {
+    parts.push(`comp=${String(l.comp)}`);
+    // An instance has no box or color of its own: the engine's defaults are noise here.
+    for (const [k, rest] of [["w", 0], ["h", 0], ["fill", "primary"]] as const) if (l[k] === rest) done.add(k);
+  }
   if (l.group) parts.push(`g=${l.group}`);
   done.add("group");
   for (const [long, short] of Object.entries(NUM_SHORT)) {
+    if (done.has(long)) continue;
     const v = l[long] as Animated | undefined;
     done.add(long);
     if (v === undefined || v === DEFAULTS[long]) continue;
@@ -459,7 +559,7 @@ export function formatLayer(l: Layer): string {
   if (l.accent !== undefined && (!Array.isArray(l.accent) || typeof l.accent[0] === "number")) parts.push(`accent=${formatColor(l.accent)}`);
   else if (l.accent !== undefined) extra.accent = l.accent;
   done.add("accent");
-  if (l.fill !== undefined) {
+  if (l.fill !== undefined && !done.has("fill")) {
     if (!Array.isArray(l.fill) || typeof l.fill[0] === "number") parts.push(`fill=${formatColor(l.fill)}`);
     else {
       const keys = l.fill as { t: number; c: unknown; ease?: string; bezier?: unknown }[];
@@ -486,9 +586,17 @@ export function formatLayer(l: Layer): string {
     }
   }
   if (l.visible === false) parts.push("vis=0");
-  if (l.filled === true) parts.push("filled=1");
+  else if (typeof l.visible === "string") parts.push(`vis=${l.visible}`);
+  parts.push(...flagOut("filled", (l.filled as boolean | string | undefined) ?? false));
   done.add("visible");
   done.add("filled");
+  if (l.params && typeof l.params === "object") {
+    try {
+      parts.push(...Object.entries(l.params as Record<string, unknown>).map(([k, v]) => `$${k}=${formatParamValue(v)}`));
+    } catch {
+      extra.params = l.params;
+    }
+  }
   for (const [k, v] of Object.entries(l)) if (!done.has(k) && k !== "text" && k !== "d") extra[k] = v;
   if (typeof l.icon === "string") parts.push(`ic=${l.icon}`);
   done.add("icon");

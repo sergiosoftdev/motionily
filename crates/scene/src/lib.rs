@@ -10,6 +10,7 @@ pub mod expr;
 pub mod paint;
 pub mod path;
 mod character;
+pub mod component;
 mod scenario;
 mod stage;
 mod stage_presets;
@@ -439,17 +440,21 @@ impl Scene {
 
     /// One layer's draw items at scene time `t`: all its repeater copies, inside its parent chain.
     fn layer_items(&self, l: &Layer, t: f32, ctx: &EvalCtx) -> Vec<DrawItem> {
-        let lt = l.local_time(t);
-        let base = self.parent_xform(l, t, ctx, 0);
+        self.copies(l, t, l.local_time(t), &self.parent_xform(l, t, ctx, 0), ctx, 0)
+    }
+
+    /// Every repeater copy of `l` at layer time `lt` inside `base`. `gt` is the clock `T` reads
+    /// (the component clock inside an instance) and `depth` how deep in instances `l` sits.
+    fn copies(&self, l: &Layer, gt: f32, lt: f32, base: &Xform, ctx: &EvalCtx, depth: u8) -> Vec<DrawItem> {
         let Some(rep) = &l.repeat else {
-            return expr::with_vars(t, 0.0, 1.0, || l.draw_in(lt, ctx, &base)).into_iter().collect();
+            return expr::with_vars(gt, 0.0, 1.0, || self.draw_one(l, lt, ctx, base, depth));
         };
         let n = rep.count.min(paint::MAX_REPEAT);
         (0..n)
-            .filter_map(|i| {
+            .flat_map(|i| {
                 let lt_i = lt - rep.delay * i as f32;
                 if lt_i < 0.0 {
-                    return None;
+                    return Vec::new();
                 }
                 let (col, row) = rep.columns.filter(|c| *c > 0).map_or((i as f32, i as f32), |c| ((i % c) as f32, (i / c) as f32));
                 let offset = if rep.columns.is_some() { [col * rep.x, row * rep.y] } else { [i as f32 * rep.x, i as f32 * rep.y] };
@@ -458,9 +463,9 @@ impl Scene {
                     spin: (rep.rotation * i as f32).to_radians(),
                     grow: rep.scale.powi(i as i32),
                     opacity: base.opacity * rep.opacity.powi(i as i32),
-                    ..base
+                    ..*base
                 };
-                expr::with_vars(t, i as f32, n as f32, || l.draw_in(lt_i, ctx, &xf))
+                expr::with_vars(gt, i as f32, n as f32, || self.draw_one(l, lt_i, ctx, &xf, depth))
             })
             .collect()
     }
@@ -474,8 +479,9 @@ impl Scene {
         self.measuring(t, |m| {
             let mut best: Option<(f32, &Layer)> = None;
             for (idx, l) in self.layers.iter().enumerate().rev().filter(|(_, l)| l.camera.is_none()) {
-                let Some((b, _)) = self.screen_bounds(idx, t, m) else { continue };
-                if !b.contains([x, y]) {
+                let Some((b, map)) = self.screen_bounds(idx, t, m) else { continue };
+                // An instance is hit on its layers, not on the gaps of its union box.
+                if !b.contains([x, y]) || !self.instance_hit(l, t, m.ctx, &map, [x, y]) {
                     continue;
                 }
                 // Without a camera the top-most layer wins; with one, the nearest (depth order).
@@ -533,14 +539,15 @@ impl Scene {
         if !self.active(l, t) {
             return None;
         }
-        let flat = l.bounds(l.local_time(t), m.ctx, &self.parent_xform(l, t, m.ctx, 0))?;
+        let flat = self.flat_bounds(l, t, m.ctx)?;
         let map = self.screen_map(idx, t, m)?;
         Some((map.bounds(&flat)?, map))
     }
 
     /// A rect `[x0, y0, x1, y1]` drawn by layer `id` (flat scene px) as it lands on screen at `t`.
     pub fn rect_to_screen(&self, id: &str, t: f32, r: [f32; 4]) -> Option<[f32; 4]> {
-        let idx = self.layers.iter().position(|l| l.id == id)?;
+        // A layer inside an instance lands where its instance's screen map puts it.
+        let idx = self.layers.iter().position(|l| l.id == component::top_id(id))?;
         self.measuring(t, |m| {
             let flat = Bounds { center: [(r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0], size: [r[2] - r[0], r[3] - r[1]], rotation: 0.0 };
             Some(self.screen_map(idx, t, m)?.bounds(&flat)?.rect())
@@ -563,7 +570,9 @@ impl Scene {
                     continue;
                 };
                 let plane = m.owners[idx].map(|i| self.layers[i].id.clone()).or(l.is_3d().then(|| l.id.clone()));
-                out.layers.push(LayoutRow { id: l.id.clone(), group: l.group.clone(), screen: b.rect(), k: map.scale_at(b.center), z: self.depth(l, t), visible: l.visible, plane });
+                let z = self.depth(l, t);
+                out.layers.push(LayoutRow { id: l.id.clone(), group: l.group.clone(), screen: b.rect(), k: map.scale_at(b.center), z, visible: l.visible, plane: plane.clone() });
+                out.layers.extend(self.inner_rows(idx, t, m.ctx, &map, z, &plane));
             }
             out
         })
@@ -571,6 +580,9 @@ impl Scene {
 
     /// One layer's draw items at time `t` (for measuring what it really draws), empty when hidden.
     pub fn layer_items_at(&self, id: &str, t: f32) -> Vec<DrawItem> {
+        if id.contains(component::PATH_SEP) {
+            return self.inner_items_at(id, t);
+        }
         let Some(l) = self.layer(id).filter(|l| self.active(l, t)) else { return Vec::new() };
         let palette = self.palette();
         let ctx = EvalCtx {
@@ -588,6 +600,9 @@ impl Scene {
     /// On-screen box of a layer at time `t`, after the camera and any tilted parent (selection
     /// outline, review checks). `None` when it is not on at `t` or behind the camera.
     pub fn layer_bounds(&self, id: &str, t: f32) -> Option<Bounds> {
+        if id.contains(component::PATH_SEP) {
+            return self.inner_bounds(id, t);
+        }
         let idx = self.layers.iter().position(|l| l.id == id)?;
         self.measuring(t, |m| self.screen_bounds(idx, t, m).map(|(b, _)| b))
     }
@@ -602,6 +617,7 @@ impl Scene {
                 _ => None,
             })
             .collect();
+        self.inner_images(&mut v);
         v.sort();
         v.dedup();
         v
@@ -701,6 +717,7 @@ impl Scene {
                 self.library.anchors.keys().cloned().collect::<Vec<_>>().join(",")
             );
         }
+        s.push_str(&component::summary_lines(&self.library));
         s
     }
 }

@@ -93,6 +93,8 @@ export const TOOL_LABEL: Record<string, string> = {
   review_video: "Revisa el vídeo entero",
   add_layers: "Dibuja capas",
   get_group: "Lee un grupo",
+  define_component: "Crea un componente reutilizable",
+  get_component: "Revisa un componente",
   view_image: "Mira una referencia",
   get_brand: "Lee el kit de marca",
   view_asset: "Mira una imagen de la marca",

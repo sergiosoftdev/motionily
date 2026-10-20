@@ -172,6 +172,9 @@ export const OpName = {
   SetGroup: "set_group",
   PutSfx: "put_sfx",
   RemoveSfx: "remove_sfx",
+  // components
+  DefineComponent: "define_component",
+  RemoveComponent: "remove_component",
 } as const;
 export type OpName = (typeof OpName)[keyof typeof OpName];
 

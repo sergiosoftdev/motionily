@@ -3,7 +3,8 @@
 ```
 id type start[-end] key=value… "text or path data" {optional JSON merged into the layer}
 ```
-- types: `rect | ellipse | text | image | path | object`. Scene pixels, origin top-left, y down, x/y = the layer's CENTER.
+- types: `rect | ellipse | text | image | path | object | use` (`use` = a component instance, see Components).
+  Scene pixels, origin top-left, y down, x/y = the layer's CENTER.
   `w` and `h` are required (not for path). `end` defaults to the end of the video. Same id again = that layer is replaced.
 - frame size by format: 9:16 = 1080×1920 · 16:9 = 1920×1080 · 1:1 = 1080×1080 · 4:5 = 1080×1350.
 - value of any animatable key: number · tween `from>to@t0-t1[:ease]` · keys `t:v[:ease],t:v,…` · `(expression)`.
@@ -11,7 +12,8 @@ id type start[-end] key=value… "text or path data" {optional JSON merged into 
 - eases: `l` linear · `i o io` ease in/out/in-out · `b` back (overshoot) · `h` hold · `eo ei eio` expo (eo = premium UI) ·
   `el` elastic · `bo` bounce. An ease sits on the key it leaves; default `io`. JSON keys also take `"bezier":[x1,y1,x2,y2]`.
 - expressions: `(540 + 40*sin(t*2))` `(wiggle(2,8))` `(spring(t,2.2,7))` `(lerp(0,1,ease(t/0.6)))`.
-  vars: `t` layer seconds, `T` scene seconds, `i`/`n` repeater copy index/count, `pi`.
+  vars: `t` layer seconds, `T` scene seconds, `i`/`n` repeater copy index/count, `pi`, `$name` a component's number
+  param (inside components; elsewhere it reads 0).
   funcs: sin cos tan asin acos atan atan2 abs sign floor ceil round fract sqrt pow exp log min max clamp lerp mix
   smoothstep step mod noise(x) rand(x) wiggle(freq,amp[,seed]) ease ease_in ease_out back elastic bounce
   spring(t[,freq,damping]) pulse(x,period) saw tri · operators `+ - * / % ^ < >`.
@@ -55,6 +57,8 @@ id type start[-end] key=value… "text or path data" {optional JSON merged into 
 - ONE layer per phrase. Mark key words with `*word*` (colored with `accent=COLOR`, default the palette accent). Never split a
   phrase into word layers (they collide).
 - `w`×`h` is the text box: the type shrinks until it fits. On a card, give the text the card's box minus ~8% padding.
+  The wrap width is never below 20% of the frame width (216 px at 1080 wide, 384 px at 1920): a narrower `w` is widened
+  around x, so a left-aligned label in a narrow box starts further left — give left/right-aligned text `w` ≥ that.
 - per-unit animation (JSON tail): `{"animate":{"by":"char|word|line","stagger":0.03,"duration":0.5,"delay":0,"ease":"expo_out","reverse":false,"from":{"x":0,"y":40,"scale":0.8,"rotation":0,"opacity":0,"blur":16}}}`
 - text on a path: `tp="M-700 0 C-300 -250 300 250 700 0"` (relative to x,y) `tpo=OFFSET_PX` (animate to crawl along).
 - counter: `count=0>12480@0-2:eo dec=0` with `{n}` in the text ("{n} users"); thousands separators are added.
@@ -129,3 +133,105 @@ grade rect 0 x=960 y=540 w=1920 h=1080 fixed=1 adj=1 grain=.04 color=0,1.05,0,1.
 glitch rect 5.8-6.2 x=960 y=540 w=1920 h=1080 fixed=1 adj=1 rgb=8 wave=6,120,3 grain=.06
 tile object .5 x=1500 y=420 w=260 h=260 s=0>1@0-.6:b {"node":{"shape":"box","size":[1,1,0.3],"radius":0.22,"color":"#57a0db"},"finish":"glossy","spin":["10*sin(t)","t*40",0]}
 ```
+
+<!-- components:begin -->
+## Components — reusable motifs with params (precomps)
+Build a motif ONCE (stat card, pill, chart, lower third, list row…) and place it many times with one line each. Fewer
+tokens, identical styling, and redefining it updates every copy. Use one as soon as a motif appears twice.
+
+**Define** with the `define_component` tool: `name`, `params`, optional `duration` (s), and `lines` in the add_layers
+syntax. Their x/y are relative to the instance's center (0,0 = where the instance's x,y put it).
+- params: `name:type[=default]`, space separated. Names: letters, digits, `_` (not starting with a digit).
+  | type | instance value | default when omitted |
+  | --- | --- | --- |
+  | `number` | number, tween, keys or `(expression)` — may animate | 0 |
+  | `color` | palette slot or `#rrggbb[aa]` (one color, no keys) | primary |
+  | `text` | `"quoted"` or one bare word (numbers become text) | "" |
+  | `src` | image source `/media/…` | "" |
+  | `bool` | `1 0 true false` | false |
+  | `path` | `ic:NAME[:SIZE]` (Lucide icon centered on 0,0, SIZE px, default 48) or `"M… path data"` | empty |
+- `duration`: an instance added without `-end` gets end = start + duration. Without duration it lasts to the video end.
+
+**Reference a param with `$name`** — the one mechanism, three places:
+1. Whole value of ANY field: `w=$w fill=$accent stroke=3:$accent shadow=0,20,50,$accent,.2 grad=lin:90:$a@0,$b@1
+   src=$logo vis=$show size=$size dec=$dec align=$align` and a path's data `"$icon"`. The field gets the param's value.
+2. Inside an expression (number params only): `x=(-$w/2+40)` `h=($v*400*ease_out(t/.8))` `count=($value*ease_out(t/1.4))`.
+3. Inside text: `"$title"`, `"{n}$unit"`, `"${name}s"` (braces when letters follow), `$$` = a literal `$`. Numbers print
+   as integers or with ≤ 3 decimals (12480, 99.9). A `$` not followed by a name (`$5`) stays as written.
+- Anything else is refused when you define: an undeclared `$name`, a non-number param inside an expression or inside a
+  longer non-text value (`src=/media/$x.png`). The error names the layer and lists the params.
+
+**Place** with add_layers: `id use START[-END] comp=NAME x= y= s= r= o= z= rx= ry= parent= g= rep= time= $param=value…`
+- The instance is a parent null for all the component's layers: its x/y/s/r/pivot place them, its `o` multiplies their
+  opacity, its effects/blend/matte (`shadow= blur= matte=`) treat the whole component as one picture, its z/fixed/rx/ry
+  give it depth and tilt (with the camera, like any layer). It has no w/h (its box = its layers).
+- Clock: the component runs on the instance's local time (seconds since its start, after `time=`): layer starts, ends and
+  keys inside are component seconds; a layer without end lasts as long as the instance. Inside, `t` is each layer's own
+  time and `T` is the component clock (not the scene's).
+- Number params sample on that same clock: `$grow=0>1@0-1.2:eo` (seconds from the instance's start) or
+  `$wob=(sin(t*3)*4)` — here `t` = instance seconds, `T` = scene seconds, `i`/`n` = the instance's repeater copy.
+  A moving number can fill expressions and Animated fields (x y w h s r o rad soft count…), not text (use
+  `count=($v)` with `{n}`) nor plain fields (size lh ls dec persp): those need a fixed number and the line is refused.
+- `rep=` on an instance repeats the whole component; vary copies with `i` in number params: `$v=(0.3+0.15*i)`.
+- Same id again replaces the instance (change params by resending its line).
+
+**Inside a component**: `parent=` and `matte=` name layers of the same component; `id.x` / `id.y(T-0.2)` read layers of
+the same component (scene layers are not visible from inside); effects, blend, adj, backdrop, mblur, rep work as usual;
+`z`, `rx/ry`, `cam`, `fixed` and `anchor` are ignored (put them on the instance). A `use` line inside a component nests
+another component (≤ 4 levels; a component can never contain itself) and may pass `$v=$a` or `$v=($a*2)` from the outer
+params. Layer ids can't contain `/`.
+
+**Measure and edit**: get_layout lists the instance (box = union of its visible layers) then each layer inside as
+`instance/layer` (nested: `chart/b1/col`), with the instance's group, z and plane; `get_layout ids=["s1"]` shows `s1` and
+everything inside. review_video checks the layers inside one by one (text overlaps, card edges, off frame). In the
+editor a click on any part selects the instance; resizing it scales it. Read back: `get_component NAME` (params + lines,
+ready to edit and resend), `get_component` (all), `get_layer ID` (the use line), get_scene lists components and uses.
+Ops: `{"op":"define_component","name":"stat","component":{"params":[{"name":"title","type":"text","default":"Revenue"}],
+"duration":6,"layers":[…layer JSON…]}}` · `{"op":"remove_component","name":"stat"}` (refused while a layer or another
+component uses it; remove those first, same batch is fine). Redefining is refused if it breaks an existing instance
+(e.g. a param it passes no longer exists) and names it.
+
+### Component recipes (16:9)
+Stat card — defined once, three instances with staggered starts:
+```
+define_component name=stat duration=6 params='title:text="Revenue" value:number=0 unit:text dec:number=0 icon:path=ic:trending-up:40 accent:color=accent'
+card rect 0 w=480 h=260 rad=36 fill=surface s=.9>1@0-.7:eo o=0>1@0-.35 shadow=0,30,70,#0f172a,.18
+chip rect .12 x=-164 y=-58 w=80 h=80 rad=24 fill=$accent s=0>1@0-.5:b
+glyph path .2 x=-164 y=-58 stroke=3:#ffffff te=0>1@0-.6:o "$icon"
+label text .2 x=88 y=-58 w=384 h=44 size=30 align=left fill=text o=0>.75@0-.4 "$title"
+num text .3 x=-8 y=50 w=384 h=100 size=84 role=heading align=left fill=text count=($value*ease_out(t/1.4)) dec=$dec "{n}$unit"
+
+add_layers:
+s1 use .3 comp=stat x=420 y=540 g=stats $title="Revenue" $value=12480 $unit=" €" $icon=ic:trending-up:40
+s2 use .45 comp=stat x=960 y=540 g=stats $title="Active users" $value=3200 $icon=ic:users:40 $accent=primary
+s3 use .6 comp=stat x=1500 y=540 g=stats $title=Uptime $value=99.9 $dec=1 $unit=% $icon=ic:activity:40 $accent=#22c55e
+```
+Pill / tag (width as a param; the text box follows it):
+```
+define_component name=pill params='label:text=New w:number=180 bg:color=accent ink:color=#ffffff'
+bg rect 0 w=$w h=56 rad=28 fill=$bg s=.6>1@0-.45:b o=0>1@0-.2
+txt text .08 w=($w-36) h=40 size=26 fill=$ink o=0>1@0-.3 "$label"
+
+add_layers:
+tag1 use 1.2 comp=pill x=300 y=200 $label=Nuevo $w=150
+tag2 use 1.3 comp=pill x=480 y=200 $label="Más vendido" $w=230 $bg=primary
+```
+Bar chart driven by params (a bar component nested four times; baseline at the instance's y):
+```
+define_component name=bar params='v:number=.5 label:text=Q1 tint:color=primary'
+col rect 0 y=(-$v*200*ease_out(t/.8)) w=72 h=($v*400*ease_out(t/.8)) rad=14 fill=$tint
+val text 0 y=(-$v*400*ease_out(t/.8)-30) w=140 h=40 size=28 role=heading fill=text o=0>1@.4-.7 count=($v*100*ease_out(t/.8)) "{n}%"
+lbl text .1 y=36 w=120 h=36 size=24 fill=text o=0>.7@0-.3 "$label"
+
+define_component name=chart params='a:number=.4 b:number=.6 c:number=.8 d:number=.5 tint:color=primary'
+axis rect 0 y=2 w=560 h=4 rad=2 fill=text o=.25
+b1 use 0 comp=bar x=-195 $v=$a $label=Q1 $tint=$tint
+b2 use .08 comp=bar x=-65 $v=$b $label=Q2 $tint=$tint
+b3 use .16 comp=bar x=65 $v=$c $label=Q3 $tint=$tint
+b4 use .24 comp=bar x=195 $v=$d $label=Q4 $tint=accent
+
+add_layers:
+sales use 1 comp=chart x=960 y=760 g=chart $a=.35 $b=.55 $c=.9 $d=.7
+```
+(Write the tool calls as JSON arguments: `params` is the quoted string, `lines` the layer lines.)
+<!-- components:end -->

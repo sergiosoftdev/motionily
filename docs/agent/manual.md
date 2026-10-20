@@ -15,7 +15,8 @@ where something lands, `get_layout` returns screen boxes as numbers (cheap, no i
    2-6 beats with their times and regions. Do not ask the user unless the brief is empty.
 3. ONE `apply_ops`: `clear_layers` (new video only) + `set_palette` + `set_duration`. Then `set_font` (use `search_fonts`
    only if unsure of the exact family) and ONE `find_icons` with every word you need.
-4. ONE `add_layers` for the world (camera + background), then ONE `add_layers` per beat with all its layers.
+4. ONE `add_layers` for the world (camera + background), then ONE `add_layers` per beat with all its layers. A motif that
+   repeats (cards, pills, rows, bars) is ONE `define_component` + one `use` line per copy.
 5. `get_layout` at 3-6 key instants: off frame, tiny, behind the camera or colliding boxes are listed as numbers. Fix with
    `add_layers` (same id replaces).
 6. `review_video` once: contact sheet + motion strips + automatic checks. Fix what it shows; `render_frames` (≤6 stills) to
@@ -34,6 +35,7 @@ applied: fix it and resend the call.
 | `search_fonts` · `set_font` | any Google Font for the whole video |
 | `find_icons` | Lucide icon names for `ic=NAME:SIZE` |
 | `add_layers` | write/replace layers in compact lines (main tool) |
+| `define_component` · `get_component` | reusable motifs with params, placed with `use` lines (syntax: Components) |
 | `apply_ops` | atomic batch of JSON ops (palette, duration, remove, timing, text, 3D stage…) |
 | `load_scene` | replace the whole scene JSON (rarely needed) |
 | `get_scene` · `get_layer` · `get_group` | read back: summary, one layer, one group as compact lines |
@@ -58,6 +60,7 @@ applied: fix it and resend the call.
 {"op":"add_anim","id":"card","anim":{"use":"my/rise","at":0.2}}  {"op":"clear_anims","id":"card"}
 {"op":"set_captions","captions":{"words":[{"text":"Hola","start":0.2,"end":0.5}]}}   // words:[] hides the built-in line
 {"op":"put_sfx","cue":{…}} {"op":"remove_sfx","id":"…"} {"op":"clear_sfx"}           // prefer add_sfx
+{"op":"define_component","name":"stat","component":{"params":[…],"duration":6,"layers":[…]}}  {"op":"remove_component","name":"stat"}  // prefer the define_component tool
 3D stage: put_prop, remove_prop, set_camera, set_shots, set_stage, define_prefab (below)
 ```
 Rejected on purpose: `set_size` (use `set_format`), `set_style`, `set_library`, `set_caption_style`, `set_render_style`,
