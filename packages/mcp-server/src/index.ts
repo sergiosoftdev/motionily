@@ -394,7 +394,7 @@ server.registerTool(
   "review_video",
   {
     description:
-      "SELF-REVIEW the whole video before saying it's done: one contact sheet of evenly spaced frames plus automatic checks (layers off frame, overlapping text, dead air where nothing moves, blank frames). Look at the sheet critically like a motion designer (framing, characters cut off or tiny, camera, readability, rhythm), fix everything with apply_ops and review again. Repeat until it is clean (max ~3 rounds). Works even if the user has no editor open.",
+      "SELF-REVIEW the whole video before saying it's done: one contact sheet of evenly spaced frames, 12 fps strips of the moments that change most (judge easing and continuity there), automatic checks (layers off frame, text colliding or crossing card edges, palette too saturated/neon, dead air, blank frames) and motion notes (abrupt stops, linear keys, crowded entrances, held layers, no camera). Look at the sheet critically like a motion designer (framing, characters cut off or tiny, camera, readability, rhythm), fix everything with apply_ops and review again. Repeat until it is clean (max ~3 rounds). Works even if the user has no editor open.",
     inputSchema: { frames: z.number().int().min(4).max(24).default(12).describe("frames in the sheet") },
   },
   async ({ frames }) => {
@@ -405,8 +405,13 @@ server.registerTool(
       const report = [
         `duration ${r.duration}s · frames at ${r.times.join(", ")}s`,
         r.issues.length ? `automatic checks found ${r.issues.length} issue(s):\n- ${r.issues.join("\n- ")}` : "automatic checks: no issues (still look at the sheet).",
-      ].join("\n");
-      return { content: [{ type: "text" as const, text: report }, { type: "image" as const, data: r.sheet.split(",")[1] ?? "", mimeType: "image/jpeg" }] };
+        r.motion?.length ? `motion notes:\n- ${r.motion.join("\n- ")}` : "",
+        r.strips?.length ? `motion strips (consecutive frames at 12 fps) of the moments that change most: ${r.strips.map((s) => `${s.from}-${s.to}s`).join(", ")} — judge the easing, spacing and continuity there.` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      const image = (url: string) => ({ type: "image" as const, data: url.split(",")[1] ?? "", mimeType: "image/jpeg" });
+      return { content: [{ type: "text" as const, text: report }, image(r.sheet), ...(r.strips ?? []).map((s) => image(s.image))] };
     } catch (e) {
       return fail((e as Error).message);
     }

@@ -104,6 +104,18 @@ test("3D layers, conic outline gradients, turbulence, counters and typewriters",
   }
 });
 
+test("camera, depth, materials and glass", () => {
+  const cam = parseLine("cam rect 0 vis=0 x=960 y=300>700@0-4:eio z=-400>500@0-4:eio w=1 h=1 cam=1600,0,14");
+  assert.deepEqual(cam.camera, { focal: 1600, focus: 0, aperture: 14 });
+  const glass = parseLine("glass rect 0 x=960 y=540 z=-200 w=760 h=440 rad=40 fill=#ffffff1f backdrop=28 inner=0,2,6,#ffffff,0.35 sheen=0>1@0-2,20,0.12,0.35 bevel=6,0.3 fixed=1");
+  assert.deepEqual(glass.inner, { x: 0, y: 2, blur: 6, color: "#ffffff", opacity: 0.35 });
+  for (const l of [cam, glass]) {
+    const out = formatLayer(l);
+    assert.ok(!out.includes('{"'), `no JSON tail: ${out}`);
+    assert.deepEqual(parseLine(out), l);
+  }
+});
+
 test("explains mistakes", () => {
   assert.throws(() => parseLine("a blob 0-1 w=1 h=1"), /unknown type/);
   assert.throws(() => parseLine("a rect 0-1 w=1"), /w and h/);

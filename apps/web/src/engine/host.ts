@@ -7,7 +7,17 @@ import { mediaUrl } from "../api/client";
 import { EngineStatus, useEditor } from "../store";
 
 type AudioTrack = { start: number; trim_in: number; trim_out: number | null };
-type ReviewLayer = { id: string; type: LayerType; start?: number; end?: number | null; visible?: boolean; soft?: unknown; parent?: string };
+type ReviewLayer = {
+  id: string;
+  type: LayerType;
+  start?: number;
+  end?: number | null;
+  visible?: boolean;
+  soft?: unknown;
+  parent?: string;
+  camera?: unknown;
+  [prop: string]: unknown;
+};
 const LayerType = { Shape: "shape", Text: "text", Image: "image", Character: "character" } as const;
 type LayerType = (typeof LayerType)[keyof typeof LayerType];
 /** A new video starts blank: the agent designs everything. */
@@ -26,6 +36,21 @@ const JAMMED_GAP = 0.2;
 const SATURATED_SHARE = 0.4;
 /** Each of violet, magenta and cyan above this share of the saturated pixels = the neon AI cliché. */
 const NEON_TRIO_SHARE = 0.12;
+/** Motion sampling rate for the per-layer checks and strips. */
+const MOTION_FPS = 12;
+/** Px per sample (at 1/12 s) that counts as a sudden stop (expo-out starts fast on purpose). */
+const ABRUPT_PX = 22;
+/** Px per sample below which a layer counts as still. */
+const STILL_PX = 0.6;
+/** Seconds a visible text/image may hold perfectly still before it reads as dead. */
+const MAX_HOLD = 2.6;
+/** This many layers starting at the same instant is a crowd: stagger them. */
+const CROWD = 6;
+/** Strips: how many, and frames per strip. */
+const STRIPS = 2;
+const STRIP_FRAMES = 8;
+/** Animated properties whose linear keys look mechanical. */
+const EASED_PROPS = ["x", "y", "scale", "rotation", "w", "h"];
 const STILL_DIFF = 0.004;
 /** Consecutive unchanged samples that count as dead air. */
 const STILL_RUN = 3;
@@ -396,7 +421,7 @@ class EngineHost {
   review(frames: number): ReviewReport {
     const canvas = this.canvas;
     const duration = this.duration();
-    if (!canvas || !this.engine) return { duration, times: [], sheet: "", issues: ["engine not ready"] };
+    if (!canvas || !this.engine) return { duration, times: [], sheet: "", issues: ["engine not ready"], motion: [], strips: [] };
     const [sw, sh] = this.size;
     const n = Math.max(4, Math.min(24, frames));
     const times = Array.from({ length: n }, (_, i) => +((duration * (i + 0.5)) / n).toFixed(2));
@@ -519,8 +544,103 @@ class EngineHost {
         if (run === STILL_RUN) issues.push(`nothing moves from ${times[i + 1 - STILL_RUN]}s to ${times[i + 1]}s (dead air)`);
       });
     }
+    const motion = this.motionNotes(layers, duration);
+    // The moments that change most, seen as consecutive frames.
+    const peaks = deltas
+      .map((d, i) => ({ d, t: (times[i]! + times[i + 1]!) / 2 }))
+      .sort((a, b) => b.d - a.d)
+      .slice(0, STRIPS)
+      .sort((a, b) => a.t - b.t);
+    const strips = peaks.map(({ t }) => this.strip(Math.max(0, t - STRIP_FRAMES / 2 / MOTION_FPS), duration));
     this.draw();
-    return { duration, times, sheet: sheet.toDataURL("image/jpeg", 0.8), issues };
+    return { duration, times, sheet: sheet.toDataURL("image/jpeg", 0.8), issues, motion, strips };
+  }
+
+  /** `STRIP_FRAMES` consecutive frames at `MOTION_FPS` from `from`, in one row of 4 × 2. */
+  private strip(from: number, duration: number): { from: number; to: number; image: string } {
+    const canvas = this.canvas!;
+    const [sw, sh] = this.size;
+    const cellW = 300;
+    const cellH = Math.round((cellW * sh) / sw);
+    const out = document.createElement("canvas");
+    const cols = 4;
+    out.width = cols * cellW;
+    out.height = Math.ceil(STRIP_FRAMES / cols) * cellH;
+    const g = out.getContext("2d")!;
+    g.font = "12px sans-serif";
+    let last = from;
+    for (let k = 0; k < STRIP_FRAMES; k++) {
+      const t = Math.min(duration - 0.01, from + k / MOTION_FPS);
+      last = t;
+      this.engine!.render(t);
+      const x = (k % cols) * cellW;
+      const y = Math.floor(k / cols) * cellH;
+      g.drawImage(canvas, x, y, cellW, cellH);
+      g.fillStyle = "rgba(0,0,0,0.6)";
+      g.fillRect(x, y, 52, 16);
+      g.fillStyle = "#fff";
+      g.fillText(`${t.toFixed(2)}s`, x + 4, y + 12);
+    }
+    return { from: +from.toFixed(2), to: +last.toFixed(2), image: out.toDataURL("image/jpeg", 0.75) };
+  }
+
+  /** Per-layer motion checks from the layers' boxes at `MOTION_FPS`, plus keyframe easing. */
+  private motionNotes(layers: ReviewLayer[], duration: number): string[] {
+    const notes: string[] = [];
+    const [sw, sh] = this.size;
+    // A stop that happens off screen (zoom-throughs, wipes) is a cut on motion, not a flaw.
+    const onScreen = (cx: number, cy: number, w: number, h: number) =>
+      Math.max(0, Math.min(cx + w / 2, sw) - Math.max(cx - w / 2, 0)) * Math.max(0, Math.min(cy + h / 2, sh) - Math.max(cy - h / 2, 0)) > Math.max(1, w * h) * 0.25 && w < sw * 3;
+    const abruptStops: string[] = [];
+    const linearLayers: string[] = [];
+    const steps = Math.floor(duration * MOTION_FPS);
+    const fmt = (t: number) => `${t.toFixed(1)}s`;
+    for (const l of layers) {
+      if (l.visible === false || l.camera) continue;
+      let prev: number[] | null = null;
+      let prevSpeed = 0;
+      let stillSince: number | null = null;
+      let abrupt = 0;
+      let longest = { from: 0, len: 0 };
+      for (let k = 0; k <= steps; k++) {
+        const t = k / MOTION_FPS;
+        const b = this.engine!.layerBounds(l.id, t);
+        if (!b) {
+          prev = null;
+          stillSince = null;
+          continue;
+        }
+        const [cx = 0, cy = 0, w = 0, h = 0, r = 0] = b;
+        if (prev) {
+          const speed = Math.hypot(cx - prev[0]!, cy - prev[1]!) + Math.abs(w - prev[2]!) / 2 + Math.abs(h - prev[3]!) / 2 + Math.abs(r - prev[4]!) * 100;
+          if (prevSpeed > ABRUPT_PX && speed < STILL_PX && onScreen(cx, cy, w, h)) abrupt++;
+          if (speed < STILL_PX) {
+            stillSince ??= t;
+            const len = t - stillSince;
+            if (len > longest.len) longest = { from: stillSince, len };
+          } else stillSince = null;
+          prevSpeed = speed;
+        }
+        prev = [cx, cy, w, h, r];
+      }
+      const big = (l.type === LayerType.Text || l.type === LayerType.Image) && longest.len > MAX_HOLD;
+      if (big) notes.push(`'${l.id}' holds perfectly still ${fmt(longest.from)}-${fmt(longest.from + longest.len)}: add a slow drift/scale or move the camera`);
+      if (abrupt > 0) abruptStops.push(l.id);
+      if (EASED_PROPS.some((p) => Array.isArray(l[p]) && (l[p] as { ease?: string }[]).slice(0, -1).some((k) => k.ease === "linear"))) linearLayers.push(l.id);
+    }
+    const some = (ids: string[]) => `${ids.slice(0, 6).join(", ")}${ids.length > 6 ? ` +${ids.length - 6}` : ""}`;
+    if (abruptStops.length) notes.push(`${abruptStops.length} layer(s) slam to a stop at full speed (${some(abruptStops)}): end moves with an ease-out (eo/o) or a spring`);
+    if (linearLayers.length) notes.push(`${linearLayers.length} layer(s) move with linear keys (${some(linearLayers)}): mechanical — use expo/back/spring curves`);
+    const starts = new Map<string, string[]>();
+    for (const l of layers) {
+      if (l.visible === false) continue;
+      const key = (l.start ?? 0).toFixed(2);
+      starts.set(key, [...(starts.get(key) ?? []), l.id]);
+    }
+    for (const [t, ids] of starts)
+      if (ids.length >= CROWD && Number(t) > 0) notes.push(`${ids.length} layers start together at ${t}s (${ids.slice(0, 4).join(", ")}…): stagger them 0.03-0.08 s`);
+    if (!layers.some((l) => l.camera)) notes.push(`no camera layer: add one (a vis=0 layer with cam=…) and move it — slow push, drifts, fly-throughs; static frames read as slides`);
+    return notes;
   }
 
   sceneSize(): [number, number] {

@@ -18,7 +18,9 @@
  * Motion path `mp="M…" mpp=0>1@0-2 orient=1` · text on path `tp="M…" tpo=-900>0@0-1.5:eo` · time remap `time=(mod(t,2))`.
  * Effects: shadow glow blur · color=HUE,SAT,BRIGHT,CONTRAST · rgb=PX · wave=AMP,LEN,SPEED · grain=AMT · mblur=SHUTTER,SAMPLES
  *   · turb=AMT,SIZE,SPEED · adj=1 (adjustment layer) · matte=id[:inv|:luma|:lumainv].
- * 3D: rx= ry= (degrees) z= (px away) persp= — the layer and its children tilt in perspective.
+ * World: cam=FOCAL[,FOCUS,APERTURE] on a vis=0 layer = the camera (x/y look, z dolly, s zoom) · z= depth (parallax)
+ *   · fixed=1 pinned to the screen · rx= ry= tilt a layer and its children in perspective · persp=.
+ * Materials: inner=X,Y,BLUR,COLOR,OP · sheen=AT,ANGLE,WIDTH,OP · bevel=WIDTH,STRENGTH · backdrop=BLUR (frosted glass).
  * Gradients: grad=lin:… | rad:… | con:CX,CY:ANGLE:stops (conic) · sgrad= paints the stroke.
  * Text: "Just *ask.*" colors the marked words with accent= (default palette accent) · count=0>12480@0-2:eo dec=0 with {n} in the text · reveal=(t*16) caret=1 (typewriter).
  */
@@ -230,6 +232,21 @@ export function parseLine(line: string): Layer {
     } else if (k === "count") layer.count = parseValue(v, line);
     else if (k === "reveal") layer.reveal = parseValue(v, line);
     else if (k === "caret") layer.caret = v !== "0" && v !== "false";
+    else if (k === "fixed") layer.fixed = v !== "0" && v !== "false";
+    else if (k === "cam") {
+      const [focal, focus, aperture] = v.split(",");
+      layer.camera = { focal: num(focal!, line), ...(focus ? { focus: parseValue(focus, line) } : {}), ...(aperture ? { aperture: parseValue(aperture, line) } : {}) };
+    } else if (k === "backdrop") layer.backdrop = parseValue(v, line);
+    else if (k === "inner") {
+      const [x, y, blur, c, op] = list(v, line, 3);
+      layer.inner = { x: parseValue(x!, line), y: parseValue(y!, line), blur: parseValue(blur!, line), ...(c ? { color: color(c) } : {}), ...(op ? { opacity: parseValue(op, line) } : {}) };
+    } else if (k === "sheen") {
+      const [at, angle, width, op] = v.split(",");
+      layer.sheen = { at: parseValue(at!, line), ...(angle ? { angle: parseValue(angle, line) } : {}), ...(width ? { width: parseValue(width, line) } : {}), ...(op ? { opacity: parseValue(op, line) } : {}) };
+    } else if (k === "bevel") {
+      const [w, strength] = v.split(",");
+      layer.bevel = { width: parseValue(w!, line), ...(strength ? { strength: parseValue(strength, line) } : {}) };
+    }
     else if (k === "stroke") {
       const [w, c, dash] = v.split(":");
       layer.stroke = { ...(layer.stroke as object), width: parseValue(w!, line), color: color(c ?? "text"), ...(dash ? { dash: list(dash, line, 2).map((n) => num(n, line)) } : {}) };
@@ -386,6 +403,20 @@ const SHORT_FORMS: [string, (v: never) => string[]][] = [
   ["count", (c: Animated) => [`count=${formatValue(c)}`]],
   ["reveal", (r: Animated) => [`reveal=${formatValue(r)}`]],
   ["caret", (c: boolean) => (c ? ["caret=1"] : [])],
+  ["fixed", (f: boolean) => (f ? ["fixed=1"] : [])],
+  ["backdrop", (b: Animated) => [`backdrop=${formatValue(b)}`]],
+  [
+    "camera",
+    (c: { focal?: number; focus?: Animated; aperture?: Animated }) => [
+      `cam=${[String(c.focal ?? 1800), ...(c.focus !== undefined || c.aperture !== undefined ? [inner(c.focus ?? 0), inner(c.aperture ?? 0)] : [])].join(",")}`,
+    ],
+  ],
+  [
+    "inner",
+    (i: Record<string, unknown>) => [`inner=${[inner(i.x ?? 0), inner(i.y ?? 0), inner(i.blur ?? 12), formatColor(i.color ?? "#0f121f"), inner(i.opacity ?? 0.25)].join(",")}`],
+  ],
+  ["sheen", (h: Record<string, unknown>) => [`sheen=${[inner(h.at ?? 0), inner(h.angle ?? 20), inner(h.width ?? 0.18), inner(h.opacity ?? 0.45)].join(",")}`]],
+  ["bevel", (b: Record<string, unknown>) => [`bevel=${[inner(b.width ?? 6), inner(b.strength ?? 0.35)].join(",")}`]],
   [
     "motion_path",
     (m: { d: string; progress?: Animated; orient?: boolean }) => [

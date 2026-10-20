@@ -88,6 +88,10 @@ export type ReviewReport = {
   /** One JPEG data URL with every sampled frame in a grid. */
   sheet: string;
   issues: string[];
+  /** Motion feedback: easing, abrupt starts/stops, stillness, crowded entrances, camera. */
+  motion: string[];
+  /** Short strips of consecutive frames (12 fps) around the moments that change most. */
+  strips: { from: number; to: number; image: string }[];
 };
 
 export const EditorMessageType = {
