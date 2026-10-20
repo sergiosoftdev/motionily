@@ -91,7 +91,7 @@ engine WASM (Rust/wgpu)  ◀────── WebSocket (ops en vivo) ───
 5b. ✅ **Timeline y selección** — línea de tiempo abajo tipo CapCut (audio con onda y
    recorte, subtítulos palabra a palabra, capas); clic en un objeto del vídeo para
    seleccionarlo y comentar sobre él: el agente recibe la referencia y lee solo esa
-   capa (`get_layer`), sin cargar el proyecto entero.
+   capa (`inspect ID`), sin cargar el proyecto entero.
 5. ✅ **Texto y subtítulos** — cosmic-text + atlas, estilos de captions.
 6. ✅ **Render styles** — shaders toon/contorno, papel recortado, clay sobre 2D.
 7. ✅ **3D (2.5D procedural)** — glTF, escenarios y personajes con esqueleto, isométrico.

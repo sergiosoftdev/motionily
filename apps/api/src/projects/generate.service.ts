@@ -113,7 +113,7 @@ rules below are exact. To know where something lands on screen, get_layout retur
 const ROLE_TOOLS = {
   planner: ["get_project", "get_brand", "view_image", "view_asset", "search_fonts", "set_font", "apply_ops", "add_layers", "search_images", "import_image", "define_component", "get_component"],
   builder: ["add_layers", "edit_layers", "apply_ops", "get_layout", "render_frames", "view_asset", "view_image", "get_brand", "find_icons", "define_component", "get_component"],
-  finisher: ["get_feedback", "edit_layers", "review_video", "get_layout", "render_frames", "get_group", "add_layers", "apply_ops", "list_sounds", "add_sfx", "get_component", "set_font", "search_fonts"],
+  finisher: ["get_feedback", "edit_layers", "review_video", "get_layout", "render_frames", "inspect", "add_layers", "apply_ops", "list_sounds", "add_sfx", "get_component", "set_font", "search_fonts"],
   sound: ["get_project", "list_sounds", "add_sfx"],
 } as const;
 
@@ -147,7 +147,7 @@ function voiceFor(run: Run, beat: Beat): string {
 }
 
 /** Interrupted run without a saved plan: finish whatever is missing on the cut already on screen. */
-const CONTINUE_PROMPT = `The previous run of this video was interrupted. Continue it: read get_project and get_scene, see which beats are
+const CONTINUE_PROMPT = `The previous run of this video was interrupted. Continue it: read get_project and inspect, see which beats are
 already on screen, build only the missing ones (never clear what exists), then finish with review_video and fix what it shows.`;
 
 /** A moment of the cut where a sound can land: a layer enters or leaves, an animation starts, a phrase or an emphasis word. */
@@ -239,7 +239,7 @@ const FINISHER_GUIDE = `You are the finishing editor of a Motionily video built 
    pinned to a second or a layer. Call get_feedback again before you finish.
 1. review_video. If there is a reference film, put your sheet next to its sheets (view_image) and name the 3
 biggest gaps (palette, density, camera, transitions, rhythm); fix them first. 2. Fix only what is wrong (overlaps between beats, off-frame, dead air, broken transitions,
-unreadable text): get_group to read a group as compact lines, get_layout for exact screen boxes, add_layers to fix.
+unreadable text): inspect group:NAME to read a group as compact lines, get_layout for exact screen boxes, add_layers to fix.
 ${NO_PROBING} 3. Review again only if you
 changed a lot (max 2 rounds).
 4. SOUND DESIGN: list_sounds, then ONE add_sfx call with a cue on every key motion moment of the timings below
@@ -469,7 +469,7 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
         ? this.resume(run, refs, { ...opts, ...team.build }, team, saved)
         : this.single(run, CONTINUE_PROMPT + refs, { ...opts, ...team.build })
       : instruction?.trim()
-      ? this.single(run, `The user asks: "${instruction.trim()}". Apply it to the current video (read get_project and get_scene first; finish with review_video and fix what it shows).${refs}`, { ...opts, ...team.build })
+      ? this.single(run, `The user asks: "${instruction.trim()}". Apply it to the current video (read get_project and inspect first; finish with review_video and fix what it shows).${refs}`, { ...opts, ...team.build })
       : this.team(run, refs, opts, team, mode);
     // Sound-only: just the sound pass on the video that is already on screen.
     const work = build

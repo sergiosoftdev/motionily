@@ -230,8 +230,8 @@ export function SelectionOverlay({ canvas }: { canvas: RefObject<HTMLCanvasEleme
 export function scopedInstruction(request: string, time: number, group: string | null, layer: string | null, moment = false): string {
   const at = time.toFixed(1);
   if (group)
-    return `Only about group '${group}' (around ${at}s): ${request}. Read it with get_group ${group} and change only that group — to redesign it, remove_group ${group} and add new layers with "group":"${group}" in the same time span and area. Do not touch other layers. Then render_frames at ${at}s to check.`;
-  if (layer) return `Only about layer '${layer}' (around ${at}s): ${request}. Read it with get_layer ${layer}, change just that layer, then render_frames at ${at}s to check.`;
+    return `Only about group '${group}' (around ${at}s): ${request}. Read it with inspect group:${group} and change only that group — to redesign it, remove_group ${group} and add new layers with "group":"${group}" in the same time span and area. Do not touch other layers. Then render_frames at ${at}s to check.`;
+  if (layer) return `Only about layer '${layer}' (around ${at}s): ${request}. Read it with inspect ${layer}, change just that layer, then render_frames at ${at}s to check.`;
   if (moment) return `About the moment at ${at}s: ${request}. Change only what is on screen around then (get_layout at ${at} lists it), then render_frames at ${at}s to check.`;
   return request;
 }

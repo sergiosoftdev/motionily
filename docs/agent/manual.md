@@ -42,7 +42,10 @@ applied: fix it and resend the call.
 | `define_component` · `get_component` | reusable motifs with params, placed with `use` lines (syntax: Components) |
 | `apply_ops` | atomic batch of JSON ops (palette, duration, remove, timing, text, 3D stage…) |
 | `load_scene` | replace the whole scene JSON (rarely needed) |
-| `get_scene` · `get_layer` · `get_group` | read back: summary, one layer, one group as compact lines |
+| `inspect` | read back: `inspect` (summary; `full=true` for every layer), `inspect ID` (one layer), `inspect group:NAME` (a group with its times) |
+| `checkpoint` | named snapshots of this session: `save NAME` before a risky change, `diff NAME [OTHER]` (what changed, layer by layer), `restore NAME`, `list` |
+| `next_step` | what to do next, from the state (empty, lint open, not reviewed, no sound, done) |
+| `examples` | videos the user approved: `save LABEL tags` (only after approval), `find QUERY` (their techniques and first layers, to learn from; never paste one in whole) |
 | `get_layout` | where every layer lands on screen at given seconds (numbers) |
 | `render_frames` · `review_video` | look at stills / full self-review |
 | `list_prefabs` · `get_prefab` · `save_prefab` · `clone_prefab` | the user's 3D library |
@@ -74,22 +77,22 @@ applied: fix it and resend the call.
 Rejected on purpose: `set_size` (use `set_format`), `set_style`, `set_library`, `set_caption_style`, `set_render_style`,
 `set_scenario`. JSON layer fields are the long names of the compact keys (`scale`, `rotation`, `opacity`, `radius`,
 `gradient`, `stroke`, `effects`, `matte`, `repeat`, `motion_path`, `rotate_x`, `rotate_y`, `camera`, `fixed`…);
-`get_layer` shows any layer in compact form with a JSON tail for what has no short key.
+`inspect ID` shows any layer in compact form with a JSON tail for what has no short key.
 
 ## Groups, edits and feedback
 - Every layer gets `g=NAME` (hook, dashboard, cta…). The user selects whole groups and asks for changes to them:
-  `get_group` + `remove_group` + `add_layers` with the same group, or `set_prop` — never rebuild the whole video for a local change.
-- Comments arrive through `get_feedback`, pinned to a second and/or a layer: `get_layer` that layer and change just it.
+  `inspect group:NAME` + `remove_group` + `add_layers` with the same group, or `set_prop` — never rebuild the whole video for a local change.
+- Comments arrive through `get_feedback`, pinned to a second and/or a layer: `inspect ID` that layer and change just it.
 
 ## Voice, captions and sound
-- **Voice timeline** (in `get_scene`'s summary once a voice is uploaded): the audio is analysed for you —
+- **Voice timeline** (in `inspect`'s summary once a voice is uploaded): the audio is analysed for you —
   `voice timeline (N phrases, M long pauses; scene s): 0.31–2.40 "Every word you hear is moving." · pause 0.82s LONG · …`.
   Phrases are speech between silences ≥ 0.25 s (with their caption words); LONG pauses (≥ 0.6 s) are the script's scene
   changes. Use it directly, never guess or re-measure: start each beat's motion on a phrase start, land its key word on
   that word's time, cut or move the camera inside LONG pauses, keep text readable until its phrase ends, and give short
   pauses a small accent (a pop, a settle) instead of a cut. Without an analysis it falls back to the gaps between words.
 - If the user uploaded a voice-over, the editor transcribes it into `captions.words` (`{text,start,end,emphasis}`; all
-  timings in `get_scene full=true`): time every beat and on-screen phrase to those words. Design captions yourself as text
+  timings in `inspect full=true`): time every beat and on-screen phrase to those words. Design captions yourself as text
   layers and hide the built-in line with `set_captions` words:[] if it gets in the way.
 - Only a voice script: ~2.3 words/s, one paragraph per beat, `[long pause]` = beat change.
 - `set_voice_script`: ElevenLabs v3 — one tone tag like `[warm]` first, one paragraph per scene, `[long pause] [long pause]`
@@ -168,10 +171,26 @@ Most videos are 2D layers; 3D objects inside them (`object` layers, see syntax) 
   target a prop id, "all" or [x,y,z]; framing 1 = fit (0.6 tight, 1.5 wide); yaw/pitch degrees; blend = seconds of smooth
   move from the previous shot (0 = cut). Or keyframe it: `{"op":"set_camera","camera":{"kind":"perspective|isometric","yaw":[…],"pitch":[…],"distance":[…],"target_x":…,"fov":30}}`.
 
+## Writes come back checked
+`add_layers`, `edit_layers` and `apply_ops` answer with their own checks, from the engine's real layout at the times the
+touched layers are on screen (their start and middle). Read them and apply the fix ops they print with `apply_ops`:
+- `LINT off_frame` — more than 10% of a box is past an edge (entirely off is fine: it waits to enter). Fix: a shifted x/y.
+- `LINT tiny_text` — text under 2.4% of the short side (26 px on 1080). Fix: a larger size.
+- `LINT low_contrast` — text under WCAG 4.5:1 against what is behind it at its center (the topmost non-text layer, else
+  the background). Fix: `fill=on_<what it sits on>`. Measured with the palette colors, not the pixels of gradients or photos.
+- `LINT text_overlap` — two text boxes share more than 8% of the smaller one. Fix: `place=below:OTHER` or move one.
+- `LINT place_missing` — `place=` names a layer that does not exist.
+- `placed (place=)` — layers with `place=` were moved to their anchor. Placement uses the anchor's box when the placed layer
+  starts; it is redone after every write, and does not follow keyframed anchors or parents.
+- `review_video` adds the numbers per frame (layers on screen, share of the frame under text) and the same lint with fixes.
+- `next_step` gives the order to work in. Call it when you are unsure what comes next.
+Times can be references: `@phrase:N` and `@word:TEXT` (see syntax). Colors can be `on_background|on_surface|on_primary|
+on_accent`: the best readable ink for that palette slot.
+
 ## Self-check
 - `get_layout times=[…]` — per layer: screen box, scale k, depth, plane, flags (OFF FRAME, % off frame, tiny, hidden) and
   which layers the camera already passed. Text boxes are the real glyph ink.
-- `review_video` — contact sheet, 12 fps strips of the busiest moments, automatic checks (off frame, colliding text, text
+- `review_video` — numbers per frame, lint with fix ops (see Writes come back checked), contact sheet, 12 fps strips of the busiest moments, automatic checks (off frame, colliding text, text
   crossing card edges, neon/saturated palette, dead air, blank frames) and motion notes (abrupt stops, linear keys,
   crowded entrances, held layers, no camera). Never hand back a video you have not reviewed.
 - Not supported yet: video clips, exporting from the agent side, glTF morph targets, point-light shadows.

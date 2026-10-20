@@ -48,6 +48,8 @@ const SATURATED_SHARE = 0.4;
 const NEON_TRIO_SHARE = 0.12;
 /** Motion sampling rate for the per-layer checks and strips. */
 const MOTION_FPS = 12;
+/** Smallest text that still reads on a phone, as a share of the frame's short side (26 px on 1080). */
+const MIN_TEXT_SHARE = 0.024;
 /** Px per sample (at 1/12 s) that counts as a sudden stop (expo-out starts fast on purpose). */
 const ABRUPT_PX = 22;
 /** Px per sample below which a layer counts as still. */
@@ -667,6 +669,7 @@ class EngineHost {
         }
     }
     for (const note of this.videoIssues(layers, duration)) found.set(note, []);
+    for (const note of this.textSizeNotes(layers)) found.set(note, []);
 
     for (const [id, seen] of swarms)
       if (!seen) found.set(`particles '${id}' never has a live particle at the review times: set rate= and/or burst= inside its span (and life=)`, [times[0]!]);
@@ -732,6 +735,19 @@ class EngineHost {
    * Video layers that will not show what the agent expects: file failed to load, `in` past the end
    * of the file, or a clip that runs out and freezes on its last frame while the layer is still on.
    */
+  /** Text layers set below the phone-readable size (static sizes only; animated sizes are not judged). */
+  private textSizeNotes(layers: ReviewLayer[]): string[] {
+    const [sw, sh] = this.size;
+    const short = Math.min(sw, sh);
+    const min = short * MIN_TEXT_SHARE;
+    const notes: string[] = [];
+    for (const l of layers) {
+      if (l.type !== LayerType.Text || l.visible === false || typeof l.size !== "number") continue;
+      if (l.size < min) notes.push(`text '${l.id}' is ${l.size}px on a ${short}px frame: too small to read on a phone (at least ${Math.round(min)}px)`);
+    }
+    return notes;
+  }
+
   private videoIssues(layers: ReviewLayer[], duration: number): string[] {
     const notes: string[] = [];
     for (const l of layers) {

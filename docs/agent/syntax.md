@@ -11,7 +11,7 @@ id type start[-end] key=value… "text or path data" {optional JSON merged into 
 - value of any animatable key: number · tween `from>to@t0-t1[:ease]` · keys `t:v[:ease],t:v,…` · `(expression)`.
   Times in tweens/keys are seconds from the layer's own start.
 - eases: `l` linear · `i o io` ease in/out/in-out · `b` back (overshoot) · `h` hold · `eo ei eio` expo (eo = premium UI) ·
-  `el` elastic · `bo` bounce. An ease sits on the key it leaves; default `io`. JSON keys also take `"bezier":[x1,y1,x2,y2]`.
+  `el` elastic · `bo` bounce · `sp` spring (real damped spring released at rest: ~23% overshoot, settles inside the segment; use for physical pops and drops). An ease sits on the key it leaves; default `io`. JSON keys also take `"bezier":[x1,y1,x2,y2]`.
 - expressions: `(540 + 40*sin(t*2))` `(wiggle(2,8))` `(spring(t,2.2,7))` `(lerp(0,1,ease(t/0.6)))`.
   vars: `t` layer seconds, `T` scene seconds, `i`/`n` repeater copy index/count, `pi`, `$name` a component's number
   param (inside components; elsewhere it reads 0).
@@ -32,19 +32,20 @@ id type start[-end] key=value… "text or path data" {optional JSON merged into 
 | `parent=ID` | inherits that layer's position/rotation/scale; x/y become relative to the parent's center |
 | `g=NAME` | group (always set it: one group per visual unit, the user edits groups) |
 | `vis=0` | not drawn itself (nulls, camera, matte sources) |
-| `fill=` | palette slot `background|surface|primary|accent|text` or `#rrggbb[aa]`; color keys `fill=0:#ffffff,0.6:#ff3d5a:eo` |
+| `fill=` | palette slot `background|surface|primary|accent|text`, or `on_background|on_surface|on_primary|on_accent` (white, near-black or the palette text, whichever reads best on that slot: WCAG), or `#rrggbb[aa]`; color keys `fill=0:#ffffff,0.6:#ff3d5a:eo` |
+| `place=SIDE:ID[,gap=PX][,align=start\|center\|end]` | sit against layer ID: SIDE is above, below, left, right or inside; gap in px; align sets the cross-axis edge (start/end). The tools resolve it into x and y (centers) and redo it after each write that moves ID. Not with `parent=` |
 | `grad=` | `lin:ANGLE:color@pos,…` · `rad:CX,CY:R:color@pos,…` · `con:CX,CY:ANGLE:color@pos,…` (conic; CX,CY 0..1 of the box; ≤ 4 stops; ANGLE may be `(t*90)`) |
 | `stroke=W:COLOR[:DASH,GAP]` | outline (shapes) or line (paths) · `sgrad=` paints the stroke with a gradient |
 | `soft=PX` | feathered edge: big soft ellipses = mesh-gradient backgrounds, glows |
 | `shadow=X,Y,BLUR,COLOR[,OP]` | drop shadow (use a tinted color, low opacity, big blur) |
-| `glow=RADIUS[,STRENGTH[,COLOR]]` | glow |
+| `glow=RADIUS[,STRENGTH[,COLOR[,THRESHOLD]]]` | glow. THRESHOLD (0-1 luma) makes a bloom: only pixels brighter than it glow, so light reads as light instead of a haze over the whole layer (`glow=60,1,,0.7` on a white dot) |
 | `blur=PX` | gaussian blur |
 | `mblur=SHUTTER°,SAMPLES` | motion blur on fast movers (`mblur=180,8`) |
 | `color=HUE°,SAT,BRIGHT,CONTRAST` | color correction |
 | `rgb=PX` | RGB split · `wave=AMP,WAVELENGTH,SPEED` warp · `grain=AMOUNT` |
 | `turb=AMOUNT,CELL_PX,SPEED` | turbulent displacement (on huge soft blobs = liquid/cloud backgrounds) |
 | `fx="WGSL" fx0=… fx7=` | custom shader effect (your own distortion/color/glitch; on `adj=1` a full-frame post effect or transition) — see Custom shaders |
-| `blend=add|screen|multiply` | add = light (glows, trails, flares on dark) |
+| `blend=MODE` | normal, add (light), screen, multiply, darken, lighten, difference, exclusion, overlay, soft_light, hard_light, color_dodge, color_burn, linear_burn, hue, saturation, color, luminosity. Modes after multiply read what is below (one extra copy of the scene per layer): use them for texture, tint and grade, not on every layer |
 | `adj=1` | adjustment layer: its effects apply to everything below, inside its own shape (full-frame rect = whole picture) |
 | `matte=ID[:inv|:luma|:lumainv]` | that layer's alpha/brightness masks this one (give the matte `vis=0`) |
 | `inner=X,Y,BLUR,COLOR,OP` | inner shadow (light color + 0,0 = inner glow) — rect/ellipse |
@@ -61,6 +62,9 @@ id type start[-end] key=value… "text or path data" {optional JSON merged into 
 - ONE layer per phrase. Mark key words with `*word*` (colored with `accent=COLOR`, default the palette accent). Never split a
   phrase into word layers (they collide).
 - `w`×`h` is the text box: the type shrinks until it fits. On a card, give the text the card's box minus ~8% padding.
+- Text stays sharp at any size: above 256 px it is drawn from a distance field, so hero words at 400-900 px are as clean as small text.
+- Timing by reference: `start`/`end` take `@phrase:N` (the N-th phrase of the voice, from 1; phrases split at silences of 0.25 s or more between the caption words) or `@word:TEXT` (first time that word is said), each with an optional `+SECONDS`: `hook @phrase:2-@phrase:3 …`, `tag @word:ready+0.2-6 …`. Needs a voice with captions; without one the error says so.
+- Text is kerned from the font's own spacing (GPOS) and ligatures are off, so every character stays one glyph and per-character animation lands on the right letters. Keep body text at least 2.4% of the short side (26 px on 1080): review flags smaller text as unreadable on a phone.
   The wrap width is never below 20% of the frame width (216 px at 1080 wide, 384 px at 1920): a narrower `w` is widened
   around x, so a left-aligned label in a narrow box starts further left — give left/right-aligned text `w` ≥ that.
 - per-unit animation (JSON tail): `{"animate":{"by":"char|word|line","stagger":0.03,"duration":0.5,"delay":0,"ease":"expo_out","reverse":false,"from":{"x":0,"y":40,"scale":0.8,"rotation":0,"opacity":0,"blur":16}}}`
