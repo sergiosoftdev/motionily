@@ -3,12 +3,20 @@ import { api, mediaUrl } from "../api/client";
 
 /** Reference images per prompt (the API caps it too). */
 export const MAX_REFERENCES = 8;
-const ACCEPT = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+/** Reference films: the API cuts them into contact sheets + shot timing for the agents. */
+const VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"];
+const ACCEPT = [...IMAGE_TYPES, ...VIDEO_TYPES];
 
 /**
  * Reference images for a prompt: paste (⌘V), drop or pick files. They upload right away and
  * travel with the request as media paths, so Claude can look at what the user means.
  */
+/** Neutral tile shown while a film uploads (an inline SVG data URL). */
+const FILM_PLACEHOLDER =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="10" fill="#1d1d22"/><path d="M26 22l18 10-18 10z" fill="#9a9aa5"/></svg>');
+
 export function useReferences(initial: string[] = [], onChange?: (refs: string[]) => void) {
   const [refs, setRefs] = useState<string[]>(initial);
   /** Local previews (blob URLs) shown while their upload runs. */
@@ -34,16 +42,17 @@ export function useReferences(initial: string[] = [], onChange?: (refs: string[]
     setUploading((n) => n + images.length);
     await Promise.all(
       images.map((f) => {
-        const local = URL.createObjectURL(f);
+        // Films have no quick preview: show a placeholder tile while they are analysed.
+        const local = IMAGE_TYPES.includes(f.type) ? URL.createObjectURL(f) : `${FILM_PLACEHOLDER}#${crypto.randomUUID()}`;
         setPending((p) => [...p, local]);
         return api
           .uploadReference(f)
-          .then(({ url }) => setRefs((r) => (r.length < MAX_REFERENCES ? [...r, url] : r)))
+          .then(({ url, urls }) => setRefs((r) => [...r, ...(urls ?? [url])].slice(0, MAX_REFERENCES)))
           .catch((e: Error) => setError(e.message))
           .finally(() => {
             setUploading((n) => n - 1);
             setPending((p) => p.filter((x) => x !== local));
-            URL.revokeObjectURL(local);
+            if (!local.startsWith(FILM_PLACEHOLDER)) URL.revokeObjectURL(local);
           });
       }),
     );

@@ -126,7 +126,8 @@ export const api = {
   deleteSound: (name: string) => call<void>(HttpMethod.Delete, `/sounds/${name}`),
   designSound: (description: string) => call<{ name: string; category: string; description: string; recipe: SoundRecipe }>(HttpMethod.Post, "/sounds/-/design", { description }),
   /** A reference image pasted into a prompt; returns its media path. */
-  uploadReference: (file: File) => upload<{ url: string }>("/references", file),
+  /** Images come back as themselves; films as contact sheets (`urls`) plus their shot timing. */
+  uploadReference: (file: File) => upload<{ url: string; urls?: string[]; film?: string }>("/references", file),
   generateStatus: (id: string) => call<GenerateState>(HttpMethod.Get, `/projects/${id}/generate`),
   stopGenerate: (id: string) => call<GenerateState>(HttpMethod.Delete, `/projects/${id}/generate`),
   uploadAudio: (id: string, file: File) => upload<Project>(`/projects/${id}/audio`, file),
