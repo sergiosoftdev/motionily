@@ -99,6 +99,9 @@ export class ProjectApi {
   }
 }
 
+/** Scope of an account-wide agent token (the API's TokenScope.Account). */
+export const ACCOUNT_SCOPE = "account";
+
 export const NO_PROJECT = "No video is open yet. Call list_projects, then open_project or create_project.";
 
 /** A video as the account lists it. */

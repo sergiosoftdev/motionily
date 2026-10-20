@@ -1,10 +1,10 @@
-import { Body, Controller, Get, NotFoundException, Post } from "@nestjs/common";
+import { Body, Controller, ForbiddenException, Get, NotFoundException, Post } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
 import { JwtService } from "@nestjs/jwt";
 import { IsEmail, IsOptional, IsString, MaxLength } from "class-validator";
 import { Model } from "mongoose";
 import { AuthProvider, User } from "../users/user.schema";
-import { CurrentUser, Public, type AuthUser, type JwtPayload } from "./auth";
+import { CurrentUser, Public, TokenScope, type AuthUser, type JwtPayload } from "./auth";
 
 class MockLoginDto {
   @IsEmail() email: string;
@@ -33,6 +33,14 @@ export class AuthController {
     );
     const payload: JwtPayload = { sub: user.id, email: user.email };
     return { token: await this.jwt.signAsync(payload), user: toUserView(user) };
+  }
+
+  /** A token the user pastes into their agent (MCP) so it can create videos and work on any of them. */
+  @Post("agent-token")
+  async agentToken(@CurrentUser() user: AuthUser) {
+    if (user.scope !== TokenScope.User) throw new ForbiddenException("only the user can do this");
+    const payload: JwtPayload = { sub: user.id.toString(), email: user.email, scope: TokenScope.Account };
+    return { token: await this.jwt.signAsync(payload, { expiresIn: "90d" }) };
   }
 
   @Get("me")

@@ -51,6 +51,7 @@ applied: fix it and resend the call.
 | `list_prefabs` · `get_prefab` · `save_prefab` · `clone_prefab` | the user's 3D library |
 | `list_sounds` · `add_sfx` | sound effects synced to motion |
 | `set_format` · `set_voice_script` · `get_feedback` | frame format, voice script, user comments |
+| `list_projects` · `create_project` · `open_project` | only with an account token: the user's videos and brand kits, a new video (name, brief, format, optional voiceScript and brandId), or switch to another. Every other tool then works on the opened video; checkpoints and review state start fresh. Until one is open, they answer "No video is open yet" |
 
 ## Ops (`apply_ops`, JSON, atomic)
 ```

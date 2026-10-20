@@ -214,6 +214,28 @@ describe("agent tokens", () => {
     await http.post(`/projects/${p.id}/agent-token`).set(agent).expect(403);
   });
 
+  it("an account token creates and lists videos, and gets a project token for each", async () => {
+    const auth = await login("account@example.com");
+    const { body: t } = await http.post("/auth/agent-token").set(auth).expect(201);
+    const account = { Authorization: `Bearer ${t.token as string}` };
+
+    const { body: p } = await http.post("/projects").set(account).send({ name: "From the terminal", brief: "An ad for my dashboard" }).expect(201);
+    const list = await http.get("/projects").set(account).expect(200);
+    assert.deepEqual(list.body.map((v: { _id: string }) => String(v._id)), [p.id]);
+    await http.get("/brands").set(account).expect(200);
+
+    // Anything inside a video goes through that video's own token.
+    await http.get(`/projects/${p.id}`).set(account).expect(403);
+    await http.delete(`/projects/${p.id}`).set(account).expect(403);
+    await http.post("/auth/agent-token").set(account).expect(403);
+    const { body: pt } = await http.post(`/projects/${p.id}/agent-token`).set(account).expect(201);
+    await http.get(`/projects/${p.id}`).set({ Authorization: `Bearer ${pt.token as string}` }).expect(200);
+
+    const other = await login("someone-else@example.com");
+    const { body: theirs } = await http.post("/projects").set(other).send({ name: "Theirs" }).expect(201);
+    await http.post(`/projects/${theirs.id}/agent-token`).set(account).expect(404);
+  });
+
   it("saves big scenes (hundreds of layers)", async () => {
     const auth = await login("bigscene@example.com");
     const { body: p } = await http.post("/projects").set(auth).send({ name: "Big", motionStyle: "motion_style/apple" });

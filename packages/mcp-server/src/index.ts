@@ -25,7 +25,7 @@ import {
 import { EditorBridge } from "./bridge.js";
 import { HeadlessEditor } from "./headless.js";
 import { formatLayer, formatParams, parseLines, parseParams, parsePartial, type ParamDef } from "./compact.js";
-import { ProjectApi, VIDEO_ASSET, clipFacts, posterTimes } from "./api.js";
+import { ACCOUNT_SCOPE, AccountApi, ProjectApi, VIDEO_ASSET, clipFacts, posterTimes } from "./api.js";
 import { formatLayouts } from "./layout.js";
 import { isRef, resolveLayerTimes, type Word } from "./timing.js";
 import { formatIssues, lintLayers, type Layer as LintLayer, type Palette } from "./lint.js";
@@ -48,22 +48,57 @@ Never test how the engine behaves (no debug rectangles, no trial renders to lear
 formulas are exact, and get_layout returns where every layer lands on screen as numbers.
 Work in few, big calls: one apply_ops for palette and duration, one add_layers per beat with all its lines, get_layout to
 check placement, review_video once or twice, one add_sfx.`;
+/** Extra start step when the token reaches the whole account. */
+const ACCOUNT_INSTRUCTIONS = `
+This token reaches the user's whole account: if no video is open, call list_projects, then open_project or create_project
+(with a brief full of real facts when you researched the product in code) before get_project.`;
 
 const token = process.env.MOTIONILY_TOKEN;
-const projectId = process.env.MOTIONILY_PROJECT;
-if (!token || !projectId) {
-  console.error("[motionily] MOTIONILY_TOKEN and MOTIONILY_PROJECT are required. Get them from 'Conectar agente' in the editor.");
+if (!token) {
+  console.error("[motionily] MOTIONILY_TOKEN is required. Get it from 'Use in Claude Code' in the editor.");
   process.exit(1);
 }
 const apiUrl = process.env.MOTIONILY_API ?? "http://localhost:3100";
-const api = new ProjectApi(apiUrl, token, projectId);
-const bridge = new EditorBridge(apiUrl, token, projectId);
-// Without the user's editor open, the agent works in its own invisible one.
-if (process.env.MOTIONILY_HEADLESS !== "0") {
-  bridge.headless = new HeadlessEditor(process.env.MOTIONILY_WEB ?? "http://localhost:5173", projectId, () => api.headlessSession());
+const webUrl = process.env.MOTIONILY_WEB ?? "http://localhost:5173";
+
+/** An account token lets the agent create videos and switch between them; a project token is tied to one. */
+const scopeOf = (jwt: string): string | undefined => {
+  try {
+    return (JSON.parse(Buffer.from(jwt.split(".")[1] ?? "", "base64url").toString()) as { scope?: string }).scope;
+  } catch {
+    return undefined;
+  }
+};
+const account = scopeOf(token) === ACCOUNT_SCOPE ? new AccountApi(apiUrl, token) : null;
+if (!account && !process.env.MOTIONILY_PROJECT) {
+  console.error("[motionily] a project token needs MOTIONILY_PROJECT. Get both from 'Use in Claude Code' in the editor.");
+  process.exit(1);
 }
 
-const server = new McpServer({ name: "motionily", version: "0.3.0" }, { instructions: INSTRUCTIONS });
+let api = new ProjectApi(apiUrl, token, "");
+let bridge = new EditorBridge(apiUrl, token, "");
+
+/** Point every tool at this video. */
+function useVideo(id: string, projectToken: string) {
+  const next = new ProjectApi(apiUrl, projectToken, id);
+  api = next;
+  bridge = new EditorBridge(apiUrl, projectToken, id);
+  // Without the user's editor open, the agent works in its own invisible one.
+  if (process.env.MOTIONILY_HEADLESS !== "0") bridge.headless = new HeadlessEditor(webUrl, id, () => next.headlessSession());
+}
+
+/** Switch to another of the account's videos: get its own token, check it, then move every tool there. */
+async function openVideo(id: string) {
+  const { token: projectToken } = await account!.projectToken(id);
+  const project = await new ProjectApi(apiUrl, projectToken, id).project();
+  await bridge.close();
+  useVideo(id, projectToken);
+  checkpoints = new Checkpoints();
+  Object.assign(session, { editsSinceReview: false, reviewed: false, lintIds: [] });
+  return project;
+}
+
+const server = new McpServer({ name: "motionily", version: "0.4.0" }, { instructions: account ? INSTRUCTIONS + ACCOUNT_INSTRUCTIONS : INSTRUCTIONS });
 
 // Agents launched by the API carry the manual in their system prompt; everyone else gets it once from get_project.
 let manualSent = process.env.MOTIONILY_MANUAL === "0";
@@ -103,6 +138,58 @@ server.registerTool(
     return text(`${project}\n\n---\n\n${MANUAL}`);
   }),
 );
+
+const FormatEnum = z.enum(Object.values(VideoFormat) as [VideoFormat, ...VideoFormat[]]);
+const openedText = async (p: Project) => {
+  const project = describeProject(p);
+  if (manualSent) return text(`Opened. Now call get_brand.\n\n${project}`);
+  manualSent = true;
+  return text(`Opened. Now call get_brand.\n\n${project}\n\n---\n\n${MANUAL}`);
+};
+
+if (account) {
+  server.registerTool(
+    "list_projects",
+    {
+      description:
+        "The user's videos (newest first) and the brand kits they live in. Then open_project to work on one, or create_project for a new one.",
+      inputSchema: {},
+    },
+    guard(async () => {
+      const [videos, brands] = await Promise.all([account.videos(), account.brands()]);
+      const kit = new Map(brands.map((b) => [b.id, b.name]));
+      const open = api.projectId;
+      const rows = videos.map((v) => `${v._id} | ${v.name} | ${v.format} | ${kit.get(String(v.brandId)) ?? "-"} | ${v.updatedAt}${String(v._id) === open ? " | OPEN" : ""}`);
+      const kits = brands.map((b) => `${b.id} | ${b.name} | ${b.videos} videos${b.notes.trim() ? ` | ${b.notes.trim().slice(0, 120)}` : ""}`);
+      return text(`Videos (id | name | format | brand kit | updated):\n${rows.join("\n") || "none yet"}\n\nBrand kits (id | name | videos | notes):\n${kits.join("\n")}`);
+    }),
+  );
+
+  server.registerTool(
+    "create_project",
+    {
+      description:
+        "Create a new video and open it (the tools then work on it). Write the brief like the user would: what the video is about, who it's for, the key messages and the tone. When it comes from code or docs you researched, put the real product facts in it. Then get_brand and build as usual.",
+      inputSchema: {
+        name: z.string().min(1).max(80),
+        brief: z.string().min(1).max(4000),
+        format: FormatEnum.optional().describe("Default vertical_9_16."),
+        voiceScript: z.string().max(8000).optional().describe("Voice-over script, only if the user wants one."),
+        brandId: z.string().optional().describe("Brand kit from list_projects; default the user's first one."),
+      },
+    },
+    guard(async (args) => openedText(await openVideo((await account.create(args)).id))),
+  );
+
+  server.registerTool(
+    "open_project",
+    {
+      description: "Switch every tool to an existing video (id from list_projects).",
+      inputSchema: { id: z.string().min(1) },
+    },
+    guard(async ({ id }) => openedText(await openVideo(id))),
+  );
+}
 
 const PREFAB_NAME = /^[a-z0-9_]{2,40}$/;
 const PrefabKindEnum = z.enum(["object", "character", "space"]);
@@ -318,7 +405,7 @@ const SFX_GAIN = 0.45;
 const layersOf = (scene: Record<string, unknown> | null) => (scene?.layers as Record<string, unknown>[] | undefined) ?? [];
 
 // ── write-time checks: timing references, lint with fixes, placement, and the session's state for next_step ──
-const checkpoints = new Checkpoints();
+let checkpoints = new Checkpoints();
 const session = { editsSinceReview: false, reviewed: false, lintIds: [] as string[] };
 /** Used only when the scene carries no palette of its own: white paper with a blue and an orange accent. */
 const DEFAULT_PALETTE: Palette = { background: "#ffffff", surface: "#ffffff", primary: "#3c8cff", accent: "#ff8a3d", text: "#0b0b14" };
@@ -932,6 +1019,12 @@ function feedbackLine(f: Feedback): string {
     case FeedbackKind.BrickChosen:
       return `user set ${f.slot} = ${JSON.stringify(f.value)}`;
   }
+}
+
+const startProject = process.env.MOTIONILY_PROJECT;
+if (!account) useVideo(startProject!, token);
+else if (startProject) {
+  await openVideo(startProject).catch((e: Error) => console.error(`[motionily] could not open project ${startProject}: ${e.message}`));
 }
 
 await server.connect(new StdioServerTransport());

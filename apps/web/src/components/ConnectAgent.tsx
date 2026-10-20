@@ -6,7 +6,7 @@ const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3100";
 const CopyState = { Idle: "idle", Copied: "copied" } as const;
 type CopyState = (typeof CopyState)[keyof typeof CopyState];
 
-/** Gives the user a one-paste command that registers the Motionily MCP server in Claude Code for this project. */
+/** Gives the user a one-paste command that registers the Motionily MCP server in Claude Code, starting on this project. */
 export function ConnectAgent({ projectId }: { projectId: string }) {
   const [command, setCommand] = useState<string | null>(null);
   const [copy, setCopy] = useState<CopyState>(CopyState.Idle);
@@ -17,7 +17,7 @@ export function ConnectAgent({ projectId }: { projectId: string }) {
     setOpen(true);
     if (command) return;
     try {
-      const { token } = await api.agentToken(projectId);
+      const { token } = await api.accountAgentToken();
       setCommand(
         [
           "claude mcp remove motionily -s user >/dev/null 2>&1;",
@@ -51,7 +51,7 @@ export function ConnectAgent({ projectId }: { projectId: string }) {
             <div>
               <h2 className="text-lg font-bold">Connect your agent</h2>
               <p className="mt-1 text-sm text-neutral-400">
-                Paste this into your terminal. It registers Motionily in Claude Code with access to this project only.
+                Paste this into your terminal. It registers Motionily in Claude Code, starting on this video. From the terminal it can also create new videos and open your other ones.
               </p>
             </div>
             <ol className="flex flex-col gap-4 text-sm">
@@ -74,7 +74,7 @@ export function ConnectAgent({ projectId }: { projectId: string }) {
               </li>
               <li className="text-neutral-400">3. Keep this tab open: you'll watch it build live.</li>
             </ol>
-            <p className="text-xs text-neutral-500">The token expires in 90 days and can't change the style you pick or delete the project.</p>
+            <p className="text-xs text-neutral-500">The token expires in 90 days. It can create and edit videos, but never delete them.</p>
           </div>
         </div>
       )}

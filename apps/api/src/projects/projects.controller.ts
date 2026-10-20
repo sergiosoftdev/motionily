@@ -151,10 +151,10 @@ export class ProjectsController {
     return this.view(project);
   }
 
-  /** A token the user pastes into their agent (MCP). It can only touch this project. */
+  /** A token the user pastes into their agent (MCP), or one an account token gets per video. It can only touch this project. */
   @Post(":id/agent-token")
   async agentToken(@CurrentUser() user: AuthUser, @Param("id") id: string) {
-    userOnly(user);
+    if (user.scope !== TokenScope.User && user.scope !== TokenScope.Account) throw new ForbiddenException("only the user can do this");
     const project = await this.projects.get(user.id, id);
     const payload: JwtPayload = { sub: user.id.toString(), email: user.email, scope: TokenScope.Agent, projectId: project.id };
     return { token: await this.jwt.signAsync(payload, { expiresIn: "90d" }), projectId: project.id };

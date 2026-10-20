@@ -109,8 +109,6 @@ export class EditorBridge {
   async close() {
     this.closed = true;
     this.socket?.close();
-    for (const p of this.pending.values()) clearTimeout(p.timer);
-    this.pending.clear();
     await this.headless?.close();
   }
 

@@ -22,10 +22,20 @@ export enum TokenScope {
   Agent = "agent",
   /** The agent's headless editor: reads anything of the account, writes only its project. */
   Editor = "editor",
+  /** The whole account for an agent (MCP), but only to list and create videos and to get a project token for each. */
+  Account = "account",
 }
 
 /** Read-only library routes an agent may use without a project id. */
 const AGENT_LIBRARY_PATHS = ["/sounds", "/bricks", "/prefabs", "/images/search"];
+
+/** All an account token may do: everything else goes through the project token it gets here. */
+const ACCOUNT_ROUTES: { method: string; path: RegExp }[] = [
+  { method: "GET", path: /^\/projects$/ },
+  { method: "POST", path: /^\/projects$/ },
+  { method: "GET", path: /^\/brands$/ },
+  { method: "POST", path: /^\/projects\/[^/]+\/agent-token$/ },
+];
 
 export type JwtPayload = { sub: string; email: string; scope?: TokenScope; projectId?: string };
 export type AuthUser = { id: Types.ObjectId; email: string; scope: TokenScope; projectId?: string };
@@ -69,6 +79,12 @@ export class JwtAuthGuard implements CanActivate {
       const library = req.method === "GET" && AGENT_LIBRARY_PATHS.some((p) => path === p || path.startsWith(`${p}/`));
       if (id !== undefined ? id !== req.user.projectId : !library) {
         throw new ForbiddenException("agent token is limited to its project");
+      }
+    }
+    if (req.user.scope === TokenScope.Account) {
+      const path = (req.url ?? "").split("?")[0] ?? "";
+      if (!ACCOUNT_ROUTES.some((r) => r.method === req.method && r.path.test(path))) {
+        throw new ForbiddenException("account token can only list and create videos; use the video's own token");
       }
     }
     if (req.user.scope === TokenScope.Editor) {

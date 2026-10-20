@@ -114,6 +114,8 @@ export const api = {
   setSlot: (id: string, slot: BrickSlot, value: string | string[] | null, applyKitDefaults?: boolean) =>
     call<Project>(HttpMethod.Put, `/projects/${id}/build/${slot}`, { value, applyKitDefaults }),
   agentToken: (id: string) => call<{ token: string; projectId: string }>(HttpMethod.Post, `/projects/${id}/agent-token`),
+  /** Account-wide agent token: the MCP can create videos and open any of them. */
+  accountAgentToken: () => call<{ token: string }>(HttpMethod.Post, "/auth/agent-token"),
   saveScene: (id: string, scene: unknown, baseRevision: number) =>
     call<{ sceneRevision: number }>(HttpMethod.Put, `/projects/${id}/scene`, { scene, baseRevision }),
   /** A note for the agent; without `at` it is about the whole video. */
