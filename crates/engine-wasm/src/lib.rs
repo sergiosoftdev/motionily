@@ -74,6 +74,12 @@ impl Engine {
             .map(|b| vec![b.center[0], b.center[1], b.size[0], b.size[1], b.rotation])
     }
 
+    /// `[x0, y0, x1, y1]` the glyphs of a text layer really cover at time t, or undefined.
+    #[wasm_bindgen(js_name = textInk)]
+    pub fn text_ink(&mut self, id: &str, t: f32) -> Option<Vec<f32>> {
+        self.renderer.text_ink(&self.scene, id, t).map(|b| b.to_vec())
+    }
+
     #[wasm_bindgen(js_name = layerJson)]
     pub fn layer_json(&self, id: &str) -> Option<String> {
         self.scene.layer_json(id)

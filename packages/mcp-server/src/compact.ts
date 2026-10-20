@@ -20,7 +20,7 @@
  *   · turb=AMT,SIZE,SPEED · adj=1 (adjustment layer) · matte=id[:inv|:luma|:lumainv].
  * 3D: rx= ry= (degrees) z= (px away) persp= — the layer and its children tilt in perspective.
  * Gradients: grad=lin:… | rad:… | con:CX,CY:ANGLE:stops (conic) · sgrad= paints the stroke.
- * Text: count=0>12480@0-2:eo dec=0 with {n} in the text · reveal=(t*16) caret=1 (typewriter).
+ * Text: "Just *ask.*" colors the marked words with accent= (default palette accent) · count=0>12480@0-2:eo dec=0 with {n} in the text · reveal=(t*16) caret=1 (typewriter).
  */
 
 type Keyframe = { t: number; v: number; ease?: string; bezier?: number[] };
@@ -218,6 +218,7 @@ export function parseLine(line: string): Layer {
     const [k, v] = [tok.slice(0, eq), tok.slice(eq + 1)];
     if (NUM[k]) layer[NUM[k]] = parseValue(v, line);
     else if (k === "fill") layer.fill = colorAnim(v, line);
+    else if (k === "accent") layer.accent = colorAnim(v, line);
     else if (k === "g") layer.group = v;
     else if (PLAIN_NUM[k]) layer[PLAIN_NUM[k]] = num(v, line);
     else if (PLAIN_STR.includes(k)) layer[k] = v;
@@ -415,6 +416,9 @@ export function formatLayer(l: Layer): string {
       extra[long] = v;
     }
   }
+  if (l.accent !== undefined && (!Array.isArray(l.accent) || typeof l.accent[0] === "number")) parts.push(`accent=${formatColor(l.accent)}`);
+  else if (l.accent !== undefined) extra.accent = l.accent;
+  done.add("accent");
   if (l.fill !== undefined) {
     if (!Array.isArray(l.fill) || typeof l.fill[0] === "number") parts.push(`fill=${formatColor(l.fill)}`);
     else {

@@ -7,7 +7,7 @@ import { mediaUrl } from "../api/client";
 import { EngineStatus, useEditor } from "../store";
 
 type AudioTrack = { start: number; trim_in: number; trim_out: number | null };
-type ReviewLayer = { id: string; type: LayerType; start?: number; end?: number | null };
+type ReviewLayer = { id: string; type: LayerType; start?: number; end?: number | null; visible?: boolean; soft?: unknown; parent?: string };
 const LayerType = { Shape: "shape", Text: "text", Image: "image", Character: "character" } as const;
 type LayerType = (typeof LayerType)[keyof typeof LayerType];
 /** A new video starts blank: the agent designs everything. */
@@ -15,7 +15,17 @@ const EMPTY_SCENE = JSON.stringify({ width: 1080, height: 1920, fps: 30, duratio
 const REVIEW_PROBE = 32;
 const BLANK_VARIANCE = 0.0004;
 const OFF_FRAME_TOLERANCE = 0.08;
-const TEXT_OVERLAP = 0.15;
+const TEXT_OVERLAP = 0.08;
+/** Shapes bigger than this share of the frame are backgrounds: text may sit on them freely. */
+const BACKDROP_SHARE = 0.55;
+/** Breathing room (px) text should keep from the edge of the shape it sits in. */
+const EDGE_PADDING = 6;
+/** Two texts on one line closer than this × their height read as one jammed word. */
+const JAMMED_GAP = 0.2;
+/** Share of the frame in saturated color above which the palette reads as "vibe coded". */
+const SATURATED_SHARE = 0.4;
+/** Each of violet, magenta and cyan above this share of the saturated pixels = the neon AI cliché. */
+const NEON_TRIO_SHARE = 0.12;
 const STILL_DIFF = 0.004;
 /** Consecutive unchanged samples that count as dead air. */
 const STILL_RUN = 3;
@@ -411,6 +421,9 @@ class EngineHost {
     const found = new Map<string, number[]>();
     const flag = (what: string, t: number) => found.set(what, [...(found.get(what) ?? []), t]);
     const layers = (JSON.parse(this.sceneJson()) as { layers?: ReviewLayer[] }).layers ?? [];
+    let saturated = 0;
+    let sampled = 0;
+    const hues = { violet: 0, magenta: 0, cyan: 0 };
 
     times.forEach((t, i) => {
       this.engine!.render(t);
@@ -422,7 +435,18 @@ class EngineHost {
       pg.drawImage(canvas, 0, 0, REVIEW_PROBE, REVIEW_PROBE);
       const px = pg.getImageData(0, 0, REVIEW_PROBE, REVIEW_PROBE).data;
       const lum = new Float32Array(REVIEW_PROBE * REVIEW_PROBE);
-      for (let k = 0; k < lum.length; k++) lum[k] = (px[k * 4]! * 0.3 + px[k * 4 + 1]! * 0.59 + px[k * 4 + 2]! * 0.11) / 255;
+      for (let k = 0; k < lum.length; k++) {
+        const [r, gr, b] = [px[k * 4]! / 255, px[k * 4 + 1]! / 255, px[k * 4 + 2]! / 255];
+        lum[k] = r * 0.3 + gr * 0.59 + b * 0.11;
+        const [h, sat, l] = hsl(r, gr, b);
+        sampled++;
+        if (sat > 0.35 && l > 0.12 && l < 0.88) {
+          saturated++;
+          if (h >= 250 && h < 290) hues.violet++;
+          else if (h >= 290 && h < 340) hues.magenta++;
+          else if (h >= 170 && h < 205) hues.cyan++;
+        }
+      }
       probes.push(lum);
       const mean = lum.reduce((a, b) => a + b, 0) / lum.length;
       const variance = lum.reduce((a, b) => a + (b - mean) ** 2, 0) / lum.length;
@@ -441,16 +465,49 @@ class EngineHost {
         const inside = Math.max(0, Math.min(b.x1, sw) - Math.max(b.x0, 0)) * Math.max(0, Math.min(b.y1, sh) - Math.max(b.y0, 0));
         if (inside / b.area < 1 - OFF_FRAME_TOLERANCE) flag(`${b.l.type} '${b.l.id}' goes off frame`, t);
       }
-      const texts = boxes.filter((b) => b.l.type === LayerType.Text);
+      // Text is judged by its real glyphs, not its layer box.
+      const texts = boxes
+        .filter((b) => b.l.type === LayerType.Text)
+        .flatMap((b) => {
+          const ink = this.engine!.textInk(b.l.id, t);
+          if (!ink) return [];
+          const [x0 = 0, y0 = 0, x1 = 0, y1 = 0] = ink;
+          return [{ l: b.l, x0, y0, x1, y1, area: (x1 - x0) * (y1 - y0) }];
+        });
+      const overlap = (p: Box, q: Box) => Math.max(0, Math.min(p.x1, q.x1) - Math.max(p.x0, q.x0)) * Math.max(0, Math.min(p.y1, q.y1) - Math.max(p.y0, q.y0));
       for (let a = 0; a < texts.length; a++)
         for (let c = a + 1; c < texts.length; c++) {
           const p = texts[a]!;
           const q = texts[c]!;
-          const ov = Math.max(0, Math.min(p.x1, q.x1) - Math.max(p.x0, q.x0)) * Math.max(0, Math.min(p.y1, q.y1) - Math.max(p.y0, q.y0));
-          if (ov / Math.min(p.area, q.area) > TEXT_OVERLAP) flag(`text '${p.l.id}' and '${q.l.id}' overlap`, t);
+          const ov = overlap(p, q);
+          if (ov / Math.max(1, Math.min(p.area, q.area)) > TEXT_OVERLAP) {
+            flag(`text '${p.l.id}' and '${q.l.id}' overlap`, t);
+            continue;
+          }
+          const height = Math.min(p.y1 - p.y0, q.y1 - q.y0);
+          const sameLine = Math.min(p.y1, q.y1) - Math.max(p.y0, q.y0) > height * 0.5;
+          const gap = Math.max(p.x0, q.x0) - Math.min(p.x1, q.x1);
+          if (sameLine && gap < height * JAMMED_GAP)
+            flag(`text '${p.l.id}' and '${q.l.id}' touch on one line: write the phrase as ONE text layer and mark the key word with *word*`, t);
+        }
+      // Text crossing the outline of a card, pill or button it is meant to sit in.
+      const frame = sw * sh;
+      const panels = boxes.filter((b) => b.l.type === LayerType.Shape && b.l.visible !== false && !b.l.soft && b.area < frame * BACKDROP_SHARE && b.area > 0);
+      for (const tx of texts)
+        for (const sp of panels) {
+          const ov = overlap(tx, sp);
+          if (ov <= 0) continue;
+          if (ov < tx.area * 0.97) flag(`text '${tx.l.id}' crosses the edge of '${sp.l.id}'`, t);
+          else if (tx.x0 - sp.x0 < EDGE_PADDING || sp.x1 - tx.x1 < EDGE_PADDING || tx.y0 - sp.y0 < EDGE_PADDING || sp.y1 - tx.y1 < EDGE_PADDING)
+            flag(`text '${tx.l.id}' touches the edge of '${sp.l.id}' (give it padding)`, t);
         }
     });
 
+    const share = saturated / Math.max(1, sampled);
+    if (share > SATURATED_SHARE)
+      flag(`palette: ${Math.round(share * 100)}% of the frame is saturated color — pro films keep neutrals (near-black/white/warm grey) ≥60% and save saturation for small accents`, times[0]!);
+    if (saturated > 0 && Object.values(hues).every((n) => n / saturated > NEON_TRIO_SHARE))
+      flag("palette: violet + magenta + cyan neon is the generic AI look — pick ONE hue family plus one small contrasting accent", times[0]!);
     const issues = [...found].map(([what, ts]) => `${what} (${ts.length > 1 ? `${ts[0]}s-${ts[ts.length - 1]}s` : `${ts[0]}s`})`);
     const diff = (a: Float32Array, b: Float32Array) => a.reduce((s, v, k) => s + Math.abs(v - b[k]!), 0) / a.length;
     const deltas = probes.slice(1).map((p, i) => diff(probes[i]!, p));
@@ -530,3 +587,17 @@ class EngineHost {
 }
 
 export const engineHost = new EngineHost();
+
+type Box = { x0: number; y0: number; x1: number; y1: number };
+
+/** Hue (degrees), saturation and lightness of an RGB color in 0..1. */
+function hsl(r: number, g: number, b: number): [number, number, number] {
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const d = max - min;
+  if (d < 1e-6) return [0, 0, l];
+  const s = d / (1 - Math.abs(2 * l - 1));
+  const h = max === r ? ((g - b) / d + 6) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h * 60, s, l];
+}

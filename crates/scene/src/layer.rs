@@ -53,6 +53,10 @@ pub enum LayerContent {
         /// Blinking text caret after the typed characters (prompt boxes, search bars).
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         caret: bool,
+        /// Color of the `*marked*` words (default: the palette accent). Keep a phrase in ONE
+        /// text layer and mark its key word instead of splitting words into layers.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        accent: Option<ColorAnim>,
     },
     /// A picture (brand logo, product screenshot…) by URL/key, fitted into the layer box.
     Image {
@@ -319,6 +323,18 @@ pub struct MotionPath {
     /// Rotate the layer to follow the path direction (added to `rotation`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub orient: bool,
+}
+
+/// Split `"Just *ask.*"` into spans: marked parts in the accent color.
+fn marked_spans(text: &str, color: Rgba, accent: Rgba) -> Vec<TextSpan> {
+    if !text.contains('*') {
+        return vec![TextSpan { text: text.to_owned(), color, scale: 1.0, highlight: None }];
+    }
+    text.split('*')
+        .enumerate()
+        .filter(|(_, part)| !part.trim().is_empty())
+        .map(|(k, part)| TextSpan { text: part.to_owned(), color: if k % 2 == 1 { accent } else { color }, scale: 1.0, highlight: None })
+        .collect()
 }
 
 fn is_zero_u8(n: &u8) -> bool {
@@ -597,7 +613,7 @@ impl Layer {
                 let feet = [center[0], center[1] + size[1] / 2.0];
                 Some(DrawItem::Group(draw_character(spec, feet, size[1], lt, color.0[3], ctx.palette)))
             }
-            LayerContent::Text { text, size: px, role, align, line_height, animate, letter_spacing, path, count, decimals, reveal, caret } => {
+            LayerContent::Text { text, size: px, role, align, line_height, animate, letter_spacing, path, count, decimals, reveal, caret, accent } => {
                 let text = match count {
                     Some(n) => std::borrow::Cow::Owned(text.replace("{n}", &format_count(n.sample(lt), *decimals))),
                     None => std::borrow::Cow::Borrowed(text.as_str()),
@@ -624,7 +640,11 @@ impl Layer {
                     }),
                     reveal: shown,
                     caret,
-                    spans: vec![TextSpan { text: text.into_owned(), color, scale: 1.0, highlight: None }],
+                    spans: {
+                        let mut accent_color = accent.as_ref().map_or(ctx.palette.accent, |a| a.resolve(lt, ctx.palette));
+                        accent_color.0[3] *= opacity;
+                        marked_spans(&text, color, accent_color)
+                    },
                     size: px * scale,
                     family,
                     weight,
@@ -687,13 +707,14 @@ impl Bounds {
 
 impl Layer {
     /// Where the layer is on screen at layer-local time `lt` (`None` if invisible).
-    pub fn bounds(&self, lt: f32, ctx: &EvalCtx) -> Option<Bounds> {
-        match self.resolve(lt, ctx, false, &Xform::default())? {
+    /// Box of the layer at rest at `lt`, inside its parent chain `xf`.
+    pub fn bounds(&self, lt: f32, ctx: &EvalCtx, xf: &Xform) -> Option<Bounds> {
+        match self.resolve(lt, ctx, false, xf)? {
             DrawItem::Shape(s) => Some(Bounds { center: s.center, size: s.size, rotation: s.rotation }),
             DrawItem::Image(i) => Some(Bounds { center: i.center, size: i.size, rotation: i.rotation }),
             DrawItem::Text(t) => {
                 let scale = self.scale.sample(lt);
-                Some(Bounds { center: t.center, size: [t.max_width, self.h.sample(lt) * scale], rotation: t.rotation })
+                Some(Bounds { center: t.center, size: [t.max_width, self.h.sample(lt) * scale * xf.scale], rotation: t.rotation })
             }
             DrawItem::Path(p) => {
                 let (lo, hi) = p.bounds;

@@ -356,8 +356,24 @@ impl Scene {
             .iter()
             .rev()
             .filter(|l| t >= l.start && t < l.end.unwrap_or(self.duration))
-            .find(|l| l.bounds(l.local_time(t), &ctx).is_some_and(|b| b.contains([x, y])))
+            .find(|l| l.bounds(l.local_time(t), &ctx, &self.parent_xform(l, t, &ctx, 0)).is_some_and(|b| b.contains([x, y])))
             .map(|l| l.id.clone())
+    }
+
+    /// One layer's draw items at time `t` (for measuring what it really draws), empty when hidden.
+    pub fn layer_items_at(&self, id: &str, t: f32) -> Vec<DrawItem> {
+        let Some(l) = self.layer(id).filter(|l| self.active(l, t)) else { return Vec::new() };
+        let palette = self.palette();
+        let ctx = EvalCtx {
+            palette: &palette,
+            typography: self.typography.as_ref(),
+            library: &self.library,
+            scene_size: [self.width as f32, self.height as f32],
+        };
+        self.with_refs(|| {
+            expr::set_scene_time(t);
+            self.layer_items(l, t, &ctx)
+        })
     }
 
     /// On-screen box of a layer at time `t` (for the selection outline).
@@ -377,7 +393,7 @@ impl Scene {
         if t < l.start || t >= l.end.unwrap_or(self.duration) {
             return None;
         }
-        l.bounds(l.local_time(t), &ctx)
+        l.bounds(l.local_time(t), &ctx, &self.parent_xform(l, t, &ctx, 0))
     }
 
     /// Image sources the layers use (for the host to load).

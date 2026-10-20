@@ -310,6 +310,22 @@ impl TextPipeline {
         item.size * k
     }
 
+    /// Box `[x0, y0, x1, y1]` the visible glyphs of `item` really cover (scene px).
+    pub fn ink(&mut self, queue: &wgpu::Queue, item: &DrawText) -> Option<[f32; 4]> {
+        let mut quads = Vec::new();
+        self.layout(queue, item, &mut quads);
+        let mut b = [f32::MAX, f32::MAX, f32::MIN, f32::MIN];
+        for q in quads.iter().filter(|q| q.color[3] > 0.02) {
+            let (s, c) = q.rotation.sin_cos();
+            for corner in [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]] {
+                let p = [q.pos[0] + corner[0] * q.size[0] - q.pivot[0], q.pos[1] + corner[1] * q.size[1] - q.pivot[1]];
+                let w = [q.pivot[0] + p[0] * c - p[1] * s, q.pivot[1] + p[0] * s + p[1] * c];
+                b = [b[0].min(w[0]), b[1].min(w[1]), b[2].max(w[0]), b[3].max(w[1])];
+            }
+        }
+        (b[0] <= b[2]).then_some(b)
+    }
+
     fn layout(&mut self, queue: &wgpu::Queue, item: &DrawText, out: &mut Vec<Quad>) {
         let Some(font) = self.pick_font(&item.family, item.weight) else { return };
         let original_align = item.align;

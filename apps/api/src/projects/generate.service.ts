@@ -128,11 +128,24 @@ D. WARM FLUID + AGENT UI — full-bleed liquid cloud gradient (2-4 huge soft ell
    with turb=120..200,350..450,0.4..0.7, slowly drifting) behind white UI cards: a prompt box typing with caret
    (reveal + caret), a node graph whose nodes pop in connected by curved paths drawn with trim, images/cards
    popping into a collage grid, a big gradient headline with a typing caret ("2 settings|").
-E. DARK DASHBOARD + GLOWING PROMPT — deep indigo→violet gradient background, a pill prompt bar with an animated
+E. DARK DASHBOARD + GLOWING PROMPT — near-black (#05050c→#12121a) with one faint colored glow (plum or steel), a pill prompt bar with an animated
    conic glowing outline (stroke-only layer: sgrad + glow, angle=(t*90)), text typing with caret, a cursor
    that moves to the send button and clicks (scale 1>0.85>1), then a dashboard flies in tilted (rx/ry) and
    straightens; inside: counters (count=… with {n}), bar/line charts drawing on (paths with te), donut rings
    (stroke trim), maps or grids filling in with staggered repeaters.
+COLOR — unique, never "vibe coded". Unless the brand gives a palette, build one the way these films do (measured):
+- Neutrals own the frame (60-90%): pure black #000000/#05070c, near-black #12121a, white #fdfdfd, warm grey
+  #ececec/#f4f2ef, charcoal #343640, slate #3f4658. Backgrounds are neutral or ONE hue very dark/very pale.
+- ONE hue family carries the film, in a few tones: sky #91cff2/#57a0db/#c9e3f2 (Maily) · vermilion/ember
+  #d54b2c/#e87c3d/#ecc6ae (Flows) · cobalt steel #354978/#0e2745/#809bbc (Synaps) · powder blue + plum
+  #92b6cc/#2c1b2e on #12121a (Fuse) · deep indigo glow #3c3f90/#2b0062 on black (youmotion).
+- Saturation is small and precious: the key word, an icon, a chip, a light edge — ≤10-15% of the pixels.
+  Small pops of 2-3 candy colors (pills/tags) are fine on a neutral page.
+- Gradients stay within one family (adjacent hues) or go hue → neutral; light comes from glows on dark.
+- BANNED unless the brand demands it: violet+magenta+cyan neon, indigo→pink "AI" gradients, rainbow, saturated
+  full-frame backgrounds, pure #7c5cff/#a855f7/#ec4899/#22d3ee-style Tailwind defaults.
+- Pick something specific to the brief (an ember-orange fintech, a cobalt architecture tool, a sage-green
+  health app) and name it in the direction with its hex codes; review_video flags saturated or neon palettes.
 Shared grammar (all families):
 - Camera never static: slow push (cam null s=1>1.06) plus one or two decisive moves per beat; transitions are
   moves (fly-through, whip pan with mblur, zoom through an element, blur-out/blur-in), never hard cuts.
@@ -176,12 +189,13 @@ const COMPACT_REF = `WRITING LAYERS — add_layers, one line per layer (never JS
     parented to it are drawn flat then projected in perspective (UI pages lying back, dashboards turning).
     Inside a 3D layer, children's own effects are ignored: fake their shadows with soft rects (soft=).
   gradients: grad=con:CX,CY:ANGLE:stops (conic; animate ANGLE=(t*90) for rotating light) · sgrad=… paints the stroke
-    (glowing borders: stroke=3:#fff sgrad=con:0.5,0.5:(t*90):#ff9a3c@0,#a855ff@.5,#ff9a3c@1 glow=24,1.2)
+    (glowing borders: stroke=3:#fff sgrad=con:0.5,0.5:(t*90):#57a0db@0,#c9e3f2@.5,#57a0db@1 glow=24,1.2)
   motion: mp="SVG path in scene px" mpp=PROGRESS 0..1 orient=1 (moves along the path, turning with it; x/y add an offset)
     · time=(EXPR) time remap of the layer's clock: (mod(t,1.2)) loops, (t*0.5) slow motion, keys freeze/reverse
     · morph a path between shapes via JSON {"morph":[{"t":0,"d":"M…"},{"t":0.8,"d":"M…","ease":"expo_in_out"}]}
   repeat: rep=COUNT:DX,DY[:cols=N][:rot=DEG][:sc=K][:op=K][:delay=S] (grids, particles, staggered lists)
-  text: size= role=heading|body align= lh= ls=LETTER_SPACING; per-unit animation via JSON:
+  text: size= role=heading|body align= lh= ls=LETTER_SPACING · ONE layer per phrase: mark the key word "Just *ask.*"
+    (accent=COLOR, default palette accent) — never split a phrase into word layers (they collide or jam); per-unit animation via JSON:
     {"animate":{"by":"char|word|line","stagger":0.03,"duration":0.5,"delay":0,"ease":"expo_out","from":{"x":0,"y":40,"scale":0.8,"rotation":0,"opacity":0}}}
     · text on a path: tp="M-700 0 C-300 -250 300 250 700 0" (relative to x,y) tpo=OFFSET_PX (animate it to crawl along)
     · animator "from" also takes "blur":16 (words coming into focus)
@@ -201,7 +215,7 @@ recipes:
   pulse ellipse 0 x=1500 y=300 w=40 h=40 fill=accent time=(mod(t,1.4)) s=1>2.4@0-1.2:eo o=.6>0@0-1.2:o
   echo rect 1 x=(card.x(T-0.12)) y=(card.y(T-0.12)) w=820 h=420 rad=32 fill=#ffffff40   (a ghost trailing "card")
   plane rect 0 vis=0 x=1100 y=620 w=1 h=1 rx=58>40@0-2.4:eo ry=-12 z=500>0@0-2.4:eo   (children: parent=plane, x/y relative)
-  border rect 1 x=960 y=540 w=760 h=120 rad=60 fill=#00000000 stroke=3:#ffffff sgrad=con:0.5,0.5:(t*90):#ff9a3c@0,#a855ff@0.5,#4d7cff@0.75,#ff9a3c@1 glow=24,1.2
+  border rect 1 x=960 y=540 w=760 h=120 rad=60 fill=#00000000 stroke=3:#ffffff sgrad=con:0.5,0.5:(t*90):#e87c3d@0,#ecc6ae@0.3,#343640@0.6,#e87c3d@1 glow=24,1.2
   typed text 1.2 x=960 y=540 w=640 h=60 size=34 align=left fill=#ffffff reveal=(max(0,(t-0.3)*16)) caret=1 "Provide complex widgets"
   fluid ellipse 0 x=520 y=320 w=1200 h=900 fill=#ff6a2b soft=320 turb=150,400,0.5
   glitch rect 5.8-6.2 x=CENTER_X y=CENTER_Y w=FULL_W h=FULL_H adj=1 rgb=8 wave=6,120,3 grain=.06   (a quick transition hit)
@@ -221,7 +235,8 @@ const PLANNER_GUIDE = `You are Motionily's art director. There are NO presets: e
 Your job is ONLY to plan and set the global look, fast. Do NOT build layers.
 1. get_project, get_brand (and view_image for any reference images). If a voice script or captions exist, the
    beats follow its paragraphs / word timings.
-2. Decide an art direction (concept, palette, typography, motion language, recurring motif) for THIS brief.
+2. Decide an art direction (concept, palette with hex codes following COLOR below, typography, motion language,
+   recurring motif) for THIS brief. Unique palette: never the generic violet/magenta/cyan AI look.
 3. Apply the global look with tools: set_palette op (apply_ops), set_font, set_duration op.
 4. Answer with ONLY this JSON (no prose): {"direction":"…","motif":"…","beats":[{"group":"hook","start":0,"end":2.5,
    "brief":"what this beat shows, its layout, its motion, how it transitions out"}]} — 2 to ${MAX_BEATS} beats,
