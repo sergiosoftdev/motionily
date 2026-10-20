@@ -24,6 +24,9 @@ export enum TokenScope {
   Editor = "editor",
 }
 
+/** Read-only library routes an agent may use without a project id. */
+const AGENT_LIBRARY_PATHS = ["/sounds", "/bricks", "/prefabs", "/images/search"];
+
 export type JwtPayload = { sub: string; email: string; scope?: TokenScope; projectId?: string };
 export type AuthUser = { id: Types.ObjectId; email: string; scope: TokenScope; projectId?: string };
 
@@ -59,9 +62,14 @@ export class JwtAuthGuard implements CanActivate {
     } catch {
       throw new UnauthorizedException();
     }
-    // Agent tokens only reach their own project.
-    if (req.user.scope === TokenScope.Agent && req.params?.id !== req.user.projectId) {
-      throw new ForbiddenException("agent token is limited to its project");
+    // Agent tokens only reach their own project, plus read-only libraries (sounds, bricks, prefabs, photos) it needs to build.
+    if (req.user.scope === TokenScope.Agent) {
+      const path = (req.url ?? "").split("?")[0] ?? "";
+      const id = req.params?.id;
+      const library = req.method === "GET" && AGENT_LIBRARY_PATHS.some((p) => path === p || path.startsWith(`${p}/`));
+      if (id !== undefined ? id !== req.user.projectId : !library) {
+        throw new ForbiddenException("agent token is limited to its project");
+      }
     }
     if (req.user.scope === TokenScope.Editor) {
       const own = `/projects/${req.user.projectId}`;

@@ -39,11 +39,15 @@ export enum GeneratePhase {
   Plan = "plan",
   Build = "build",
   Review = "review",
+  Sound = "sound",
 }
 
 export type GenerateEvent = { at: string; kind: GenerateEventKind; text: string };
 
-type Run = { projectId?: string; processes: Set<ChildProcess>; status: GenerateStatus; events: GenerateEvent[]; summary: string | null; usage: AgentRunUsage | null };
+/** A phrase of the voice-over with its timing: what the video must show while it is said. */
+type VoiceLine = { start: number; end: number; text: string };
+
+type Run = { voice?: VoiceLine[]; projectId?: string; processes: Set<ChildProcess>; status: GenerateStatus; events: GenerateEvent[]; summary: string | null; usage: AgentRunUsage | null };
 
 /** The fields of claude's final `result` line we care about. */
 type ResultLine = {
@@ -110,7 +114,77 @@ const ROLE_TOOLS = {
   planner: ["get_project", "get_brand", "view_image", "view_asset", "search_fonts", "set_font", "apply_ops", "add_layers", "search_images", "import_image", "define_component", "get_component"],
   builder: ["add_layers", "edit_layers", "apply_ops", "get_layout", "render_frames", "view_asset", "view_image", "get_brand", "find_icons", "define_component", "get_component"],
   finisher: ["get_feedback", "edit_layers", "review_video", "get_layout", "render_frames", "get_group", "add_layers", "apply_ops", "list_sounds", "add_sfx", "get_component", "set_font", "search_fonts"],
+  sound: ["get_project", "list_sounds", "add_sfx"],
 } as const;
+
+/** The timed voice-over, phrase by phrase (the engine's own phrasing: a pause or 12 words starts a new line). */
+function voiceLines(scene: unknown): VoiceLine[] {
+  const words = (scene as { captions?: { words?: { text: string; start: number; end: number }[] } } | null)?.captions?.words ?? [];
+  const lines: VoiceLine[] = [];
+  for (const w of words) {
+    const cur = lines.at(-1);
+    if (cur && w.start - cur.end <= 0.6 && cur.text.split(" ").length < 12) {
+      cur.text += ` ${w.text}`;
+      cur.end = w.end;
+    } else {
+      lines.push({ start: w.start, end: w.end, text: w.text });
+    }
+  }
+  return lines;
+}
+
+function voiceDuring(lines: VoiceLine[], from: number, to: number): string {
+  return lines
+    .filter((l) => l.end >= from && l.start <= to)
+    .map((l) => `${l.start.toFixed(1)}-${l.end.toFixed(1)}s "${l.text}"`)
+    .join("\n");
+}
+
+/** What the voice says during this beat, so the builder shows it. */
+function voiceFor(run: Run, beat: Beat): string {
+  const said = voiceDuring(run.voice ?? [], beat.start, beat.end);
+  return said ? `\nThe voice-over says during this beat (show these words on screen, in order):\n${said}` : "";
+}
+
+/** Interrupted run without a saved plan: finish whatever is missing on the cut already on screen. */
+const CONTINUE_PROMPT = `The previous run of this video was interrupted. Continue it: read get_project and get_scene, see which beats are
+already on screen, build only the missing ones (never clear what exists), then finish with review_video and fix what it shows.`;
+
+/** A moment of the cut where a sound can land: a layer enters or leaves, an animation starts, a phrase or an emphasis word. */
+type Moment = { at: number; kind: string; what: string };
+
+/** The moments the sound pass places sounds on, read from the scene (the agent can't infer them from the brief). */
+function sceneMoments(scene: Record<string, unknown> | null): Moment[] {
+  const s = scene as { duration?: number; layers?: { id: string; start?: number; end?: number | null; anims?: { use: string; at?: number }[] }[]; captions?: { words?: { text: string; start: number; end: number; emphasis?: boolean }[] } } | null;
+  const duration = s?.duration ?? 0;
+  const moments: Moment[] = [];
+  for (const l of s?.layers ?? []) {
+    const start = l.start ?? 0;
+    if (start > 0.05) moments.push({ at: start, kind: "entrada", what: l.id });
+    if (l.end != null && l.end < duration - 0.1) moments.push({ at: l.end, kind: "salida", what: l.id });
+    for (const a of l.anims ?? []) moments.push({ at: start + (a.at ?? 0), kind: "animation", what: `${l.id} ${a.use}` });
+  }
+  const words = s?.captions?.words ?? [];
+  words.forEach((w, i) => {
+    if (i === 0 || w.start - (words[i - 1]?.end ?? 0) > 0.6) moments.push({ at: w.start, kind: "voice", what: w.text });
+    if (w.emphasis) moments.push({ at: w.start, kind: "emphasis", what: w.text });
+  });
+  // Sorted, and never two moments closer than 0.25 s: one sound per beat of the picture, not a stream.
+  moments.sort((a, b) => a.at - b.at);
+  const kept: Moment[] = [];
+  for (const m of moments) if (!kept.length || m.at - kept[kept.length - 1]!.at >= 0.25) kept.push(m);
+  return kept.slice(0, 60);
+}
+
+/** Last pass after the cut is built: sound effects always land on the timeline, whatever the builders did. */
+const SOUND_GUIDE = `You are Motionily's sound designer. The video is already built. You get its moments: exact times
+where something happens on screen or in the voice. Your only job is to choose one sound per moment and place it there.
+1. list_sounds for the user's library. Use only sounds from it.
+2. Sound by kind: entrada → pop or whoosh_rapido · animación → whoosh (start it ~0.1 s before the moment) ·
+   salida → click or tick · voz → tick, very quiet · énfasis → impacto or golpe_seco, a little louder.
+3. Skip moments that do not need sound. Keep gains between 0.5 and 0.8. Never place two cues in the same 0.25 s.
+4. ONE add_sfx with one line per cue: "id sound_name at [gain]", at = the moment's time. Change nothing else.
+Reply with one short sentence: how many cues and why you skipped the rest.`;
 
 /** Plans the video and sets the look; builders do the heavy writing in parallel. */
 const PLANNER_GUIDE = `You are Motionily's art director. There are NO presets: everything is designed by the team.
@@ -358,7 +432,7 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
     return this.status(projectId);
   }
 
-  async start(ownerId: Types.ObjectId, email: string, projectId: string, { instruction, model, effort, references, mode }: GenerateDto) {
+  async start(ownerId: Types.ObjectId, email: string, projectId: string, { instruction, model, effort, references, mode, resume, sfxOnly }: GenerateDto) {
     const project = await this.projects.get(ownerId, projectId);
     if (this.runs.get(project.id)?.status === GenerateStatus.Running) {
       throw new ConflictException("the agent is already working on this project");
@@ -376,18 +450,39 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
     this.runs.set(project.id, run);
     await this.projects.setLiveRun(project.id, { status: GenerateStatus.Running, startedAt: new Date().toISOString(), pids: [] });
     run.projectId = project.id;
-    const refs = await referencePrompt([...new Set([...(project.references ?? []), ...(references ?? [])])]);
+    const voice = voiceLines(project.scene);
+    run.voice = voice;
+    const voiceNote = voice.length ? `\nVoice-over, timed (what is said when; the video must show it at that moment):\n${voiceDuring(voice, 0, Infinity)}` : "";
+    const refs = (await referencePrompt([...new Set([...(project.references ?? []), ...(references ?? [])])])) + voiceNote;
     const opts: AgentOpts = { config, model, effort, size: FORMAT_SIZE[project.format] ?? FORMAT_SIZE[VideoFormat.Vertical] };
 
     // Callers without a mode (prefab workshop, older clients) keep their explicit model/effort.
     mode ??= model ? GenerateMode.Custom : GenerateMode.Balanced;
-    const work = instruction?.trim()
-      ? this.single(run, `The user asks: "${instruction.trim()}". Apply it to the current video (read get_project and get_scene first; finish with review_video and fix what it shows).${refs}`, { ...opts, ...teamFor(mode, model, effort).build })
-      : this.team(run, refs, opts, teamFor(mode, model, effort), mode);
+    const team = teamFor(mode, model, effort);
+    // A fresh start drops any plan from an earlier run; a resume keeps it when one was saved.
+    const saved = resume ? await this.projects.buildPlanOf(project.id) : null;
+    if (!resume) await this.projects.setBuildPlan(project.id, null);
+    const build = sfxOnly
+      ? null
+      : resume
+      ? saved
+        ? this.resume(run, refs, { ...opts, ...team.build }, team, saved)
+        : this.single(run, CONTINUE_PROMPT + refs, { ...opts, ...team.build })
+      : instruction?.trim()
+      ? this.single(run, `The user asks: "${instruction.trim()}". Apply it to the current video (read get_project and get_scene first; finish with review_video and fix what it shows).${refs}`, { ...opts, ...team.build })
+      : this.team(run, refs, opts, team, mode);
+    // Sound-only: just the sound pass on the video that is already on screen.
+    const work = build
+      ? build.then(async (usage) => {
+          if (run.status === GenerateStatus.Running) await this.projects.logAgentRun(project.id, await this.soundPass(run, { ...opts, ...team.review }));
+          return usage;
+        })
+      : this.soundPass(run, { ...opts, ...team.review });
     void work
       .then(async (usage) => {
         run.usage = usage;
         if (run.status === GenerateStatus.Running) run.status = GenerateStatus.Done;
+        if (run.status === GenerateStatus.Done) await this.projects.setBuildPlan(project.id, null);
         // In order: the finished run is on record before the live marker goes.
         await this.projects.logAgentRun(project.id, usage);
         await this.projects.setLiveRun(project.id, null);
@@ -412,6 +507,29 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
     return this.status(projectId);
   }
 
+  /** A failed sound pass never fails the video: the cut is already done, so it only leaves a note. */
+  private async soundPass(run: Run, o: AgentOpts): Promise<AgentRunUsage> {
+    const t0 = Date.now();
+    const results: ResultLine[] = [];
+    this.push(run, GenerateEventKind.Phase, GeneratePhase.Sound);
+    try {
+      const moments = sceneMoments(await this.projects.sceneOf(run.projectId!));
+      const list = moments.map((m) => `${m.at.toFixed(2)} ${m.kind} ${m.what}`).join("\n");
+      const prompt = moments.length
+        ? `Place sounds on these moments of the cut (seconds, kind, what). Use the time exactly as written, one add_sfx call:\n${list}`
+        : "Add the sound effects to this video.";
+      const r = await this.agent(run, prompt, SOUND_GUIDE, { ...o, effort: AgentEffort.Low }, "sound", ROLE_TOOLS.sound);
+      results.push(r.result);
+      // What the sound agent says it did, so an empty result is visible in the log instead of silent.
+      this.push(run, GenerateEventKind.Text, `Sonido: ${r.text}`);
+      run.summary = r.text;
+    } catch (e) {
+      this.push(run, GenerateEventKind.Error, `sonido: ${(e as Error).message}`);
+      run.summary = `Sonido: ${(e as Error).message}`;
+    }
+    return sumUsage(results, t0, { ...o, model: "sonido", effort: undefined });
+  }
+
   private async single(run: Run, prompt: string, o: AgentOpts): Promise<AgentRunUsage> {
     const r = await this.agent(run, prompt, AGENT_GUIDE, o, "", undefined);
     run.summary = r.text;
@@ -430,23 +548,41 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
     const planned = await this.agent(run, `Plan this video from its brief.${refs}`, PLANNER_GUIDE, o, "plan", ROLE_TOOLS.planner);
     results.push(planned.result);
     const plan = parsePlan(planned.text);
+    await this.projects.setBuildPlan(run.projectId!, { plan: { ...plan }, done: [] });
     this.push(run, GenerateEventKind.Text, plan.direction);
     this.push(run, GenerateEventKind.Plan, JSON.stringify(plan.beats.map(({ group, start, end }) => ({ group, start, end }))));
+    return this.buildFrom(run, plan, plan.beats, refs, base, team, results, label, t0);
+  }
+
+  /** Continue an interrupted team run: the saved plan, only the beats not built yet, then the review. */
+  private async resume(run: Run, refs: string, base: AgentOpts, team: TeamSetup, saved: { plan: Record<string, unknown>; done: string[] }): Promise<AgentRunUsage> {
+    const plan = saved.plan as Plan;
+    const label: AgentOpts = { ...base, model: "continue", effort: undefined };
+    this.push(run, GenerateEventKind.Text, plan.direction);
+    return this.buildFrom(run, plan, plan.beats.filter((b) => !saved.done.includes(b.group)), refs, base, team, [], label, Date.now());
+  }
+
+  /** Builders write the given beats in parallel, then the finisher reviews the whole cut. */
+  private async buildFrom(run: Run, plan: Plan, beats: Beat[], refs: string, base: AgentOpts, team: TeamSetup, results: ResultLine[], label: AgentOpts, t0: number): Promise<AgentRunUsage> {
+    const o = base;
     this.push(run, GenerateEventKind.Phase, GeneratePhase.Build);
 
     // The plan already did the thinking: builders and finisher execute it with low effort (thinking is output tokens).
     const crew: AgentOpts = { ...base, ...team.build };
     const overview = plan.beats.map((b) => `- ${b.group} ${b.start}-${b.end}s: ${b.brief}`).join("\n");
-    const queue = [...plan.beats];
+    const queue = [...beats];
     const worker = async () => {
       for (let beat = queue.shift(); beat && run.status === GenerateStatus.Running; beat = queue.shift()) {
         const reference = plan.reference ? `\nReference breakdown (match its techniques and rhythm):\n${plan.reference}` : "";
-        const prompt = `Art direction: ${plan.direction}\nRecurring motif: ${plan.motif ?? "—"}${reference}\nWhole video:\n${overview}\n\nYOUR BEAT: group "${beat.group}", ${beat.start}-${beat.end}s, world region ${beat.region ?? "centered"}.\n${beat.brief}\nCanvas ${o.size[0]}x${o.size[1]} px. Palette and font are already set (use the slot names). Build it now.`;
+        const prompt = `Art direction: ${plan.direction}\nRecurring motif: ${plan.motif ?? "—"}${reference}\nWhole video:\n${overview}\n\nYOUR BEAT: group "${beat.group}", ${beat.start}-${beat.end}s, world region ${beat.region ?? "centered"}.\n${beat.brief}${voiceFor(run, beat)}\nCanvas ${o.size[0]}x${o.size[1]} px. Palette and font are already set (use the slot names). Build it now.`;
         const r = await this.agent(run, prompt, BUILDER_GUIDE, crew, beat.group, ROLE_TOOLS.builder).catch((e: Error) => {
           this.push(run, GenerateEventKind.Error, `${beat!.group}: ${e.message}`);
           return null;
         });
-        if (r) results.push(r.result);
+        if (r) {
+          results.push(r.result);
+          await this.projects.markBeatDone(run.projectId!, beat.group);
+        }
         this.push(run, GenerateEventKind.Done, beat.group);
       }
     };
@@ -460,7 +596,7 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
     return sumUsage(results, t0, label);
   }
 
-  /** Premium: one designer builds the whole film as one continuous world, then a reviewer polishes it. */
+/** Premium: one designer builds the whole film as one continuous world, then a reviewer polishes it. */
   private async solo(run: Run, refs: string, base: AgentOpts, team: TeamSetup, label: AgentOpts, t0: number): Promise<AgentRunUsage> {
     const results: ResultLine[] = [];
     this.push(run, GenerateEventKind.Phase, GeneratePhase.Build);

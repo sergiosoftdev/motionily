@@ -143,6 +143,29 @@ impl Captions {
     }
 }
 
+fn luminance(c: Rgba) -> f32 {
+    let lin = |v: f32| if v <= 0.03928 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) };
+    let [r, g, b, _] = c.0;
+    0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+}
+
+/// WCAG contrast ratio between two colors (1 = none, 21 = black on white).
+fn contrast(a: Rgba, b: Rgba) -> f32 {
+    let (x, y) = (luminance(a), luminance(b));
+    (x.max(y) + 0.05) / (x.min(y) + 0.05)
+}
+
+/// The caption's own color when it reads on the background; otherwise black or white, whichever reads.
+fn ink_on(text: Rgba, background: Rgba) -> Rgba {
+    if contrast(text, background) >= 4.5 {
+        text
+    } else if luminance(background) > 0.4 {
+        Rgba([0.0, 0.0, 0.0, 1.0])
+    } else {
+        Rgba([1.0, 1.0, 1.0, 1.0])
+    }
+}
+
 /// Caption block for time `t`, styled by the scene's caption style. `None` between phrases.
 pub(crate) fn caption_frame(scene: &Scene, palette: &Palette, t: f32) -> Option<DrawText> {
     let captions = scene.captions.as_ref()?;
@@ -156,19 +179,22 @@ pub(crate) fn caption_frame(scene: &Scene, palette: &Palette, t: f32) -> Option<
     let typo = scene.typography.clone().unwrap_or(Typography { family: DEFAULT_FAMILY.into(), body: 500, heading: 700 });
     let faded = |c: Rgba, a: f32| Rgba([c.0[0], c.0[1], c.0[2], c.0[3] * a]);
     let spoken = |wd: &Word| t >= wd.start;
+    // Captions must read on any background the agent picks: the text color adapts, and minimal captions get a plate.
+    let ink = ink_on(palette.text, palette.background);
+    let plate = if luminance(palette.background) > 0.4 { Rgba([1.0, 1.0, 1.0, 0.85]) } else { Rgba([0.0, 0.0, 0.0, 0.6]) };
 
     let spans: Vec<TextSpan> = match scene.caption_style {
         CaptionStyle::Minimal => vec![TextSpan {
             text: words[phrase.clone()].iter().map(|w| w.text.as_str()).collect::<Vec<_>>().join(" "),
-            color: palette.text,
+            color: ink,
             scale: 1.0,
-            highlight: None,
+            highlight: Some(plate),
         }],
         CaptionStyle::Karaoke => words[phrase.clone()]
             .iter()
             .map(|wd| TextSpan {
                 text: wd.text.clone(),
-                color: if spoken(wd) { palette.primary } else { faded(palette.text, 0.45) },
+                color: if spoken(wd) { palette.primary } else { faded(ink, 0.45) },
                 scale: 1.0,
                 highlight: None,
             })
@@ -179,7 +205,7 @@ pub(crate) fn caption_frame(scene: &Scene, palette: &Palette, t: f32) -> Option<
             let p = Easing::Back.apply(((t - current.start) / POP_IN).clamp(0.0, 1.0));
             vec![TextSpan {
                 text: current.text.to_uppercase(),
-                color: if current.emphasis { palette.accent } else { palette.text },
+                color: if current.emphasis { palette.accent } else { ink },
                 scale: (0.6 + 0.4 * p) * 1.35,
                 highlight: None,
             }]
@@ -188,7 +214,7 @@ pub(crate) fn caption_frame(scene: &Scene, palette: &Palette, t: f32) -> Option<
             .iter()
             .map(|wd| TextSpan {
                 text: wd.text.clone(),
-                color: if wd.emphasis { palette.surface } else { palette.text },
+                color: if wd.emphasis { palette.surface } else { ink },
                 scale: 1.0,
                 highlight: wd.emphasis.then_some(palette.primary),
             })
@@ -198,7 +224,7 @@ pub(crate) fn caption_frame(scene: &Scene, palette: &Palette, t: f32) -> Option<
             .filter(|wd| spoken(wd))
             .map(|wd| TextSpan {
                 text: wd.text.clone(),
-                color: if wd.emphasis { palette.primary } else { palette.text },
+                color: if wd.emphasis { palette.primary } else { ink },
                 scale: 1.0,
                 highlight: Some(palette.surface),
             })

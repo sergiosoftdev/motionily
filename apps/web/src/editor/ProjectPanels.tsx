@@ -34,7 +34,7 @@ export function ProjectPanel({
     return (
       <div className="flex flex-col gap-6">
         {project.voiceScript.trim() && <VoiceScript script={project.voiceScript} hasVoice={!!project.audio} />}
-        <CaptionsPanel project={project} onProject={onProject} />
+        <CaptionsPanel project={project} onProject={onProject} hasScene={!!project.scene} />
       </div>
     );
   return <FormatPicker value={project.format} onChange={onFormat} />;

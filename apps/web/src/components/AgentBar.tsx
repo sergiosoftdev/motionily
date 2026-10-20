@@ -45,14 +45,32 @@ export function AgentBar({ g, hasScene, runs }: { g: Generation; hasScene: boole
   return (
     <section className="flex flex-col gap-3">
       {state?.status === GenerateStatus.Interrupted && (
-        <p className="text-xs text-amber-200/90">It stopped because the server restarted (the agents were stopped and aren't spending). Generate again to resume.</p>
+        <p className="text-xs text-amber-200/90">It stopped because the server restarted (the agents were stopped and aren't spending). Continue where it left off or generate again.</p>
       )}
       {state?.status === GenerateStatus.Failed && (
         <p className="text-xs text-red-400">{state.events.filter((e) => e.kind === GenerateEventKind.Error).at(-1)?.text ?? "The agent failed."}</p>
       )}
       {state?.status === GenerateStatus.Done && state.summary && <p className="line-clamp-4 text-xs leading-relaxed text-neutral-400">{state.summary}</p>}
       <ModePicker prefs={g.prefs} onChange={g.updatePrefs} />
-      <button type="button" onClick={() => void g.start()} className="rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-neutral-900 hover:bg-neutral-200">
+      {hasScene && (
+        <button type="button" onClick={() => void g.addSound()} className="rounded-lg px-3 py-2 text-sm text-neutral-300 ring-1 ring-white/15 hover:bg-white/5 hover:text-white">
+          Add sound effects
+        </button>
+      )}
+      {state?.status === GenerateStatus.Interrupted && hasScene && (
+        <button type="button" onClick={() => void g.resume()} className="rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-neutral-900 hover:bg-neutral-200">
+          Continue
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => void g.start()}
+        className={
+          state?.status === GenerateStatus.Interrupted && hasScene
+            ? "rounded-lg px-4 py-2.5 text-sm text-neutral-300 ring-1 ring-white/15 hover:bg-white/5 hover:text-white"
+            : "rounded-lg bg-white px-4 py-2.5 text-sm font-semibold text-neutral-900 hover:bg-neutral-200"
+        }
+      >
         {hasScene ? "Regenerate from scratch" : "Generate video"}
       </button>
       {g.error && <p className="text-xs text-red-400">{g.error}</p>}

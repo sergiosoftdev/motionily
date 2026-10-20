@@ -74,6 +74,8 @@ export class Project {
    * running team (and let a second one start) nor leave its claude processes orphaned.
    */
   @Prop({ type: MongooseSchema.Types.Mixed, default: null }) liveRun: { status: string; startedAt: string; pids: number[] } | null;
+  /** The team's plan and the beat groups already built, so an interrupted run can continue where it stopped. */
+  @Prop({ type: MongooseSchema.Types.Mixed, default: null }) buildPlan: { plan: Record<string, unknown>; done: string[] } | null;
 }
 
 export type ProjectDocument = HydratedDocument<Project>;

@@ -36,10 +36,10 @@ export function useGenerate(projectId: string) {
     };
   }, [projectId]);
 
-  const start = async (instruction = "", references: string[] = []) => {
+  const start = async (instruction = "", references: string[] = [], extra: { resume?: boolean; sfxOnly?: boolean } = {}) => {
     setError(null);
     try {
-      setState(await api.generate(projectId, instruction, prefs, references));
+      setState(await api.generate(projectId, instruction, prefs, references, extra));
       return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -75,6 +75,8 @@ export function useGenerate(projectId: string) {
       savePrefs(next);
     },
     start,
+    resume: () => start("", [], { resume: true }),
+    addSound: () => start("", [], { sfxOnly: true }),
     stop: () => void api.stopGenerate(projectId).then(setState),
   };
 }

@@ -35,7 +35,9 @@ export function transcribe(audio: Float32Array, onProgress: (label: string, rati
           break;
       }
     };
-    w.postMessage({ type: WhisperMsg.Transcribe, audio, language: "english" }, [audio.buffer]);
+    // Copy before transferring: the caller keeps its samples to align the words with.
+    const copy = audio.slice();
+    w.postMessage({ type: WhisperMsg.Transcribe, audio: copy, language: "english" }, [copy.buffer]);
   });
 }
 
@@ -51,6 +53,40 @@ export function toWords(chunks: WhisperChunk[]): CaptionWord[] {
     words.push({ text, start: Math.max(start, prev?.start ?? 0), end, emphasis: isKeyWord(text) });
   }
   return words;
+}
+
+/**
+ * Whisper's word starts often land a few hundred ms before or after the sound. Move each start to the
+ * nearest real onset (silence → speech) in the waveform, within ±0.4 s.
+ */
+export function snapToSpeech(words: CaptionWord[], audio: Float32Array, rate = WHISPER_SAMPLE_RATE): CaptionWord[] {
+  const hop = Math.round(rate / 100); // 10 ms frames
+  const frames = Math.floor(audio.length / hop);
+  const env = new Float32Array(frames);
+  let peak = 0;
+  for (let f = 0; f < frames; f++) {
+    let sum = 0;
+    for (let i = f * hop; i < (f + 1) * hop; i++) sum += (audio[i] ?? 0) ** 2;
+    env[f] = Math.sqrt(sum / hop);
+    peak = Math.max(peak, env[f] ?? 0);
+  }
+  const at = (f: number) => env[f] ?? 0;
+  const threshold = peak * 0.08;
+  const onsetNear = (t: number) => {
+    const c = Math.round(t * 100);
+    let best = -1;
+    for (let f = Math.max(5, c - 40); f <= Math.min(frames - 1, c + 40); f++) {
+      if (at(f) < threshold || at(f - 5) >= threshold) continue;
+      if (best < 0 || Math.abs(f - c) < Math.abs(best - c)) best = f;
+    }
+    return best < 0 ? t : best / 100;
+  };
+  let last = 0;
+  return words.map((w) => {
+    const start = Math.max(last, onsetNear(w.start));
+    last = start;
+    return { ...w, start, end: Math.max(start + 0.05, w.end) };
+  });
 }
 
 /** Numbers, long words and shouting tend to be the words worth highlighting. */

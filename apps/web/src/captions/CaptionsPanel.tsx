@@ -4,8 +4,9 @@ import { api, mediaUrl } from "../api/client";
 import { engineHost } from "../engine/host";
 import { agentBridge } from "../bridge";
 import { ActivitySource, logActivity } from "../store";
-import { decodeForWhisper, transcribe } from "./transcribe";
+import { decodeForWhisper, snapToSpeech, transcribe } from "./transcribe";
 import { startGenerate, takePipeline, VideoPipeline } from "../pipeline";
+import { VoiceSyncDialog } from "./VoiceSyncDialog";
 
 const ENGINE_POLL_MS = 300;
 
@@ -13,13 +14,14 @@ const Status = { Idle: "idle", Working: "working", Done: "done", Error: "error" 
 type Status = (typeof Status)[keyof typeof Status];
 
 /** Upload the voice-over, transcribe it in the browser and turn it into timed captions. */
-export function CaptionsPanel({ project, onProject }: { project: Project; onProject: (p: Project) => void }) {
+export function CaptionsPanel({ project, onProject, hasScene }: { project: Project; onProject: (p: Project) => void; hasScene: boolean }) {
   const input = useRef<HTMLInputElement>(null);
   const audio = project.audio;
   const [status, setStatus] = useState<Status>(Status.Idle);
   const [progress, setProgress] = useState<{ label: string; ratio: number | null }>({ label: "", ratio: null });
   const [words, setWords] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [askSync, setAskSync] = useState(false);
 
   const choose = async (f: File | undefined) => {
     if (!f) return;
@@ -30,6 +32,7 @@ export function CaptionsPanel({ project, onProject }: { project: Project; onProj
       onProject(p);
       void engineHost.setAudio(p.audio ? mediaUrl(p.audio.url) : null);
       setStatus(Status.Idle);
+      if (hasScene) setAskSync(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setStatus(Status.Error);
@@ -43,7 +46,7 @@ export function CaptionsPanel({ project, onProject }: { project: Project; onProj
     try {
       setProgress({ label: "Leyendo audio…", ratio: null });
       const samples = await decodeForWhisper(mediaUrl(audio.url));
-      const result = await transcribe(samples, (label, ratio) => setProgress({ label, ratio }));
+      const result = snapToSpeech(await transcribe(samples, (label, ratio) => setProgress({ label, ratio })), samples);
       const duration = Math.max(engineHost.duration(), (result.at(-1)?.end ?? 0) + 0.5);
       engineHost.applyOps([
         { op: OpName.SetDuration, duration },
@@ -107,6 +110,15 @@ export function CaptionsPanel({ project, onProject }: { project: Project; onProj
         </button>
       )}
       {error && <p className="px-2 text-xs text-red-400">{error}</p>}
+      {askSync && (
+        <VoiceSyncDialog
+          onKeep={() => setAskSync(false)}
+          onAdapt={() => {
+            setAskSync(false);
+            void run().then(() => startGenerate(project.id));
+          }}
+        />
+      )}
     </section>
   );
 }

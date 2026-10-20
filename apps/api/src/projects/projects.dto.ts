@@ -95,6 +95,10 @@ export class GenerateDto {
   @IsOptional() @IsEnum(AgentModel) model?: AgentModel;
   @IsOptional() @IsEnum(AgentEffort) effort?: AgentEffort;
   @IsOptional() @IsEnum(GenerateMode) mode?: GenerateMode;
+  /** Continue an interrupted run from where it stopped instead of starting over. */
+  @IsOptional() @IsBoolean() resume?: boolean;
+  /** Only add the sound effects to the video that is already built. */
+  @IsOptional() @IsBoolean() sfxOnly?: boolean;
   /** Images pasted with the request. */
   @IsOptional() @IsArray() @ArrayMaxSize(MAX_REFERENCES) @Matches(MEDIA_PATH, { each: true }) references?: string[];
 }

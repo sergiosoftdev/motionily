@@ -564,7 +564,10 @@ server.registerTool(
   },
   guard(async ({ ops }) => {
     const res = await bridge.applyOps(ops as Op[]);
-    return res.ok ? text(res.summary ?? "ok") : fail(`${res.error ?? "rejected"}\n${EDIT_HINT}`);
+    if (res.ok) return text(res.summary ?? "ok");
+    // The whole batch is lost when one op is wrong: say which one and the cheap way to do it, so the retry is right.
+    const unknown = /unknown variant `([^`]+)`/.exec(res.error ?? "")?.[1];
+    return fail(`${res.error ?? "rejected"}\nNothing was applied${unknown ? ` (\`${unknown}\` does not exist here)` : ""}: resend the whole batch fixed.\n${EDIT_HINT}`);
   }),
 );
 

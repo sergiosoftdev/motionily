@@ -125,8 +125,8 @@ export const api = {
     call<Brick>(HttpMethod.Post, `/projects/${id}/bricks`, brick),
   /** The user's prefab library with full trees (for the engine). */
   prefabs: (id: string) => call<{ name: string; node: Record<string, unknown> }[]>(HttpMethod.Get, `/projects/${id}/prefabs?full=1`),
-  generate: (id: string, instruction?: string, prefs?: AgentPrefs, references: string[] = []) =>
-    call<GenerateState>(HttpMethod.Post, `/projects/${id}/generate`, { instruction: instruction || undefined, ...prefs, references: references.length ? references : undefined }),
+  generate: (id: string, instruction?: string, prefs?: AgentPrefs, references: string[] = [], extra: { resume?: boolean; sfxOnly?: boolean } = {}) =>
+    call<GenerateState>(HttpMethod.Post, `/projects/${id}/generate`, { instruction: instruction || undefined, ...prefs, references: references.length ? references : undefined, ...extra }),
   sounds: () => call<SoundRow[]>(HttpMethod.Get, "/sounds"),
   saveSound: (s: { name: string; category: string; description: string; recipe: SoundRecipe; duration: number }, wav: Blob) =>
     upload<SoundRow[]>("/sounds", new File([wav], `${s.name}.wav`, { type: "audio/wav" }), {

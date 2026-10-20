@@ -31,6 +31,23 @@ export class ProjectsService {
     return this.projects.updateOne({ _id: id }, { $set: { liveRun } });
   }
 
+  setBuildPlan(id: string, buildPlan: { plan: Record<string, unknown>; done: string[] } | null) {
+    return this.projects.updateOne({ _id: id }, { $set: { buildPlan } });
+  }
+
+  markBeatDone(id: string, group: string) {
+    return this.projects.updateOne({ _id: id }, { $addToSet: { "buildPlan.done": group } });
+  }
+
+  /** The scene as it is saved now (the build may have changed it since the run started). */
+  async sceneOf(id: string) {
+    return (await this.projects.findById(id, { scene: 1 }).lean())?.scene ?? null;
+  }
+
+  async buildPlanOf(id: string) {
+    return (await this.projects.findById(id, { buildPlan: 1 }).lean())?.buildPlan ?? null;
+  }
+
   trackPid(id: string, pid: number, add: boolean) {
     return this.projects.updateOne({ _id: id }, add ? { $addToSet: { "liveRun.pids": pid } } : { $pull: { "liveRun.pids": pid } });
   }
