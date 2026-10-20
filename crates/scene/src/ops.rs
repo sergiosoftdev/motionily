@@ -99,6 +99,14 @@ pub enum Prop {
     Rotation,
     Opacity,
     Radius,
+    /// Depth in the camera world.
+    Z,
+    RotateX,
+    RotateY,
+    Soft,
+    Backdrop,
+    /// Layer clock (time remap).
+    Time,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -190,6 +198,12 @@ impl Scene {
                     Prop::Rotation => &mut l.rotation,
                     Prop::Opacity => &mut l.opacity,
                     Prop::Radius => &mut l.radius,
+                    Prop::Z => &mut l.z,
+                    Prop::RotateX => &mut l.rotate_x,
+                    Prop::RotateY => &mut l.rotate_y,
+                    Prop::Soft => &mut l.soft,
+                    Prop::Backdrop => &mut l.backdrop,
+                    Prop::Time => l.time.get_or_insert_with(Default::default),
                 };
                 if let Animated::Keys(keys) = value {
                     if keys.windows(2).any(|w| w[1].t < w[0].t) {
