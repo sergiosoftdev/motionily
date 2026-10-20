@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 
 /**
  * Tiny hash router. Survives reloads, no dependency.
- * #/projects · #/b/:id[/kit] · #/b/:id/new · #/p/:id · #/prefabs · #/sounds · #/settings
+ * #/projects · #/b/:id[/kit] · #/b/:id/new · #/p/:id · #/prefabs · #/sounds · #/settings · #/welcome
  */
 export const RouteName = {
   Projects: "projects",
@@ -12,6 +12,8 @@ export const RouteName = {
   Prefabs: "prefabs",
   Sounds: "sounds",
   Settings: "settings",
+  /** The public landing page, also reachable when signed in. */
+  Welcome: "welcome",
 } as const;
 export type RouteName = (typeof RouteName)[keyof typeof RouteName];
 
@@ -25,7 +27,8 @@ export type Route =
   | { name: typeof RouteName.Editor; id: string }
   | { name: typeof RouteName.Prefabs }
   | { name: typeof RouteName.Sounds }
-  | { name: typeof RouteName.Settings };
+  | { name: typeof RouteName.Settings }
+  | { name: typeof RouteName.Welcome };
 
 function parse(hash: string): Route {
   const [, first, second, third] = hash.replace(/^#/, "").split("/");
@@ -37,6 +40,7 @@ function parse(hash: string): Route {
   if (first === RouteName.Prefabs) return { name: RouteName.Prefabs };
   if (first === RouteName.Sounds) return { name: RouteName.Sounds };
   if (first === RouteName.Settings) return { name: RouteName.Settings };
+  if (first === RouteName.Welcome) return { name: RouteName.Welcome };
   return { name: RouteName.Projects };
 }
 
@@ -54,6 +58,8 @@ export function href(route: Route): string {
       return "#/sounds";
     case RouteName.Settings:
       return "#/settings";
+    case RouteName.Welcome:
+      return "#/welcome";
     case RouteName.Projects:
       return "#/projects";
   }

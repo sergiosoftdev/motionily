@@ -80,7 +80,8 @@ function AppNav() {
   const logout = useSession((s) => s.logout);
   return (
     <aside className="sticky top-0 flex h-dvh w-56 shrink-0 flex-col gap-6 border-r border-neutral-900 px-3 py-5">
-      <a href={href({ name: RouteName.Projects })} className="px-3">
+      <a href={href({ name: RouteName.Projects })} className="flex items-center gap-2 px-3">
+        <img src="/brand/mark.png" alt="" className="h-6 w-auto rounded-md" />
         <Logo />
       </a>
       <nav className="flex flex-col gap-0.5">

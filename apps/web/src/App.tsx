@@ -1,6 +1,6 @@
 import { useSession } from "./session";
 import { RouteName, useRoute } from "./router";
-import { LoginScreen } from "./screens/LoginScreen";
+import { LandingScreen } from "./landing/LandingScreen";
 import { ProjectsScreen } from "./screens/ProjectsScreen";
 import { BrandScreen } from "./screens/BrandScreen";
 import { NewProjectScreen } from "./screens/NewProjectScreen";
@@ -13,7 +13,8 @@ export function App() {
   const token = useSession((s) => s.token);
   const route = useRoute();
 
-  if (!token) return <LoginScreen />;
+  // Signed out: the public landing page, with its (mock) sign-in.
+  if (!token || route.name === RouteName.Welcome) return <LandingScreen />;
   // The editor is full-screen; every other page draws its own MotionilyLayout.
   if (route.name === RouteName.Editor) return <EditorScreen key={route.id} id={route.id} />;
   // The new-video wizard is a full-screen guided flow too.
