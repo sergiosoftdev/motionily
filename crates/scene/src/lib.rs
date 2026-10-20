@@ -15,6 +15,7 @@ mod stage;
 mod stage_presets;
 mod layer;
 mod library;
+mod light;
 mod node3d;
 mod ops;
 mod style;
@@ -31,6 +32,7 @@ pub use node3d::{DrawModelNode, DrawSolid, Garment, Geometry, HairStyle, Node3D,
 pub use stage_presets::{merge_preset, preset as stage_preset};
 pub use stage::{Finish, Shot, ShotKind, ShotTarget, Camera3D, CameraKind, DrawCamera, DrawProp, DrawStage, PropEnter, Stage, StageProp};
 pub use scenario::{draw_scenario, iso, DrawPoly, Scenario, ScenarioKind};
+pub use light::{contact_shadow, direction as light_direction, geometry_bounds, solids_box, AmbientLight, DrawLights, DrawPointLight, KeyLight, Lights, ObjectBox, PointLight, MAX_INTENSITY, MAX_POINT_LIGHTS};
 pub use ops::{Op, OpError, Prop};
 pub use style::{RenderKind, RenderStyle, CaptionStyle, ColorRef, CustomPalette, HexColor, Palette, PaletteSlot, Rgba, StylePreset};
 
@@ -202,7 +204,9 @@ impl Scene {
         let owners = self.owners_3d();
         let center = [self.width as f32 / 2.0, self.height as f32 / 2.0];
         let camera = self.camera_view(t, &ctx);
-        let view = camera.map_or(paint::View { look: center, dolly: 0.0, focal: paint::DEFAULT_PERSPECTIVE, screen: center }, |c| c.0);
+        // Fixed layers (and every layer without a camera) see the still lens: no pan, dolly or roll.
+        let still = paint::View::still(center, paint::DEFAULT_PERSPECTIVE);
+        let view = camera.map_or(still, |c| c.0);
         // Each top-level layer's items with its depth (sorted far to near when there is a camera).
         let mut layered: Vec<(f32, Vec<DrawItem>)> = Vec::new();
         for (idx, l) in self.layers.iter().enumerate() {
@@ -228,8 +232,9 @@ impl Scene {
                 continue;
             }
             // Flat layers in a world (or pushed in depth) are scaled toward the camera axis.
+            let lens = if l.fixed { still } else { view };
             let flat_scale = if (camera.is_some() && !l.fixed) || z != 0.0 {
-                match view.scale_at(z) {
+                match lens.scale_at(z) {
                     Some(k) => Some(k),
                     None => continue,
                 }
@@ -268,8 +273,9 @@ impl Scene {
                 out.append(&mut drawn);
             }
             if let Some(k) = flat_scale {
-                let shift = [view.screen[0] - view.look[0], view.screen[1] - view.look[1]];
-                out.iter_mut().for_each(|item| item.affine(view.look, k, shift));
+                // `View::place` on everything: screen + rot(p − look, −roll) × k.
+                let shift = [lens.screen[0] - lens.look[0], lens.screen[1] - lens.look[1]];
+                out.iter_mut().for_each(|item| item.transform(lens.look, k, -lens.roll, shift));
             }
             layered.push((z, out));
         }
@@ -312,7 +318,8 @@ impl Scene {
     fn tilted_items(&self, l: &Layer, idx: usize, owners: &[Option<usize>], t: f32, z: f32, ctx: &EvalCtx, camera: Option<(paint::View, Option<(f32, f32)>)>) -> Vec<DrawItem> {
         let lt = l.local_time(t);
         let c = l.world(lt, ctx, &self.parent_xform(l, t, ctx, 0)).origin;
-        let lens = camera.map_or(paint::View { look: c, dolly: 0.0, focal: l.perspective.unwrap_or(paint::DEFAULT_PERSPECTIVE), screen: c }, |cam| cam.0);
+        let camera = camera.filter(|_| !l.fixed);
+        let lens = camera.map_or(paint::View::still(c, l.lens(lt)), |cam| cam.0);
         let Some(perspective) = paint::perspective_inverse(c, l.rotate_x.sample(lt), l.rotate_y.sample(lt), z, &lens) else { return Vec::new() };
         let defocus = camera.and_then(|cam| cam.1).map(|(focus, aperture)| aperture * (z - focus).abs() / 1000.0).filter(|b| *b > 0.5);
         let base_effects = || defocus.map(|radius| vec![paint::DrawEffect::Blur { radius }]).unwrap_or_default();
@@ -377,12 +384,15 @@ impl Scene {
         let cam = self.layers.iter().find(|l| l.camera.is_some() && self.active(l, t))?;
         let lens = cam.camera.as_ref()?;
         let lt = cam.local_time(t);
-        let look = cam.world(lt, ctx, &self.parent_xform(cam, t, ctx, 0)).origin;
+        // Look = the camera layer's world position; roll = its world rotation (its r, animation
+        // bricks, parents, motion-path orient).
+        let place = cam.world(lt, ctx, &self.parent_xform(cam, t, ctx, 0));
+        let (look, roll) = (place.origin, place.rotation);
         let screen = [self.width as f32 / 2.0, self.height as f32 / 2.0];
         let focal = lens.focal * cam.scale.sample(lt).max(0.01);
         let aperture = lens.aperture.sample(lt);
         let dof = (aperture > 0.0).then(|| (lens.focus.sample(lt), aperture));
-        Some((paint::View { look, dolly: cam.z.sample(lt), focal, screen }, dof))
+        Some((paint::View { look, dolly: cam.z.sample(lt), focal, screen, roll }, dof))
     }
 
     /// Depth of a layer: its `z` plus its parents'.
@@ -514,7 +524,7 @@ impl Scene {
             let lt = p.local_time(t);
             let c = p.world(lt, m.ctx, &self.parent_xform(p, t, m.ctx, 0)).origin;
             let z = self.depth(p, t);
-            let lens = m.camera.unwrap_or(paint::View { look: c, dolly: 0.0, focal: p.perspective.unwrap_or(paint::DEFAULT_PERSPECTIVE), screen: c });
+            let lens = m.camera.filter(|_| !p.fixed).unwrap_or(paint::View::still(c, p.lens(lt)));
             lens.scale_at(z)?;
             return Some(ScreenMap::Plane(paint::perspective_forward(c, p.rotate_x.sample(lt), p.rotate_y.sample(lt), z, &lens)));
         }
@@ -523,8 +533,9 @@ impl Scene {
             return Some(ScreenMap::Flat);
         }
         let center = [self.width as f32 / 2.0, self.height as f32 / 2.0];
-        let view = m.camera.unwrap_or(paint::View { look: center, dolly: 0.0, focal: paint::DEFAULT_PERSPECTIVE, screen: center });
-        Some(ScreenMap::Depth { look: view.look, screen: view.screen, k: view.scale_at(z)? })
+        let still = paint::View::still(center, paint::DEFAULT_PERSPECTIVE);
+        let view = if l.fixed { still } else { m.camera.unwrap_or(still) };
+        Some(ScreenMap::Depth { k: view.scale_at(z)?, view })
     }
 
     /// Box of layer `idx` on screen at `t`, with the map that put it there.
@@ -551,7 +562,7 @@ impl Scene {
     /// rendering test frames.
     pub fn layout(&self, t: f32) -> Layout {
         self.measuring(t, |m| {
-            let mut out = Layout { camera: m.camera.map(|v| LayoutCamera { look: v.look, dolly: v.dolly, focal: v.focal }), layers: Vec::new(), behind: Vec::new() };
+            let mut out = Layout { camera: m.camera.map(|v| LayoutCamera { look: v.look, dolly: v.dolly, focal: v.focal, roll: v.roll.to_degrees() }), layers: Vec::new(), behind: Vec::new() };
             for (idx, l) in self.layers.iter().enumerate() {
                 if l.camera.is_some() || !self.active(l, t) {
                     continue;
@@ -721,8 +732,9 @@ struct Measure<'a> {
 pub enum ScreenMap {
     /// Drawn where it is.
     Flat,
-    /// Pulled toward the camera axis by its depth: `screen + (p - look) * k`.
-    Depth { look: [f32; 2], screen: [f32; 2], k: f32 },
+    /// Pulled toward the camera axis by its depth and turned by the camera roll:
+    /// `view.place(p, k)` = `screen + rot(p − look, −roll) × k`.
+    Depth { view: paint::View, k: f32 },
     /// Projected with a tilted (rx/ry) layer: forward homography rows.
     Plane([[f32; 3]; 3]),
 }
@@ -732,7 +744,7 @@ impl ScreenMap {
     pub fn point(&self, p: [f32; 2]) -> Option<[f32; 2]> {
         match self {
             Self::Flat => Some(p),
-            Self::Depth { look, screen, k } => Some([screen[0] + (p[0] - look[0]) * k, screen[1] + (p[1] - look[1]) * k]),
+            Self::Depth { view, k } => Some(view.place(p, *k)),
             Self::Plane(h) => {
                 let w = h[2][0] * p[0] + h[2][1] * p[1] + h[2][2];
                 (w > 1e-3).then(|| [(h[0][0] * p[0] + h[0][1] * p[1] + h[0][2]) / w, (h[1][0] * p[0] + h[1][1] * p[1] + h[1][2]) / w])
@@ -744,7 +756,7 @@ impl ScreenMap {
     pub fn bounds(&self, b: &Bounds) -> Option<Bounds> {
         match self {
             Self::Flat => Some(*b),
-            Self::Depth { k, .. } => Some(Bounds { center: self.point(b.center)?, size: [b.size[0] * k, b.size[1] * k], rotation: b.rotation }),
+            Self::Depth { view, k } => Some(Bounds { center: self.point(b.center)?, size: [b.size[0] * k, b.size[1] * k], rotation: b.rotation - view.roll }),
             Self::Plane(_) => {
                 let mut corners = Vec::with_capacity(4);
                 for p in b.corners() {
@@ -783,6 +795,8 @@ pub struct LayoutCamera {
     pub dolly: f32,
     /// Focal length after the camera layer's scale (zoom).
     pub focal: f32,
+    /// Camera roll in degrees, clockwise (the picture turns counter-clockwise).
+    pub roll: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -964,6 +978,80 @@ mod tests {
         // A plane leaning back 60° is squashed vertically on screen.
         let [x0, y0, x1, y1] = card.screen;
         assert!(y1 - y0 < (x1 - x0) * 0.7, "{:?}", card.screen);
-        assert!(layout.camera.is_some_and(|c| c.focal == 1800.0));
+        assert!(layout.camera.is_some_and(|c| c.focal == 1800.0 && c.roll == 0.0));
+    }
+
+    fn apply_h(h: &[f32; 9], p: [f32; 2]) -> [f32; 2] {
+        let w = h[6] * p[0] + h[7] * p[1] + h[8];
+        [(h[0] * p[0] + h[1] * p[1] + h[2]) / w, (h[3] * p[0] + h[4] * p[1] + h[5]) / w]
+    }
+
+    #[test]
+    fn camera_roll_turns_the_drawn_frame_and_the_measures_alike() {
+        let mut scene = Scene::default();
+        scene.width = 1000;
+        scene.height = 1000;
+        for l in [
+            r#"{"id":"far","type":"shape","shape":"rect","x":500,"y":500,"w":100,"h":100,"z":1800}"#,
+            r#"{"id":"side","type":"shape","shape":"rect","x":700,"y":400,"w":200,"h":100}"#,
+            r#"{"id":"hud","type":"shape","shape":"rect","x":100,"y":100,"w":40,"h":40,"fixed":true}"#,
+            r#"{"id":"plane","type":"shape","shape":"rect","x":600,"y":700,"w":1,"h":1,"visible":false,"rotate_x":50}"#,
+            r#"{"id":"card","type":"shape","shape":"rect","parent":"plane","x":40,"y":-20,"w":200,"h":120}"#,
+            r#"{"id":"cam","type":"shape","shape":"rect","x":600,"y":500,"w":1,"h":1,"visible":false,"rotation":90,"camera":{"focal":1800}}"#,
+        ] {
+            scene.layers.push(serde_json::from_str(l).unwrap());
+        }
+        let near = |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).abs() < 1e-2 && (a[1] - b[1]).abs() < 1e-2;
+        let items = scene.frame(0.0);
+        let shapes: Vec<&DrawShape> = items.iter().filter_map(|i| if let DrawItem::Shape(s) = i { Some(s) } else { None }).collect();
+        // Painter's order: far (z 1800), then side and hud (z 0, list order).
+        let (far, side, hud) = (shapes[0], shapes[1], shapes[2]);
+        // Camera rolled 90° clockwise: the world turns 90° counter-clockwise around the center.
+        // far: (500 − 600, 0) × k 0.5 → turned → (0, +50) from the center.
+        assert!(near(far.center, [500.0, 550.0]), "{:?}", far.center);
+        assert!((far.rotation + std::f32::consts::FRAC_PI_2).abs() < 1e-4);
+        assert!(near(side.center, [400.0, 400.0]), "{:?}", side.center);
+        assert!(near(hud.center, [100.0, 100.0]) && hud.rotation == 0.0, "fixed layers are not rolled");
+        for (id, drawn) in [("far", far), ("side", side), ("hud", hud)] {
+            let b = scene.layer_bounds(id, 0.0).unwrap();
+            assert!(near(b.center, drawn.center) && (b.rotation - drawn.rotation).abs() < 1e-4, "{id}: {b:?} vs {drawn:?}");
+            assert!(near(b.size, drawn.size), "{id}");
+            assert_eq!(scene.pick(0.0, drawn.center[0], drawn.center[1]).as_deref(), Some(id));
+        }
+        // The 200×100 side card stands upright now: layout reports the turned box.
+        let layout = scene.layout(0.0);
+        let row = layout.layers.iter().find(|r| r.id == "side").unwrap();
+        let [x0, y0, x1, y1] = row.screen;
+        assert!(near([x0, y0], [350.0, 300.0]) && near([x1, y1], [450.0, 500.0]), "{:?}", row.screen);
+        assert_eq!(scene.pick(0.0, 520.0, 400.0), None, "the unrolled box is not where the camera shows it");
+        assert!(layout.camera.is_some_and(|c| (c.roll - 90.0).abs() < 1e-3));
+        // A tilted plane: the drawn projection (inverse homography) and the measure agree.
+        let Some(DrawItem::Fx(fx)) = items.iter().find(|i| matches!(i, DrawItem::Fx(f) if f.perspective.is_some())) else { panic!("plane pass") };
+        let inv = fx.perspective.unwrap();
+        let flat_center = [640.0, 680.0];
+        let r = scene.rect_to_screen("card", 0.0, [639.5, 679.5, 640.5, 680.5]).unwrap();
+        let on_screen = [(r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0];
+        assert!(near(apply_h(&inv, on_screen), flat_center), "{:?}", apply_h(&inv, on_screen));
+    }
+
+    #[test]
+    fn perspective_animates_and_fixed_planes_ignore_the_camera() {
+        let mut scene = Scene::default();
+        scene.width = 1000;
+        scene.height = 1000;
+        for l in [
+            r#"{"id":"plane","type":"shape","shape":"rect","x":500,"y":500,"w":100,"h":100,"rotate_y":40,"fixed":true,"perspective":[{"t":0,"v":600},{"t":1,"v":6000}]}"#,
+            r#"{"id":"cam","type":"shape","shape":"rect","x":900,"y":500,"w":1,"h":1,"visible":false,"rotation":30,"camera":{"focal":1800}}"#,
+        ] {
+            scene.layers.push(serde_json::from_str(l).unwrap());
+        }
+        let height = |t: f32| {
+            let [_, y0, _, y1] = scene.layout(t).layers[0].screen;
+            y1 - y0
+        };
+        // A short lens makes the near edge of the turned plane taller; the camera is ignored.
+        assert!(height(0.0) > height(1.0) + 5.0, "{} {}", height(0.0), height(1.0));
+        let b = scene.layer_bounds("plane", 1.0).unwrap();
+        assert!((b.center[0] - 500.0).abs() < 2.0 && (b.center[1] - 500.0).abs() < 1e-2, "{b:?}");
     }
 }

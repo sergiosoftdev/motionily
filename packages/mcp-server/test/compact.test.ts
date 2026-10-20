@@ -116,6 +116,33 @@ test("camera, depth, materials and glass", () => {
   }
 });
 
+test("camera roll, animated lens and 3D object lights", () => {
+  const cam = parseLine("cam rect 0 vis=0 w=1 h=1 x=960 y=540 r=0:0,0.4:-14:eo,0.8:0 cam=1800");
+  assert.deepEqual(cam.rotation, [{ t: 0, v: 0 }, { t: 0.4, v: -14, ease: "expo_out" }, { t: 0.8, v: 0 }]);
+  const plane = parseLine("plane rect 0 vis=0 x=960 y=540 w=1 h=1 ry=30 persp=600>2400@0-2:eo");
+  assert.deepEqual(plane.perspective, [{ t: 0, v: 600, ease: "expo_out" }, { t: 2, v: 2400 }]);
+  const chrome = parseLine(
+    'ring object 0 x=960 y=540 w=500 h=500 light=-70,25,#fff1e0,1.4 {"node":{"shape":"torus","radius":0.5,"tube":0.16},"finish":"chrome","lights":{"ambient":{"intensity":0.6}}}',
+  );
+  assert.deepEqual(chrome.lights, { key: { azimuth: -70, elevation: 25, color: "#fff1e0", intensity: 1.4 }, ambient: { intensity: 0.6 } });
+  const turning = parseLine('sun object 0 w=400 h=400 light=0>360@0-6:l,40 {"node":{"shape":"sphere","radius":0.5}}');
+  assert.deepEqual((turning.lights as { key: { azimuth: unknown } }).key.azimuth, [{ t: 0, v: 0, ease: "linear" }, { t: 6, v: 360 }]);
+  const warm = parseLine('w object 0 w=400 h=400 light=30,60,#ff8a3d {"node":{"shape":"box","size":[1,1,1]},"lights":{"key":{"azimuth":10}}}');
+  assert.deepEqual(warm.lights, { key: { azimuth: 10 } }, "a JSON key light wins over light=");
+  for (const l of [cam, plane, chrome, turning]) {
+    const out = formatLayer(l);
+    assert.deepEqual(parseLine(out), l, out);
+    assert.equal(formatLayer(parseLine(out)), out);
+  }
+  const ring = formatLayer(chrome);
+  assert.ok(ring.includes("light=-70,25,#fff1e0,1.4") && ring.includes('"lights":{"ambient":{"intensity":0.6}}'), ring);
+  // Engine read-back fills the key's defaults: they are left out of the short form.
+  const back = formatLayer({ id: "o", type: "object", w: 10, h: 10, lights: { key: { azimuth: 35, elevation: 50, color: "#ffffff", intensity: 1 } } });
+  assert.ok(back.includes("light=35,50") && !back.includes("lights"), back);
+  assert.ok(formatLayer({ id: "o", type: "object", w: 10, h: 10, lights: {} }).includes('{"lights":{}}'), "lights on with every default stays explicit");
+  assert.throws(() => parseLine("o object 0 w=1 h=1 light=40"), /at least 2/);
+});
+
 test("explains mistakes", () => {
   assert.throws(() => parseLine("a blob 0-1 w=1 h=1"), /unknown type/);
   assert.throws(() => parseLine("a rect 0-1 w=1"), /w and h/);

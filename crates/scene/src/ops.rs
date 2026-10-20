@@ -48,6 +48,9 @@ pub enum Op {
     PutProp { prop: StageProp },
     RemoveProp { id: String },
     SetCamera { camera: Camera3D },
+    /// Light the 3D stage: key/ambient/point lights and floor shadows (`null` = the default soft
+    /// camera light, no shadows). Object layers take `lights` in the layer instead.
+    SetLights { lights: Option<crate::Lights> },
     /// Direct the camera with a shot list (replaces previous shots).
     SetShots { shots: Vec<crate::Shot> },
     /// Add or replace one prefab in the scene library (a prefab the agent just made).
@@ -107,6 +110,8 @@ pub enum Prop {
     Backdrop,
     /// Layer clock (time remap).
     Time,
+    /// Lens (px) of a tilted plane without a camera layer.
+    Perspective,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -204,6 +209,7 @@ impl Scene {
                     Prop::Soft => &mut l.soft,
                     Prop::Backdrop => &mut l.backdrop,
                     Prop::Time => l.time.get_or_insert_with(Default::default),
+                    Prop::Perspective => l.perspective.get_or_insert_with(Default::default),
                 };
                 if let Animated::Keys(keys) = value {
                     if keys.windows(2).any(|w| w[1].t < w[0].t) {
@@ -315,6 +321,9 @@ impl Scene {
                 self.stage.get_or_insert_with(Stage::default).shots = shots;
             }
             Op::SetCamera { camera } => self.stage.get_or_insert_with(Stage::default).camera = camera.clone(),
+            Op::SetLights { lights } => {
+                self.stage.as_mut().ok_or(OpError::Invalid("set_lights lights the 3D stage and there is none (object layers take \"lights\" in the layer)"))?.lights = lights.clone();
+            }
             Op::SetCharacter { id, outfit, action, hair, hair_color, facing } => {
                 let l = self.layer_mut(id).ok_or_else(|| OpError::UnknownLayer(id.clone()))?;
                 let LayerContent::Character { spec } = &mut l.content else {

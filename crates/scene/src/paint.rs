@@ -601,13 +601,29 @@ pub struct View {
     pub dolly: f32,
     pub focal: f32,
     pub screen: [f32; 2],
+    /// Camera roll (radians, clockwise like layer rotation): the picture turns the other way,
+    /// around `screen`.
+    pub roll: f32,
 }
 
 impl View {
+    /// A lens centered on `center` that does not move or roll (no camera layer, fixed layers,
+    /// planes without a camera).
+    pub fn still(center: [f32; 2], focal: f32) -> View {
+        View { look: center, dolly: 0.0, focal, screen: center, roll: 0.0 }
+    }
+
     /// Screen scale of a plane at depth `z` (`None` when it is behind the camera).
     pub fn scale_at(&self, z: f32) -> Option<f32> {
         let d = self.focal + z - self.dolly;
         (d > 1.0).then(|| self.focal / d)
+    }
+
+    /// Where a flat point drawn at depth scale `k` lands: `screen + rot(p − look, −roll) × k`.
+    pub fn place(&self, p: [f32; 2], k: f32) -> [f32; 2] {
+        let (s, c) = self.roll.sin_cos();
+        let [dx, dy] = [p[0] - self.look[0], p[1] - self.look[1]];
+        [self.screen[0] + (dx * c + dy * s) * k, self.screen[1] + (dy * c - dx * s) * k]
     }
 }
 
@@ -649,7 +665,15 @@ pub fn perspective_forward(center: [f32; 2], rx: f32, ry: f32, z: f32, view: &Vi
         [sy * r20 + f * r10, sy * r21 + f * r11, sy * depth + f * (cy - ly)],
         [r20, r21, depth],
     ];
-    std::array::from_fn(|r| [h[r][0], h[r][1], h[r][2] - h[r][0] * cx - h[r][1] * cy])
+    let m: [[f32; 3]; 3] = std::array::from_fn(|r| [h[r][0], h[r][1], h[r][2] - h[r][0] * cx - h[r][1] * cy]);
+    if view.roll == 0.0 {
+        return m;
+    }
+    // Camera roll: the projected picture turns by −roll around the screen center
+    // (`screen' = S + rot(screen − S, −roll)`), the same map `View::place` applies to flat layers.
+    let (s, c) = view.roll.sin_cos();
+    let roll = [[c, s, sx - c * sx - s * sy], [-s, c, sy + s * sx - c * sy], [0.0, 0.0, 1.0]];
+    std::array::from_fn(|r| std::array::from_fn(|col| (0..3).map(|k| roll[r][k] * m[k][col]).sum()))
 }
 
 #[cfg(test)]
@@ -661,9 +685,41 @@ mod tests {
         [(h[0] * p[0] + h[1] * p[1] + h[2]) / w, (h[3] * p[0] + h[4] * p[1] + h[5]) / w]
     }
 
+    fn forward(h: &[[f32; 3]; 3], p: [f32; 2]) -> [f32; 2] {
+        let w = h[2][0] * p[0] + h[2][1] * p[1] + h[2][2];
+        [(h[0][0] * p[0] + h[0][1] * p[1] + h[0][2]) / w, (h[1][0] * p[0] + h[1][1] * p[1] + h[1][2]) / w]
+    }
+
+    #[test]
+    fn roll_turns_plane_corners_around_the_frame_center() {
+        let still = View::still([500.0, 400.0], 1800.0);
+        let rolled = View { look: [600.0, 400.0], roll: 30f32.to_radians(), ..still };
+        let unrolled = View { roll: 0.0, ..rolled };
+        let flat = perspective_forward([700.0, 500.0], 40.0, -20.0, 300.0, &unrolled);
+        let roll = perspective_forward([700.0, 500.0], 40.0, -20.0, 300.0, &rolled);
+        let inv = perspective_inverse([700.0, 500.0], 40.0, -20.0, 300.0, &rolled).unwrap();
+        for corner in [[600.0, 450.0], [800.0, 450.0], [800.0, 550.0], [600.0, 550.0]] {
+            let a = forward(&flat, corner);
+            let b = forward(&roll, corner);
+            // Same distance from the frame center, turned 30° counter-clockwise (y down).
+            let (da, db) = ([a[0] - 500.0, a[1] - 400.0], [b[0] - 500.0, b[1] - 400.0]);
+            assert!((da[0].hypot(da[1]) - db[0].hypot(db[1])).abs() < 1e-2, "{a:?} {b:?}");
+            let turned = (db[1].atan2(db[0]) - da[1].atan2(da[0])).to_degrees();
+            assert!((turned.rem_euclid(360.0) - 330.0).abs() < 1e-2, "{turned}");
+            // The inverse used to draw maps the rolled corner back onto the flat layer.
+            let back = apply(&inv, b);
+            assert!((back[0] - corner[0]).abs() < 1e-2 && (back[1] - corner[1]).abs() < 1e-2, "{back:?}");
+        }
+        // A flat point (no tilt) goes where `View::place` puts it.
+        let k = rolled.scale_at(300.0).unwrap();
+        let plain = perspective_forward([700.0, 500.0], 0.0, 0.0, 300.0, &rolled);
+        let (p, q) = (forward(&plain, [650.0, 520.0]), rolled.place([650.0, 520.0], k));
+        assert!((p[0] - q[0]).abs() < 1e-2 && (p[1] - q[1]).abs() < 1e-2, "{p:?} {q:?}");
+    }
+
     #[test]
     fn perspective_keeps_the_center_and_shrinks_the_far_edge() {
-        let view = View { look: [500.0, 400.0], dolly: 0.0, focal: 1800.0, screen: [500.0, 400.0] };
+        let view = View::still([500.0, 400.0], 1800.0);
         let inv = perspective_inverse([500.0, 400.0], 50.0, 0.0, 0.0, &view).unwrap();
         let c = apply(&inv, [500.0, 400.0]);
         assert!((c[0] - 500.0).abs() < 1e-2 && (c[1] - 400.0).abs() < 1e-2, "{c:?}");

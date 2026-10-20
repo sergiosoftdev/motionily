@@ -20,9 +20,21 @@ pub struct PrimData {
     pub indices: Vec<u32>,
     pub color: [f32; 4],
     pub textured: bool,
+    /// Where its base color texture comes from (`None` = flat color).
+    pub texture: Option<TexSource>,
     pub node: usize,
     pub skin: Option<usize>,
 }
+
+/// A material's base color image: a file next to the model, or bytes inside the GLB.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TexSource {
+    /// Relative URI, e.g. "Textures/colormap.png".
+    Uri(String),
+    /// Index into `ModelData::images`.
+    Embedded(usize),
+}
+
 
 #[derive(Clone, Copy)]
 pub struct Trs {
@@ -74,7 +86,8 @@ pub struct ModelData {
     pub nodes: Vec<NodeData>,
     pub skins: Vec<SkinData>,
     pub clips: Vec<Clip>,
-    pub uses_texture: bool,
+    /// Images embedded in the GLB (PNG/JPEG bytes the host decodes), by glTF image index.
+    pub images: Vec<(usize, Vec<u8>)>,
 }
 
 pub fn parse_glb(bytes: &[u8]) -> Result<ModelData, String> {
@@ -99,7 +112,6 @@ pub fn parse_glb(bytes: &[u8]) -> Result<ModelData, String> {
     }
 
     let mut prims = Vec::new();
-    let mut uses_texture = false;
     for node in gltf.nodes() {
         let Some(mesh) = node.mesh() else { continue };
         for prim in mesh.primitives() {
@@ -131,13 +143,20 @@ pub fn parse_glb(bytes: &[u8]) -> Result<ModelData, String> {
                 .map(|i| i.into_u32().collect())
                 .unwrap_or_else(|| (0..vertices.len() as u32).collect());
             let pbr = prim.material().pbr_metallic_roughness();
-            let textured = pbr.base_color_texture().is_some();
-            uses_texture |= textured;
+            let texture = pbr.base_color_texture().filter(|info| info.tex_coord() == 0).map(|info| {
+                let image = info.texture().source();
+                match image.source() {
+                    gltf::image::Source::Uri { uri, .. } => TexSource::Uri(uri.to_owned()),
+                    gltf::image::Source::View { .. } => TexSource::Embedded(image.index()),
+                }
+            });
+            let textured = texture.is_some();
             prims.push(PrimData {
                 vertices,
                 indices,
                 color: pbr.base_color_factor(),
                 textured,
+                texture,
                 node: node.index(),
                 skin: node.skin().map(|s| s.index()),
             });
@@ -181,7 +200,18 @@ pub fn parse_glb(bytes: &[u8]) -> Result<ModelData, String> {
         })
         .collect();
 
-    Ok(ModelData { prims, nodes, skins, clips, uses_texture })
+    let images = gltf
+        .images()
+        .filter_map(|image| match image.source() {
+            gltf::image::Source::View { view, .. } => {
+                let data = buffer(view.buffer())?;
+                Some((image.index(), data.get(view.offset()..view.offset() + view.length())?.to_vec()))
+            }
+            gltf::image::Source::Uri { .. } => None,
+        })
+        .collect();
+
+    Ok(ModelData { prims, nodes, skins, clips, images })
 }
 
 impl ModelData {
@@ -240,6 +270,21 @@ impl ModelData {
     pub fn clip(&self, name: &str) -> Option<&Clip> {
         self.clips.iter().find(|c| c.name == name)
     }
+
+    /// Box around the model at rest, in model space (for fitting the shadow map).
+    pub fn rest_bounds(&self) -> Option<(Vec3, Vec3)> {
+        let globals = self.globals(&self.pose(None, 0.0));
+        let mut out: Option<(Vec3, Vec3)> = None;
+        for p in &self.prims {
+            // Skinned vertices are already in model space (bind pose).
+            let m = if p.skin.is_some() { Mat4::IDENTITY } else { globals[p.node] };
+            for v in &p.vertices {
+                let q = m.transform_point3(Vec3::from(v.pos));
+                out = Some(out.map_or((q, q), |(a, b)| (a.min(q), b.max(q))));
+            }
+        }
+        out
+    }
 }
 
 #[cfg(test)]
@@ -259,5 +304,9 @@ mod tests {
         let b = m.globals(&m.pose(Some(walk), walk.duration * 0.5));
         let joint = m.skins[0].joints[1];
         assert_ne!(a[joint], b[joint], "walking moves the skeleton");
+        // Kenney packs share one colormap next to the models.
+        assert!(m.prims.iter().all(|p| p.texture == Some(TexSource::Uri("Textures/colormap.png".into()))));
+        let (lo, hi) = m.rest_bounds().unwrap();
+        assert!(hi.y - lo.y > 0.5 && lo.y > -0.1, "a standing character: {lo} {hi}");
     }
 }

@@ -2,7 +2,7 @@ import init, { Engine, captionStyles, stylePalettes, stylePresets } from "./pkg/
 import { sfxPlayer, type SfxCue } from "../audio/sfxPlayer";
 import type { CaptionStyle, FrameLayout, Op, ReviewReport, StylePreset } from "@motionily/protocol";
 import { DEFAULT_FONT_FAMILY, fontFilesFor } from "./fonts";
-import { decodePng, modelUrl, packOf, packTextureUrl, type Pixels } from "./models";
+import { decodeBytes, decodePng, modelFileUrl, modelUrl, packOf, packTextureUrl, type Pixels } from "./models";
 import { mediaUrl } from "../api/client";
 import { EngineStatus, useEditor } from "../store";
 
@@ -78,6 +78,7 @@ class EngineHost {
   private modelCache = new Map<string, Promise<ArrayBuffer>>();
   private textureCache = new Map<string, Promise<Pixels | null>>();
   private loadingModels = new Set<string>();
+  private loadingTextures = new Set<string>();
   private loadingImages = new Set<string>();
   private imageCache = new Map<string, Promise<Pixels | null>>();
 
@@ -119,6 +120,7 @@ class EngineHost {
       this.buildOps = [];
       this.loadedFonts.clear();
       this.loadingModels.clear();
+      this.loadingTextures.clear();
       this.loadingImages.clear();
       this.engine.loadScene(sceneJson ?? EMPTY_SCENE);
       void this.ensureFonts(DEFAULT_FONT_FAMILY);
@@ -233,7 +235,32 @@ class EngineHost {
         if (px && engine === this.engine) engine.addTexture(pack, px.rgba, px.width, px.height);
       }),
     ]);
+    await this.ensureModelTextures();
     this.draw();
+  }
+
+  /** A model image by its engine key: a file next to the models or bytes embedded in a GLB. */
+  private fetchModelTexture(key: string, embedded: Uint8Array | undefined) {
+    let p = this.textureCache.get(key);
+    if (!p) {
+      p = (embedded ? decodeBytes(embedded) : decodePng(modelFileUrl(key))).catch(() => null);
+      this.textureCache.set(key, p);
+    }
+    return p;
+  }
+
+  /** Images loaded models need beyond their pack's shared texture (own files, embedded images). */
+  private async ensureModelTextures() {
+    const engine = this.engine;
+    if (!engine) return;
+    const missing = engine.missingTextures().filter((k) => !this.loadingTextures.has(k));
+    missing.forEach((k) => this.loadingTextures.add(k));
+    await Promise.all(
+      missing.map(async (key) => {
+        const px = await this.fetchModelTexture(key, engine.embeddedTexture(key));
+        if (px && engine === this.engine) engine.addTexture(key, px.rgba, px.width, px.height);
+      }),
+    );
   }
 
   private fetchImage(src: string) {
@@ -271,12 +298,18 @@ class EngineHost {
 
   /** Every model and pack texture the scene needs, for another engine (export). */
   async stageAssets(): Promise<{ models: { key: string; bytes: Uint8Array }[]; textures: ({ pack: string } & Pixels)[] }> {
-    const scene = JSON.parse(this.require().sceneJson()) as { stage?: { props?: { model: string }[] } | null };
-    const keys = [...new Set((scene.stage?.props ?? []).map((p) => p.model))];
+    const engine = this.require();
+    const keys = engine.modelKeys();
     const models = (await Promise.all(keys.map(async (key) => ({ key, bytes: new Uint8Array(await this.fetchModel(key).catch(() => new ArrayBuffer(0))) })))).filter(
       (m) => m.bytes.length > 0,
     );
-    const textures = (await Promise.all([...new Set(keys.map(packOf))].map(async (pack) => ({ pack, px: await this.fetchTexture(pack) }))))
+    // Pack textures plus every model image the preview engine registered (own files, embedded).
+    const packs = [...new Set(keys.map(packOf))].map(async (pack) => ({ pack, px: await this.fetchTexture(pack) }));
+    const images = engine
+      .textureKeys()
+      .filter((k) => k.includes("/") || k.includes("#"))
+      .map(async (key) => ({ pack: key, px: await this.fetchModelTexture(key, engine.embeddedTexture(key)) }));
+    const textures = (await Promise.all([...packs, ...images]))
       .filter((t): t is { pack: string; px: Pixels } => t.px !== null)
       .map((t) => ({ pack: t.pack, ...t.px }));
     return { models, textures };

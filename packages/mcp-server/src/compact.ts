@@ -18,8 +18,9 @@
  * Motion path `mp="M…" mpp=0>1@0-2 orient=1` · text on path `tp="M…" tpo=-900>0@0-1.5:eo` · time remap `time=(mod(t,2))`.
  * Effects: shadow glow blur · color=HUE,SAT,BRIGHT,CONTRAST · rgb=PX · wave=AMP,LEN,SPEED · grain=AMT · mblur=SHUTTER,SAMPLES
  *   · turb=AMT,SIZE,SPEED · adj=1 (adjustment layer) · matte=id[:inv|:luma|:lumainv].
- * World: cam=FOCAL[,FOCUS,APERTURE] on a vis=0 layer = the camera (x/y look, z dolly, s zoom) · z= depth (parallax)
- *   · fixed=1 pinned to the screen · rx= ry= tilt a layer and its children in perspective · persp=.
+ * World: cam=FOCAL[,FOCUS,APERTURE] on a vis=0 layer = the camera (x/y look, z dolly, s zoom, r roll) · z= depth (parallax)
+ *   · fixed=1 pinned to the screen · rx= ry= tilt a layer and its children in perspective · persp= (animatable).
+ * 3D object lights: light=AZIMUTH,ELEVATION[,COLOR[,INTENSITY]] = lights.key; the rest of `lights` goes in the JSON tail.
  * Icons: path layers take ic=NAME:SIZE (Lucide, centered on x,y; find_icons searches them) instead of "M…".
  * Materials: inner=X,Y,BLUR,COLOR,OP · sheen=AT,ANGLE,WIDTH,OP · bevel=WIDTH,STRENGTH · backdrop=BLUR (frosted glass).
  * Gradients: grad=lin:… | rad:… | con:CX,CY:ANGLE:stops (conic) · sgrad= paints the stroke.
@@ -66,10 +67,11 @@ const NUM: Record<string, string> = {
   rx: "rotate_x",
   ry: "rotate_y",
   z: "z",
+  persp: "perspective",
 };
 const NUM_SHORT: Record<string, string> = Object.fromEntries(Object.entries(NUM).map(([k, v]) => [v, k]));
 /** Plain keys copied as numbers or strings. */
-const PLAIN_NUM: Record<string, string> = { size: "size", lh: "line_height", ls: "letter_spacing", persp: "perspective", dec: "decimals" };
+const PLAIN_NUM: Record<string, string> = { size: "size", lh: "line_height", ls: "letter_spacing", dec: "decimals" };
 const PLAIN_STR = ["role", "align", "src", "fit", "anchor", "parent", "blend"];
 const DEFAULTS: Record<string, unknown> = { rotate_x: 0, rotate_y: 0, z: 0,  scale: 1, rotation: 0, opacity: 1, radius: 0, x: 0, y: 0, soft: 0, trim_start: 0, trim_end: 1, trim_offset: 0 };
 
@@ -128,6 +130,8 @@ function quoted(v: string, line: string): string {
 }
 
 const MATTE_MODES: Record<string, string> = { inv: "alpha_inverted", luma: "luma", lumainv: "luma_inverted" };
+/** Key light defaults (engine `KeyLight`): left out when reading back. */
+const KEY_LIGHT = { azimuth: 35, elevation: 50, color: "#ffffff", intensity: 1 };
 const MATTE_SHORT: Record<string, string> = Object.fromEntries(Object.entries(MATTE_MODES).map(([k, v]) => [v, k]));
 
 /** Split a line into tokens, keeping "quoted", (parenthesized) and {braced} parts whole. */
@@ -204,6 +208,7 @@ export function parseLine(line: string): Layer {
   if (end) layer.end = num(end, line);
   const effects: unknown[] = [];
   let merge: Layer = {};
+  let keyLight: Layer | undefined;
   for (const tok of rest) {
     if (tok.startsWith('"')) {
       const s = JSON.parse(tok) as string;
@@ -242,6 +247,10 @@ export function parseLine(line: string): Layer {
       layer.d = iconPath(name!, px);
       layer.stroke ??= { width: Math.max(1.5, px / 12), color: "text" };
     } else if (k === "fixed") layer.fixed = v !== "0" && v !== "false";
+    else if (k === "light") {
+      const [az, el, c, intensity] = list(v, line, 2);
+      keyLight = { azimuth: parseValue(az!, line), elevation: parseValue(el!, line), ...(c ? { color: color(c) } : {}), ...(intensity ? { intensity: parseValue(intensity, line) } : {}) };
+    }
     else if (k === "cam") {
       const [focal, focus, aperture] = v.split(",");
       layer.camera = { focal: num(focal!, line), ...(focus ? { focus: parseValue(focus, line) } : {}), ...(aperture ? { aperture: parseValue(aperture, line) } : {}) };
@@ -304,6 +313,8 @@ export function parseLine(line: string): Layer {
   }
   if (effects.length) layer.effects = effects;
   Object.assign(layer, merge);
+  // light= is lights.key; a JSON tail's other light fields merge with it (its own key wins).
+  if (keyLight) layer.lights = { key: keyLight, ...(layer.lights as Layer | undefined) };
   if (type !== "path" && (layer.w === undefined || layer.h === undefined)) throw new Error(`w and h are required: ${line}`);
   if (type === "path" && typeof layer.d !== "string") throw new Error(`path needs its "M… path data" in quotes (or ic=NAME:SIZE): ${line}`);
   if (layer.motion_path && typeof (layer.motion_path as { d?: unknown }).d !== "string") throw new Error(`mpp/orient need mp="M… path": ${line}`);
@@ -395,6 +406,16 @@ function formatEffects(list: Record<string, unknown>[]): string[] {
   });
 }
 
+/** `light=AZ,EL[,COLOR[,INTENSITY]]` for a key light (defaults left out). */
+function formatKeyLight(k: Record<string, unknown>): string {
+  const [az, el] = [inner(k.azimuth ?? KEY_LIGHT.azimuth), inner(k.elevation ?? KEY_LIGHT.elevation)];
+  if (Array.isArray(k.color) && typeof k.color[0] === "object") throw new Error("needs JSON");
+  const c = k.color === undefined ? KEY_LIGHT.color : formatColor(k.color);
+  const intensity = k.intensity === undefined ? String(KEY_LIGHT.intensity) : inner(k.intensity);
+  const tail = intensity !== String(KEY_LIGHT.intensity) ? [c, intensity] : c !== KEY_LIGHT.color ? [c] : [];
+  return `light=${[az, el, ...tail].join(",")}`;
+}
+
 function formatRepeat(r: Record<string, number>): string[] {
   const opts = Object.entries({ cols: r.columns, rot: r.rotation, sc: r.scale, op: r.opacity, delay: r.delay })
     .filter(([k, v]) => v !== undefined && v !== (k === "sc" || k === "op" ? 1 : 0))
@@ -475,6 +496,17 @@ export function formatLayer(l: Layer): string {
   for (const k of PLAIN_STR) {
     if (l[k] !== undefined) parts.push(`${k}=${l[k]}`);
     done.add(k);
+  }
+  if (l.lights && typeof l.lights === "object") {
+    const { key, ...rest } = l.lights as Record<string, unknown>;
+    try {
+      if (!key || typeof key !== "object") throw new Error("needs JSON");
+      parts.push(formatKeyLight(key as Record<string, unknown>));
+      if (Object.keys(rest).length) extra.lights = rest;
+    } catch {
+      extra.lights = l.lights;
+    }
+    done.add("lights");
   }
   for (const [key, short] of SHORT_FORMS) {
     if (l[key] === undefined) continue;
