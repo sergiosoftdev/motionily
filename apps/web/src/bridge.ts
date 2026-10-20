@@ -16,6 +16,8 @@ import { ActivitySource, logActivity, useEditor } from "./store";
 /** Frames the agent asks to see: small by default (cheap), up to this width for detail checks. */
 const MIN_FRAME_WIDTH = 360;
 const MAX_FRAME_WIDTH = 1280;
+/** Instants per layout request (it is cheap: numbers, no rendering). */
+const MAX_LAYOUT_TIMES = 12;
 
 const RECONNECT_MS = 2000;
 
@@ -93,6 +95,11 @@ class AgentBridge {
         const review = engineHost.review(msg.frames);
         logActivity(ActivitySource.Agent, `Revisa el vídeo (${review.issues.length} avisos)`);
         this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, review });
+        return;
+      }
+      case ServerMessageType.Layout: {
+        const layouts = engineHost.layout(msg.times.slice(0, MAX_LAYOUT_TIMES));
+        this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, layouts });
         return;
       }
       case ServerMessageType.RenderFrames: {

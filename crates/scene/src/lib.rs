@@ -471,6 +471,25 @@ impl Scene {
     }
 
     fn pick_at(&self, t: f32, x: f32, y: f32) -> Option<String> {
+        self.measuring(t, |m| {
+            let mut best: Option<(f32, &Layer)> = None;
+            for (idx, l) in self.layers.iter().enumerate().rev().filter(|(_, l)| l.camera.is_none()) {
+                let Some((b, _)) = self.screen_bounds(idx, t, m) else { continue };
+                if !b.contains([x, y]) {
+                    continue;
+                }
+                // Without a camera the top-most layer wins; with one, the nearest (depth order).
+                let z = if m.camera.is_some() { self.depth(l, t) } else { 0.0 };
+                if best.is_none_or(|(bz, _)| z < bz) {
+                    best = Some((z, l));
+                }
+            }
+            best.map(|(_, l)| l.id.clone())
+        })
+    }
+
+    /// Evaluation context, 3D owners and camera at scene time `t`, for measuring layers.
+    fn measuring<R>(&self, t: f32, f: impl FnOnce(&Measure) -> R) -> R {
         let palette = self.palette();
         let ctx = EvalCtx {
             palette: &palette,
@@ -478,12 +497,76 @@ impl Scene {
             library: &self.library,
             scene_size: [self.width as f32, self.height as f32],
         };
-        self.layers
-            .iter()
-            .rev()
-            .filter(|l| t >= l.start && t < l.end.unwrap_or(self.duration))
-            .find(|l| l.bounds(l.local_time(t), &ctx, &self.parent_xform(l, t, &ctx, 0)).is_some_and(|b| b.contains([x, y])))
-            .map(|l| l.id.clone())
+        self.with_refs(|| {
+            expr::with_vars(t, 0.0, 1.0, || {
+                let camera = self.camera_view(t, &ctx).map(|c| c.0);
+                f(&Measure { ctx: &ctx, owners: self.owners_3d(), camera })
+            })
+        })
+    }
+
+    /// How layer `idx` lands on the screen at `t`: as drawn, scaled by its depth toward the
+    /// camera, or projected by the tilted layer that owns it. `None` when it is behind the camera.
+    fn screen_map(&self, idx: usize, t: f32, m: &Measure) -> Option<ScreenMap> {
+        let l = &self.layers[idx];
+        let plane = m.owners[idx].map(|i| &self.layers[i]).or(l.is_3d().then_some(l));
+        if let Some(p) = plane {
+            let lt = p.local_time(t);
+            let c = p.world(lt, m.ctx, &self.parent_xform(p, t, m.ctx, 0)).origin;
+            let z = self.depth(p, t);
+            let lens = m.camera.unwrap_or(paint::View { look: c, dolly: 0.0, focal: p.perspective.unwrap_or(paint::DEFAULT_PERSPECTIVE), screen: c });
+            lens.scale_at(z)?;
+            return Some(ScreenMap::Plane(paint::perspective_forward(c, p.rotate_x.sample(lt), p.rotate_y.sample(lt), z, &lens)));
+        }
+        let z = self.depth(l, t);
+        if (m.camera.is_none() || l.fixed) && z == 0.0 {
+            return Some(ScreenMap::Flat);
+        }
+        let center = [self.width as f32 / 2.0, self.height as f32 / 2.0];
+        let view = m.camera.unwrap_or(paint::View { look: center, dolly: 0.0, focal: paint::DEFAULT_PERSPECTIVE, screen: center });
+        Some(ScreenMap::Depth { look: view.look, screen: view.screen, k: view.scale_at(z)? })
+    }
+
+    /// Box of layer `idx` on screen at `t`, with the map that put it there.
+    fn screen_bounds(&self, idx: usize, t: f32, m: &Measure) -> Option<(Bounds, ScreenMap)> {
+        let l = &self.layers[idx];
+        if !self.active(l, t) {
+            return None;
+        }
+        let flat = l.bounds(l.local_time(t), m.ctx, &self.parent_xform(l, t, m.ctx, 0))?;
+        let map = self.screen_map(idx, t, m)?;
+        Some((map.bounds(&flat)?, map))
+    }
+
+    /// A rect `[x0, y0, x1, y1]` drawn by layer `id` (flat scene px) as it lands on screen at `t`.
+    pub fn rect_to_screen(&self, id: &str, t: f32, r: [f32; 4]) -> Option<[f32; 4]> {
+        let idx = self.layers.iter().position(|l| l.id == id)?;
+        self.measuring(t, |m| {
+            let flat = Bounds { center: [(r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0], size: [r[2] - r[0], r[3] - r[1]], rotation: 0.0 };
+            Some(self.screen_map(idx, t, m)?.bounds(&flat)?.rect())
+        })
+    }
+
+    /// Where every active layer lands on screen at `t`: what an agent checks instead of
+    /// rendering test frames.
+    pub fn layout(&self, t: f32) -> Layout {
+        self.measuring(t, |m| {
+            let mut out = Layout { camera: m.camera.map(|v| LayoutCamera { look: v.look, dolly: v.dolly, focal: v.focal }), layers: Vec::new(), behind: Vec::new() };
+            for (idx, l) in self.layers.iter().enumerate() {
+                if l.camera.is_some() || !self.active(l, t) {
+                    continue;
+                }
+                let Some((b, map)) = self.screen_bounds(idx, t, m) else {
+                    if self.screen_map(idx, t, m).is_none() {
+                        out.behind.push(l.id.clone());
+                    }
+                    continue;
+                };
+                let plane = m.owners[idx].map(|i| self.layers[i].id.clone()).or(l.is_3d().then(|| l.id.clone()));
+                out.layers.push(LayoutRow { id: l.id.clone(), group: l.group.clone(), screen: b.rect(), k: map.scale_at(b.center), z: self.depth(l, t), visible: l.visible, plane });
+            }
+            out
+        })
     }
 
     /// One layer's draw items at time `t` (for measuring what it really draws), empty when hidden.
@@ -502,24 +585,11 @@ impl Scene {
         })
     }
 
-    /// On-screen box of a layer at time `t` (for the selection outline).
+    /// On-screen box of a layer at time `t`, after the camera and any tilted parent (selection
+    /// outline, review checks). `None` when it is not on at `t` or behind the camera.
     pub fn layer_bounds(&self, id: &str, t: f32) -> Option<Bounds> {
-        self.with_refs(|| self.bounds_at(id, t))
-    }
-
-    fn bounds_at(&self, id: &str, t: f32) -> Option<Bounds> {
-        let palette = self.palette();
-        let ctx = EvalCtx {
-            palette: &palette,
-            typography: self.typography.as_ref(),
-            library: &self.library,
-            scene_size: [self.width as f32, self.height as f32],
-        };
-        let l = self.layer(id)?;
-        if t < l.start || t >= l.end.unwrap_or(self.duration) {
-            return None;
-        }
-        l.bounds(l.local_time(t), &ctx, &self.parent_xform(l, t, &ctx, 0))
+        let idx = self.layers.iter().position(|l| l.id == id)?;
+        self.measuring(t, |m| self.screen_bounds(idx, t, m).map(|(b, _)| b))
     }
 
     /// Image sources the layers use (for the host to load).
@@ -637,6 +707,99 @@ impl Scene {
 
 pub(crate) fn enum_name<T: Serialize>(v: &T) -> String {
     serde_json::to_string(v).unwrap_or_default().trim_matches('"').to_owned()
+}
+
+/// What measuring layers at one instant needs.
+struct Measure<'a> {
+    ctx: &'a EvalCtx<'a>,
+    owners: Vec<Option<usize>>,
+    camera: Option<paint::View>,
+}
+
+/// How a layer's flat scene coordinates land on the screen at one instant.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ScreenMap {
+    /// Drawn where it is.
+    Flat,
+    /// Pulled toward the camera axis by its depth: `screen + (p - look) * k`.
+    Depth { look: [f32; 2], screen: [f32; 2], k: f32 },
+    /// Projected with a tilted (rx/ry) layer: forward homography rows.
+    Plane([[f32; 3]; 3]),
+}
+
+impl ScreenMap {
+    /// Screen point of a flat point (`None` behind the camera).
+    pub fn point(&self, p: [f32; 2]) -> Option<[f32; 2]> {
+        match self {
+            Self::Flat => Some(p),
+            Self::Depth { look, screen, k } => Some([screen[0] + (p[0] - look[0]) * k, screen[1] + (p[1] - look[1]) * k]),
+            Self::Plane(h) => {
+                let w = h[2][0] * p[0] + h[2][1] * p[1] + h[2][2];
+                (w > 1e-3).then(|| [(h[0][0] * p[0] + h[0][1] * p[1] + h[0][2]) / w, (h[1][0] * p[0] + h[1][1] * p[1] + h[1][2]) / w])
+            }
+        }
+    }
+
+    /// A flat box on screen: exact for flat and depth maps, the enclosing box on a tilted plane.
+    pub fn bounds(&self, b: &Bounds) -> Option<Bounds> {
+        match self {
+            Self::Flat => Some(*b),
+            Self::Depth { k, .. } => Some(Bounds { center: self.point(b.center)?, size: [b.size[0] * k, b.size[1] * k], rotation: b.rotation }),
+            Self::Plane(_) => {
+                let mut corners = Vec::with_capacity(4);
+                for p in b.corners() {
+                    corners.push(self.point(p)?);
+                }
+                Some(Bounds::enclosing(&corners))
+            }
+        }
+    }
+
+    /// Screen pixels per flat pixel around `p` (1 = drawn at its own size).
+    pub fn scale_at(&self, p: [f32; 2]) -> f32 {
+        match self {
+            Self::Flat => 1.0,
+            Self::Depth { k, .. } => *k,
+            Self::Plane(_) => {
+                let (Some(a), Some(bx), Some(by)) = (self.point(p), self.point([p[0] + 1.0, p[1]]), self.point([p[0], p[1] + 1.0])) else { return 0.0 };
+                ((bx[0] - a[0]) * (by[1] - a[1]) - (bx[1] - a[1]) * (by[0] - a[0])).abs().sqrt()
+            }
+        }
+    }
+}
+
+/// Where the layers land on screen at one instant (`Scene::layout`).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Layout {
+    pub camera: Option<LayoutCamera>,
+    pub layers: Vec<LayoutRow>,
+    /// Active layers the camera has already passed (not drawn).
+    pub behind: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct LayoutCamera {
+    pub look: [f32; 2],
+    pub dolly: f32,
+    /// Focal length after the camera layer's scale (zoom).
+    pub focal: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct LayoutRow {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+    /// `[x0, y0, x1, y1]` on screen (enclosing box when rotated or tilted).
+    pub screen: [f32; 4],
+    /// Screen scale from depth and perspective (1 = its own size).
+    pub k: f32,
+    /// Depth with its parents' (layers inside a tilted plane follow the plane).
+    pub z: f32,
+    pub visible: bool,
+    /// The tilted layer that projects it (its own id when it is the plane).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plane: Option<String>,
 }
 
 #[cfg(test)]
@@ -773,5 +936,34 @@ mod tests {
         assert!((shapes[0].size[0] - 50.0).abs() < 1e-3);
         assert!((shapes[0].center[0] - 450.0).abs() < 1e-3, "{:?}", shapes[0].center);
         assert!((shapes[1].center[0] - 400.0).abs() < 1e-3, "{:?}", shapes[1].center);
+    }
+
+    #[test]
+    fn bounds_pick_and_layout_measure_what_the_camera_shows() {
+        let mut scene = Scene::default();
+        scene.width = 1000;
+        scene.height = 1000;
+        for l in [
+            r#"{"id":"far","type":"shape","shape":"rect","x":500,"y":500,"w":100,"h":100,"z":1800}"#,
+            r#"{"id":"gone","type":"shape","shape":"rect","x":500,"y":500,"w":100,"h":100,"z":-2000}"#,
+            r#"{"id":"plane","type":"shape","shape":"rect","x":500,"y":800,"w":1,"h":1,"visible":false,"rotate_x":60}"#,
+            r#"{"id":"card","type":"shape","shape":"rect","parent":"plane","x":0,"y":0,"w":200,"h":200}"#,
+            r#"{"id":"cam","type":"shape","shape":"rect","x":600,"y":500,"w":1,"h":1,"visible":false,"camera":{"focal":1800}}"#,
+        ] {
+            scene.layers.push(serde_json::from_str(l).unwrap());
+        }
+        // Same numbers as the drawn frame: half size, shifted toward the look point.
+        let far = scene.layer_bounds("far", 0.0).unwrap();
+        assert!((far.center[0] - 450.0).abs() < 1e-3 && (far.size[0] - 50.0).abs() < 1e-3, "{far:?}");
+        assert_eq!(scene.pick(0.0, 450.0, 500.0).as_deref(), Some("far"));
+        assert_eq!(scene.pick(0.0, 520.0, 500.0), None, "the flat box is not where the camera shows it");
+        let layout = scene.layout(0.0);
+        assert_eq!(layout.behind, vec!["gone".to_owned()]);
+        let card = layout.layers.iter().find(|r| r.id == "card").unwrap();
+        assert_eq!(card.plane.as_deref(), Some("plane"));
+        // A plane leaning back 60° is squashed vertically on screen.
+        let [x0, y0, x1, y1] = card.screen;
+        assert!(y1 - y0 < (x1 - x0) * 0.7, "{:?}", card.screen);
+        assert!(layout.camera.is_some_and(|c| c.focal == 1800.0));
     }
 }

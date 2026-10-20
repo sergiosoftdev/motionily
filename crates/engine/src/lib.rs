@@ -356,7 +356,7 @@ impl Renderer {
         self.stage.has_model(key)
     }
 
-    /// Box `[x0, y0, x1, y1]` the text of layer `id` really covers at `t` (glyph ink, not its box).
+    /// Box `[x0, y0, x1, y1]` the text of layer `id` really covers on screen at `t` (glyph ink, not its box).
     pub fn text_ink(&mut self, scene: &Scene, id: &str, t: f32) -> Option<[f32; 4]> {
         fn texts(items: Vec<DrawItem>, out: &mut Vec<DrawText>) {
             for item in items {
@@ -370,7 +370,8 @@ impl Renderer {
         }
         let mut found = Vec::new();
         texts(scene.layer_items_at(id, t), &mut found);
-        found.iter().filter_map(|item| self.text.ink(&self.queue, item)).reduce(|a, b| [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])])
+        let flat = found.iter().filter_map(|item| self.text.ink(&self.queue, item)).reduce(|a, b| [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])])?;
+        scene.rect_to_screen(id, t, flat)
     }
 
     /// Register a TTF/OTF font for text layers and captions.

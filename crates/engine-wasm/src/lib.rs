@@ -80,6 +80,24 @@ impl Engine {
         self.renderer.text_ink(&self.scene, id, t).map(|b| b.to_vec())
     }
 
+    /// JSON of `Scene::layout` at time t (where every layer lands on screen), with text rows
+    /// narrowed to their glyph ink and marked `ink: true`.
+    pub fn layout(&mut self, t: f32) -> String {
+        let layout = self.scene.layout(t);
+        let mut json = serde_json::to_value(&layout).expect("layout always serializes");
+        if let Some(rows) = json.get_mut("layers").and_then(|l| l.as_array_mut()) {
+            for row in rows {
+                let id = row["id"].as_str().unwrap_or_default().to_owned();
+                let is_text = self.scene.layer(&id).is_some_and(|l| matches!(l.content, scene::LayerContent::Text { .. }));
+                if let Some(ink) = is_text.then(|| self.renderer.text_ink(&self.scene, &id, t)).flatten() {
+                    row["screen"] = serde_json::json!(ink);
+                    row["ink"] = serde_json::Value::Bool(true);
+                }
+            }
+        }
+        json.to_string()
+    }
+
     #[wasm_bindgen(js_name = layerJson)]
     pub fn layer_json(&self, id: &str) -> Option<String> {
         self.scene.layer_json(id)

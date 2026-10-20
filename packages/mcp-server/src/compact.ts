@@ -12,7 +12,7 @@
  *   dots ellipse 0 x=160 y=140 w=6 h=6 fill=text o=(0.12+0.1*sin(T*2+i)) rep=60:145,160:cols=12
  *
  * Values: number · tween `from>to@t0-t1[:ease]` · keys `t:v[:ease],t:v…` (t from the layer start)
- *   · expression `(…)` with t, T, i, n, sin, noise, wiggle, spring… (see docs/scene-reference.md).
+ *   · expression `(…)` with t, T, i, n, sin, noise, wiggle, spring… (see docs/agent/syntax.md).
  * Eases: l i o io b h · eo ei eio (expo) · el (elastic) · bo (bounce).
  * Colors: palette slot (background|surface|primary|accent|text) or #rrggbb[aa]; fill keys `0:#fff,1.2:primary:eo`.
  * Motion path `mp="M…" mpp=0>1@0-2 orient=1` · text on path `tp="M…" tpo=-900>0@0-1.5:eo` · time remap `time=(mod(t,2))`.

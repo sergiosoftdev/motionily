@@ -792,6 +792,7 @@ impl Layer {
 }
 
 /// A rotated box in scene pixels, used for hit-testing.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Bounds {
     pub center: [f32; 2],
     pub size: [f32; 2],
@@ -804,6 +805,28 @@ impl Bounds {
         let (dx, dy) = (p[0] - self.center[0], p[1] - self.center[1]);
         let local = [dx * c - dy * s, dx * s + dy * c];
         local[0].abs() <= self.size[0] / 2.0 && local[1].abs() <= self.size[1] / 2.0
+    }
+
+    pub fn corners(&self) -> [[f32; 2]; 4] {
+        let (s, c) = self.rotation.sin_cos();
+        let [hw, hh] = [self.size[0] / 2.0, self.size[1] / 2.0];
+        [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]].map(|[dx, dy]| [self.center[0] + dx * c - dy * s, self.center[1] + dx * s + dy * c])
+    }
+
+    /// The upright box around some points.
+    pub fn enclosing(points: &[[f32; 2]]) -> Bounds {
+        let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
+        for p in points {
+            lo = [lo[0].min(p[0]), lo[1].min(p[1])];
+            hi = [hi[0].max(p[0]), hi[1].max(p[1])];
+        }
+        Bounds { center: [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0], size: [hi[0] - lo[0], hi[1] - lo[1]], rotation: 0.0 }
+    }
+
+    /// Upright `[x0, y0, x1, y1]` around the box.
+    pub fn rect(&self) -> [f32; 4] {
+        let b = if self.rotation == 0.0 { *self } else { Bounds::enclosing(&self.corners()) };
+        [b.center[0] - b.size[0] / 2.0, b.center[1] - b.size[1] / 2.0, b.center[0] + b.size[0] / 2.0, b.center[1] + b.size[1] / 2.0]
     }
 }
 

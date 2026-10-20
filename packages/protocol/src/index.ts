@@ -67,6 +67,8 @@ export const ServerMessageType = {
   RenderFrames: "render_frames",
   /** Self-review: contact sheet of the whole video plus automatic checks. */
   Review: "review",
+  /** Where every layer lands on screen at some instants (numbers, no pixels). */
+  Layout: "layout",
 } as const;
 export type ServerMessageType = (typeof ServerMessageType)[keyof typeof ServerMessageType];
 
@@ -78,7 +80,32 @@ export type ServerMessage =
   | { type: typeof ServerMessageType.Detached; projectId: string }
   | { type: typeof ServerMessageType.ProjectChanged; projectId: string }
   | { type: typeof ServerMessageType.RenderFrames; requestId: string; projectId: string; times: number[]; width?: number }
-  | { type: typeof ServerMessageType.Review; requestId: string; projectId: string; frames: number };
+  | { type: typeof ServerMessageType.Review; requestId: string; projectId: string; frames: number }
+  | { type: typeof ServerMessageType.Layout; requestId: string; projectId: string; times: number[] };
+
+/** One layer as it lands on screen (engine `Scene::layout`). */
+export type LayoutRow = {
+  id: string;
+  group?: string;
+  /** [x0, y0, x1, y1] in scene px on screen (glyph ink for text when `ink`). */
+  screen: [number, number, number, number];
+  /** Screen scale from depth and perspective (1 = its own size). */
+  k: number;
+  z: number;
+  visible: boolean;
+  /** Tilted layer projecting it. */
+  plane?: string;
+  ink?: boolean;
+};
+
+/** Where the layers land on screen at one instant. */
+export type FrameLayout = {
+  t: number;
+  camera: { look: [number, number]; dolly: number; focal: number } | null;
+  layers: LayoutRow[];
+  /** Active layers the camera has passed (not drawn). */
+  behind: string[];
+};
 
 /** What the editor found when reviewing the whole video. */
 export type ReviewReport = {
@@ -114,11 +141,12 @@ export type EditorMessage =
       /** JPEG data URLs, for render_frames. */
       images?: string[];
       review?: ReviewReport;
+      layouts?: FrameLayout[];
     }
   | { type: typeof EditorMessageType.SceneChanged; projectId: string; scene: string; summary: string };
 
 
-/** Op names the editor itself sends. The full list lives in docs/scene-reference.md. */
+/** Op names the editor itself sends. The full list lives in docs/agent/manual.md. */
 export const OpName = {
   SetStyle: "set_style",
   SetCaptionStyle: "set_caption_style",

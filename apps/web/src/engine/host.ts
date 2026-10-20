@@ -1,6 +1,6 @@
 import init, { Engine, captionStyles, stylePalettes, stylePresets } from "./pkg/engine_wasm.js";
 import { sfxPlayer, type SfxCue } from "../audio/sfxPlayer";
-import type { CaptionStyle, Op, ReviewReport, StylePreset } from "@motionily/protocol";
+import type { CaptionStyle, FrameLayout, Op, ReviewReport, StylePreset } from "@motionily/protocol";
 import { DEFAULT_FONT_FAMILY, fontFilesFor } from "./fonts";
 import { decodePng, modelUrl, packOf, packTextureUrl, type Pixels } from "./models";
 import { mediaUrl } from "../api/client";
@@ -641,6 +641,12 @@ class EngineHost {
       if (ids.length >= CROWD && Number(t) > 0) notes.push(`${ids.length} layers start together at ${t}s (${ids.slice(0, 4).join(", ")}…): stagger them 0.03-0.08 s`);
     if (!layers.some((l) => l.camera)) notes.push(`no camera layer: add one (a vis=0 layer with cam=…) and move it — slow push, drifts, fly-throughs; static frames read as slides`);
     return notes;
+  }
+
+  /** Where every layer lands on screen at each time (what the agent checks instead of test renders). */
+  layout(times: number[]): FrameLayout[] {
+    if (!this.engine) return [];
+    return times.map((t) => ({ t, ...(JSON.parse(this.engine!.layout(t)) as Omit<FrameLayout, "t">) }));
   }
 
   sceneSize(): [number, number] {

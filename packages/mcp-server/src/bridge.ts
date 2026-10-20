@@ -93,6 +93,10 @@ export class EditorBridge {
     return this.request({ type: ServerMessageType.Review, requestId: randomUUID(), projectId: this.projectId, frames }, REVIEW_TIMEOUT_MS);
   }
 
+  layout(times: number[]) {
+    return this.request({ type: ServerMessageType.Layout, requestId: randomUUID(), projectId: this.projectId, times });
+  }
+
   loadScene(scene: string) {
     return this.request({ type: ServerMessageType.LoadScene, requestId: randomUUID(), projectId: this.projectId, scene });
   }

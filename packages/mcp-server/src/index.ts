@@ -24,9 +24,21 @@ import { EditorBridge } from "./bridge.js";
 import { HeadlessEditor } from "./headless.js";
 import { formatLayer, parseLines } from "./compact.js";
 import { ProjectApi } from "./api.js";
+import { formatLayouts } from "./layout.js";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
-const REFERENCE = readFileSync(resolve(here, "../../../docs/scene-reference.md"), "utf8");
+const doc = (name: string) => readFileSync(resolve(here, "../../../docs/agent", name), "utf8").trim();
+/** The whole manual: workflow and tools, layer syntax with the exact camera math, then design direction. */
+const MANUAL = ["manual.md", "syntax.md", "craft.md", "motion-2d.md"].map(doc).join("\n\n");
+
+/** Shown by the client before the first call (kept short: clients truncate long instructions). */
+const INSTRUCTIONS = `Motionily: you build motion-graphics videos for the user's project through these tools. There are no presets.
+START: call get_project and get_brand in parallel. get_project's answer includes the complete manual (workflow, layer
+syntax, exact camera/depth/perspective formulas, ops, 3D). Read it instead of experimenting.
+Never test how the engine behaves (no debug rectangles, no trial renders to learn what z, rx/ry or the camera do): the
+formulas are exact, and get_layout returns where every layer lands on screen as numbers.
+Work in few, big calls: one apply_ops for palette and duration, one add_layers per beat with all its lines, get_layout to
+check placement, review_video once or twice, one add_sfx.`;
 
 const token = process.env.MOTIONILY_TOKEN;
 const projectId = process.env.MOTIONILY_PROJECT;
@@ -42,7 +54,10 @@ if (process.env.MOTIONILY_HEADLESS !== "0") {
   bridge.headless = new HeadlessEditor(process.env.MOTIONILY_WEB ?? "http://localhost:5173", projectId, () => api.headlessSession());
 }
 
-const server = new McpServer({ name: "motionily", version: "0.2.0" });
+const server = new McpServer({ name: "motionily", version: "0.3.0" }, { instructions: INSTRUCTIONS });
+
+// Agents launched by the API carry the manual in their system prompt; everyone else gets it once from get_project.
+let manualSent = process.env.MOTIONILY_MANUAL === "0";
 
 // Each team role only sees the tools it needs: every tool description costs context on every turn.
 const onlyTools = process.env.MOTIONILY_TOOLS?.split(",").map((t) => t.trim()).filter(Boolean);
@@ -69,11 +84,14 @@ server.registerTool(
   "get_project",
   {
     description:
-      "START HERE. The user's brief, the format and the current scene state.",
+      "START HERE (in parallel with get_brand). The user's brief, the format and the current scene state; the first call also returns the complete manual.",
     inputSchema: {},
   },
   guard(async () => {
-    return text(describeProject(await api.project()));
+    const project = describeProject(await api.project());
+    if (manualSent) return text(project);
+    manualSent = true;
+    return text(`${project}\n\n---\n\n${MANUAL}`);
   }),
 );
 
@@ -103,7 +121,7 @@ server.registerTool(
   "save_prefab",
   {
     description:
-      "Create or update a reusable 3D prefab in the user's library from a procedural tree (see get_reference: 3D primitives). Use it in a scene with put_prop {prefab: name}. Updating a prefab changes it everywhere it is used.",
+      "Create or update a reusable 3D prefab in the user's library from a procedural tree (manual: 3D). Use it in a scene with put_prop {prefab: name}. Updating a prefab changes it everywhere it is used.",
     inputSchema: {
       name: z.string().regex(PREFAB_NAME),
       kind: PrefabKindEnum,
@@ -232,8 +250,32 @@ server.registerTool(
 
 server.registerTool(
   "get_reference",
-  { description: "Scene format and op reference. Read once before your first edit.", inputSchema: {} },
-  async () => text(REFERENCE),
+  { description: "The complete manual again (get_project already returned it once): workflow, layer syntax, camera math, ops, 3D, design direction.", inputSchema: {} },
+  async () => {
+    manualSent = true;
+    return text(MANUAL);
+  },
+);
+
+server.registerTool(
+  "get_layout",
+  {
+    description:
+      "Where every layer lands ON SCREEN at the given seconds, as numbers (after camera, depth and tilted planes): box x0,y0→x1,y1, scale k, depth z, plane, flags (OFF FRAME, % off frame, tiny, hidden) and layers the camera already passed. Text boxes are real glyph ink. Cheap (no images): use it to check placement instead of rendering test frames. In big scenes pass group or ids.",
+    inputSchema: {
+      times: z.array(z.number().min(0)).min(1).max(12).describe("seconds"),
+      ids: z.array(z.string()).optional().describe("only these layers (also shows them when hidden)"),
+      group: z.string().optional().describe("only this group"),
+      hidden: z.boolean().optional().describe("include vis=0 layers (nulls, planes, mattes)"),
+    },
+  },
+  guard(async ({ times, ids, group, hidden }) => {
+    const res = await bridge.layout(times);
+    if (!res.ok || !res.layouts) return fail(res.error ?? "no layout");
+    const scene = await currentScene();
+    const size: [number, number] = [Number(scene?.width ?? 1920), Number(scene?.height ?? 1080)];
+    return text(formatLayouts(res.layouts, size, { ids, group, hidden }));
+  }),
 );
 
 /** Latest scene: live from the editor when open, else the autosave. */
@@ -254,7 +296,7 @@ server.registerTool(
   "add_layers",
   {
     description:
-      "Add or replace layers with COMPACT LINES (far cheaper than JSON): `id type start[-end] key=value… \"text or path data\" {json}`. Types rect|ellipse|text|image|path. Values: number, tween `from>to@t0-t1[:ease]`, keys `t:v[:ease],…`, or `(expression)`. Keys: x y w h s r o rad pivot parent fill grad stroke soft shadow glow blur blend matte vis rep size role align lh ls ts te to filled g src fit. A trailing {json} merges any field (e.g. text animators). Full syntax and recipes in get_reference. An existing id is replaced.",
+      "Add or replace layers with COMPACT LINES (far cheaper than JSON): `id type start[-end] key=value… \"text or path data\" {json}`. Types rect|ellipse|text|image|path|object. Values: number, tween `from>to@t0-t1[:ease]`, keys `t:v[:ease],…`, or `(expression)`. Keys: x y w h s r o rad pivot parent fill grad stroke soft shadow glow blur blend matte vis rep size role align lh ls ts te to filled g src fit z rx ry cam fixed. A trailing {json} merges any field (e.g. text animators). Full syntax, camera math and recipes are in the manual (get_project / get_reference). An existing id is replaced.",
     inputSchema: { lines: z.string().min(1) },
   },
   guard(async ({ lines }) => {
@@ -477,7 +519,7 @@ function describeProject(p: Project): string {
   if (p.voiceScript.trim()) lines.push(`Voice script (ElevenLabs; the video is built on it):\n${p.voiceScript.trim()}`);
   if (p.references?.length) lines.push(`Reference images from the user (look with view_image): ${p.references.join(", ")}`);
   lines.push(p.audio ? `Voice uploaded: ${p.audio.name} (captions carry word timings).` : "Voice: not uploaded yet.");
-  lines.push("No presets exist: you design and animate everything yourself (palette, font, keyframes, cuts, 3D). See get_reference.");
+  lines.push("No presets exist: you design and animate everything yourself (palette, font, keyframes, cuts, 3D).");
   lines.push(p.scene ? `Scene: exists (rev ${p.sceneRevision}); see get_scene.` : "Scene: empty. Build the first cut with load_scene.");
   lines.push(bridge.connected ? "Editor: open (your edits render live)." : "Editor: NOT open on this project — ask the user to open it before editing.");
   return lines.join("\n");

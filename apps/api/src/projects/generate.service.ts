@@ -1,5 +1,5 @@
 import { ChildProcess, execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ConflictException, Injectable, Logger, type OnApplicationShutdown, type OnModuleInit } from "@nestjs/common";
@@ -75,91 +75,19 @@ const MCP_SERVER = "motionily";
 const MAX_PARALLEL_BUILDERS = 4;
 const MAX_BEATS = 6;
 
+/** Agent docs shared with the MCP server's manual (docs/agent): one source for every prompt. */
+const DOCS_DIR = resolve(process.env.MOTIONILY_DOCS_DIR ?? join(process.cwd(), "../../docs/agent"));
+const doc = (name: string) => readFileSync(join(DOCS_DIR, name), "utf8").trim();
+
 /** What makes motion graphics look professional instead of "a title and a box". Shared by every role. */
-const CRAFT = `MOTION DESIGN CRAFT (non-negotiable) — the engine is an After Effects: use it, never settle for flat.
-- Depth in 3 planes: a living background (soft gradient blobs drifting with expressions, never a flat color for
-  a whole beat), mid content (cards, UI, type), foreground accents (glows, particles, light trails).
-- Kinetic type: headlines animate per character or word with a text animator (expo_out, stagger 0.02-0.06 s),
-  key words in a gradient, reveals through a matte, scale punches on the key word, tight letter spacing (ls<0)
-  on big type.
-- Premium surfaces: white/glass cards with rounded corners, a soft COLORED drop shadow (tint of the palette, low
-  opacity, big blur), thin pastel outlines; real product screenshots inside device/card frames.
-- Graphic language: paths that draw on (trim) for connectors, underlines and icons; dashed curves; glowing light
-  trails (stroke + glow + blend add, best on dark); dot grids and particle fields with repeaters; counters,
-  progress bars, chips, cursors. Repeat one motif across beats.
-- Motion: everything eases (expo_out for UI, back/spring for pops, elastic sparingly); secondary motion (what
-  enters makes something react); subtle constant drift (wiggle) so nothing is dead; parallax by parenting layers to
-  invisible "camera" nulls and moving/scaling those; match cuts and wipes (a shape grows to become the next
-  background), never hard cuts.
-- Rhythm: something meaningful changes every 0.5-1.5 s; hold the key message ~1 s to be read.
-- Composition: strong grid, generous margins (≥ 8% of the frame), max 2 type sizes per beat + 1 small label.
-- Finish like After Effects: motion blur (mblur) on anything that travels fast, shapes that morph into the next
-  shape, objects flying along curved motion paths, follow-through via layer references, a subtle grain or color
-  grade adjustment layer to glue the look, luma/alpha matte reveals.
-- Save tokens with expressions, repeaters, loops (time=(mod(t,P))) and layer references instead of many
-  hand-made keyframes/layers.`;
+const CRAFT = doc("craft.md");
 
 /**
  * What professional 2D motion graphics (SaaS launch films, product promos on Pinterest/Dribbble)
  * look like, distilled from reference videos the team collected. The planner picks a family per
  * brief (or blends two); builders execute it with the recipes.
  */
-const MOTION_2D = `PRO 2D MOTION GRAPHICS — the bar is a studio launch film, not a slideshow. Pick ONE look family per video
-(say which in the direction) and execute its signature moves:
-A. LIGHT 3D PRODUCT TOUR — white/pale-blue world, the product's UI (cards, hero, pricing tiles, chips) laid out
-   flat on a 3D plane: a null with rx=40..60 and ry=-15..15 that every UI layer is parented to; the camera "flies"
-   over it (animate the null's y, z and rx with eo), strong motion blur (mblur=180,8 on the null's children is
-   implied by the move: put mblur on fast flyers), floating glossy objects (soft-shadowed rounded shapes,
-   icons) drifting above the plane, colorful pill tags (orange/green/yellow/blue, rad=h/2) popping in with
-   back/spring, depth of field (blur=8..20 on the nearest/farthest elements). Ends flat: the plane rotates
-   to rx=0 and settles into a clean centered card + title.
-B. DARK KINETIC TYPE — near-black background with slow glossy light ribbons (wide soft gradient paths, glow,
-   blend=add, drifting with expressions) or a dark gradient; short lines centered, ONE phrase at a time,
-   words entering one by one: {"animate":{"by":"word","stagger":0.12,"duration":0.6,"ease":"ease_out",
-   "from":{"opacity":0,"blur":16,"scale":1.12}}}; the key word in the accent color or a gradient; big single
-   words ("Meet", "Introducing") char by char with blur; phrases exit by blurring out/fading as the next arrives
-   (≈1-1.5 s each). Product UI shown in slight perspective (rx=8..20) with collaboration cursors (path arrow +
-   name pill), a typed prompt with caret. Logo reveal: mark scales down from huge with blur, letters fly in.
-C. NEON GLASS ICONS — pure black, app-icon tiles (rad≈26% of size) with a dark fill, a conic gradient outline
-   (sgrad=con:… orange→magenta→violet→blue, angle animated) plus glow, a bright colorful icon inside (paths with
-   gradients); tiles orbit/scatter around a centered short word ("Any case"), push in and out with spring,
-   one tile flies to the center and morphs/pulses with a big soft purple bloom behind it (blurred ellipse,
-   blend=add). Loops with time=(mod(t,P)).
-D. WARM FLUID + AGENT UI — full-bleed liquid cloud gradient (2-4 huge soft ellipses in warm oranges/reds/violet
-   with turb=120..200,350..450,0.4..0.7, slowly drifting) behind white UI cards: a prompt box typing with caret
-   (reveal + caret), a node graph whose nodes pop in connected by curved paths drawn with trim, images/cards
-   popping into a collage grid, a big gradient headline with a typing caret ("2 settings|").
-E. DARK DASHBOARD + GLOWING PROMPT — near-black (#05050c→#12121a) with one faint colored glow (plum or steel), a pill prompt bar with an animated
-   conic glowing outline (stroke-only layer: sgrad + glow, angle=(t*90)), text typing with caret, a cursor
-   that moves to the send button and clicks (scale 1>0.85>1), then a dashboard flies in tilted (rx/ry) and
-   straightens; inside: counters (count=… with {n}), bar/line charts drawing on (paths with te), donut rings
-   (stroke trim), maps or grids filling in with staggered repeaters.
-COLOR — unique, never "vibe coded". Unless the brand gives a palette, build one the way these films do (measured):
-- Neutrals own the frame (60-90%): pure black #000000/#05070c, near-black #12121a, white #fdfdfd, warm grey
-  #ececec/#f4f2ef, charcoal #343640, slate #3f4658. Backgrounds are neutral or ONE hue very dark/very pale.
-- ONE hue family carries the film, in a few tones: sky #91cff2/#57a0db/#c9e3f2 (Maily) · vermilion/ember
-  #d54b2c/#e87c3d/#ecc6ae (Flows) · cobalt steel #354978/#0e2745/#809bbc (Synaps) · powder blue + plum
-  #92b6cc/#2c1b2e on #12121a (Fuse) · deep indigo glow #3c3f90/#2b0062 on black (youmotion).
-- Saturation is small and precious: the key word, an icon, a chip, a light edge — ≤10-15% of the pixels.
-  Small pops of 2-3 candy colors (pills/tags) are fine on a neutral page.
-- Gradients stay within one family (adjacent hues) or go hue → neutral; light comes from glows on dark.
-- BANNED unless the brand demands it: violet+magenta+cyan neon, indigo→pink "AI" gradients, rainbow, saturated
-  full-frame backgrounds, pure #7c5cff/#a855f7/#ec4899/#22d3ee-style Tailwind defaults.
-- Pick something specific to the brief (an ember-orange fintech, a cobalt architecture tool, a sage-green
-  health app) and name it in the direction with its hex codes; review_video flags saturated or neon palettes.
-Shared grammar (all families):
-- Camera never static: slow push (cam null s=1>1.06) plus one or two decisive moves per beat; transitions are
-  moves (fly-through, whip pan with mblur, zoom through an element, blur-out/blur-in), never hard cuts.
-- Layer depth: background (gradient/fluid/ribbons), mid (UI, type), foreground (floating objects, particles,
-  bloom). Defocus what is not the subject (blur 6-20).
-- UI is real-looking and dense: rows of skeleton text (thin rounded bars at 15-30% opacity), avatars (circles
-  with gradients), chips, toggles, icons drawn with paths, numbers that count. Simulate the product, don't
-  describe it.
-- Type: one line at a time, 1 accent word, tight letter spacing on big type, readable for ≥0.8 s.
-- Timing: 0.4-0.7 s eo entrances, overlapping staggers, a beat every ≤1.5 s, holds only on the payoff/logo.
-- Real assets: product screenshots from get_brand in image layers whenever the video is about a product; Lucide
-  icons (find_icons) for every icon; 3D object layers for hero objects; never generic hand-drawn placeholders.
-- Finish: subtle grain (adjustment layer grain=0.03-0.06) and bloom on light sources; end on logo + one line CTA.`;
+const MOTION_2D = doc("motion-2d.md");
 
 /** Mirrors FORMAT_SIZE in @motionily/protocol. */
 const FORMAT_SIZE: Record<VideoFormat, [number, number]> = {
@@ -169,81 +97,19 @@ const FORMAT_SIZE: Record<VideoFormat, [number, number]> = {
   [VideoFormat.Portrait]: [1080, 1350],
 };
 
-/** Everything a builder needs to write layers, inline (no get_reference round trip). */
-const COMPACT_REF = `WRITING LAYERS — add_layers, one line per layer (never JSON):
-  id type start[-end] key=value… "text or path data" {optional JSON merged into the layer}
-  types: rect | ellipse | text | image | path | object. Scene pixels, x/y = CENTER, origin top-left. w,h required (not for path).
-  value: number · tween from>to@t0-t1[:ease] · keys t:v[:ease],t:v… (t from the layer start) · (expression)
-  eases: o i io b h · eo ei eio (expo; eo = premium UI) · el (elastic) · bo (bounce)
-  expressions: (540 + 40*sin(t*2)) (wiggle(2,8)) (spring(t,2.2,7)) (lerp(0,1,ease(t/0.6))) — vars t (layer s),
-    T (scene s), i/n (repeater copy/count); funcs sin cos noise rand wiggle spring ease ease_in ease_out back
-    elastic bounce clamp lerp smoothstep step min max abs floor fract mod pulse saw tri
-    · other layers: (card.x) (card.y(T-0.15)) — props x y w h s r o, now or at a scene time (follow-through, echoes)
-  transform: x y w h s(scale) r(rotation°) o(opacity) rad(corner) pivot=x,y parent=layer_id (inherits its transform)
-  paint: fill=slot|#rrggbb[aa] | color keys fill=0:#ffffff,0.6:#ff3d5a:eo · grad=lin:ANGLE:color@pos,color@pos… | grad=rad:CX,CY:R:color@pos,… (up to 4 stops)
-    · stroke=WIDTH:COLOR[:DASH,GAP] · soft=FEATHER_PX (blobs: big soft ellipses = mesh gradient)
-  effects (in order): shadow=X,Y,BLUR,COLOR[,OPACITY] · glow=RADIUS[,STRENGTH[,COLOR]] · blur=RADIUS · blend=add|screen|multiply
-    · mblur=SHUTTER°,SAMPLES (motion blur on fast movers: mblur=180,8) · color=HUE°,SAT,BRIGHT,CONTRAST · rgb=PX (RGB split)
-    · wave=AMP,WAVELENGTH,SPEED (warp) · grain=AMOUNT
-  adj=1: adjustment layer — its effects apply to everything below, inside its own shape (full-frame rect = whole picture)
-    · turb=AMOUNT,CELL_PX,SPEED (turbulent displace: on huge soft blobs = liquid/cloud backgrounds)
-  matte=layer_id[:inv|:luma|:lumainv] (that layer's alpha or brightness masks this one; give the matte vis=0) · vis=0 hides a layer
-  WORLD + CAMERA: one vis=0 layer with cam=FOCAL[,FOCUS_Z,APERTURE] is the camera: x/y = where it looks, z = dolly
-    (+ = forward), s = zoom; key it for the whole film. Every layer has depth z= (+ = farther: smaller, slower
-    parallax; parents' z adds up); APERTURE>0 blurs layers away from FOCUS_Z (depth of field). fixed=1 pins a
-    layer to the screen (full-frame backgrounds, HUD). Layers are drawn far to near.
-  MATERIALS (rect/ellipse): inner=X,Y,BLUR,COLOR,OP (inner shadow; light color + 0,0 = inner glow) ·
-    sheen=AT,ANGLE,WIDTH,OP (light sweep: AT 0>1 animated) · bevel=WIDTH,STRENGTH (embossed plastic edge) ·
-    backdrop=BLUR (frosted glass: blurs what is behind the shape; pair with a light translucent fill + thin stroke)
-  ICONS: path layers take ic=NAME:SIZE (1,900 Lucide line icons centered on x,y; find_icons searches by words);
-    color/width via stroke=WIDTH:COLOR. Never hand-draw icons.
-  3D OBJECTS: id object START x= y= w= h= {"node":{…},"finish":"glossy|glass|chrome|matte","spin":[rx,ry,rz]} —
-    a procedural 3D tree (nodes like {"shape":"box","size":[1,1,0.3],"radius":0.2,"color":"#57a0db","children":[…]};
-    shapes box/sphere/cylinder/cone/capsule/torus/extrude(points,depth)/lathe(points)) framed to fill the box,
-    spin values animatable ("t*40"). Glossy app tiles, glass orbs, chrome rings/ribbons, 3D emoji, envelopes.
-  3D: rx=DEG (top leans back) ry=DEG z=PX (away) persp=PX on a layer (usually an invisible null): it and all layers
-    parented to it are drawn flat then projected in perspective (UI pages lying back, dashboards turning).
-    Inside a 3D layer, children's own effects are ignored: fake their shadows with soft rects (soft=).
-  gradients: grad=con:CX,CY:ANGLE:stops (conic; animate ANGLE=(t*90) for rotating light) · sgrad=… paints the stroke
-    (glowing borders: stroke=3:#fff sgrad=con:0.5,0.5:(t*90):#57a0db@0,#c9e3f2@.5,#57a0db@1 glow=24,1.2)
-  motion: mp="SVG path in scene px" mpp=PROGRESS 0..1 orient=1 (moves along the path, turning with it; x/y add an offset)
-    · time=(EXPR) time remap of the layer's clock: (mod(t,1.2)) loops, (t*0.5) slow motion, keys freeze/reverse
-    · morph a path between shapes via JSON {"morph":[{"t":0,"d":"M…"},{"t":0.8,"d":"M…","ease":"expo_in_out"}]}
-  repeat: rep=COUNT:DX,DY[:cols=N][:rot=DEG][:sc=K][:op=K][:delay=S] (grids, particles, staggered lists)
-  text: size= role=heading|body align= lh= ls=LETTER_SPACING · ONE layer per phrase: mark the key word "Just *ask.*"
-    (accent=COLOR, default palette accent) — never split a phrase into word layers (they collide or jam); per-unit animation via JSON:
-    {"animate":{"by":"char|word|line","stagger":0.03,"duration":0.5,"delay":0,"ease":"expo_out","from":{"x":0,"y":40,"scale":0.8,"rotation":0,"opacity":0}}}
-    · text on a path: tp="M-700 0 C-300 -250 300 250 700 0" (relative to x,y) tpo=OFFSET_PX (animate it to crawl along)
-    · animator "from" also takes "blur":16 (words coming into focus)
-    · counter: count=0>12480@0-2:eo dec=0 and "{n}" in the text ("{n} users", "$ {n}") — thousands separators added
-    · typewriter: reveal=(max(0,(t-0.3)*16)) chars typed (spaces not counted) caret=1 (blinking caret)
-  path: "SVG path data" relative to x,y (M L H V C S Q T A Z) · ts= te= to= trim start/end/offset 0..1 (te=0>1@0-.8:o draws it on)
-    · filled=1 fills closed subpaths with fill/grad.
-  Same id again = replace that layer.
-recipes:
-  bg_a ellipse 0 x=(420+60*sin(t*0.6)) y=(260+40*cos(t*0.5)) w=1100 h=900 fill=#f7b9e0 soft=260 o=.85
-  card rect .3 x=960 y=560 w=820 h=420 rad=32 fill=surface s=.92>1@0-.7:eo o=0>1@0-.3 stroke=2:#ffd0dd shadow=0,30,70,#ff6f91,.35
-  key text 3.6 x=960 y=900 w=1500 h=180 size=140 role=heading ls=-4 grad=lin:0:text@0,text@.4,#ff3d5a@.46,#ffa23d@1 "is the problem" {"animate":{"by":"char","stagger":0.035,"from":{"y":70,"opacity":0,"scale":0.8}}}
-  link path 1.2 stroke=3:text:10,10 te=0>1@0-.9:o "M330 260 C480 260 520 420 560 470"
-  trail path 1.8 stroke=4:#ff8a5b ts=(max(0,(t-0.4)*1.4)) te=(min(1,t*1.6)) glow=18,1.6,#ff6f3c blend=add "M560 470 C600 520 640 560 700 560"
-  dots ellipse 0 x=160 y=140 w=6 h=6 fill=text o=(0.12+0.1*sin(T*2+i*0.7)) rep=60:145,160:cols=12
-  arrow path .4 fill=primary filled=1 mp="M150 900 C600 150 1200 1050 1750 250" mpp=0>1@0-1.2:eio orient=1 mblur=180,8 "M30 0 L-20 -16 L-12 0 L-20 16 Z"
-  pulse ellipse 0 x=1500 y=300 w=40 h=40 fill=accent time=(mod(t,1.4)) s=1>2.4@0-1.2:eo o=.6>0@0-1.2:o
-  echo rect 1 x=(card.x(T-0.12)) y=(card.y(T-0.12)) w=820 h=420 rad=32 fill=#ffffff40   (a ghost trailing "card")
-  plane rect 0 vis=0 x=1100 y=620 w=1 h=1 rx=58>40@0-2.4:eo ry=-12 z=500>0@0-2.4:eo   (children: parent=plane, x/y relative)
-  border rect 1 x=960 y=540 w=760 h=120 rad=60 fill=#00000000 stroke=3:#ffffff sgrad=con:0.5,0.5:(t*90):#e87c3d@0,#ecc6ae@0.3,#343640@0.6,#e87c3d@1 glow=24,1.2
-  typed text 1.2 x=960 y=540 w=640 h=60 size=34 align=left fill=#ffffff reveal=(max(0,(t-0.3)*16)) caret=1 "Provide complex widgets"
-  fluid ellipse 0 x=520 y=320 w=1200 h=900 fill=#ff6a2b soft=320 turb=150,400,0.5
-  glitch rect 5.8-6.2 x=CENTER_X y=CENTER_Y w=FULL_W h=FULL_H adj=1 rgb=8 wave=6,120,3 grain=.06   (a quick transition hit)
-  cam rect 0 vis=0 x=0 y=0 w=1 h=1 pivot=CENTER_X,CENTER_Y s=1>1.06@0-6:io   (a camera null: layers with parent=cam keep
-    their absolute x/y and get a slow push-in around the frame center; animate cam x/y/r for pans and tilts)
-Other ops via apply_ops: {"op":"remove_layer","id":…} {"op":"remove_group","group":…} {"op":"set_palette","palette":{"background":"#…","surface":"#…","primary":"#…","accent":"#…","text":"#…"}} {"op":"set_duration","duration":12}`;
+/** Everything a builder needs to write layers, inline (no get_reference round trip), with the exact camera math. */
+const COMPACT_REF = doc("syntax.md");
+/** Workflow, tools, ops and 3D: the rest of the manual the MCP server hands to outside agents. */
+const MANUAL = doc("manual.md");
+/** Agents that guess instead of reading burn minutes on test layers; say it in every role. */
+const NO_PROBING = `Never test how the engine behaves (no debug rectangles, no trial renders to see what z, rx or the camera do): the
+rules below are exact. To know where something lands on screen, get_layout returns the boxes as numbers.`;
 
 /** MCP tools each role sees (each tool description costs context on every turn). */
 const ROLE_TOOLS = {
   planner: ["get_project", "get_brand", "view_image", "view_asset", "search_fonts", "set_font", "apply_ops", "add_layers"],
-  builder: ["add_layers", "apply_ops", "render_frames", "view_asset", "view_image", "get_brand", "find_icons"],
-  finisher: ["review_video", "render_frames", "get_group", "add_layers", "apply_ops", "list_sounds", "add_sfx"],
+  builder: ["add_layers", "apply_ops", "get_layout", "render_frames", "view_asset", "view_image", "get_brand", "find_icons"],
+  finisher: ["review_video", "get_layout", "render_frames", "get_group", "add_layers", "apply_ops", "list_sounds", "add_sfx"],
 } as const;
 
 /** Plans the video and sets the look; builders do the heavy writing in parallel. */
@@ -278,8 +144,9 @@ There are NO presets: write every animation as keyframes yourself. Work ONLY on 
 - The camera ("cam") and the world background exist already: never add a camera. Build your beat in YOUR region
   of the world (its x/y center and depth z): the camera arrives there on time. Use z for depth inside your beat
   (foreground pieces at z<0, far ones z>0) so the camera move gives real parallax.
-- Write ALL your layers in ONE add_layers call (fewer turns = cheaper and faster), then ONE render_frames at
-  2 moments of your span; fix only what is clearly broken with one more add_layers. Do not run review_video.
+- Write ALL your layers in ONE add_layers call (fewer turns = cheaper and faster), then ONE get_layout and ONE
+  render_frames at 2 moments of your span; fix only what is clearly broken with one more add_layers. Do not run review_video.
+${NO_PROBING}
 - Product screenshots/logos: get_brand lists them; use their src in image layers.
 ${COMPACT_REF}
 ${CRAFT}
@@ -289,7 +156,8 @@ Reply with one short sentence when done.`;
 const FINISHER_GUIDE = `You are the finishing editor of a Motionily video built by a team in parallel.
 1. review_video. If there is a reference film, put your sheet next to its sheets (view_image) and name the 3
 biggest gaps (palette, density, camera, transitions, rhythm); fix them first. 2. Fix only what is wrong (overlaps between beats, off-frame, dead air, broken transitions,
-unreadable text): get_group to read a group as compact lines, add_layers to fix. 3. Review again only if you
+unreadable text): get_group to read a group as compact lines, get_layout for exact screen boxes, add_layers to fix.
+${NO_PROBING} 3. Review again only if you
 changed a lot (max 2 rounds).
 4. SOUND DESIGN: list_sounds, then ONE add_sfx call with a cue on every key motion moment of the timings below
    (whoosh on transitions, pop on entrances, impact on hero text, ticks on counters, riser before the reveal,
@@ -303,8 +171,9 @@ const AGENT_GUIDE = `You are Motionily's motion designer and art director. You b
 There are NO presets in Motionily: no built-in animations, transitions, styles, templates or stock models.
 You decide the concept, look, colors, typography and you write every animation yourself as keyframes,
 exactly like a motion designer building a spot by hand. Avoid generic videos. Work like a senior motion designer:
-1. get_project (brief), get_brand (product notes, brand palettes, logos, screenshots with descriptions), then
-   get_reference once. If the brand has palettes, build from them; if not, choose your own palette for the concept.
+1. get_project (brief) and get_brand (product notes, brand palettes, logos, screenshots with descriptions) in
+   parallel. The manual is below: no get_reference. If the brand has palettes, build from them; if not, choose your own
+   palette for the concept.
    Show and explain the real product (view_asset to look at screenshots; image layers to show them).
    The VOICE-OVER drives the video: if there are captions (the user uploaded the voice), tie every beat, text
    and cut to the words' timings and make on-screen text mirror what is said. If there is only a voice script
@@ -330,9 +199,11 @@ exactly like a motion designer building a spot by hand. Avoid generic videos. Wo
    generic look. Use render_frames to zoom into a moment. Review again until it is clean (max 3 rounds).
    Never hand back a video you have not reviewed.
 5. Check get_feedback at the end and apply it.
+${NO_PROBING}
 ${CRAFT}
 ${MOTION_2D}
 Prefer add_layers (compact lines) over JSON for writing layers. Sound: list_sounds + add_sfx to sync effects to the motion.
+${MANUAL}
 ${COMPACT_REF}
 Finish with a 2-3 sentence summary in Spanish: the art direction you chose and what the video shows.`;
 
@@ -654,7 +525,7 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
           [MCP_SERVER]: {
             command: join(mcpDir, "node_modules/.bin/tsx"),
             args: [join(mcpDir, "src/index.ts")],
-            env: { MOTIONILY_API: process.env.PUBLIC_API_URL ?? `http://localhost:${process.env.PORT ?? 3100}`, MOTIONILY_PROJECT: projectId, MOTIONILY_TOKEN: token, ...(tools ? { MOTIONILY_TOOLS: tools.join(",") } : {}) },
+            env: { MOTIONILY_API: process.env.PUBLIC_API_URL ?? `http://localhost:${process.env.PORT ?? 3100}`, MOTIONILY_PROJECT: projectId, MOTIONILY_TOKEN: token, MOTIONILY_MANUAL: "0", ...(tools ? { MOTIONILY_TOOLS: tools.join(",") } : {}) },
           },
         },
       }),

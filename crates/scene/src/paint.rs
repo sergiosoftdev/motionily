@@ -614,22 +614,7 @@ impl View {
 /// Inverse homography (screen px -> flat layer px) of a flat layer centered at `center`, at depth
 /// `z`, rotated `rx` (top leans back) and `ry` (right side goes away) degrees, seen through `view`.
 pub fn perspective_inverse(center: [f32; 2], rx: f32, ry: f32, z: f32, view: &View) -> Option<[f32; 9]> {
-    let (sa, ca) = rx.to_radians().sin_cos();
-    let (sb, cb) = ry.to_radians().sin_cos();
-    let f = view.focal.max(1.0);
-    let [cx, cy] = center;
-    let [lx, ly] = view.look;
-    let [sx, sy] = view.screen;
-    let depth = f + z - view.dolly;
-    // Columns of the rotation applied to (x, y, 0) relative to the center.
-    let (r00, r01, r10, r11, r20, r21) = (cb, sa * sb, 0.0, ca, sb, -sa * cb);
-    // Forward map for (x - cx, y - cy, 1), then shifted to take plain (x, y, 1).
-    let h = [
-        [sx * r20 + f * r00, sx * r21 + f * r01, sx * depth + f * (cx - lx)],
-        [sy * r20 + f * r10, sy * r21 + f * r11, sy * depth + f * (cy - ly)],
-        [r20, r21, depth],
-    ];
-    let m: [[f32; 3]; 3] = std::array::from_fn(|r| [h[r][0], h[r][1], h[r][2] - h[r][0] * cx - h[r][1] * cy]);
+    let m = perspective_forward(center, rx, ry, z, view);
     let det = m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
     if det.abs() < 1e-9 {
         return None;
@@ -645,6 +630,26 @@ pub fn perspective_inverse(center: [f32; 2], rx: f32, ry: f32, z: f32, view: &Vi
         -(m[0][0] * m[2][1] - m[0][1] * m[2][0]) / det,
         (m[0][0] * m[1][1] - m[0][1] * m[1][0]) / det,
     ])
+}
+
+/// Forward homography (flat layer px -> screen px) of the same projection, rows of a 3×3 matrix.
+pub fn perspective_forward(center: [f32; 2], rx: f32, ry: f32, z: f32, view: &View) -> [[f32; 3]; 3] {
+    let (sa, ca) = rx.to_radians().sin_cos();
+    let (sb, cb) = ry.to_radians().sin_cos();
+    let f = view.focal.max(1.0);
+    let [cx, cy] = center;
+    let [lx, ly] = view.look;
+    let [sx, sy] = view.screen;
+    let depth = f + z - view.dolly;
+    // Columns of the rotation applied to (x, y, 0) relative to the center.
+    let (r00, r01, r10, r11, r20, r21) = (cb, sa * sb, 0.0, ca, sb, -sa * cb);
+    // Forward map for (x - cx, y - cy, 1), then shifted to take plain (x, y, 1).
+    let h = [
+        [sx * r20 + f * r00, sx * r21 + f * r01, sx * depth + f * (cx - lx)],
+        [sy * r20 + f * r10, sy * r21 + f * r11, sy * depth + f * (cy - ly)],
+        [r20, r21, depth],
+    ];
+    std::array::from_fn(|r| [h[r][0], h[r][1], h[r][2] - h[r][0] * cx - h[r][1] * cy])
 }
 
 #[cfg(test)]
