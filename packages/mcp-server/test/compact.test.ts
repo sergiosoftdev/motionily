@@ -83,6 +83,27 @@ test("color keys, motion paths, text on paths, time remap and the new effects", 
   assert.throws(() => parseLine("a rect 0 w=1 h=1 mpp=0>1@0-1"), /mp=/);
 });
 
+test("3D layers, conic outline gradients, turbulence, counters and typewriters", () => {
+  const plane = parseLine("plane rect 0 vis=0 x=1360 y=600 w=1 h=1 rx=55>38@0-2.5:eo ry=-12 z=600>0@0-2.5:eo persp=1600");
+  assert.deepEqual(plane.rotate_x, [{ t: 0, v: 55, ease: "expo_out" }, { t: 2.5, v: 38 }]);
+  assert.equal(plane.perspective, 1600);
+  const box = parseLine("box rect 0 w=760 h=120 rad=36 fill=#14112b stroke=3:#ffffff sgrad=con:0.5,0.5:(t*120):#ff9a3c@0,#a855ff@0.5,#ff9a3c@1 turb=40,300,0.5");
+  assert.deepEqual(box.stroke, {
+    width: 3,
+    color: "#ffffff",
+    gradient: { kind: "conic", center: [0.5, 0.5], angle: "t*120", stops: [[0, "#ff9a3c"], [0.5, "#a855ff"], [1, "#ff9a3c"]] },
+  });
+  const typed = parseLine('typed text 0 w=600 h=60 size=34 reveal=(max(0,(t-0.4)*16)) caret=1 "Provide complex widgets"');
+  assert.equal(typed.reveal, "max(0,(t-0.4)*16)");
+  const num = parseLine('n text 0 w=600 h=100 size=90 count=0>12480@0-2:eo dec=1 "{n} users"');
+  assert.equal(num.decimals, 1);
+  for (const l of [plane, box, typed, num]) {
+    const out = formatLayer(l);
+    assert.ok(!out.includes("{\""), `no JSON tail: ${out}`);
+    assert.deepEqual(parseLine(out), l);
+  }
+});
+
 test("explains mistakes", () => {
   assert.throws(() => parseLine("a blob 0-1 w=1 h=1"), /unknown type/);
   assert.throws(() => parseLine("a rect 0-1 w=1"), /w and h/);

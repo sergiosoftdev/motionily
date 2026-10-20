@@ -47,7 +47,8 @@ expo_in_out, elastic, bounce — or `"bezier":[x1,y1,x2,y2]` (CSS cubic-bezier) 
   `[{"t":0,"c":"#ffffff"},{"t":0.6,"c":"primary","ease":"expo_out"}]` (also for stroke colors and gradient stops).
 - `"gradient": {"kind":"linear","angle":0,"stops":[[0,"#0f1733"],[0.45,"#ff3d5a"],[1,"#ffa23d"]]}` (up to 4 stops;
   angle in degrees, 0 = left→right) or `{"kind":"radial","center":[0.5,0.5],"radius":1,"stops":[…]}`. Works on
-  shapes, text (across the block, per letter) and paths.
+  shapes, text (across the block, per letter) and paths. `"kind":"conic"` sweeps around `center` from `angle` (animate
+  it for rotating rim light). `"stroke": {…, "gradient": {…}}` paints the outline with a gradient (glowing borders).
 - `"stroke": {"width":3,"color":"text","dash":[10,10]}` — outline for shapes, line for paths.
 - `"soft": 240` — feathered edge in px: big soft ellipses layered = pastel mesh-gradient backgrounds and glows.
 
@@ -55,7 +56,8 @@ expo_in_out, elastic, bounce — or `"bezier":[x1,y1,x2,y2]` (CSS cubic-bezier) 
 `{"fx":"shadow","x":0,"y":30,"blur":70,"color":"#ff6f91","opacity":0.35}` · `{"fx":"glow","radius":18,"strength":1.6,"color":"#ff6f3c"}` ·
 `{"fx":"blur","radius":12}` · `{"fx":"motion_blur","shutter":180,"samples":8}` · `{"fx":"color","hue":30,"saturation":1.2,
 "brightness":0,"contrast":1.1}` · `{"fx":"chromatic","amount":6}` · `{"fx":"wave","amplitude":8,"wavelength":180,"speed":1}` ·
-`{"fx":"grain","amount":0.08}`. `"adjustment": true` makes the layer an adjustment layer: its effects apply to
+`{"fx":"grain","amount":0.08}` · `{"fx":"turbulence","amount":150,"size":400,"speed":0.5}` (turbulent displace: on huge
+soft blobs it makes liquid/cloud backgrounds). `"adjustment": true` makes the layer an adjustment layer: its effects apply to
 everything below it, inside its own shape. `"blend": "add" | "screen" | "multiply"` (add = light: glows, flares, trails on dark).
 `"matte": {"layer":"mask_id","mode":"alpha"|"alpha_inverted"|"luma"|"luma_inverted"}` masks this layer with another
 layer's alpha or brightness (reveals, text-through-shape, gradient wipes); set `"visible": false` on the matte layer.
@@ -66,6 +68,9 @@ layer's alpha or brightness (reveals, text-through-shape, gradient wipes); set `
   absolute coordinates and scales/pans them all (push-ins, parallax with several nulls at different speeds).
 - `"motion_path": {"d":"M150 900 C600 150 1200 1050 1750 250","progress":[{"t":0,"v":0},{"t":1.2,"v":1}],"orient":true}`
   — moves the layer along a path (scene pixels; x/y add an offset), `orient` turns it with the path.
+- `"rotate_x": 50, "rotate_y": -12, "z": 400, "perspective": 1800` — 3D layer: it and every layer parented to it are
+  drawn flat, then projected in perspective (UI pages lying back, dashboards turning, fly-overs). Use an invisible
+  null as the plane. Effects of the children are ignored inside it (fake shadows with `soft` rects).
 - `"time": "mod(t, 1.2)"` — time remap: the layer's own clock (loops, `"t*0.5"` slow motion, keys to freeze/reverse).
 - `"pivot": [px, py]` — point (relative to the center) the layer rotates/scales around.
 - `"repeat": {"count":60,"x":145,"y":160,"columns":12,"rotation":0,"scale":1,"opacity":1,"delay":0.02}` — copies
@@ -80,7 +85,9 @@ point counts; subpaths pair in order).
 **Text extras** — `"letter_spacing": -4`, and per-unit animation:
 `"animate": {"by":"char|word|line","stagger":0.035,"duration":0.5,"delay":0,"ease":"expo_out","reverse":false,
 "from":{"x":0,"y":60,"scale":0.8,"rotation":0,"opacity":0}}` (each unit eases from `from` to rest). Text on a path: `"path": {"d":"M-700 0 C-300 -250 300 250 700 0","offset":0}`
-(relative to x/y; animate `offset` in px to make it crawl along).
+(relative to x/y; animate `offset` in px to make it crawl along). The animator's `from` also takes `"blur": 16`.
+Counter: `"count": [{"t":0,"v":0,"ease":"expo_out"},{"t":2,"v":12480}], "decimals": 0` with `{n}` in the text.
+Typewriter: `"reveal": "max(0,(t-0.3)*16)"` (characters typed, spaces not counted) and `"caret": true`.
 
 See `examples/startup-look.scene.json` in the repo for a full scene using all of this.
 

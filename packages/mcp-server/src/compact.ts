@@ -17,7 +17,10 @@
  * Colors: palette slot (background|surface|primary|accent|text) or #rrggbb[aa]; fill keys `0:#fff,1.2:primary:eo`.
  * Motion path `mp="M…" mpp=0>1@0-2 orient=1` · text on path `tp="M…" tpo=-900>0@0-1.5:eo` · time remap `time=(mod(t,2))`.
  * Effects: shadow glow blur · color=HUE,SAT,BRIGHT,CONTRAST · rgb=PX · wave=AMP,LEN,SPEED · grain=AMT · mblur=SHUTTER,SAMPLES
- *   · adj=1 (adjustment layer) · matte=id[:inv|:luma|:lumainv].
+ *   · turb=AMT,SIZE,SPEED · adj=1 (adjustment layer) · matte=id[:inv|:luma|:lumainv].
+ * 3D: rx= ry= (degrees) z= (px away) persp= — the layer and its children tilt in perspective.
+ * Gradients: grad=lin:… | rad:… | con:CX,CY:ANGLE:stops (conic) · sgrad= paints the stroke.
+ * Text: count=0>12480@0-2:eo dec=0 with {n} in the text · reveal=(t*16) caret=1 (typewriter).
  */
 
 type Keyframe = { t: number; v: number; ease?: string; bezier?: number[] };
@@ -55,12 +58,15 @@ const NUM: Record<string, string> = {
   te: "trim_end",
   to: "trim_offset",
   time: "time",
+  rx: "rotate_x",
+  ry: "rotate_y",
+  z: "z",
 };
 const NUM_SHORT: Record<string, string> = Object.fromEntries(Object.entries(NUM).map(([k, v]) => [v, k]));
 /** Plain keys copied as numbers or strings. */
-const PLAIN_NUM: Record<string, string> = { size: "size", lh: "line_height", ls: "letter_spacing" };
+const PLAIN_NUM: Record<string, string> = { size: "size", lh: "line_height", ls: "letter_spacing", persp: "perspective", dec: "decimals" };
 const PLAIN_STR = ["role", "align", "src", "fit", "anchor", "parent", "blend"];
-const DEFAULTS: Record<string, unknown> = { scale: 1, rotation: 0, opacity: 1, radius: 0, x: 0, y: 0, soft: 0, trim_start: 0, trim_end: 1, trim_offset: 0 };
+const DEFAULTS: Record<string, unknown> = { rotate_x: 0, rotate_y: 0, z: 0,  scale: 1, rotation: 0, opacity: 1, radius: 0, x: 0, y: 0, soft: 0, trim_start: 0, trim_end: 1, trim_offset: 0 };
 
 function num(s: string, line: string): number {
   const n = Number(s);
@@ -164,11 +170,15 @@ function gradient(v: string, line: string) {
       return [num(st.slice(at + 1), line), color(st.slice(0, at))];
     });
   if (parts[0] === "lin" && parts.length === 3) return { kind: "linear", angle: parseValue(parts[1]!, line), stops: stops(parts[2]!) };
+  if (parts[0] === "con" && parts.length === 4) {
+    const [cx, cy] = parts[1]!.split(",").map((n) => num(n, line));
+    return { kind: "conic", center: [cx, cy], angle: parseValue(parts[2]!, line), stops: stops(parts[3]!) };
+  }
   if (parts[0] === "rad" && parts.length === 4) {
     const [cx, cy] = parts[1]!.split(",").map((n) => num(n, line));
     return { kind: "radial", center: [cx, cy], radius: parseValue(parts[2]!, line), stops: stops(parts[3]!) };
   }
-  throw new Error(`grad must be lin:ANGLE:stops or rad:CX,CY:R:stops in: ${line}`);
+  throw new Error(`grad must be lin:ANGLE:stops, rad:CX,CY:R:stops or con:CX,CY:ANGLE:stops in: ${line}`);
 }
 
 function list(v: string, line: string, min: number): string[] {
@@ -212,9 +222,16 @@ export function parseLine(line: string): Layer {
     else if (PLAIN_NUM[k]) layer[PLAIN_NUM[k]] = num(v, line);
     else if (PLAIN_STR.includes(k)) layer[k] = v;
     else if (k === "grad") layer.gradient = gradient(v, line);
+    else if (k === "sgrad") layer.stroke = { width: 2, ...(layer.stroke as object), gradient: gradient(v, line) };
+    else if (k === "turb") {
+      const [amount, size, speed] = v.split(",");
+      effects.push({ fx: "turbulence", amount: parseValue(amount!, line), ...(size ? { size: parseValue(size, line) } : {}), ...(speed ? { speed: parseValue(speed, line) } : {}) });
+    } else if (k === "count") layer.count = parseValue(v, line);
+    else if (k === "reveal") layer.reveal = parseValue(v, line);
+    else if (k === "caret") layer.caret = v !== "0" && v !== "false";
     else if (k === "stroke") {
       const [w, c, dash] = v.split(":");
-      layer.stroke = { width: parseValue(w!, line), color: color(c ?? "text"), ...(dash ? { dash: list(dash, line, 2).map((n) => num(n, line)) } : {}) };
+      layer.stroke = { ...(layer.stroke as object), width: parseValue(w!, line), color: color(c ?? "text"), ...(dash ? { dash: list(dash, line, 2).map((n) => num(n, line)) } : {}) };
     } else if (k === "shadow") {
       const [x, y, blur, c, op] = list(v, line, 3);
       effects.push({ fx: "shadow", x: parseValue(x!, line), y: parseValue(y!, line), blur: parseValue(blur!, line), ...(c ? { color: color(c) } : {}), ...(op ? { opacity: parseValue(op, line) } : {}) });
@@ -306,18 +323,28 @@ function inner(v: unknown): string {
   return s;
 }
 
+function gradientValue(g: Record<string, unknown>): string {
+  const stops = (g.stops as [number, unknown][])
+    .map(([p, c]) => {
+      if (Array.isArray(c) && typeof c[0] === "object") throw new Error("needs JSON");
+      return `${formatColor(c)}@${r3(p)}`;
+    })
+    .join(",");
+  const [cx, cy] = (g.center as number[] | undefined) ?? [0.5, 0.5];
+  if (g.kind === "conic") return `con:${r3(cx!)},${r3(cy!)}:${inner(g.angle ?? 0)}:${stops}`;
+  if (g.kind === "radial") return `rad:${r3(cx!)},${r3(cy!)}:${inner(g.radius ?? 1)}:${stops}`;
+  return `lin:${inner(g.angle ?? 0)}:${stops}`;
+}
+
 function formatGradient(g: Record<string, unknown>): string[] {
-  const stops = (g.stops as [number, unknown][]).map(([p, c]) => `${formatColor(c)}@${r3(p)}`).join(",");
-  if (g.kind === "radial") {
-    const [cx, cy] = (g.center as number[] | undefined) ?? [0.5, 0.5];
-    return [`grad=rad:${r3(cx!)},${r3(cy!)}:${inner(g.radius ?? 1)}:${stops}`];
-  }
-  return [`grad=lin:${inner(g.angle ?? 0)}:${stops}`];
+  return [`grad=${gradientValue(g)}`];
 }
 
 function formatStroke(s: Record<string, unknown>): string[] {
+  if (Array.isArray(s.color) && typeof s.color[0] === "object") throw new Error("needs JSON");
   const dash = s.dash ? `:${(s.dash as number[]).map(r3).join(",")}` : "";
-  return [`stroke=${inner(s.width)}:${formatColor(s.color ?? "text")}${dash}`];
+  const grad = s.gradient ? [`sgrad=${gradientValue(s.gradient as Record<string, unknown>)}`] : [];
+  return [`stroke=${inner(s.width)}:${formatColor(s.color ?? "text")}${dash}`, ...grad];
 }
 
 function formatEffects(list: Record<string, unknown>[]): string[] {
@@ -330,6 +357,7 @@ function formatEffects(list: Record<string, unknown>[]): string[] {
     if (e.fx === "grain") return `grain=${inner(e.amount)}`;
     if (e.fx === "color") return `color=${[inner(e.hue ?? 0), inner(e.saturation ?? 1), inner(e.brightness ?? 0), inner(e.contrast ?? 1)].join(",")}`;
     if (e.fx === "wave") return `wave=${[inner(e.amplitude), inner(e.wavelength ?? 200), inner(e.speed ?? 1)].join(",")}`;
+    if (e.fx === "turbulence") return `turb=${[inner(e.amount), inner(e.size ?? 320), inner(e.speed ?? 1)].join(",")}`;
     if (e.fx === "motion_blur") return `mblur=${r3(Number(e.shutter ?? 180))},${Number(e.samples ?? 8)}`;
     if (e.fx === "glow") return `glow=${[inner(e.radius), inner(e.strength ?? 1), ...(e.color ? [formatColor(e.color)] : [])].join(",")}`;
     if (e.fx === "shadow") {
@@ -354,6 +382,9 @@ const SHORT_FORMS: [string, (v: never) => string[]][] = [
   ["repeat", formatRepeat],
   ["matte", (m: { layer: string; mode?: string }) => [`matte=${m.layer}${m.mode && m.mode !== "alpha" ? `:${MATTE_SHORT[m.mode]}` : ""}`]],
   ["adjustment", (a: boolean) => (a ? ["adj=1"] : [])],
+  ["count", (c: Animated) => [`count=${formatValue(c)}`]],
+  ["reveal", (r: Animated) => [`reveal=${formatValue(r)}`]],
+  ["caret", (c: boolean) => (c ? ["caret=1"] : [])],
   [
     "motion_path",
     (m: { d: string; progress?: Animated; orient?: boolean }) => [

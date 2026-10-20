@@ -98,6 +98,53 @@ const CRAFT = `MOTION DESIGN CRAFT (non-negotiable) — the engine is an After E
 - Save tokens with expressions, repeaters, loops (time=(mod(t,P))) and layer references instead of many
   hand-made keyframes/layers.`;
 
+/**
+ * What professional 2D motion graphics (SaaS launch films, product promos on Pinterest/Dribbble)
+ * look like, distilled from reference videos the team collected. The planner picks a family per
+ * brief (or blends two); builders execute it with the recipes.
+ */
+const MOTION_2D = `PRO 2D MOTION GRAPHICS — the bar is a studio launch film, not a slideshow. Pick ONE look family per video
+(say which in the direction) and execute its signature moves:
+A. LIGHT 3D PRODUCT TOUR — white/pale-blue world, the product's UI (cards, hero, pricing tiles, chips) laid out
+   flat on a 3D plane: a null with rx=40..60 and ry=-15..15 that every UI layer is parented to; the camera "flies"
+   over it (animate the null's y, z and rx with eo), strong motion blur (mblur=180,8 on the null's children is
+   implied by the move: put mblur on fast flyers), floating glossy objects (soft-shadowed rounded shapes,
+   icons) drifting above the plane, colorful pill tags (orange/green/yellow/blue, rad=h/2) popping in with
+   back/spring, depth of field (blur=8..20 on the nearest/farthest elements). Ends flat: the plane rotates
+   to rx=0 and settles into a clean centered card + title.
+B. DARK KINETIC TYPE — near-black background with slow glossy light ribbons (wide soft gradient paths, glow,
+   blend=add, drifting with expressions) or a dark gradient; short lines centered, ONE phrase at a time,
+   words entering one by one: {"animate":{"by":"word","stagger":0.12,"duration":0.6,"ease":"ease_out",
+   "from":{"opacity":0,"blur":16,"scale":1.12}}}; the key word in the accent color or a gradient; big single
+   words ("Meet", "Introducing") char by char with blur; phrases exit by blurring out/fading as the next arrives
+   (≈1-1.5 s each). Product UI shown in slight perspective (rx=8..20) with collaboration cursors (path arrow +
+   name pill), a typed prompt with caret. Logo reveal: mark scales down from huge with blur, letters fly in.
+C. NEON GLASS ICONS — pure black, app-icon tiles (rad≈26% of size) with a dark fill, a conic gradient outline
+   (sgrad=con:… orange→magenta→violet→blue, angle animated) plus glow, a bright colorful icon inside (paths with
+   gradients); tiles orbit/scatter around a centered short word ("Any case"), push in and out with spring,
+   one tile flies to the center and morphs/pulses with a big soft purple bloom behind it (blurred ellipse,
+   blend=add). Loops with time=(mod(t,P)).
+D. WARM FLUID + AGENT UI — full-bleed liquid cloud gradient (2-4 huge soft ellipses in warm oranges/reds/violet
+   with turb=120..200,350..450,0.4..0.7, slowly drifting) behind white UI cards: a prompt box typing with caret
+   (reveal + caret), a node graph whose nodes pop in connected by curved paths drawn with trim, images/cards
+   popping into a collage grid, a big gradient headline with a typing caret ("2 settings|").
+E. DARK DASHBOARD + GLOWING PROMPT — deep indigo→violet gradient background, a pill prompt bar with an animated
+   conic glowing outline (stroke-only layer: sgrad + glow, angle=(t*90)), text typing with caret, a cursor
+   that moves to the send button and clicks (scale 1>0.85>1), then a dashboard flies in tilted (rx/ry) and
+   straightens; inside: counters (count=… with {n}), bar/line charts drawing on (paths with te), donut rings
+   (stroke trim), maps or grids filling in with staggered repeaters.
+Shared grammar (all families):
+- Camera never static: slow push (cam null s=1>1.06) plus one or two decisive moves per beat; transitions are
+  moves (fly-through, whip pan with mblur, zoom through an element, blur-out/blur-in), never hard cuts.
+- Layer depth: background (gradient/fluid/ribbons), mid (UI, type), foreground (floating objects, particles,
+  bloom). Defocus what is not the subject (blur 6-20).
+- UI is real-looking and dense: rows of skeleton text (thin rounded bars at 15-30% opacity), avatars (circles
+  with gradients), chips, toggles, icons drawn with paths, numbers that count. Simulate the product, don't
+  describe it.
+- Type: one line at a time, 1 accent word, tight letter spacing on big type, readable for ≥0.8 s.
+- Timing: 0.4-0.7 s eo entrances, overlapping staggers, a beat every ≤1.5 s, holds only on the payoff/logo.
+- Finish: subtle grain (adjustment layer grain=0.03-0.06) and bloom on light sources; end on logo + one line CTA.`;
+
 /** Mirrors FORMAT_SIZE in @motionily/protocol. */
 const FORMAT_SIZE: Record<VideoFormat, [number, number]> = {
   [VideoFormat.Vertical]: [1080, 1920],
@@ -123,7 +170,13 @@ const COMPACT_REF = `WRITING LAYERS — add_layers, one line per layer (never JS
     · mblur=SHUTTER°,SAMPLES (motion blur on fast movers: mblur=180,8) · color=HUE°,SAT,BRIGHT,CONTRAST · rgb=PX (RGB split)
     · wave=AMP,WAVELENGTH,SPEED (warp) · grain=AMOUNT
   adj=1: adjustment layer — its effects apply to everything below, inside its own shape (full-frame rect = whole picture)
+    · turb=AMOUNT,CELL_PX,SPEED (turbulent displace: on huge soft blobs = liquid/cloud backgrounds)
   matte=layer_id[:inv|:luma|:lumainv] (that layer's alpha or brightness masks this one; give the matte vis=0) · vis=0 hides a layer
+  3D: rx=DEG (top leans back) ry=DEG z=PX (away) persp=PX on a layer (usually an invisible null): it and all layers
+    parented to it are drawn flat then projected in perspective (UI pages lying back, dashboards turning).
+    Inside a 3D layer, children's own effects are ignored: fake their shadows with soft rects (soft=).
+  gradients: grad=con:CX,CY:ANGLE:stops (conic; animate ANGLE=(t*90) for rotating light) · sgrad=… paints the stroke
+    (glowing borders: stroke=3:#fff sgrad=con:0.5,0.5:(t*90):#ff9a3c@0,#a855ff@.5,#ff9a3c@1 glow=24,1.2)
   motion: mp="SVG path in scene px" mpp=PROGRESS 0..1 orient=1 (moves along the path, turning with it; x/y add an offset)
     · time=(EXPR) time remap of the layer's clock: (mod(t,1.2)) loops, (t*0.5) slow motion, keys freeze/reverse
     · morph a path between shapes via JSON {"morph":[{"t":0,"d":"M…"},{"t":0.8,"d":"M…","ease":"expo_in_out"}]}
@@ -131,6 +184,9 @@ const COMPACT_REF = `WRITING LAYERS — add_layers, one line per layer (never JS
   text: size= role=heading|body align= lh= ls=LETTER_SPACING; per-unit animation via JSON:
     {"animate":{"by":"char|word|line","stagger":0.03,"duration":0.5,"delay":0,"ease":"expo_out","from":{"x":0,"y":40,"scale":0.8,"rotation":0,"opacity":0}}}
     · text on a path: tp="M-700 0 C-300 -250 300 250 700 0" (relative to x,y) tpo=OFFSET_PX (animate it to crawl along)
+    · animator "from" also takes "blur":16 (words coming into focus)
+    · counter: count=0>12480@0-2:eo dec=0 and "{n}" in the text ("{n} users", "$ {n}") — thousands separators added
+    · typewriter: reveal=(max(0,(t-0.3)*16)) chars typed (spaces not counted) caret=1 (blinking caret)
   path: "SVG path data" relative to x,y (M L H V C S Q T A Z) · ts= te= to= trim start/end/offset 0..1 (te=0>1@0-.8:o draws it on)
     · filled=1 fills closed subpaths with fill/grad.
   Same id again = replace that layer.
@@ -144,6 +200,10 @@ recipes:
   arrow path .4 fill=primary filled=1 mp="M150 900 C600 150 1200 1050 1750 250" mpp=0>1@0-1.2:eio orient=1 mblur=180,8 "M30 0 L-20 -16 L-12 0 L-20 16 Z"
   pulse ellipse 0 x=1500 y=300 w=40 h=40 fill=accent time=(mod(t,1.4)) s=1>2.4@0-1.2:eo o=.6>0@0-1.2:o
   echo rect 1 x=(card.x(T-0.12)) y=(card.y(T-0.12)) w=820 h=420 rad=32 fill=#ffffff40   (a ghost trailing "card")
+  plane rect 0 vis=0 x=1100 y=620 w=1 h=1 rx=58>40@0-2.4:eo ry=-12 z=500>0@0-2.4:eo   (children: parent=plane, x/y relative)
+  border rect 1 x=960 y=540 w=760 h=120 rad=60 fill=#00000000 stroke=3:#ffffff sgrad=con:0.5,0.5:(t*90):#ff9a3c@0,#a855ff@0.5,#4d7cff@0.75,#ff9a3c@1 glow=24,1.2
+  typed text 1.2 x=960 y=540 w=640 h=60 size=34 align=left fill=#ffffff reveal=(max(0,(t-0.3)*16)) caret=1 "Provide complex widgets"
+  fluid ellipse 0 x=520 y=320 w=1200 h=900 fill=#ff6a2b soft=320 turb=150,400,0.5
   glitch rect 5.8-6.2 x=CENTER_X y=CENTER_Y w=FULL_W h=FULL_H adj=1 rgb=8 wave=6,120,3 grain=.06   (a quick transition hit)
   cam rect 0 vis=0 x=0 y=0 w=1 h=1 pivot=CENTER_X,CENTER_Y s=1>1.06@0-6:io   (a camera null: layers with parent=cam keep
     their absolute x/y and get a slow push-in around the frame center; animate cam x/y/r for pans and tilts)
@@ -166,7 +226,8 @@ Your job is ONLY to plan and set the global look, fast. Do NOT build layers.
 4. Answer with ONLY this JSON (no prose): {"direction":"…","motif":"…","beats":[{"group":"hook","start":0,"end":2.5,
    "brief":"what this beat shows, its layout, its motion, how it transitions out"}]} — 2 to ${MAX_BEATS} beats,
    contiguous, covering the duration, group names snake_case and unique.
-${CRAFT}`;
+${CRAFT}
+${MOTION_2D}`;
 
 const BUILDER_GUIDE = `You are one motion designer of a team building a video in Motionily, in parallel with others.
 There are NO presets: write every animation as keyframes yourself. Work ONLY on your beat:
@@ -178,6 +239,7 @@ There are NO presets: write every animation as keyframes yourself. Work ONLY on 
 - Product screenshots/logos: get_brand lists them; use their src in image layers.
 ${COMPACT_REF}
 ${CRAFT}
+${MOTION_2D}
 Reply with one short sentence when done.`;
 
 const FINISHER_GUIDE = `You are the finishing editor of a Motionily video built by a team in parallel.
@@ -222,6 +284,7 @@ exactly like a motion designer building a spot by hand. Avoid generic videos. Wo
    Never hand back a video you have not reviewed.
 5. Check get_feedback at the end and apply it.
 ${CRAFT}
+${MOTION_2D}
 Prefer add_layers (compact lines) over JSON for writing layers. Sound: list_sounds + add_sfx to sync effects to the motion.
 ${COMPACT_REF}
 Finish with a 2-3 sentence summary in Spanish: the art direction you chose and what the video shows.`;
