@@ -35,7 +35,7 @@ export class ProjectsService {
 
   liveRuns() {
     // Running, or interrupted with agents that may not have died yet.
-    return this.projects.find({ $or: [{ "liveRun.status": "running" }, { "liveRun.pids.0": { $exists: true } }] }, { liveRun: 1 }).lean();
+    return this.projects.find({ $or: [{ "liveRun.status": "running" }, { "liveRun.pids.0": { $exists: true } }] }, { liveRun: 1, agentRuns: 1 }).lean();
   }
 
   async liveRunOf(id: string) {

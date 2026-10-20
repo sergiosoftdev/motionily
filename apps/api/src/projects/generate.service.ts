@@ -420,6 +420,12 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
     for (const p of await this.projects.liveRuns()) {
       const pids = p.liveRun?.pids ?? [];
       for (const pid of pids) if (isClaude(pid)) process.kill(pid, "SIGKILL");
+      // A run that logged its result after it started actually finished: just clear the marker.
+      const startedAt = p.liveRun?.startedAt ?? "";
+      if (!pids.length && (p.agentRuns ?? []).some((r) => r.at >= startedAt)) {
+        await this.projects.setLiveRun(String(p._id), null);
+        continue;
+      }
       await this.projects.setLiveRun(String(p._id), { status: GenerateStatus.Interrupted, startedAt: p.liveRun!.startedAt, pids: [] });
       this.logger.warn(`run on ${String(p._id)} interrupted by a restart (${pids.length} agents stopped)`);
     }
@@ -483,11 +489,12 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
       ? this.single(run, `The user asks: "${instruction.trim()}". Apply it to the current video (read get_project and get_scene first; finish with review_video and fix what it shows).${refs}`, { ...opts, ...teamFor(mode, model, effort).build })
       : this.team(run, refs, opts, teamFor(mode, model, effort), mode);
     void work
-      .then((usage) => {
+      .then(async (usage) => {
         run.usage = usage;
-        void this.projects.logAgentRun(project.id, usage);
         if (run.status === GenerateStatus.Running) run.status = GenerateStatus.Done;
-        void this.projects.setLiveRun(project.id, null);
+        // In order: the finished run is on record before the live marker goes.
+        await this.projects.logAgentRun(project.id, usage);
+        await this.projects.setLiveRun(project.id, null);
       })
       .catch((e: Error) => {
         if (run.status !== GenerateStatus.Running) return;
