@@ -160,8 +160,31 @@ impl Scene {
         self.layers.iter_mut().find(|l| l.id == id)
     }
 
+    /// Run `f` with expressions able to read other layers (`card.x`, `card.y(T - 0.2)`).
+    fn with_refs<R>(&self, f: impl FnOnce() -> R) -> R {
+        let resolve = |id: &str, prop: expr::Prop, gt: f32| {
+            let Some(l) = self.layer(id) else { return 0.0 };
+            let lt = l.local_time(gt);
+            let value = match prop {
+                expr::Prop::X => &l.x,
+                expr::Prop::Y => &l.y,
+                expr::Prop::W => &l.w,
+                expr::Prop::H => &l.h,
+                expr::Prop::Scale => &l.scale,
+                expr::Prop::Rotation => &l.rotation,
+                expr::Prop::Opacity => &l.opacity,
+            };
+            expr::with_vars(gt, 0.0, 1.0, || value.sample(lt))
+        };
+        expr::with_resolver(&resolve, f)
+    }
+
     /// Resolve every visible layer at time `t` (seconds), back to front.
     pub fn frame(&self, t: f32) -> Vec<DrawItem> {
+        self.with_refs(|| self.frame_items(t))
+    }
+
+    fn frame_items(&self, t: f32) -> Vec<DrawItem> {
         let palette = self.palette();
         let ctx = EvalCtx {
             palette: &palette,
@@ -273,6 +296,10 @@ impl Scene {
 
     /// Id of the top-most layer under scene point `(x, y)` at time `t`, for click-to-select.
     pub fn pick(&self, t: f32, x: f32, y: f32) -> Option<String> {
+        self.with_refs(|| self.pick_at(t, x, y))
+    }
+
+    fn pick_at(&self, t: f32, x: f32, y: f32) -> Option<String> {
         let palette = self.palette();
         let ctx = EvalCtx {
             palette: &palette,
@@ -290,6 +317,10 @@ impl Scene {
 
     /// On-screen box of a layer at time `t` (for the selection outline).
     pub fn layer_bounds(&self, id: &str, t: f32) -> Option<Bounds> {
+        self.with_refs(|| self.bounds_at(id, t))
+    }
+
+    fn bounds_at(&self, id: &str, t: f32) -> Option<Bounds> {
         let palette = self.palette();
         let ctx = EvalCtx {
             palette: &palette,
@@ -504,5 +535,17 @@ mod tests {
         let Some(DrawItem::Shape(last)) = fx.samples[2].first() else { panic!() };
         // 180° at 30 fps: the shutter opened 1/60 s earlier.
         assert!((last.center[0] - (150.0 - 300.0 / 60.0)).abs() < 1e-3, "{:?}", last.center);
+    }
+
+    #[test]
+    fn expressions_read_other_layers() {
+        let mut scene = Scene::default();
+        scene.layers.push(serde_json::from_str(r#"{"id":"lead","type":"shape","shape":"rect","w":10,"h":10,"x":[{"t":0,"v":0,"ease":"linear"},{"t":1,"v":100}]}"#).unwrap());
+        scene.layers.push(serde_json::from_str(r#"{"id":"tail","type":"shape","shape":"rect","w":10,"h":10,"x":"lead.x(T - 0.5) + 5","y":"tail.y"}"#).unwrap());
+        let items = scene.frame(0.75);
+        let Some(DrawItem::Shape(tail)) = items.get(1) else { panic!() };
+        assert!((tail.center[0] - 30.0).abs() < 1e-3, "{:?}", tail.center);
+        // A self reference ends at the depth limit instead of recursing forever.
+        assert_eq!(tail.center[1], 0.0);
     }
 }

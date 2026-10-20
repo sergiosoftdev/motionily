@@ -5,6 +5,8 @@
 //! count inside a repeater), `pi`. Functions: sin cos tan asin acos atan atan2 abs sign floor ceil
 //! round fract sqrt pow exp log min max clamp lerp mix smoothstep step mod noise rand wiggle ease
 //! ease_in ease_out back elastic bounce spring pulse saw tri.
+//! Other layers: `card.x`, `card.y(T - 0.2)` (at another scene time: delays, echoes, follow
+//! through); properties x y w h scale rotation opacity (s r o for short).
 //! Parsed once and cached; a malformed expression evaluates to 0 (and `check` reports why).
 
 use std::cell::Cell;
@@ -13,6 +15,72 @@ use std::sync::OnceLock;
 thread_local! {
     /// Extra variables for the expression being sampled: (scene time, copy index, copy count).
     static VARS: Cell<(f32, f32, f32)> = const { Cell::new((0.0, 0.0, 1.0)) };
+}
+
+/// A property another layer's expression can read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Prop {
+    X,
+    Y,
+    W,
+    H,
+    Scale,
+    Rotation,
+    Opacity,
+}
+
+impl Prop {
+    fn parse(s: &str) -> Option<Prop> {
+        Some(match s {
+            "x" => Prop::X,
+            "y" => Prop::Y,
+            "w" => Prop::W,
+            "h" => Prop::H,
+            "s" | "scale" => Prop::Scale,
+            "r" | "rotation" => Prop::Rotation,
+            "o" | "opacity" => Prop::Opacity,
+            _ => return None,
+        })
+    }
+}
+
+/// Reads `layer.prop` at a scene time.
+pub type Resolver<'a> = dyn Fn(&str, Prop, f32) -> f32 + 'a;
+
+/// Layer references deeper than this (a reads b reads a…) give 0.
+const MAX_REF_DEPTH: u8 = 8;
+
+thread_local! {
+    static RESOLVER: Cell<Option<*const Resolver<'static>>> = const { Cell::new(None) };
+    static REF_DEPTH: Cell<u8> = const { Cell::new(0) };
+}
+
+/// Run `f` with layer references resolved by `r` (outside, they read 0).
+pub fn with_resolver<R>(r: &Resolver<'_>, f: impl FnOnce() -> R) -> R {
+    // SAFETY: the pointer only lives in the thread-local for the duration of `f`, during which
+    // `r` is borrowed; it is restored before returning (also on unwind via the guard).
+    let ptr: *const Resolver<'static> = unsafe { std::mem::transmute(r as *const Resolver<'_>) };
+    struct Restore(Option<*const Resolver<'static>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            RESOLVER.with(|c| c.set(self.0));
+        }
+    }
+    let _restore = Restore(RESOLVER.with(|c| c.replace(Some(ptr))));
+    f()
+}
+
+fn resolve_ref(layer: &str, prop: Prop, gt: f32) -> f32 {
+    let Some(ptr) = RESOLVER.with(|c| c.get()) else { return 0.0 };
+    let depth = REF_DEPTH.with(|d| d.get());
+    if depth >= MAX_REF_DEPTH {
+        return 0.0;
+    }
+    REF_DEPTH.with(|d| d.set(depth + 1));
+    // SAFETY: see `with_resolver` — set only while the resolver is alive.
+    let v = unsafe { (*ptr)(layer, prop, gt) };
+    REF_DEPTH.with(|d| d.set(depth));
+    v
 }
 
 /// Run `f` with scene time `gt` and repeater copy `i` of `n` visible to expressions.
@@ -38,6 +106,8 @@ enum Node {
     Neg(Box<Node>),
     Bin(Op, Box<Node>, Box<Node>),
     Call(Func, Vec<Node>),
+    /// Another layer's property, at the current scene time or at the given one.
+    Ref(String, Prop, Option<Box<Node>>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -140,6 +210,10 @@ fn eval(n: &Node, t: f32, vars @ (gt, i, cnt): (f32, f32, f32)) -> f32 {
         Node::Var(Var::I) => i,
         Node::Var(Var::N) => cnt,
         Node::Neg(a) => -e(a),
+        Node::Ref(layer, prop, at) => {
+            let when = at.as_ref().map_or(gt, |a| e(a));
+            resolve_ref(layer, *prop, when)
+        }
         Node::Bin(op, a, b) => {
             let (a, b) = (e(a), e(b));
             match op {
@@ -351,6 +425,25 @@ impl<'a> Parser<'a> {
                 self.p += 1;
             }
             let name = std::str::from_utf8(&self.s[start..self.p]).unwrap();
+            if self.s.get(self.p) == Some(&b'.') {
+                self.p += 1;
+                let pstart = self.p;
+                while self.p < self.s.len() && self.s[self.p].is_ascii_alphabetic() {
+                    self.p += 1;
+                }
+                let pname = std::str::from_utf8(&self.s[pstart..self.p]).unwrap();
+                let prop = Prop::parse(pname).ok_or_else(|| format!("unknown property '{name}.{pname}' (x y w h scale rotation opacity)"))?;
+                let at = if self.eat(b'(') {
+                    let n = self.cmp()?;
+                    if !self.eat(b')') {
+                        return Err("missing ')'".into());
+                    }
+                    Some(Box::new(n))
+                } else {
+                    None
+                };
+                return Ok(Node::Ref(name.to_owned(), prop, at));
+            }
             if self.eat(b'(') {
                 let (f, arity) = Func::parse(name).ok_or_else(|| format!("unknown function '{name}'"))?;
                 let mut args = Vec::new();
