@@ -91,6 +91,11 @@ pub fn with_vars<R>(gt: f32, i: f32, n: f32, f: impl FnOnce() -> R) -> R {
     r
 }
 
+/// Scene time of the frame being resolved (custom shaders receive it as `T`).
+pub fn scene_time() -> f32 {
+    VARS.with(|v| v.get().0)
+}
+
 /// Set the scene time for everything sampled from here on (the frame loop calls it once).
 pub fn set_scene_time(gt: f32) {
     VARS.with(|v| {

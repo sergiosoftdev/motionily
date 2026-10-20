@@ -24,6 +24,8 @@
  * Materials: inner=X,Y,BLUR,COLOR,OP · sheen=AT,ANGLE,WIDTH,OP · bevel=WIDTH,STRENGTH · backdrop=BLUR (frosted glass).
  * Gradients: grad=lin:… | rad:… | con:CX,CY:ANGLE:stops (conic) · sgrad= paints the stroke.
  * Text: "Just *ask.*" colors the marked words with accent= (default palette accent) · count=0>12480@0-2:eo dec=0 with {n} in the text · reveal=(t*16) caret=1 (typewriter).
+ * Custom shaders: `id shader START x= y= w= h= p0=… p7= "WGSL fn shade(uv: vec2f, px: vec2f) -> vec4f {…}"` fills the box;
+ *   `fx="WGSL…" fx0=… fx7=` adds a shader effect reading src(uv) (on adj=1: everything below). Newlines: \n inside the quotes.
  */
 
 import { ICON_GRID, iconPath } from "./icons.js";
@@ -47,7 +49,28 @@ const EASE: Record<string, string> = {
 };
 const EASE_SHORT: Record<string, string> = Object.fromEntries(Object.entries(EASE).map(([k, v]) => [v, k]));
 const SHAPES = ["rect", "ellipse"];
-const TYPES = [...SHAPES, "text", "image", "path", "object"];
+// ---- custom shaders (shader layers + shader effect) ----
+const SHADER = "shader";
+/** Animatable shader params p0..p7 (layer) and fx0..fx7 (shader effect). */
+const SHADER_PARAMS = 8;
+const PARAM_KEY = /^p([0-7])$/;
+const FX_PARAM_KEY = /^fx([0-7])$/;
+type ShaderFx = { fx: typeof SHADER; code?: string; params?: Animated[] };
+
+/** Put `v` at `params[i]`, filling the gaps with 0 (p2 alone = [0, 0, v]). */
+function setParam(params: Animated[] | undefined, i: number, v: Animated): Animated[] {
+  const out = [...(params ?? [])];
+  while (out.length < i) out.push(0);
+  out[i] = v;
+  return out;
+}
+
+/** `p0=… p1=…` (or `fx0=…`) back from a params list; throws "needs JSON" when one has no line form. */
+function formatParams(params: Animated[] | undefined, prefix: string): string[] {
+  return (params ?? []).map((v, i) => `${prefix}${i}=${formatValue(v)}`);
+}
+// ---- end custom shaders ----
+const TYPES = [...SHAPES, "text", "image", "path", "object", SHADER];
 /** Short keys for animated numbers. */
 const NUM: Record<string, string> = {
   x: "x",
@@ -122,8 +145,8 @@ function colorAnim(v: string, line: string): unknown {
 }
 
 /** A quoted value inside key="…". */
-function quoted(v: string, line: string): string {
-  if (!v.startsWith('"')) throw new Error(`expected a quoted path, like key="M0 0 L100 0": ${line}`);
+function quoted(v: string, line: string, what = 'path, like key="M0 0 L100 0"'): string {
+  if (!v.startsWith('"')) throw new Error(`expected a quoted ${what}: ${line}`);
   return JSON.parse(v) as string;
 }
 
@@ -203,11 +226,12 @@ export function parseLine(line: string): Layer {
   layer.start = num(start!, line);
   if (end) layer.end = num(end, line);
   const effects: unknown[] = [];
+  let shaderFx: ShaderFx | undefined;
   let merge: Layer = {};
   for (const tok of rest) {
     if (tok.startsWith('"')) {
       const s = JSON.parse(tok) as string;
-      layer[type === "path" ? "d" : "text"] = s;
+      layer[type === "path" ? "d" : type === SHADER ? "code" : "text"] = s;
       continue;
     }
     if (tok.startsWith("{")) {
@@ -221,7 +245,19 @@ export function parseLine(line: string): Layer {
     const eq = tok.indexOf("=");
     if (eq < 1) throw new Error(`expected key=value, got '${tok}': ${line}`);
     const [k, v] = [tok.slice(0, eq), tok.slice(eq + 1)];
+    const param = PARAM_KEY.exec(k);
+    const fxParam = FX_PARAM_KEY.exec(k);
     if (NUM[k]) layer[NUM[k]] = parseValue(v, line);
+    else if (param) {
+      if (type !== SHADER) throw new Error(`${k}= is a shader layer param (type shader); a shader effect takes fx${param[1]}=: ${line}`);
+      layer.params = setParam(layer.params as Animated[] | undefined, Number(param[1]), parseValue(v, line));
+    } else if (fxParam) {
+      if (!shaderFx) effects.push((shaderFx = { fx: SHADER }));
+      shaderFx.params = setParam(shaderFx.params, Number(fxParam[1]), parseValue(v, line));
+    } else if (k === "fx") {
+      if (!shaderFx) effects.push((shaderFx = { fx: SHADER }));
+      shaderFx.code = quoted(v, line, 'WGSL code, like fx="fn shade(uv: vec2f, px: vec2f) -> vec4f { return src(uv); }"');
+    }
     else if (k === "fill") layer.fill = colorAnim(v, line);
     else if (k === "accent") layer.accent = colorAnim(v, line);
     else if (k === "g") layer.group = v;
@@ -306,6 +342,8 @@ export function parseLine(line: string): Layer {
   Object.assign(layer, merge);
   if (type !== "path" && (layer.w === undefined || layer.h === undefined)) throw new Error(`w and h are required: ${line}`);
   if (type === "path" && typeof layer.d !== "string") throw new Error(`path needs its "M… path data" in quotes (or ic=NAME:SIZE): ${line}`);
+  if (type === SHADER && typeof layer.code !== "string") throw new Error(`shader needs its WGSL in quotes: "fn shade(uv: vec2f, px: vec2f) -> vec4f { … }": ${line}`);
+  if (shaderFx && typeof shaderFx.code !== "string") throw new Error(`fx0..fx7 need the shader effect's code: fx="fn shade(uv: vec2f, px: vec2f) -> vec4f { … }": ${line}`);
   if (layer.motion_path && typeof (layer.motion_path as { d?: unknown }).d !== "string") throw new Error(`mpp/orient need mp="M… path": ${line}`);
   if (layer.path && typeof (layer.path as { d?: unknown }).d !== "string") throw new Error(`tpo needs tp="M… path": ${line}`);
   return layer;
@@ -391,6 +429,7 @@ function formatEffects(list: Record<string, unknown>[]): string[] {
       const vals = [inner(e.x ?? 0), inner(e.y ?? 18), inner(e.blur ?? 36), formatColor(e.color ?? "#0f121f"), inner(e.opacity ?? 0.25)];
       return `shadow=${vals.join(",")}`;
     }
+    if (e.fx === SHADER) return [`fx=${JSON.stringify(String(e.code))}`, ...formatParams(e.params as Animated[] | undefined, "fx")].join(" ");
     throw new Error("needs JSON");
   });
 }
@@ -485,6 +524,15 @@ export function formatLayer(l: Layer): string {
       // No compact form (animated angle, bezier key…): it goes in the JSON tail.
     }
   }
+  if (type === SHADER) {
+    try {
+      parts.push(...formatParams(l.params as Animated[] | undefined, "p"));
+      done.add("params");
+    } catch {
+      // A param with bezier keys stays in the JSON tail.
+    }
+    done.add("code");
+  }
   if (l.visible === false) parts.push("vis=0");
   if (l.filled === true) parts.push("filled=1");
   done.add("visible");
@@ -492,7 +540,7 @@ export function formatLayer(l: Layer): string {
   for (const [k, v] of Object.entries(l)) if (!done.has(k) && k !== "text" && k !== "d") extra[k] = v;
   if (typeof l.icon === "string") parts.push(`ic=${l.icon}`);
   done.add("icon");
-  const quoted = type === "path" ? (l.icon ? undefined : l.d) : l.text;
+  const quoted = type === "path" ? (l.icon ? undefined : l.d) : type === SHADER ? l.code : l.text;
   if (quoted !== undefined) parts.push(JSON.stringify(String(quoted)));
   if (Object.keys(extra).length) parts.push(JSON.stringify(extra));
   return parts.join(" ");

@@ -7,6 +7,7 @@
 //! `draw(pass, range)` for every consecutive run of that kind, so layer order is
 //! kept across kinds.
 
+mod custom;
 mod fx;
 mod image;
 mod paths;
@@ -17,6 +18,7 @@ mod text;
 mod three;
 
 use bytemuck::{Pod, Zeroable};
+use custom::{CustomShaders, FrameInfo};
 use image::ImagePipeline;
 use polys::PolyPipeline;
 use fx::{FxParams, FxPass, Tex};
@@ -88,6 +90,8 @@ enum ItemKind {
     Poly,
     Image,
     Path,
+    /// Custom shader layers (`custom.rs`).
+    Shader,
 }
 
 /// A stretch of the frame: consecutive items of one kind, or a layer drawn offscreen.
@@ -118,6 +122,7 @@ struct Batches {
     polys: Vec<DrawPoly>,
     images: Vec<DrawImage>,
     paths: Vec<DrawPath>,
+    shaders: Vec<scene::shader::DrawShader>,
     stage: Option<DrawStage>,
     objects: Vec<scene::DrawObject>,
     runs: Vec<Run>,
@@ -193,6 +198,10 @@ impl Batches {
                     self.paths.push(p);
                     (ItemKind::Path, self.paths.len() as u32 - 1)
                 }
+                DrawItem::Shader(s) => {
+                    self.shaders.push(*s);
+                    (ItemKind::Shader, self.shaders.len() as u32 - 1)
+                }
             };
             match runs.last_mut() {
                 Some(Run::Items(k, r)) if *k == kind && r.end == index => r.end += 1,
@@ -221,6 +230,8 @@ pub struct Renderer {
     objects: Vec<StageRenderer>,
     post: PostPass,
     fx: FxPass,
+    /// Agent-written shader layers and effects.
+    custom: CustomShaders,
     pub adapter_info: String,
 }
 
@@ -302,6 +313,7 @@ impl Renderer {
         let polys = PolyPipeline::new(&ctx);
         let images = ImagePipeline::new(&ctx);
         let paths = PathPipeline::new(&ctx);
+        let custom = CustomShaders::new(&ctx);
         let post = PostPass::new(&device, config.format, config.width, config.height);
         let fx = FxPass::new(&device, config.format, config.width, config.height);
         let stage = StageRenderer::new(&device, &queue, config.format, [config.width, config.height]);
@@ -317,6 +329,7 @@ impl Renderer {
             objects: Vec::new(),
             post,
             fx,
+            custom,
             device,
             queue,
             surface,
@@ -374,6 +387,11 @@ impl Renderer {
         scene.rect_to_screen(id, t, flat)
     }
 
+    /// Custom shaders of `scene` that cannot draw (layer id, reason), for review checks.
+    pub fn shader_failures(&self, scene: &Scene) -> Vec<(String, String)> {
+        self.custom.failures(scene)
+    }
+
     /// Register a TTF/OTF font for text layers and captions.
     pub fn add_font(&mut self, family: &str, weight: u16, bytes: &[u8]) -> Result<(), String> {
         self.text.add_font(family, weight, bytes)
@@ -416,6 +434,11 @@ impl Renderer {
         self.polys.prepare(&ctx, &batches.polys);
         self.images.prepare(&ctx, &batches.images);
         self.paths.prepare(&ctx, &batches.paths);
+        // Custom shaders: compile what the scene lists, then this frame's uniforms (layers here,
+        // effects while planning the offscreen passes).
+        let shading = FrameInfo::new(&scene.palette(), linearize > 0.5, [scene.width as f32, scene.height as f32]);
+        self.custom.begin(&self.device, scene);
+        self.custom.prepare_layers(&batches.shaders, &shading);
         self.stage.prepare(&self.device, &self.queue, batches.stage.as_ref(), scene.width as f32 / scene.height as f32, linearize > 0.5);
         while self.objects.len() < batches.objects.len() {
             self.objects.push(StageRenderer::new(&self.device, &self.queue, self.config.format, [self.config.width, self.config.height]));
@@ -453,7 +476,7 @@ impl Renderer {
             .runs
             .iter()
             .map(|r| match r {
-                Run::Fx(f) => Some(plan_fx(&mut self.fx, f, px_per_scene, texel, scene.width as f32, scene.height as f32, linearize > 0.5)),
+                Run::Fx(f) => Some(plan_fx(&mut self.fx, &mut self.custom, &shading, f, px_per_scene, texel, scene.width as f32, scene.height as f32, linearize > 0.5)),
                 Run::Items(..) | Run::Object(_) => None,
             })
             .collect();
@@ -467,6 +490,7 @@ impl Renderer {
             })
             .collect();
         self.fx.upload(&self.device, &self.queue);
+        self.custom.upload(&self.device, &self.queue);
 
         let mut encoder = self.device.create_command_encoder(&Default::default());
         // 3D stage first (with depth); 2D layers then draw on top of it.
@@ -536,6 +560,7 @@ impl Renderer {
                     ItemKind::Poly => self.polys.draw(pass, range.clone()),
                     ItemKind::Image => self.images.draw(pass, range.clone()),
                     ItemKind::Path => self.paths.draw(pass, range.clone()),
+                    ItemKind::Shader => self.custom.draw_layers(pass, range.clone()),
                 },
                 Run::Fx(f) => self.draw_runs(pass, &f.runs),
                 // Objects need their own pass (depth): `draw_offscreen` handles them.
@@ -590,10 +615,21 @@ impl Renderer {
         if let Some((m, _)) = &f.matte {
             self.draw_offscreen(encoder, &self.fx.matte, m);
         }
-        // Blur effects change the layer itself.
-        for (h, v) in &plan.blurs {
-            self.fx.blur(encoder, Tex::Layer, &self.fx.temp, *h);
-            self.fx.blur(encoder, Tex::Temp, &self.fx.layer, *v);
+        // Blurs and custom shader effects change the layer itself, in stack order.
+        for step in &plan.steps {
+            match *step {
+                LayerStep::Blur(h, v) => {
+                    self.fx.blur(encoder, Tex::Layer, &self.fx.temp, h);
+                    self.fx.blur(encoder, Tex::Temp, &self.fx.layer, v);
+                }
+                LayerStep::Shader(hash, offset) => {
+                    // layer -> accum (free once motion blur is averaged), then copied back.
+                    if self.custom.run_effect(&self.device, encoder, hash, offset, &self.fx.layer, &self.fx.accum) {
+                        drop(FxPass::clear_pass(encoder, &self.fx.layer, "custom shader copy"));
+                        self.fx.composite(encoder, Tex::Accum, &self.fx.layer, scene::paint::BlendMode::Normal, plan.replace);
+                    }
+                }
+            }
         }
         let target = self.post.target();
         for (h, v, comp) in &plan.shadows {
@@ -610,10 +646,20 @@ impl Renderer {
     }
 }
 
+/// A pass that rewrites an offscreen layer in place.
+enum LayerStep {
+    /// (horizontal, vertical) blur uniform offsets.
+    Blur(u32, u32),
+    /// Custom shader effect: code hash, uniform offset in `CustomShaders`.
+    Shader(u64, u32),
+}
+
 /// Uniform offsets for every pass of one offscreen layer.
 struct FxPlan {
-    /// (horizontal, vertical) blur passes applied to the layer in place.
-    blurs: Vec<(u32, u32)>,
+    /// Blurs and custom shader effects applied to the layer in place, in stack order.
+    steps: Vec<LayerStep>,
+    /// Plain copy back into the layer after a custom shader effect.
+    replace: u32,
     /// (h blur, v blur, composite) per shadow.
     shadows: Vec<(u32, u32, u32)>,
     layer: u32,
@@ -624,7 +670,8 @@ struct FxPlan {
     average: u32,
 }
 
-fn plan_fx(fx: &mut FxPass, f: &FxRun, px_per_scene: f32, texel: [f32; 2], scene_w: f32, scene_h: f32, linear: bool) -> FxPlan {
+#[allow(clippy::too_many_arguments)]
+fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, shading: &FrameInfo, f: &FxRun, px_per_scene: f32, texel: [f32; 2], scene_w: f32, scene_h: f32, linear: bool) -> FxPlan {
     let matte = fx::matte_code(f.matte.as_ref().map(|(_, m)| *m));
     let blur_pair = |fx: &mut FxPass, radius_scene: f32| {
         // Radius ~ 2 sigma, in texels of the offscreen target.
@@ -637,7 +684,7 @@ fn plan_fx(fx: &mut FxPass, f: &FxRun, px_per_scene: f32, texel: [f32; 2], scene
         let [r, g, b, a] = c.0;
         if linear { [srgb_to_linear(r), srgb_to_linear(g), srgb_to_linear(b), a] } else { [r, g, b, a] }
     };
-    let mut plan = FxPlan { blurs: Vec::new(), shadows: Vec::new(), layer: 0, glows: Vec::new(), copy: 0, average: 0 };
+    let mut plan = FxPlan { steps: Vec::new(), replace: 0, shadows: Vec::new(), layer: 0, glows: Vec::new(), copy: 0, average: 0 };
     // Color correction, distortion and grain all happen in the final layer composite.
     let (mut hue, mut sat, mut bright, mut contrast) = (0.0, 1.0, 0.0, 1.0);
     let mut warp = [0.0f32; 4];
@@ -648,7 +695,13 @@ fn plan_fx(fx: &mut FxPass, f: &FxRun, px_per_scene: f32, texel: [f32; 2], scene
     });
     for e in &f.effects {
         match *e {
-            DrawEffect::Blur { radius } if radius > 0.0 => plan.blurs.push(blur_pair(fx, radius)),
+            DrawEffect::Blur { radius } if radius > 0.0 => {
+                let (h, v) = blur_pair(fx, radius);
+                plan.steps.push(LayerStep::Blur(h, v));
+            }
+            DrawEffect::Shader { hash, params, time, scene_time, zoom } => {
+                plan.steps.push(LayerStep::Shader(hash, custom.push_effect(&params, time, scene_time, zoom, shading)));
+            }
             DrawEffect::Shadow { offset, blur, color } => {
                 let (h, v) = blur_pair(fx, blur);
                 let comp = fx.push(FxParams {
@@ -692,6 +745,9 @@ fn plan_fx(fx: &mut FxPass, f: &FxRun, px_per_scene: f32, texel: [f32; 2], scene
     plan.layer = fx.push(FxParams { a: [0.0, matte, 1.0, 0.0], b: [0.0, 0.0, clamp_edges, if f.adjust { 1.0 } else { 0.0 }], adj: [hue, sat - 1.0, bright, contrast - 1.0], warp, grain, turb, h0, h1, h2, ..Default::default() });
     if f.adjust {
         plan.copy = fx.push(FxParams::default());
+    }
+    if plan.steps.iter().any(|s| matches!(s, LayerStep::Shader(..))) {
+        plan.replace = fx.push(FxParams::default());
     }
     if !f.samples.is_empty() {
         plan.average = fx.push(FxParams { a: [2.0, 0.0, 1.0 / (f.samples.len() + 1) as f32, 0.0], ..Default::default() });

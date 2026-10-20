@@ -116,6 +116,12 @@ impl DrawItem {
                 o.center = map(o.center);
                 o.size = [o.size[0] * s, o.size[1] * s];
             }
+            // The pattern scales with the box: `px` stays in the layer's own units.
+            DrawItem::Shader(sh) => {
+                sh.center = map(sh.center);
+                sh.size = [sh.size[0] * s, sh.size[1] * s];
+                sh.radius *= s;
+            }
             DrawItem::Fx(fx) => {
                 fx.items.iter_mut().chain(fx.samples.iter_mut().flatten()).for_each(|i| i.affine(origin, s, shift));
                 if let Some((m, _)) = &mut fx.matte {

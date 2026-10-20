@@ -153,6 +153,13 @@ impl Engine {
         self.renderer.add_font(family, weight, bytes).map_err(|e| JsError::new(&e))
     }
 
+    /// Custom shaders of the current scene that cannot draw, as JSON `[[layer id, reason], …]`
+    /// (code saved broken, or refused by the browser's GPU compiler). Review checks report them.
+    #[wasm_bindgen(js_name = shaderFailures)]
+    pub fn shader_failures(&self) -> String {
+        serde_json::to_string(&self.renderer.shader_failures(&self.scene)).unwrap_or_default()
+    }
+
     pub fn resize(&mut self, width: u32, height: u32) {
         self.renderer.resize(width, height);
     }
@@ -170,6 +177,13 @@ fn model_keys(node: &scene::Node3D) -> Vec<String> {
     };
     keys.extend(node.children.iter().flat_map(model_keys));
     keys
+}
+
+/// Why a scene's custom shaders do not compile (layer id, WGSL line, message), or undefined.
+/// Agents' `load_scene` runs it first so a broken shader is an error, like it is for ops.
+#[wasm_bindgen(js_name = checkSceneShaders)]
+pub fn check_scene_shaders(json: &str) -> Option<String> {
+    Scene::from_json(json).ok()?.check_shaders().err()
 }
 
 /// Style presets, as JSON, so the UI never hardcodes the list.

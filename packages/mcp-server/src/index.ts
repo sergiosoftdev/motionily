@@ -296,7 +296,7 @@ server.registerTool(
   "add_layers",
   {
     description:
-      "Add or replace layers with COMPACT LINES (far cheaper than JSON): `id type start[-end] key=value… \"text or path data\" {json}`. Types rect|ellipse|text|image|path|object. Values: number, tween `from>to@t0-t1[:ease]`, keys `t:v[:ease],…`, or `(expression)`. Keys: x y w h s r o rad pivot parent fill grad stroke soft shadow glow blur blend matte vis rep size role align lh ls ts te to filled g src fit z rx ry cam fixed. A trailing {json} merges any field (e.g. text animators). Full syntax, camera math and recipes are in the manual (get_project / get_reference). An existing id is replaced.",
+      "Add or replace layers with COMPACT LINES (far cheaper than JSON): `id type start[-end] key=value… \"text or path data\" {json}`. Types rect|ellipse|text|image|path|object|shader (custom WGSL: p0..p7 params; fx=\"WGSL\" fx0..fx7 = shader effect on any layer). Values: number, tween `from>to@t0-t1[:ease]`, keys `t:v[:ease],…`, or `(expression)`. Keys: x y w h s r o rad pivot parent fill grad stroke soft shadow glow blur blend matte vis rep size role align lh ls ts te to filled g src fit z rx ry cam fixed. A trailing {json} merges any field (e.g. text animators). Full syntax, camera math and recipes are in the manual (get_project / get_reference). An existing id is replaced.",
     inputSchema: { lines: z.string().min(1) },
   },
   guard(async ({ lines }) => {

@@ -1,4 +1,4 @@
-import init, { Engine, captionStyles, stylePalettes, stylePresets } from "./pkg/engine_wasm.js";
+import init, { Engine, captionStyles, checkSceneShaders, stylePalettes, stylePresets } from "./pkg/engine_wasm.js";
 import { sfxPlayer, type SfxCue } from "../audio/sfxPlayer";
 import type { CaptionStyle, FrameLayout, Op, ReviewReport, StylePreset } from "@motionily/protocol";
 import { DEFAULT_FONT_FAMILY, fontFilesFor } from "./fonts";
@@ -18,7 +18,9 @@ type ReviewLayer = {
   camera?: unknown;
   [prop: string]: unknown;
 };
-const LayerType = { Shape: "shape", Text: "text", Image: "image", Character: "character" } as const;
+const LayerType = { Shape: "shape", Text: "text", Image: "image", Character: "character", Shader: "shader" } as const;
+/** Box-like layers: backgrounds may bleed off frame, and text sits inside them (shader layers fill a box like a rect). */
+const BOX_TYPES: LayerType[] = [LayerType.Shape, LayerType.Shader];
 type LayerType = (typeof LayerType)[keyof typeof LayerType];
 /** A new video starts blank: the agent designs everything. */
 const EMPTY_SCENE = JSON.stringify({ width: 1080, height: 1920, fps: 30, duration: 6, layers: [] });
@@ -188,6 +190,9 @@ class EngineHost {
 
   loadScene(json: string) {
     const engine = this.require();
+    // A broken custom shader is an error here too, as it is for ops (the editor still opens saved scenes).
+    const badShader = checkSceneShaders(json);
+    if (badShader) throw new Error(badShader);
     engine.loadScene(json);
     this.fontsFor((JSON.parse(json) as { typography?: unknown }).typography);
     if (this.buildOps.length) engine.applyOps(JSON.stringify(this.buildOps));
@@ -486,7 +491,7 @@ class EngineHost {
           return [{ l, x0: cx - w / 2, y0: cy - h / 2, x1: cx + w / 2, y1: cy + h / 2, area: w * h }];
         });
       for (const b of boxes) {
-        if (b.area <= 0 || b.l.type === LayerType.Shape) continue;
+        if (b.area <= 0 || BOX_TYPES.includes(b.l.type)) continue;
         const inside = Math.max(0, Math.min(b.x1, sw) - Math.max(b.x0, 0)) * Math.max(0, Math.min(b.y1, sh) - Math.max(b.y0, 0));
         if (inside / b.area < 1 - OFF_FRAME_TOLERANCE) flag(`${b.l.type} '${b.l.id}' goes off frame`, t);
       }
@@ -517,7 +522,7 @@ class EngineHost {
         }
       // Text crossing the outline of a card, pill or button it is meant to sit in.
       const frame = sw * sh;
-      const panels = boxes.filter((b) => b.l.type === LayerType.Shape && b.l.visible !== false && !b.l.soft && b.area < frame * BACKDROP_SHARE && b.area > 0);
+      const panels = boxes.filter((b) => BOX_TYPES.includes(b.l.type) && b.l.visible !== false && !b.l.soft && b.area < frame * BACKDROP_SHARE && b.area > 0);
       for (const tx of texts)
         for (const sp of panels) {
           const ov = overlap(tx, sp);
@@ -534,6 +539,7 @@ class EngineHost {
     if (saturated > 0 && Object.values(hues).every((n) => n / saturated > NEON_TRIO_SHARE))
       flag("palette: violet + magenta + cyan neon is the generic AI look — pick ONE hue family plus one small contrasting accent", times[0]!);
     const issues = [...found].map(([what, ts]) => `${what} (${ts.length > 1 ? `${ts[0]}s-${ts[ts.length - 1]}s` : `${ts[0]}s`})`);
+    for (const [id, why] of JSON.parse(this.engine!.shaderFailures()) as [string, string][]) issues.push(`custom shader on '${id}' draws nothing: ${why}`);
     const diff = (a: Float32Array, b: Float32Array) => a.reduce((s, v, k) => s + Math.abs(v - b[k]!), 0) / a.length;
     const deltas = probes.slice(1).map((p, i) => diff(probes[i]!, p));
     if (deltas.every((d) => d < STILL_DIFF)) issues.push("the whole video looks static: nothing visibly moves between frames");

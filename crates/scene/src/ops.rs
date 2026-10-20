@@ -116,6 +116,8 @@ pub enum OpError {
     Invalid(&'static str),
     /// A brick key the scene library doesn't have; carries what is available.
     UnknownBrick { key: String, available: Vec<String> },
+    /// Custom shader code that does not compile (names the layer, the WGSL line and why).
+    Shader(String),
 }
 
 impl fmt::Display for OpError {
@@ -124,6 +126,7 @@ impl fmt::Display for OpError {
             OpError::UnknownLayer(id) => write!(f, "unknown layer id '{id}'"),
             OpError::DuplicateLayer(id) => write!(f, "layer id '{id}' already exists"),
             OpError::Invalid(why) => f.write_str(why),
+            OpError::Shader(why) => f.write_str(why),
             OpError::UnknownBrick { key, available } => {
                 write!(f, "unknown brick '{key}'; available: {}", available.join(", "))
             }
@@ -172,6 +175,7 @@ impl Scene {
                 if let Some(anchor) = &layer.anchor {
                     self.check_anchor(anchor)?;
                 }
+                crate::shader::check_layer(layer).map_err(OpError::Shader)?;
                 self.layers.push(layer.clone());
             }
             Op::SetGroup { ids, group } => {
