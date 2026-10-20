@@ -3,7 +3,7 @@ import { VideoFormat } from "@motionily/protocol";
 export const FORMAT_OPTIONS: { format: VideoFormat; label: string; hint: string; box: string }[] = [
   { format: VideoFormat.Vertical, label: "9:16", hint: "Reels, TikTok", box: "h-4 w-[9px]" },
   { format: VideoFormat.Portrait, label: "4:5", hint: "Feed", box: "h-4 w-[13px]" },
-  { format: VideoFormat.Square, label: "1:1", hint: "Cuadrado", box: "size-3.5" },
+  { format: VideoFormat.Square, label: "1:1", hint: "Square", box: "size-3.5" },
   { format: VideoFormat.Horizontal, label: "16:9", hint: "YouTube, web", box: "h-[9px] w-4" },
 ];
 

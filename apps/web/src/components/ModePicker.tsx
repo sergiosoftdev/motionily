@@ -12,7 +12,7 @@ const MODES: { id: GenerationMode; label: string; team: string; estimate: string
   { id: GenerationMode.Custom, label: "Custom", team: "You choose the model and effort for the whole team.", estimate: "" },
 ];
 
-/** The three everyday modes side by side; "Personalizado" opens model + effort. */
+/** The three everyday modes side by side; "Custom" opens model + effort. */
 export function ModePicker({ prefs, onChange }: { prefs: AgentPrefs; onChange: (p: Partial<AgentPrefs>) => void }) {
   const mode = prefs.mode ?? GenerationMode.Balanced;
   const current = MODES.find((m) => m.id === mode)!;
@@ -39,19 +39,19 @@ export function ModePicker({ prefs, onChange }: { prefs: AgentPrefs; onChange: (
           onClick={() => onChange({ mode: mode === GenerationMode.Custom ? GenerationMode.Balanced : GenerationMode.Custom })}
           className={mode === GenerationMode.Custom ? "text-white" : "hover:text-neutral-300"}
         >
-          Personalizado
+          Custom
         </button>
       </div>
       {mode === GenerationMode.Custom && (
         <div className="flex gap-2">
-          <select value={prefs.model} onChange={(e) => onChange({ model: e.target.value as AgentModel })} aria-label="Modelo" className={select}>
+          <select value={prefs.model} onChange={(e) => onChange({ model: e.target.value as AgentModel })} aria-label="Model" className={select}>
             {Object.values(AgentModel).map((m) => (
               <option key={m} value={m}>
                 {MODEL_LABEL[m]}
               </option>
             ))}
           </select>
-          <select value={prefs.effort} onChange={(e) => onChange({ effort: e.target.value as AgentEffort })} aria-label="Esfuerzo" className={select}>
+          <select value={prefs.effort} onChange={(e) => onChange({ effort: e.target.value as AgentEffort })} aria-label="Effort" className={select}>
             {Object.values(AgentEffort).map((x) => (
               <option key={x} value={x}>
                 Esfuerzo: {EFFORT_LABEL[x]}
@@ -67,7 +67,7 @@ export function ModePicker({ prefs, onChange }: { prefs: AgentPrefs; onChange: (
 /** Labels short enough for one segmented row. */
 const SHORT: Record<GenerationMode, string> = {
   [GenerationMode.Economy]: "Economy",
-  [GenerationMode.Balanced]: "Equilibrado",
+  [GenerationMode.Balanced]: "Balanced",
   [GenerationMode.Premium]: "Max",
-  [GenerationMode.Custom]: "Personalizado",
+  [GenerationMode.Custom]: "Custom",
 };

@@ -852,6 +852,12 @@ class EngineHost {
     return json ? (JSON.parse(json) as Record<string, unknown>) : undefined;
   }
 
+  /** A layer's animatable numbers (x, y, scale, rotation, opacity…) at the current time. */
+  propValues(id: string): Record<string, number> | undefined {
+    const json = this.engine?.propValues(id, useEditor.getState().time);
+    return json ? (JSON.parse(json) as Record<string, number>) : undefined;
+  }
+
   layerBounds(id: string): number[] | undefined {
     const b = this.engine?.layerBounds(id, useEditor.getState().time);
     return b ? Array.from(b) : undefined;

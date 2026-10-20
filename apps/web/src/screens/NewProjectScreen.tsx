@@ -198,7 +198,7 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
             </div>
             <label className="flex cursor-pointer items-center gap-3 text-sm text-neutral-400">
               <input type="checkbox" checked={deep} onChange={(e) => setDeep(e.target.checked)} className="size-4 accent-white" />
-              Pensar más las ideas (Opus, más lento) — por defecto van rápidas (~20 s)
+              Think the ideas through (Opus, slower) — by default they are quick (~20 s)
             </label>
             {error && <p className="text-sm text-red-400">{error}</p>}
             <Next label={`Pitch ${count === 1 ? "one idea" : `${count} ideas`}`} onClick={() => void pitch()} />
@@ -285,7 +285,7 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
             </div>
             {error && <p className="text-sm text-red-400">{error}</p>}
             <button type="button" disabled={busy} onClick={() => void finish(null)} className="self-start text-sm text-neutral-500 underline-offset-4 hover:text-white hover:underline disabled:opacity-50">
-              Generar sin voz (usará el guion para los tiempos)
+              Generate without a voice (the script sets the timing)
             </button>
           </Panel>
         )}

@@ -35,6 +35,8 @@ type EditorState = {
   selectedLayerId: string | null;
   /** Whole group selected (first click on a grouped layer); exclusive with selectedLayerId. */
   selectedGroup: string | null;
+  /** Requests are about the moment on screen (picked on the timeline), not the whole video. */
+  pinnedMoment: boolean;
   /** Live state of the agent run (shared by the side panel and the canvas overlay). */
   agentRun: GenerateState | null;
 };
@@ -54,6 +56,7 @@ export const useEditor = create<EditorState>(() => ({
   activity: [],
   selectedLayerId: null,
   selectedGroup: null,
+  pinnedMoment: false,
   agentRun: null,
   sceneSize: [1080, 1920],
 }));

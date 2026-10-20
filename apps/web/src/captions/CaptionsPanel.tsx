@@ -24,7 +24,7 @@ export function CaptionsPanel({ project, onProject }: { project: Project; onProj
   const choose = async (f: File | undefined) => {
     if (!f) return;
     setStatus(Status.Working);
-    setProgress({ label: "Subiendo audio…", ratio: null });
+    setProgress({ label: "Uploading the audio…", ratio: null });
     try {
       const p = await api.uploadAudio(project.id, f);
       onProject(p);

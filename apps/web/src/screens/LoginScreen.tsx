@@ -40,7 +40,7 @@ export function LoginScreen() {
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="tu@email.com"
+            placeholder="you@email.com"
             className="rounded-lg bg-neutral-900 px-4 py-3 text-sm placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-white/40"
           />
           <button
@@ -56,7 +56,7 @@ export function LoginScreen() {
             </svg>
             Continue with Google
           </button>
-          <p className="text-xs text-neutral-500">Login simulado: entra con cualquier email.</p>
+          <p className="text-xs text-neutral-500">Simulated sign-in: use any email.</p>
           {error && <p className="text-xs text-red-400">{error}</p>}
         </form>
       </div>

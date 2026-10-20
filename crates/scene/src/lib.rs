@@ -695,6 +695,29 @@ impl Scene {
         self.layer(id).map(|l| serde_json::to_string(l).expect("layer always serializes"))
     }
 
+    /// A layer's animatable numbers at scene time `t` (keyframes and formulas sampled), by prop
+    /// name: what the editor's property rows show next to each stopwatch.
+    pub fn prop_values(&self, id: &str, t: f32) -> Option<std::collections::BTreeMap<&'static str, f32>> {
+        let l = self.layer(id)?;
+        let lt = t - l.start;
+        let props: [(&'static str, &Animated); 13] = [
+            ("x", &l.x),
+            ("y", &l.y),
+            ("w", &l.w),
+            ("h", &l.h),
+            ("scale", &l.scale),
+            ("rotation", &l.rotation),
+            ("opacity", &l.opacity),
+            ("radius", &l.radius),
+            ("z", &l.z),
+            ("rotate_x", &l.rotate_x),
+            ("rotate_y", &l.rotate_y),
+            ("soft", &l.soft),
+            ("backdrop", &l.backdrop),
+        ];
+        Some(props.into_iter().map(|(k, a)| (k, a.sample(lt))).collect())
+    }
+
     /// Compact, token-cheap description for agents. One line per layer.
     pub fn summary(&self) -> String {
         let mut s = format!(

@@ -43,7 +43,7 @@ export function ConnectAgent({ projectId }: { projectId: string }) {
   return (
     <>
       <button type="button" onClick={() => void show()} className="rounded-lg px-3 py-1.5 text-xs text-neutral-400 hover:bg-neutral-900 hover:text-white">
-        Usar en Claude Code
+        Use in Claude Code
       </button>
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" onClick={() => setOpen(false)}>
@@ -56,7 +56,7 @@ export function ConnectAgent({ projectId }: { projectId: string }) {
             </div>
             <ol className="flex flex-col gap-4 text-sm">
               <li className="flex flex-col gap-2">
-                <span className="text-neutral-300">1. Registra el servidor</span>
+                <span className="text-neutral-300">1. Register the server</span>
                 <div className="relative">
                   <pre className="max-h-32 overflow-auto rounded-lg bg-neutral-950 p-3 pr-20 text-[11px] leading-relaxed whitespace-pre-wrap break-all text-neutral-300">
                     {command ?? (error ? `Error: ${error}` : "Generating token…")}

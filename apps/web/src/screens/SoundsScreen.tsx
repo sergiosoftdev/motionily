@@ -130,7 +130,7 @@ export function SoundsScreen() {
               onClick={() => setFilter(c)}
               className={`rounded-full px-3 py-1 text-xs ${filter === c ? "bg-white text-neutral-900" : "bg-neutral-900 text-neutral-400 hover:text-white"}`}
             >
-              {c ? (CATEGORY_LABEL[c as SoundCategory] ?? c) : "Todos"}
+              {c ? (CATEGORY_LABEL[c as SoundCategory] ?? c) : "All"}
             </button>
           ))}
         </div>
@@ -173,7 +173,7 @@ function SoundCard({ sound, onDelete }: { sound: SoundRow; onDelete: () => void 
 
 function PlayButton({ onPlay }: { onPlay: () => void }) {
   return (
-    <button type="button" onClick={onPlay} aria-label="Escuchar" className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 transition hover:scale-105 hover:bg-white/20">
+    <button type="button" onClick={onPlay} aria-label="Listen" className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 transition hover:scale-105 hover:bg-white/20">
       <svg viewBox="0 0 10 10" className="ml-0.5 size-3 fill-white">
         <path d="M1 0.5 L9 5 L1 9.5 Z" />
       </svg>

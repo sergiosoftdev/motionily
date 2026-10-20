@@ -104,7 +104,7 @@ export function PrefabsScreen() {
       )}
       {!creating && prefabs?.length === 0 && (
         <p className="rounded-xl border border-dashed border-neutral-800 p-10 text-center text-sm text-neutral-400">
-          Aún no hay prefabs. Pídele a un vídeo algo en 3D (una camilla, una fisio, una consulta) y el agente los irá guardando aquí.
+          No prefabs yet. Ask a video for something in 3D (a desk, a phone, a product) and the agent will save them here.
         </p>
       )}
       {listed && current && <PrefabDetail key={current.name} prefab={current} idea={null} onChanged={() => void reload()} onGone={() => { setSelected(null); void reload(); }} />}

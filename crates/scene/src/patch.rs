@@ -143,7 +143,8 @@ fn set_path(v: &mut Value, path: &str, value: Value) {
 fn looks_default(v: &Value) -> bool {
     match v {
         Value::Null => true,
-        Value::Bool(b) => !b,
+        // Both kinds of flag leave out their default (`visible` is true by default, `fixed` false).
+        Value::Bool(_) => true,
         Value::Number(n) => n.as_f64().is_some_and(|x| x == 0.0 || x == 1.0),
         Value::String(s) => s.is_empty() || s == "normal",
         Value::Array(a) => a.is_empty(),
@@ -215,6 +216,8 @@ mod tests {
         let mut s = scene();
         s.apply(&Op::parse_list(r#"[{"op":"patch","group":"cards","fields":{"radius":24,"stroke.width":3}}]"#).unwrap()).unwrap();
         assert!(["card", "card2"].iter().all(|id| s.layer(id).unwrap().stroke.is_some()));
+        s.apply(&Op::parse_list(r#"[{"op":"patch","id":"card","fields":{"visible":false}},{"op":"patch","id":"card","fields":{"visible":true}}]"#).unwrap()).unwrap();
+        assert!(s.layer("card").unwrap().visible);
         let err = s.apply(&Op::parse_list(r#"[{"op":"patch","id":"card","fields":{"gradiant":{"kind":"linear"}}}]"#).unwrap()).unwrap_err();
         assert!(err.1.to_string().contains("no field 'gradiant'"), "{}", err.1);
         let err = s.apply(&Op::parse_list(r#"[{"op":"patch","group":"nope","fields":{"radius":1}}]"#).unwrap()).unwrap_err();

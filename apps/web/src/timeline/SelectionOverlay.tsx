@@ -5,7 +5,6 @@ import {
   type RefObject,
 } from "react";
 import { OpName } from "@motionily/protocol";
-import { ReferenceStrip, useReferences } from "../components/References";
 import { apply, commit, moveOps, preview, resizeOps } from "../editing/direct";
 import {
   groupLayerIds,
@@ -16,33 +15,18 @@ import {
   snapshot,
   unionBounds,
 } from "../editing/groups";
-import { api } from "../api/client";
 import { engineHost } from "../engine/host";
-import { ActivitySource, logActivity, useEditor } from "../store";
-import {
-  GenerateEventKind,
-  GenerateStatus,
-  loadPrefs,
-  TOOL_LABEL,
-  type GenerateState,
-} from "../components/GeneratePanel";
+import { useEditor } from "../store";
 
-const POLL_MS = 1200;
 /** Pointer travel (px) before a press on the selection counts as a drag, not a click. */
 const DRAG_THRESHOLD = 3;
 const MIN_RESIZE = 0.1;
 
 /**
- * Click an object in the preview to select it, then ask the agent about it.
- * The comment travels with the layer id, so the agent reads only that layer.
+ * Click an object in the preview to select it (requests then go to it alone), drag it to move,
+ * drag the corner to resize, double-click to edit its text, Delete to remove it.
  */
-export function SelectionOverlay({
-  canvas,
-  projectId,
-}: {
-  canvas: RefObject<HTMLCanvasElement | null>;
-  projectId: string;
-}) {
+export function SelectionOverlay({ canvas }: { canvas: RefObject<HTMLCanvasElement | null> }) {
   const selected = useEditor((s) => s.selectedLayerId);
   const group = useEditor((s) => s.selectedGroup);
   /** What the selection is called (group name or layer id). */
@@ -55,14 +39,9 @@ export function SelectionOverlay({
     height: number;
     rotation: number;
   } | null>(null);
-  const [text, setText] = useState("");
-  /** Agent run started from this popover, shown live next to the object. */
-  const [run, setRun] = useState<GenerateState | null>(null);
-  const running = run?.status === GenerateStatus.Running;
   /** Bumped while dragging so the box follows the edit. */
   const [tick, setTick] = useState(0);
   const [editingText, setEditingText] = useState<string | null>(null);
-  const refs = useReferences();
 
   // Keyboard: Delete removes the selected layer, Escape deselects. Never while typing.
   useEffect(() => {
@@ -83,7 +62,7 @@ export function SelectionOverlay({
           group
             ? removeGroupOps(group)
             : [{ op: OpName.RemoveLayer, id: label }],
-          `Borra ${label}`,
+          `Removes ${label}`,
         );
         useEditor.setState({ selectedLayerId: null, selectedGroup: null });
       }
@@ -91,15 +70,6 @@ export function SelectionOverlay({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [label, group]);
-
-  useEffect(() => {
-    if (!running) return;
-    const timer = setInterval(
-      () => void api.generateStatus(projectId).then(setRun, () => undefined),
-      POLL_MS,
-    );
-    return () => clearInterval(timer);
-  }, [running, projectId]);
 
   // Hit-test clicks on the canvas.
   useEffect(() => {
@@ -183,7 +153,7 @@ export function SelectionOverlay({
     };
     const up = () => {
       window.removeEventListener("pointermove", move);
-      if (moved) commit(resize ? `Redimensiona ${label}` : `Mueve ${label}`);
+      if (moved) commit(resize ? `Resizes ${label}` : `Moves ${label}`);
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up, { once: true });
@@ -194,39 +164,6 @@ export function SelectionOverlay({
     const l = engineHost.layer(selected);
     return l?.type === "text" ? String(l.text ?? "") : null;
   };
-
-  const send = async () => {
-    const t = text.trim();
-    if (!t || running) return;
-    logActivity(ActivitySource.User, `${label}: ${t}`);
-    setText("");
-    try {
-      // The agent goes straight to this layer instead of re-reading the whole project.
-      setRun(
-        await api.generate(
-          projectId,
-          scopedInstruction(t, time, group, selected),
-          loadPrefs(),
-          refs.refs,
-        ),
-      );
-      refs.clear();
-    } catch (e) {
-      // Agent busy or unavailable: keep the request as a comment for the next run.
-      await api.addComment(projectId, t, time, label).catch(() => undefined);
-      logActivity(
-        ActivitySource.System,
-        e instanceof Error ? e.message : String(e),
-      );
-    }
-  };
-
-  const steps = (run?.events ?? [])
-    .filter((e) => e.kind !== GenerateEventKind.Text)
-    .slice(-4);
-  const thought = [...(run?.events ?? [])]
-    .reverse()
-    .find((e) => e.kind === GenerateEventKind.Text);
 
   return (
     <>
@@ -264,96 +201,19 @@ export function SelectionOverlay({
           />
         )}
       </div>
-      <form
-        className="absolute z-10 flex w-80 flex-wrap items-center gap-1 rounded-xl bg-neutral-900/95 p-1.5 shadow-xl ring-1 ring-white/10"
-        {...refs.handlers}
-        style={{
-          left: Math.max(8, box.left + box.width / 2 - 144),
-          top: box.top + box.height + 8,
-        }}
-        onSubmit={(e) => {
-          e.preventDefault();
-          void send();
-        }}
-      >
-        <span className="shrink-0 rounded-md bg-sky-500/20 px-2 py-1 text-[11px] text-sky-200">
-          {group ? `▣ ${group}` : selected}
-        </span>
-        <input
-          autoFocus
-          disabled={running}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder={
-            running
-              ? "The agent is on it…"
-              : group
-                ? "E.g. redesign it so it looks cleaner"
-                : "Ask for something about this…"
-          }
-          className="min-w-0 flex-1 bg-transparent px-1 text-xs placeholder:text-neutral-500 focus:outline-none"
-        />
-        {!running && <ReferenceStrip r={refs} compact />}
-      </form>
-      {run && run.status !== GenerateStatus.Idle && (
-        <div
-          className="absolute z-10 flex w-64 flex-col gap-1.5 rounded-xl bg-neutral-900/95 p-3 text-xs shadow-xl ring-1 ring-white/10"
-          style={{ left: box.left + box.width + 12, top: box.top }}
-        >
-          <span className="flex items-center gap-2 font-medium">
-            {running && (
-              <span className="size-2 animate-pulse rounded-full bg-emerald-400" />
-            )}
-            {running ? "Working on " : "Done: "}
-            <span className="text-sky-300">
-              {group ? `▣ ${group}` : selected}
-            </span>
-          </span>
-          {steps.map((e, i) => (
-            <span
-              key={i}
-              className={
-                e.kind === GenerateEventKind.Error
-                  ? "text-red-400"
-                  : "text-neutral-400"
-              }
-            >
-              {TOOL_LABEL[e.text] ?? e.text}
-            </span>
-          ))}
-          {(running ? thought?.text : run.summary) && (
-            <span className="line-clamp-4 text-neutral-300">
-              {running ? thought?.text : run.summary}
-            </span>
-          )}
-          {running ? (
-            <button
-              type="button"
-              onClick={() => void api.stopGenerate(projectId).then(setRun)}
-              className="self-start text-neutral-500 hover:text-white"
-            >
-              Stop
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setRun(null)}
-              className="self-start text-neutral-500 hover:text-white"
-            >
-              Close
-            </button>
-          )}
-        </div>
-      )}
     </>
   );
 }
 
-/** A request about one layer or group: the agent goes straight to it instead of re-reading the video. */
-export function scopedInstruction(request: string, time: number, group: string | null, layer: string | null): string {
+/**
+ * A request about one layer, one group or one moment: the agent goes straight to it instead of
+ * re-reading the video.
+ */
+export function scopedInstruction(request: string, time: number, group: string | null, layer: string | null, moment = false): string {
   const at = time.toFixed(1);
   if (group)
     return `Only about group '${group}' (around ${at}s): ${request}. Read it with get_group ${group} and change only that group — to redesign it, remove_group ${group} and add new layers with "group":"${group}" in the same time span and area. Do not touch other layers. Then render_frames at ${at}s to check.`;
   if (layer) return `Only about layer '${layer}' (around ${at}s): ${request}. Read it with get_layer ${layer}, change just that layer, then render_frames at ${at}s to check.`;
+  if (moment) return `About the moment at ${at}s: ${request}. Change only what is on screen around then (get_layout at ${at} lists it), then render_frames at ${at}s to check.`;
   return request;
 }

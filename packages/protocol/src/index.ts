@@ -173,6 +173,9 @@ export const OpName = {
   DefinePrefab: "define_prefab",
   PutProp: "put_prop",
   SetProp: "set_prop",
+  /** Any fields of one or more layers (`id`, `ids`, `group` or `all`); `"a.b"` reaches inside. */
+  Patch: "patch",
+  ReplaceColor: "replace_color",
   SetTiming: "set_timing",
   SetText: "set_text",
   RemoveLayer: "remove_layer",

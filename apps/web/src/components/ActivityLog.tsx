@@ -11,10 +11,10 @@ export function ActivityLog() {
   const activity = useEditor((s) => s.activity);
 
   return (
-    <Section title="Actividad">
+    <Section title="Activity">
       {activity.length === 0 ? (
         <p className="text-xs text-neutral-500">
-          Conecta Claude con <code className="text-neutral-300">pnpm mcp</code> y pídele un vídeo.
+          Nothing yet. Edits by you and the agent show up here.
         </p>
       ) : (
         <ul className="flex flex-col gap-1.5 text-xs">

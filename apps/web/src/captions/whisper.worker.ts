@@ -22,7 +22,7 @@ function load() {
 self.onmessage = async (e: MessageEvent<ToWorker>) => {
   try {
     const model = await load();
-    post({ type: WhisperMsg.Progress, label: "Transcribiendo…", ratio: null });
+    post({ type: WhisperMsg.Progress, label: "Transcribing…", ratio: null });
     const out = await model(e.data.audio, { return_timestamps: "word", language: e.data.language, chunk_length_s: 30, stride_length_s: 5 });
     const chunks = (Array.isArray(out) ? out[0] : out).chunks as WhisperChunk[] | undefined;
     post({ type: WhisperMsg.Done, chunks: chunks ?? [] });

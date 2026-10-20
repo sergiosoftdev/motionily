@@ -93,7 +93,7 @@ function Videos({ brandId }: { brandId: string }) {
                 {v.name}
                 {v.generating && (
                   <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
-                    <span className="size-1.5 animate-pulse rounded-full bg-emerald-400" /> Generando…
+                    <span className="size-1.5 animate-pulse rounded-full bg-emerald-400" /> Generating…
                   </span>
                 )}
               </span>

@@ -107,7 +107,7 @@ export function ReferenceStrip({ r, compact = false }: { r: References; compact?
           <button
             type="button"
             onClick={() => r.remove(url)}
-            aria-label="Quitar referencia"
+            aria-label="Remove reference"
             className="absolute top-0.5 right-0.5 flex size-4 items-center justify-center rounded-full bg-black/80 text-[9px] text-white opacity-0 transition group-hover:opacity-100"
           >
             ✕
@@ -116,7 +116,7 @@ export function ReferenceStrip({ r, compact = false }: { r: References; compact?
       ))}
       {r.pending.map((src) => (
         <span key={src} className={`relative ${size} shrink-0 overflow-hidden rounded-md ring-1 ring-white/15`}>
-          <img src={src} alt="Subiendo referencia" className="size-full animate-pulse object-cover opacity-60" />
+          <img src={src} alt="Uploading reference" className="size-full animate-pulse object-cover opacity-60" />
         </span>
       ))}
       {r.refs.length < MAX_REFERENCES && (

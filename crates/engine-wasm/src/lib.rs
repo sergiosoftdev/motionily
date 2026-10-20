@@ -106,6 +106,12 @@ impl Engine {
         json.to_string()
     }
 
+    /// JSON `{prop: value}` of a layer's animatable numbers at scene time t, or undefined.
+    #[wasm_bindgen(js_name = propValues)]
+    pub fn prop_values(&self, id: &str, t: f32) -> Option<String> {
+        self.scene.prop_values(id, t).map(|v| serde_json::to_string(&v).expect("numbers always serialize"))
+    }
+
     #[wasm_bindgen(js_name = layerJson)]
     pub fn layer_json(&self, id: &str) -> Option<String> {
         self.scene.layer_json(id)

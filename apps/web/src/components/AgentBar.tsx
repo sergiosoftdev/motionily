@@ -19,7 +19,7 @@ export function AgentBar({ g, hasScene, runs }: { g: Generation; hasScene: boole
       <section className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <span className="flex items-center gap-2 text-sm font-medium">
-            <span className="size-2 animate-pulse rounded-full bg-emerald-400" /> Generando
+            <span className="size-2 animate-pulse rounded-full bg-emerald-400" /> Generating
           </span>
           <button type="button" onClick={g.stop} className="rounded-md px-2.5 py-1 text-xs text-neutral-300 ring-1 ring-white/15 hover:bg-white/5 hover:text-white">
             Stop
