@@ -4,7 +4,7 @@ import { api, PrefabKind, type PrefabSummary } from "../api/client";
 import { engineHost } from "../engine/host";
 import { agentBridge } from "../bridge";
 import { EngineStatus, useEditor } from "../store";
-import { PageHeader } from "../shell/AppShell";
+import { MotionilyLayout } from "../shell/MotionilyLayout";
 import { GenerateEventKind, GenerateStatus, loadPrefs, TOOL_LABEL, type GenerateState } from "../components/GeneratePanel";
 
 const KIND_LABEL: Record<PrefabKind, string> = { [PrefabKind.Object]: "Objeto", [PrefabKind.Character]: "Personaje", [PrefabKind.Space]: "Espacio" };
@@ -46,9 +46,29 @@ export function PrefabsScreen() {
   }, []);
 
   const current = prefabs?.find((p) => p.name === selected) ?? null;
+  const listed = !creating && !!prefabs && prefabs.length > 0;
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-6 px-8 py-10">
-      <PageHeader title="Prefabs" subtitle="Objetos, personajes y espacios que el agente ha creado. Se reutilizan en todos tus proyectos." />
+    <MotionilyLayout
+      title="Prefabs"
+      description="Objetos, personajes y espacios que el agente ha creado. Se reutilizan en todos tus proyectos."
+      sidebar={
+        listed &&
+        prefabs.map((p) => (
+          <button
+            key={p.name}
+            type="button"
+            onClick={() => setSelected(p.name)}
+            className={`flex w-full flex-col rounded-lg px-3 py-2 text-left ${p.name === selected ? "bg-neutral-800" : "hover:bg-neutral-900"}`}
+          >
+            <span className="text-sm font-medium">{p.name}</span>
+            <span className="text-xs text-neutral-500">
+              {KIND_LABEL[p.kind]} · v{p.version}
+              {p.parent ? ` · de ${p.parent}` : ""}
+            </span>
+          </button>
+        ))
+      }
+    >
       <form
         className="flex gap-2"
         onSubmit={(e) => {
@@ -68,50 +88,27 @@ export function PrefabsScreen() {
         </button>
       </form>
       {creating && (
-        <div className="flex min-h-[560px] gap-6">
-          <PrefabDetail
-            prefab={null}
-            idea={idea}
-            onChanged={() => void reload()}
-            onGone={() => {
-              setCreating(false);
-              setIdea("");
-              void api.myPrefabs().then((p) => {
-                setPrefabs(p);
-                setSelected(p[0]?.name ?? null);
-              });
-            }}
-          />
-        </div>
+        <PrefabDetail
+          prefab={null}
+          idea={idea}
+          onChanged={() => void reload()}
+          onGone={() => {
+            setCreating(false);
+            setIdea("");
+            void api.myPrefabs().then((p) => {
+              setPrefabs(p);
+              setSelected(p[0]?.name ?? null);
+            });
+          }}
+        />
       )}
       {!creating && prefabs?.length === 0 && (
         <p className="rounded-xl border border-dashed border-neutral-800 p-10 text-center text-sm text-neutral-400">
           Aún no hay prefabs. Pídele a un vídeo algo en 3D (una camilla, una fisio, una consulta) y el agente los irá guardando aquí.
         </p>
       )}
-      {!creating && prefabs && prefabs.length > 0 && (
-        <div className="flex min-h-[560px] gap-6">
-          <ul className="flex w-64 shrink-0 flex-col gap-0.5 overflow-y-auto">
-            {prefabs.map((p) => (
-              <li key={p.name}>
-                <button
-                  type="button"
-                  onClick={() => setSelected(p.name)}
-                  className={`flex w-full flex-col rounded-lg px-3 py-2 text-left ${p.name === selected ? "bg-neutral-800" : "hover:bg-neutral-900"}`}
-                >
-                  <span className="text-sm font-medium">{p.name}</span>
-                  <span className="text-xs text-neutral-500">
-                    {KIND_LABEL[p.kind]} · v{p.version}
-                    {p.parent ? ` · de ${p.parent}` : ""}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          {current && <PrefabDetail key={current.name} prefab={current} idea={null} onChanged={() => void reload()} onGone={() => { setSelected(null); void reload(); }} />}
-        </div>
-      )}
-    </div>
+      {listed && current && <PrefabDetail key={current.name} prefab={current} idea={null} onChanged={() => void reload()} onGone={() => { setSelected(null); void reload(); }} />}
+    </MotionilyLayout>
   );
 }
 

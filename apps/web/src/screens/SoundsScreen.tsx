@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, mediaUrl, type SoundRow } from "../api/client";
-import { PageHeader } from "../shell/AppShell";
+import { MotionilyLayout } from "../shell/MotionilyLayout";
 import { renderSound, toWav, playBuffer, type SoundRecipe } from "../audio/synth";
 import { CATEGORY_LABEL, STARTER_PACK, type SoundCategory } from "../audio/starterPack";
 
@@ -67,23 +67,22 @@ export function SoundsScreen() {
   };
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-8 px-8 py-10">
-      <PageHeader
-        title="Sonidos"
-        subtitle="Efectos para motion graphics sintetizados en Motionily. Se guardan en tu biblioteca y Claude los coloca en tus vídeos."
-        action={
-          (sounds?.length ?? 0) < STARTER_PACK.length && (
-            <button
-              type="button"
-              disabled={packProgress !== null}
-              onClick={() => void installPack()}
-              className="shrink-0 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-200 disabled:opacity-60"
-            >
-              {packProgress !== null ? `Sintetizando… ${Math.round(packProgress * 100)}%` : `Crear pack inicial (${STARTER_PACK.length})`}
-            </button>
-          )
-        }
-      />
+    <MotionilyLayout
+      title="Sonidos"
+      description="Efectos para motion graphics sintetizados en Motionily. Se guardan en tu biblioteca y Claude los coloca en tus vídeos."
+      actions={
+        (sounds?.length ?? 0) < STARTER_PACK.length && (
+          <button
+            type="button"
+            disabled={packProgress !== null}
+            onClick={() => void installPack()}
+            className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-200 disabled:opacity-60"
+          >
+            {packProgress !== null ? `Sintetizando… ${Math.round(packProgress * 100)}%` : `Crear pack inicial (${STARTER_PACK.length})`}
+          </button>
+        )
+      }
+    >
 
       <section className="flex flex-col gap-3">
         <form
@@ -146,7 +145,7 @@ export function SoundsScreen() {
           <SoundCard key={s.name} sound={s} onDelete={() => void api.deleteSound(s.name).then(() => setSounds((rows) => rows?.filter((r) => r.name !== s.name) ?? null))} />
         ))}
       </div>
-    </div>
+    </MotionilyLayout>
   );
 }
 

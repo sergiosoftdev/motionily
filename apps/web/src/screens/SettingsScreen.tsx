@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useSession } from "../session";
-import { PageHeader } from "../shell/AppShell";
+import { MotionilyLayout } from "../shell/MotionilyLayout";
 import { AgentEffort, AgentModel, EFFORT_LABEL, loadPrefs, MODEL_LABEL, savePrefs, type AgentPrefs } from "../components/GeneratePanel";
 
 export function SettingsScreen() {
@@ -14,8 +14,7 @@ export function SettingsScreen() {
   };
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-10 px-8 py-10">
-      <PageHeader title="Configuración" />
+    <MotionilyLayout title="Configuración" description="Tu cuenta y cómo trabaja el agente por defecto.">
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-semibold">Cuenta</h2>
         <p className="text-sm text-neutral-300">{user?.name}</p>
@@ -46,6 +45,6 @@ export function SettingsScreen() {
           </select>
         </div>
       </section>
-    </div>
+    </MotionilyLayout>
   );
 }

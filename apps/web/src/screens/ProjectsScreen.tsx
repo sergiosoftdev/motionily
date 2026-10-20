@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type BrandSummary } from "../api/client";
 import { href, BrandTab, navigate, RouteName } from "../router";
-import { PageHeader } from "../shell/AppShell";
+import { MotionilyLayout } from "../shell/MotionilyLayout";
 
 /** The user's projects: one per brand/product, each with its kit and its videos. */
 export function ProjectsScreen() {
@@ -21,18 +21,17 @@ export function ProjectsScreen() {
   };
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-8 px-8 py-10">
-      <PageHeader
-        title="Proyectos"
-        subtitle="Un proyecto por marca o producto: su kit (logos, capturas, paletas) y sus vídeos."
-        action={
-          !creating && (
-            <button type="button" onClick={() => setCreating(true)} className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-200">
-              Nuevo proyecto
-            </button>
-          )
-        }
-      />
+    <MotionilyLayout
+      title="Proyectos"
+      description="Un proyecto por marca o producto: su kit (logos, capturas, paletas) y sus vídeos."
+      actions={
+        !creating && (
+          <button type="button" onClick={() => setCreating(true)} className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-200">
+            Nuevo proyecto
+          </button>
+        )
+      }
+    >
       {creating && (
         <form
           className="flex gap-2"
@@ -57,7 +56,7 @@ export function ProjectsScreen() {
         </form>
       )}
       {error && <p className="text-sm text-red-400">{error}</p>}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="-mx-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {brands?.map((b) => {
           const p = b.palettes[0];
           return (
@@ -75,6 +74,6 @@ export function ProjectsScreen() {
           );
         })}
       </div>
-    </div>
+    </MotionilyLayout>
   );
 }

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Brick, PalettePayload, ProjectListItem } from "@motionily/protocol";
 import { api, AssetKind, mediaUrl, type BrandKit, type BrandPalette } from "../api/client";
 import { BrandTab, href, navigate, RouteName } from "../router";
-import { PageHeader } from "../shell/AppShell";
+import { MotionilyLayout } from "../shell/MotionilyLayout";
 import { Thumb } from "../components/style/Thumb";
 
 const KIND_LABEL: Record<AssetKind, string> = {
@@ -11,6 +11,8 @@ const KIND_LABEL: Record<AssetKind, string> = {
   [AssetKind.Photo]: "Foto",
   [AssetKind.Other]: "Otro",
 };
+
+const TAB_LABEL: Record<BrandTab, string> = { [BrandTab.Videos]: "Vídeos", [BrandTab.Kit]: "Kit de marca" };
 
 const EMPTY_PALETTE: BrandPalette = { name: "Paleta", background: "#ffffff", surface: "#f4f4f5", primary: "#16a34a", accent: "#f59e0b", text: "#111827" };
 const PALETTE_SLOTS = ["background", "surface", "primary", "accent", "text"] as const;
@@ -24,13 +26,10 @@ export function BrandScreen({ id, tab }: { id: string; tab: BrandTab }) {
     api.brand(id).then(setKit, (e: Error) => setError(e.message));
   }, [id]);
 
-  if (error) return <p className="p-10 text-sm text-red-400">{error}</p>;
-  if (!kit) return null;
-
   return (
-    <div className="mx-auto flex max-w-5xl flex-col gap-6 px-8 py-10">
-      <PageHeader
-        title={
+    <MotionilyLayout
+      title={
+        kit && (
           <input
             key={kit.name}
             defaultValue={kit.name}
@@ -38,31 +37,21 @@ export function BrandScreen({ id, tab }: { id: string; tab: BrandTab }) {
             className="w-full rounded-md bg-transparent focus:bg-neutral-900 focus:outline-none"
             aria-label="Nombre del proyecto"
           />
-        }
-        action={
-          tab === BrandTab.Videos && (
-            <a href={href({ name: RouteName.NewVideo, brandId: id })} className="shrink-0 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-200">
-              Nuevo vídeo
-            </a>
-          )
-        }
-      />
-      <div className="flex gap-1">
-        {[
-          [BrandTab.Videos, "Vídeos"],
-          [BrandTab.Kit, "Kit de marca"],
-        ].map(([t, label]) => (
-          <a
-            key={t}
-            href={href({ name: RouteName.Brand, id, tab: t as BrandTab })}
-            className={`rounded-md px-3 py-1.5 text-sm ${tab === t ? "bg-neutral-800 text-white" : "text-neutral-400 hover:text-white"}`}
-          >
-            {label}
+        )
+      }
+      actions={
+        kit &&
+        tab === BrandTab.Videos && (
+          <a href={href({ name: RouteName.NewVideo, brandId: id })} className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-200">
+            Nuevo vídeo
           </a>
-        ))}
-      </div>
-      {tab === BrandTab.Videos ? <Videos brandId={id} /> : <Kit kit={kit} onKit={setKit} />}
-    </div>
+        )
+      }
+      tabs={kit ? Object.values(BrandTab).map((t) => ({ label: TAB_LABEL[t], href: href({ name: RouteName.Brand, id, tab: t }), active: tab === t })) : undefined}
+    >
+      {error && <p className="text-sm text-red-400">{error}</p>}
+      {kit && (tab === BrandTab.Videos ? <Videos brandId={id} /> : <Kit kit={kit} onKit={setKit} />)}
+    </MotionilyLayout>
   );
 }
 
