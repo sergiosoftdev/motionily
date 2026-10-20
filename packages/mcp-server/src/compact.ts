@@ -14,7 +14,10 @@
  * Values: number · tween `from>to@t0-t1[:ease]` · keys `t:v[:ease],t:v…` (t from the layer start)
  *   · expression `(…)` with t, T, i, n, sin, noise, wiggle, spring… (see docs/scene-reference.md).
  * Eases: l i o io b h · eo ei eio (expo) · el (elastic) · bo (bounce).
- * Colors: palette slot (background|surface|primary|accent|text) or #rrggbb[aa].
+ * Colors: palette slot (background|surface|primary|accent|text) or #rrggbb[aa]; fill keys `0:#fff,1.2:primary:eo`.
+ * Motion path `mp="M…" mpp=0>1@0-2 orient=1` · text on path `tp="M…" tpo=-900>0@0-1.5:eo` · time remap `time=(mod(t,2))`.
+ * Effects: shadow glow blur · color=HUE,SAT,BRIGHT,CONTRAST · rgb=PX · wave=AMP,LEN,SPEED · grain=AMT · mblur=SHUTTER,SAMPLES
+ *   · adj=1 (adjustment layer) · matte=id[:inv|:luma|:lumainv].
  */
 
 type Keyframe = { t: number; v: number; ease?: string; bezier?: number[] };
@@ -51,6 +54,7 @@ const NUM: Record<string, string> = {
   ts: "trim_start",
   te: "trim_end",
   to: "trim_offset",
+  time: "time",
 };
 const NUM_SHORT: Record<string, string> = Object.fromEntries(Object.entries(NUM).map(([k, v]) => [v, k]));
 /** Plain keys copied as numbers or strings. */
@@ -94,6 +98,26 @@ export function parseValue(v: string, line: string): Animated {
 function color(v: string): string {
   return v;
 }
+
+/** A color, or color keys `t:color[:ease],…`. */
+function colorAnim(v: string, line: string): unknown {
+  if (!v.includes(":")) return color(v);
+  return v.split(",").map((k) => {
+    const [t, c, e] = k.split(":");
+    if (!c) throw new Error(`color keys are t:color[:ease] in '${v}': ${line}`);
+    const es = ease(e);
+    return { t: num(t!, line), c: color(c), ...(es ? { ease: es } : {}) };
+  });
+}
+
+/** A quoted value inside key="…". */
+function quoted(v: string, line: string): string {
+  if (!v.startsWith('"')) throw new Error(`expected a quoted path, like key="M0 0 L100 0": ${line}`);
+  return JSON.parse(v) as string;
+}
+
+const MATTE_MODES: Record<string, string> = { inv: "alpha_inverted", luma: "luma", lumainv: "luma_inverted" };
+const MATTE_SHORT: Record<string, string> = Object.fromEntries(Object.entries(MATTE_MODES).map(([k, v]) => [v, k]));
 
 /** Split a line into tokens, keeping "quoted", (parenthesized) and {braced} parts whole. */
 function tokenize(line: string): string[] {
@@ -183,7 +207,7 @@ export function parseLine(line: string): Layer {
     if (eq < 1) throw new Error(`expected key=value, got '${tok}': ${line}`);
     const [k, v] = [tok.slice(0, eq), tok.slice(eq + 1)];
     if (NUM[k]) layer[NUM[k]] = parseValue(v, line);
-    else if (k === "fill") layer.fill = color(v);
+    else if (k === "fill") layer.fill = colorAnim(v, line);
     else if (k === "g") layer.group = v;
     else if (PLAIN_NUM[k]) layer[PLAIN_NUM[k]] = num(v, line);
     else if (PLAIN_STR.includes(k)) layer[k] = v;
@@ -200,8 +224,25 @@ export function parseLine(line: string): Layer {
     } else if (k === "blur") effects.push({ fx: "blur", radius: parseValue(v, line) });
     else if (k === "matte") {
       const [src, mode] = v.split(":");
-      layer.matte = { layer: src, ...(mode === "inv" ? { mode: "alpha_inverted" } : {}) };
-    } else if (k === "vis") layer.visible = v !== "0" && v !== "false";
+      if (mode && !MATTE_MODES[mode]) throw new Error(`matte mode is inv, luma or lumainv: ${line}`);
+      layer.matte = { layer: src, ...(mode ? { mode: MATTE_MODES[mode] } : {}) };
+    } else if (k === "color") {
+      const [hue, sat, bright, contrast] = v.split(",");
+      effects.push({ fx: "color", hue: parseValue(hue || "0", line), ...(sat ? { saturation: parseValue(sat, line) } : {}), ...(bright ? { brightness: parseValue(bright, line) } : {}), ...(contrast ? { contrast: parseValue(contrast, line) } : {}) });
+    } else if (k === "rgb") effects.push({ fx: "chromatic", amount: parseValue(v, line) });
+    else if (k === "grain") effects.push({ fx: "grain", amount: parseValue(v, line) });
+    else if (k === "wave") {
+      const [amp, len, speed] = v.split(",");
+      effects.push({ fx: "wave", amplitude: parseValue(amp!, line), ...(len ? { wavelength: parseValue(len, line) } : {}), ...(speed ? { speed: parseValue(speed, line) } : {}) });
+    } else if (k === "mblur") {
+      const [shutter, samples] = v.split(",");
+      effects.push({ fx: "motion_blur", ...(shutter && shutter !== "1" ? { shutter: num(shutter, line) } : {}), ...(samples ? { samples: num(samples, line) } : {}) });
+    } else if (k === "adj") layer.adjustment = v !== "0" && v !== "false";
+    else if (k === "mp") layer.motion_path = { ...(layer.motion_path as object), d: quoted(v, line) };
+    else if (k === "mpp") layer.motion_path = { ...(layer.motion_path as object), progress: parseValue(v, line) };
+    else if (k === "orient") layer.motion_path = { ...(layer.motion_path as object), orient: v !== "0" && v !== "false" };
+    else if (k === "tp") layer.path = { ...(layer.path as object), d: quoted(v, line) };
+    else if (k === "tpo") layer.path = { ...(layer.path as object), offset: parseValue(v, line) }; else if (k === "vis") layer.visible = v !== "0" && v !== "false";
     else if (k === "filled") layer.filled = v !== "0" && v !== "false";
     else if (k === "pivot") layer.pivot = list(v, line, 2).map((n) => num(n, line));
     else if (k === "rep") {
@@ -221,6 +262,8 @@ export function parseLine(line: string): Layer {
   Object.assign(layer, merge);
   if (type !== "path" && (layer.w === undefined || layer.h === undefined)) throw new Error(`w and h are required: ${line}`);
   if (type === "path" && typeof layer.d !== "string") throw new Error(`path needs its "M… path data" in quotes: ${line}`);
+  if (layer.motion_path && typeof (layer.motion_path as { d?: unknown }).d !== "string") throw new Error(`mpp/orient need mp="M… path": ${line}`);
+  if (layer.path && typeof (layer.path as { d?: unknown }).d !== "string") throw new Error(`tpo needs tp="M… path": ${line}`);
   return layer;
 }
 
@@ -283,6 +326,11 @@ function formatEffects(list: Record<string, unknown>[]): string[] {
   if (new Set(kinds).size !== kinds.length) throw new Error("needs JSON");
   return list.map((e) => {
     if (e.fx === "blur") return `blur=${inner(e.radius)}`;
+    if (e.fx === "chromatic") return `rgb=${inner(e.amount)}`;
+    if (e.fx === "grain") return `grain=${inner(e.amount)}`;
+    if (e.fx === "color") return `color=${[inner(e.hue ?? 0), inner(e.saturation ?? 1), inner(e.brightness ?? 0), inner(e.contrast ?? 1)].join(",")}`;
+    if (e.fx === "wave") return `wave=${[inner(e.amplitude), inner(e.wavelength ?? 200), inner(e.speed ?? 1)].join(",")}`;
+    if (e.fx === "motion_blur") return `mblur=${r3(Number(e.shutter ?? 180))},${Number(e.samples ?? 8)}`;
     if (e.fx === "glow") return `glow=${[inner(e.radius), inner(e.strength ?? 1), ...(e.color ? [formatColor(e.color)] : [])].join(",")}`;
     if (e.fx === "shadow") {
       const vals = [inner(e.x ?? 0), inner(e.y ?? 18), inner(e.blur ?? 36), formatColor(e.color ?? "#0f121f"), inner(e.opacity ?? 0.25)];
@@ -304,7 +352,17 @@ const SHORT_FORMS: [string, (v: never) => string[]][] = [
   ["stroke", formatStroke],
   ["effects", formatEffects],
   ["repeat", formatRepeat],
-  ["matte", (m: { layer: string; mode?: string }) => [`matte=${m.layer}${m.mode === "alpha_inverted" ? ":inv" : ""}`]],
+  ["matte", (m: { layer: string; mode?: string }) => [`matte=${m.layer}${m.mode && m.mode !== "alpha" ? `:${MATTE_SHORT[m.mode]}` : ""}`]],
+  ["adjustment", (a: boolean) => (a ? ["adj=1"] : [])],
+  [
+    "motion_path",
+    (m: { d: string; progress?: Animated; orient?: boolean }) => [
+      `mp=${JSON.stringify(m.d)}`,
+      ...(m.progress !== undefined ? [`mpp=${formatValue(m.progress)}`] : []),
+      ...(m.orient ? ["orient=1"] : []),
+    ],
+  ],
+  ["path", (p: { d: string; offset?: Animated }) => [`tp=${JSON.stringify(p.d)}`, ...(p.offset !== undefined ? [`tpo=${formatValue(p.offset)}`] : [])]],
   ["pivot", (p: number[]) => [`pivot=${p.map(r3).join(",")}`]],
 ];
 
@@ -326,7 +384,14 @@ export function formatLayer(l: Layer): string {
       extra[long] = v;
     }
   }
-  if (l.fill !== undefined) parts.push(`fill=${formatColor(l.fill)}`);
+  if (l.fill !== undefined) {
+    if (!Array.isArray(l.fill) || typeof l.fill[0] === "number") parts.push(`fill=${formatColor(l.fill)}`);
+    else {
+      const keys = l.fill as { t: number; c: unknown; ease?: string; bezier?: unknown }[];
+      if (keys.some((k) => k.bezier)) extra.fill = l.fill;
+      else parts.push(`fill=${keys.map((k, i) => `${r3(k.t)}:${formatColor(k.c)}${k.ease && i < keys.length - 1 ? `:${EASE_SHORT[k.ease] ?? k.ease}` : ""}`).join(",")}`);
+    }
+  }
   done.add("fill");
   for (const [short, long] of Object.entries(PLAIN_NUM)) {
     if (l[long] !== undefined && l[long] !== 0) parts.push(`${short}=${l[long]}`);

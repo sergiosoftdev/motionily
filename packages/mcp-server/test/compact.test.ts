@@ -65,6 +65,24 @@ test("reads gradients, strokes, effects, repeaters and mattes back in short form
   assert.deepEqual(parseLine(formatLayer(two)), two);
 });
 
+test("color keys, motion paths, text on paths, time remap and the new effects", () => {
+  const line =
+    'rocket path 0.3 fill=0:#ff4d6d:eo,1.5:primary mp="M150 900 C600 150 1200 1050 1750 250" mpp=0>1@0-1.4 orient=1 time=(mod(t, 2)) mblur=360,12 rgb=4 grain=0.08 wave=10,180,1 color=40,1.4,0,1 adj=1 matte=m:luma "M40 0 L-30 -24 L-30 24 Z"';
+  const l = parseLine(line);
+  assert.deepEqual(l.fill, [{ t: 0, c: "#ff4d6d", ease: "expo_out" }, { t: 1.5, c: "primary" }]);
+  assert.deepEqual(l.motion_path, { d: "M150 900 C600 150 1200 1050 1750 250", progress: [{ t: 0, v: 0, ease: "ease_in_out" }, { t: 1.4, v: 1 }], orient: true });
+  assert.equal(l.time, "mod(t, 2)");
+  assert.deepEqual(l.matte, { layer: "m", mode: "luma" });
+  assert.equal((l.effects as unknown[]).length, 5);
+  const out = formatLayer(l);
+  assert.ok(!out.includes("{"), `no JSON tail: ${out}`);
+  assert.deepEqual(parseLine(out), l);
+  const t = parseLine('t text 0 w=1600 h=200 size=84 tp="M-750 120 C-350 -260 350 360 750 -60" tpo=-1700>0@0-1.6:eo "Sigue el trazado"');
+  assert.deepEqual(t.path, { d: "M-750 120 C-350 -260 350 360 750 -60", offset: [{ t: 0, v: -1700, ease: "expo_out" }, { t: 1.6, v: 0 }] });
+  assert.deepEqual(parseLine(formatLayer(t)), t);
+  assert.throws(() => parseLine("a rect 0 w=1 h=1 mpp=0>1@0-1"), /mp=/);
+});
+
 test("explains mistakes", () => {
   assert.throws(() => parseLine("a blob 0-1 w=1 h=1"), /unknown type/);
   assert.throws(() => parseLine("a rect 0-1 w=1"), /w and h/);

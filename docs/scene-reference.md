@@ -33,7 +33,8 @@ Everything below is a JSON field of any layer; add_layers has short keys for it 
 
 **Expressions** — any animatable number can be a string formula instead of a number/keyframes:
 `"x": "540 + 40*sin(t*2)"`, `"rotation": "wiggle(1.5, 4)"`, `"scale": "spring(t, 2.2, 7)"`,
-`"opacity": "0.2 + 0.1*sin(T*3 + i)"`. Variables: `t` layer seconds, `T` scene seconds, `i`/`n` repeater copy
+`"opacity": "0.2 + 0.1*sin(T*3 + i)"`, `"x": "card.x(T - 0.15)"` (another layer's x/y/w/h/scale/rotation/opacity,
+now or at a given scene time: follow-through, trails, echoes). Variables: `t` layer seconds, `T` scene seconds, `i`/`n` repeater copy
 index/count, `pi`. Functions: sin cos tan asin acos atan atan2 abs sign floor ceil round fract sqrt pow exp log
 min max clamp lerp mix smoothstep step mod noise(x) rand(x) wiggle(freq,amp[,seed]) ease ease_in ease_out back
 elastic bounce spring(t[,freq,damping]) pulse(x,period) saw tri; operators + - * / % ^ < >.
@@ -42,7 +43,8 @@ elastic bounce spring(t[,freq,damping]) pulse(x,period) saw tri; operators + - *
 expo_in_out, elastic, bounce — or `"bezier":[x1,y1,x2,y2]` (CSS cubic-bezier) on the keyframe.
 
 **Paint**
-- `"fill"`: palette slot or `"#rrggbb"` / `"#rrggbbaa"` (also `[r,g,b,a]`).
+- `"fill"`: palette slot or `"#rrggbb"` / `"#rrggbbaa"` (also `[r,g,b,a]`), or color keyframes
+  `[{"t":0,"c":"#ffffff"},{"t":0.6,"c":"primary","ease":"expo_out"}]` (also for stroke colors and gradient stops).
 - `"gradient": {"kind":"linear","angle":0,"stops":[[0,"#0f1733"],[0.45,"#ff3d5a"],[1,"#ffa23d"]]}` (up to 4 stops;
   angle in degrees, 0 = left→right) or `{"kind":"radial","center":[0.5,0.5],"radius":1,"stops":[…]}`. Works on
   shapes, text (across the block, per letter) and paths.
@@ -51,14 +53,20 @@ expo_in_out, elastic, bounce — or `"bezier":[x1,y1,x2,y2]` (CSS cubic-bezier) 
 
 **Effects** (`"effects": [...]`, applied in order on the layer's own pixels):
 `{"fx":"shadow","x":0,"y":30,"blur":70,"color":"#ff6f91","opacity":0.35}` · `{"fx":"glow","radius":18,"strength":1.6,"color":"#ff6f3c"}` ·
-`{"fx":"blur","radius":12}`. `"blend": "add" | "screen" | "multiply"` (add = light: glows, flares, trails on dark).
-`"matte": {"layer":"mask_id","mode":"alpha"|"alpha_inverted"}` masks this layer with another layer's alpha
-(reveals, text-through-shape); set `"visible": false` on the matte layer.
+`{"fx":"blur","radius":12}` · `{"fx":"motion_blur","shutter":180,"samples":8}` · `{"fx":"color","hue":30,"saturation":1.2,
+"brightness":0,"contrast":1.1}` · `{"fx":"chromatic","amount":6}` · `{"fx":"wave","amplitude":8,"wavelength":180,"speed":1}` ·
+`{"fx":"grain","amount":0.08}`. `"adjustment": true` makes the layer an adjustment layer: its effects apply to
+everything below it, inside its own shape. `"blend": "add" | "screen" | "multiply"` (add = light: glows, flares, trails on dark).
+`"matte": {"layer":"mask_id","mode":"alpha"|"alpha_inverted"|"luma"|"luma_inverted"}` masks this layer with another
+layer's alpha or brightness (reveals, text-through-shape, gradient wipes); set `"visible": false` on the matte layer.
 
 **Structure**
 - `"parent": "layer_id"` — inherit position/rotation/scale; x/y become relative to the parent's center. Invisible
   parents (`"visible": false`) are nulls: a "camera" null at x=0,y=0 with `"pivot":[cx,cy]` keeps children in
   absolute coordinates and scales/pans them all (push-ins, parallax with several nulls at different speeds).
+- `"motion_path": {"d":"M150 900 C600 150 1200 1050 1750 250","progress":[{"t":0,"v":0},{"t":1.2,"v":1}],"orient":true}`
+  — moves the layer along a path (scene pixels; x/y add an offset), `orient` turns it with the path.
+- `"time": "mod(t, 1.2)"` — time remap: the layer's own clock (loops, `"t*0.5"` slow motion, keys to freeze/reverse).
 - `"pivot": [px, py]` — point (relative to the center) the layer rotates/scales around.
 - `"repeat": {"count":60,"x":145,"y":160,"columns":12,"rotation":0,"scale":1,"opacity":1,"delay":0.02}` — copies
   in a row/grid/radial burst; each copy can differ through expressions using `i`.
@@ -66,10 +74,13 @@ expo_in_out, elastic, bounce — or `"bezier":[x1,y1,x2,y2]` (CSS cubic-bezier) 
 **Paths** — `{"id":"link","type":"path","d":"M330 260 C480 260 520 420 560 470","stroke":{…},"trim_start":0,
 "trim_end":[{"t":0,"v":0,"ease":"ease_out"},{"t":0.9,"v":1}],"trim_offset":0,"filled":false}`. Coordinates are
 relative to the layer's x/y (default 0,0 = scene coordinates). SVG commands M L H V C S Q T A Z.
+Shape morph: `"morph": [{"t":0,"d":"M…"},{"t":0.8,"d":"M…","ease":"expo_in_out"}]` blends between shapes (any
+point counts; subpaths pair in order).
 
 **Text extras** — `"letter_spacing": -4`, and per-unit animation:
 `"animate": {"by":"char|word|line","stagger":0.035,"duration":0.5,"delay":0,"ease":"expo_out","reverse":false,
-"from":{"x":0,"y":60,"scale":0.8,"rotation":0,"opacity":0}}` (each unit eases from `from` to rest).
+"from":{"x":0,"y":60,"scale":0.8,"rotation":0,"opacity":0}}` (each unit eases from `from` to rest). Text on a path: `"path": {"d":"M-700 0 C-300 -250 300 250 700 0","offset":0}`
+(relative to x/y; animate `offset` in px to make it crawl along).
 
 See `examples/startup-look.scene.json` in the repo for a full scene using all of this.
 

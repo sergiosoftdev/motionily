@@ -1,0 +1,289 @@
+{
+ "width": 1920,
+ "height": 1080,
+ "fps": 30,
+ "duration": 6,
+ "layers": [
+  {
+   "id": "bg",
+   "type": "shape",
+   "shape": "rect",
+   "x": 960,
+   "y": 540,
+   "w": 1920,
+   "h": 1080,
+   "fill": [
+    {
+     "t": 0,
+     "c": "#f4efff",
+     "ease": "linear"
+    },
+    {
+     "t": 6,
+     "c": "#fff0e6"
+    }
+   ]
+  },
+  {
+   "id": "bg_note",
+   "type": "text",
+   "text": "After Effects toolbox",
+   "x": 1700,
+   "y": 1030,
+   "w": 400,
+   "h": 50,
+   "size": 26,
+   "fill": "#1d1b3a80"
+  },
+  {
+   "id": "blob",
+   "type": "shape",
+   "shape": "ellipse",
+   "x": 1400,
+   "y": 300,
+   "w": 900,
+   "h": 700,
+   "soft": 250,
+   "fill": [
+    {
+     "t": 0,
+     "c": "#b9c7ff",
+     "ease": "ease_in_out"
+    },
+    {
+     "t": 3,
+     "c": "#ffb3d1",
+     "ease": "ease_in_out"
+    },
+    {
+     "t": 6,
+     "c": "#ffd9a8"
+    }
+   ]
+  },
+  {
+   "id": "trail",
+   "type": "path",
+   "d": "M150 900 C600 150 1200 1050 1750 250",
+   "stroke": {
+    "width": 3,
+    "color": "#7a6cff",
+    "dash": [
+     10,
+     12
+    ]
+   },
+   "fill": "#7a6cff"
+  },
+  {
+   "id": "rocket",
+   "type": "path",
+   "d": "M40 0 L-30 -24 L-16 0 L-30 24 Z",
+   "filled": true,
+   "fill": "#ff4d6d",
+   "start": 0.3,
+   "motion_path": {
+    "d": "M150 900 C600 150 1200 1050 1750 250",
+    "progress": [
+     {
+      "t": 0,
+      "v": 0,
+      "ease": "ease_in_out"
+     },
+     {
+      "t": 1.4,
+      "v": 1
+     }
+    ],
+    "orient": true
+   },
+   "scale": 2,
+   "effects": [
+    {
+     "fx": "motion_blur",
+     "shutter": 360,
+     "samples": 12
+    }
+   ]
+  },
+  {
+   "id": "shape",
+   "type": "path",
+   "x": 420,
+   "y": 330,
+   "d": "M0 -150 A150 150 0 1 1 0 150 A150 150 0 1 1 0 -150 Z",
+   "filled": true,
+   "gradient": {
+    "kind": "linear",
+    "angle": 45,
+    "stops": [
+     [
+      0,
+      "#ff7a59"
+     ],
+     [
+      1,
+      "#7a6cff"
+     ]
+    ]
+   },
+   "morph": [
+    {
+     "t": 1,
+     "d": "M0 -150 A150 150 0 1 1 0 150 A150 150 0 1 1 0 -150 Z",
+     "ease": "expo_in_out"
+    },
+    {
+     "t": 2.2,
+     "d": "M0.0 -150.0 L36.4 -50.2 L142.7 -46.4 L59.0 19.2 L88.2 121.4 L0.0 62.0 L-88.2 121.4 L-59.0 19.2 L-142.7 -46.4 L-36.4 -50.2 Z"
+    }
+   ],
+   "effects": [
+    {
+     "fx": "shadow",
+     "y": 20,
+     "blur": 40,
+     "color": "#7a6cff",
+     "opacity": 0.35
+    }
+   ]
+  },
+  {
+   "id": "lmask",
+   "type": "shape",
+   "shape": "rect",
+   "x": 960,
+   "y": 780,
+   "w": 1300,
+   "h": 220,
+   "visible": false,
+   "gradient": {
+    "kind": "linear",
+    "angle": 0,
+    "stops": [
+     [
+      0,
+      "#000000"
+     ],
+     [
+      1,
+      "#ffffff"
+     ]
+    ]
+   }
+  },
+  {
+   "id": "title",
+   "type": "text",
+   "text": "Luma matte",
+   "x": 960,
+   "y": 780,
+   "w": 1300,
+   "h": 220,
+   "size": 170,
+   "fill": "#1d1b3a",
+   "matte": {
+    "layer": "lmask",
+    "mode": "luma"
+   }
+  },
+  {
+   "id": "dot",
+   "type": "shape",
+   "shape": "ellipse",
+   "x": 1650,
+   "w": 60,
+   "h": 60,
+   "fill": "#22c55e",
+   "time": "mod(t, 1)",
+   "y": [
+    {
+     "t": 0,
+     "v": 560,
+     "ease": "ease_out"
+    },
+    {
+     "t": 0.5,
+     "v": 420,
+     "ease": "ease_in"
+    },
+    {
+     "t": 1,
+     "v": 560
+    }
+   ]
+  },
+  {
+   "id": "curvy",
+   "type": "text",
+   "text": "Texto que sigue el trazado",
+   "x": 960,
+   "y": 160,
+   "w": 1600,
+   "h": 200,
+   "size": 84,
+   "fill": "#2b2160",
+   "gradient": {
+    "kind": "linear",
+    "angle": 0,
+    "stops": [
+     [
+      0,
+      "#7a6cff"
+     ],
+     [
+      1,
+      "#ff5a7a"
+     ]
+    ]
+   },
+   "path": {
+    "d": "M-750 60 C-350 -120 350 160 750 -40",
+    "offset": [
+     {
+      "t": 0,
+      "v": -1700,
+      "ease": "expo_out"
+     },
+     {
+      "t": 1.6,
+      "v": 0
+     }
+    ]
+   }
+  },
+  {
+   "id": "adj",
+   "type": "shape",
+   "shape": "rect",
+   "x": 960,
+   "y": 540,
+   "w": 1920,
+   "h": 1080,
+   "start": 4,
+   "adjustment": true,
+   "fill": "#ffffff",
+   "effects": [
+    {
+     "fx": "chromatic",
+     "amount": 6
+    },
+    {
+     "fx": "wave",
+     "amplitude": 10,
+     "wavelength": 180,
+     "speed": 1
+    },
+    {
+     "fx": "grain",
+     "amount": 0.1
+    },
+    {
+     "fx": "color",
+     "hue": 40,
+     "saturation": 1.4
+    }
+   ]
+  }
+ ]
+}
