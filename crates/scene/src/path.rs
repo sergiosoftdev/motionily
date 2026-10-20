@@ -282,6 +282,80 @@ pub fn trim(lines: &[Polyline], start: f32, end: f32, offset: f32) -> Vec<Vec<[f
     out.into_iter().filter(|p| p.len() > 1).collect()
 }
 
+/// Point and direction (radians) at `u` (0..1 of the total length, clamped) along the polylines.
+pub fn point_at(lines: &[Polyline], u: f32) -> Option<([f32; 2], f32)> {
+    let total: f32 = lines.iter().map(|l| length(&l.points)).sum();
+    let mut left = u.clamp(0.0, 1.0) * total;
+    let mut last = None;
+    for l in lines {
+        for w in l.points.windows(2) {
+            let seg = dist(w[0], w[1]);
+            if seg <= 0.0 {
+                continue;
+            }
+            let angle = (w[1][1] - w[0][1]).atan2(w[1][0] - w[0][0]);
+            if left <= seg {
+                let k = left / seg;
+                return Some(([w[0][0] + (w[1][0] - w[0][0]) * k, w[0][1] + (w[1][1] - w[0][1]) * k], angle));
+            }
+            left -= seg;
+            last = Some((w[1], angle));
+        }
+    }
+    last.or_else(|| lines.first().and_then(|l| l.points.first()).map(|p| (*p, 0.0)))
+}
+
+/// Points per resampled subpath when morphing, from its length.
+const MORPH_STEP_PX: f32 = 4.0;
+const MORPH_MIN_POINTS: usize = 24;
+const MORPH_MAX_POINTS: usize = 600;
+
+/// Shape morph: subpaths are paired in order, resampled to the same number of evenly spaced points
+/// and blended. A subpath with no partner grows out of (or shrinks into) its own center.
+pub fn morph(a: &[Polyline], b: &[Polyline], u: f32) -> Vec<Polyline> {
+    let collapse = |l: &Polyline| {
+        let n = l.points.len().max(1) as f32;
+        let c = l.points.iter().fold([0.0, 0.0], |acc, p| [acc[0] + p[0] / n, acc[1] + p[1] / n]);
+        Polyline { points: vec![c; l.points.len().max(2)], closed: l.closed }
+    };
+    (0..a.len().max(b.len()))
+        .map(|i| {
+            let (pa, pb) = match (a.get(i), b.get(i)) {
+                (Some(x), Some(y)) => (x.clone(), y.clone()),
+                (Some(x), None) => (x.clone(), collapse(x)),
+                (None, Some(y)) => (collapse(y), y.clone()),
+                (None, None) => unreachable!(),
+            };
+            let longest = length(&pa.points).max(length(&pb.points));
+            let n = ((longest / MORPH_STEP_PX) as usize).clamp(MORPH_MIN_POINTS, MORPH_MAX_POINTS);
+            let (ra, rb) = (resample(&pa.points, n), resample(&pb.points, n));
+            let points = ra.iter().zip(&rb).map(|(p, q)| [p[0] + (q[0] - p[0]) * u, p[1] + (q[1] - p[1]) * u]).collect();
+            Polyline { points, closed: if u < 0.5 { pa.closed } else { pb.closed } }
+        })
+        .collect()
+}
+
+/// `n` points evenly spaced along the polyline (first and last kept).
+fn resample(p: &[[f32; 2]], n: usize) -> Vec<[f32; 2]> {
+    let total = length(p);
+    if p.len() < 2 || total <= 0.0 {
+        return vec![p.first().copied().unwrap_or([0.0, 0.0]); n];
+    }
+    let mut out = Vec::with_capacity(n);
+    let (mut seg, mut acc) = (0, 0.0);
+    for k in 0..n {
+        let want = total * k as f32 / (n - 1) as f32;
+        while seg + 2 < p.len() && acc + dist(p[seg], p[seg + 1]) < want {
+            acc += dist(p[seg], p[seg + 1]);
+            seg += 1;
+        }
+        let len = dist(p[seg], p[seg + 1]).max(1e-6);
+        let t = ((want - acc) / len).clamp(0.0, 1.0);
+        out.push([p[seg][0] + (p[seg + 1][0] - p[seg][0]) * t, p[seg][1] + (p[seg + 1][1] - p[seg][1]) * t]);
+    }
+    out
+}
+
 fn length(p: &[[f32; 2]]) -> f32 {
     p.windows(2).map(|w| dist(w[0], w[1])).sum()
 }
@@ -313,6 +387,29 @@ fn slice(p: &[[f32; 2]], from: f32, to: f32) -> Vec<[f32; 2]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn morphs_between_shapes() {
+        let a = parse("M0 0 L100 0").unwrap();
+        let b = parse("M0 100 L100 100 M50 50 L60 50").unwrap();
+        let m = morph(&a, &b, 0.5);
+        assert_eq!(m.len(), 2);
+        assert_eq!(m[0].points.first(), Some(&[0.0, 50.0]));
+        assert_eq!(m[0].points.last(), Some(&[100.0, 50.0]));
+        // The extra subpath grows out of its center.
+        assert!((m[1].points[0][0] - 52.5).abs() < 1e-3);
+    }
+
+    #[test]
+    fn walks_along_the_path() {
+        let l = parse("M0 0 L100 0 L100 100").unwrap();
+        let (p, a) = point_at(&l, 0.25).unwrap();
+        assert!((p[0] - 50.0).abs() < 1e-3 && p[1].abs() < 1e-3 && a.abs() < 1e-3);
+        let (p, a) = point_at(&l, 0.75).unwrap();
+        assert!((p[0] - 100.0).abs() < 1e-3 && (p[1] - 50.0).abs() < 1e-3);
+        assert!((a - std::f32::consts::FRAC_PI_2).abs() < 1e-3);
+        assert_eq!(point_at(&l, 2.0).unwrap().0, [100.0, 100.0]);
+    }
 
     #[test]
     fn parses_lines_curves_arcs_and_closes() {

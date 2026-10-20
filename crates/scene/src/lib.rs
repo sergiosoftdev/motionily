@@ -183,7 +183,7 @@ impl Scene {
             }
             let needs_fx = !l.effects.is_empty() || l.blend != paint::BlendMode::Normal || l.matte.is_some();
             if needs_fx {
-                let lt = t - l.start;
+                let lt = l.local_time(t);
                 let matte = l.matte.as_ref().and_then(|m| {
                     let src = self.layers.iter().find(|x| x.id == m.layer)?;
                     Some((if self.active(src, t) { self.layer_items(src, t, &ctx) } else { Vec::new() }, m.mode))
@@ -215,12 +215,12 @@ impl Scene {
             return Xform::default();
         }
         let up = self.parent_xform(p, t, ctx, depth + 1);
-        p.world(t - p.start, ctx, &up)
+        p.world(p.local_time(t), ctx, &up)
     }
 
     /// One layer's draw items at scene time `t`: all its repeater copies, inside its parent chain.
     fn layer_items(&self, l: &Layer, t: f32, ctx: &EvalCtx) -> Vec<DrawItem> {
-        let lt = t - l.start;
+        let lt = l.local_time(t);
         let base = self.parent_xform(l, t, ctx, 0);
         let Some(rep) = &l.repeat else {
             return expr::with_vars(t, 0.0, 1.0, || l.draw_in(lt, ctx, &base)).into_iter().collect();
@@ -259,7 +259,7 @@ impl Scene {
             .iter()
             .rev()
             .filter(|l| t >= l.start && t < l.end.unwrap_or(self.duration))
-            .find(|l| l.bounds(t - l.start, &ctx).is_some_and(|b| b.contains([x, y])))
+            .find(|l| l.bounds(l.local_time(t), &ctx).is_some_and(|b| b.contains([x, y])))
             .map(|l| l.id.clone())
     }
 
@@ -276,7 +276,7 @@ impl Scene {
         if t < l.start || t >= l.end.unwrap_or(self.duration) {
             return None;
         }
-        l.bounds(t - l.start, &ctx)
+        l.bounds(l.local_time(t), &ctx)
     }
 
     /// Image sources the layers use (for the host to load).
@@ -433,5 +433,38 @@ mod tests {
         assert!(scene.frame(0.5).is_empty());
         assert_eq!(scene.frame(1.5).len(), 1);
         assert!(scene.frame(2.0).is_empty());
+    }
+
+    fn shape_at(layer: &str, t: f32) -> DrawShape {
+        let mut scene = Scene::default();
+        scene.layers.push(serde_json::from_str(layer).unwrap());
+        match scene.frame(t).into_iter().next() {
+            Some(DrawItem::Shape(s)) => s,
+            other => panic!("expected a shape, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn colors_animate_between_keys() {
+        let layer = r##"{"id":"a","type":"shape","shape":"rect","w":10,"h":10,"fill":[{"t":0,"c":"#000000","ease":"linear"},{"t":1,"c":"#ffffff"}]}"##;
+        let mid = shape_at(layer, 0.5).color.0;
+        assert!((mid[0] - 0.5).abs() < 0.01, "{mid:?}");
+        assert_eq!(shape_at(layer, 2.0).color.0[0], 1.0);
+    }
+
+    #[test]
+    fn layers_follow_motion_paths() {
+        let layer = r#"{"id":"a","type":"shape","shape":"rect","w":10,"h":10,"y":5,
+            "motion_path":{"d":"M0 0 L100 0 L100 100","progress":0.75,"orient":true}}"#;
+        let s = shape_at(layer, 0.0);
+        assert!((s.center[0] - 100.0).abs() < 1e-3 && (s.center[1] - 55.0).abs() < 1e-3, "{:?}", s.center);
+        assert!((s.rotation - std::f32::consts::FRAC_PI_2).abs() < 1e-3);
+    }
+
+    #[test]
+    fn time_remap_loops_and_slows_layers() {
+        let layer = r#"{"id":"a","type":"shape","shape":"rect","w":10,"h":10,"time":"mod(t, 1)",
+            "x":[{"t":0,"v":0,"ease":"linear"},{"t":1,"v":100}]}"#;
+        assert!((shape_at(layer, 1.25).center[0] - 25.0).abs() < 1e-3);
     }
 }

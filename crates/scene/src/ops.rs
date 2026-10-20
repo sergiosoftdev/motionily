@@ -196,7 +196,7 @@ impl Scene {
                 *slot = value.clone();
             }
             Op::SetFill { id, fill } => {
-                self.layer_mut(id).ok_or_else(|| OpError::UnknownLayer(id.clone()))?.fill = *fill;
+                self.layer_mut(id).ok_or_else(|| OpError::UnknownLayer(id.clone()))?.fill = (*fill).into();
             }
             Op::SetTiming { id, start, end } => {
                 if end.is_some_and(|e| e <= *start) {

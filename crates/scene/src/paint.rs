@@ -2,8 +2,63 @@
 //! drop shadow), blend modes, track mattes, repeaters and vector paths — the After Effects toolbox
 //! the agent composes freely.
 
-use crate::{Animated, ColorRef, Palette, Rgba};
+use crate::{Animated, ColorRef, Easing, Palette, Rgba};
 use serde::{Deserialize, Serialize};
+
+/// One color keyframe: `{"t":0.4,"c":"#ff3d5a","ease":"expo_out"}` (t relative to the layer start).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ColorKey {
+    pub t: f32,
+    pub c: ColorRef,
+    #[serde(default)]
+    pub ease: Easing,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bezier: Option<[f32; 4]>,
+}
+
+/// A color that is fixed (`"primary"`, `"#ff3d5a"`) or keyframed (`[{"t":0,"c":…},{"t":1,"c":…}]`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ColorAnim {
+    Static(ColorRef),
+    Keys(Vec<ColorKey>),
+}
+
+impl Default for ColorAnim {
+    fn default() -> Self {
+        ColorAnim::Static(ColorRef::default())
+    }
+}
+
+impl From<ColorRef> for ColorAnim {
+    fn from(c: ColorRef) -> Self {
+        ColorAnim::Static(c)
+    }
+}
+
+impl ColorAnim {
+    pub fn resolve(&self, t: f32, palette: &Palette) -> Rgba {
+        let keys = match self {
+            ColorAnim::Static(c) => return c.resolve(palette),
+            ColorAnim::Keys(keys) => keys,
+        };
+        let (Some(first), Some(last)) = (keys.first(), keys.last()) else {
+            return Rgba([1.0; 4]);
+        };
+        if t <= first.t {
+            return first.c.resolve(palette);
+        }
+        if t >= last.t {
+            return last.c.resolve(palette);
+        }
+        let i = keys.partition_point(|k| k.t <= t);
+        let (a, b) = (&keys[i - 1], &keys[i]);
+        let u = (t - a.t) / (b.t - a.t).max(f32::EPSILON);
+        let p = a.bezier.map_or_else(|| a.ease.apply(u), |bz| crate::anim::cubic_bezier(bz, u));
+        let (ca, cb) = (a.c.resolve(palette), b.c.resolve(palette));
+        Rgba(std::array::from_fn(|k| ca.0[k] + (cb.0[k] - ca.0[k]) * p))
+    }
+}
 
 /// Most stops a gradient can carry on the GPU.
 pub const MAX_STOPS: usize = 4;
@@ -23,7 +78,7 @@ pub enum GradientKind {
 pub struct Gradient {
     #[serde(default)]
     pub kind: GradientKind,
-    pub stops: Vec<(f32, ColorRef)>,
+    pub stops: Vec<(f32, ColorAnim)>,
     #[serde(default)]
     pub angle: Animated,
     #[serde(default = "center")]
@@ -80,7 +135,7 @@ impl Gradient {
         let mut stops = [(0.0, Rgba([0.0; 4])); MAX_STOPS];
         let count = self.stops.len().clamp(1, MAX_STOPS);
         for (i, (pos, c)) in self.stops.iter().take(MAX_STOPS).enumerate() {
-            let mut col = c.resolve(palette);
+            let mut col = c.resolve(t, palette);
             col.0[3] *= opacity;
             stops[i] = (*pos, col);
         }
@@ -96,13 +151,13 @@ impl Gradient {
 pub struct Stroke {
     pub width: Animated,
     #[serde(default = "stroke_color")]
-    pub color: ColorRef,
+    pub color: ColorAnim,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dash: Option<[f32; 2]>,
 }
 
-fn stroke_color() -> ColorRef {
-    ColorRef::Slot(crate::PaletteSlot::Text)
+fn stroke_color() -> ColorAnim {
+    ColorAnim::Static(ColorRef::Slot(crate::PaletteSlot::Text))
 }
 
 /// How a shape is painted beyond its fill color.

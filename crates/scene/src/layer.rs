@@ -6,8 +6,8 @@
 //! with its own pipeline, keeping layer order.
 
 use crate::text::{DrawText, TextAlign, TextRole, TextSpan, Typography, DEFAULT_FAMILY};
-use crate::paint::{BlendMode, DrawPath, Effect, Gradient, Matte, Repeater, ShapeStyle, Stroke};
-use crate::{draw_character, AnimProp, Animated, CharacterSpec, ColorRef, DrawPoly, Library, Palette, Rgba};
+use crate::paint::{BlendMode, ColorAnim, DrawPath, Effect, Gradient, Matte, Repeater, ShapeStyle, Stroke};
+use crate::{draw_character, AnimProp, Animated, CharacterSpec, DrawPoly, Library, Palette, Rgba};
 use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
 
@@ -64,7 +64,42 @@ pub enum LayerContent {
         /// Fill closed subpaths with `fill` (false = stroke only).
         #[serde(default)]
         filled: bool,
+        /// Shape keyframes (morph): `[{"t":0,"d":"M…"},{"t":1,"d":"M…","ease":"expo_out"}]`. When set,
+        /// they replace `d` over time (`d` stays the shape at rest, for selection).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        morph: Vec<PathKey>,
     },
+}
+
+/// One morph keyframe.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PathKey {
+    pub t: f32,
+    pub d: PathData,
+    /// Easing to the next key.
+    #[serde(default)]
+    pub ease: crate::Easing,
+}
+
+/// Path shape at layer time `lt`: `d`, or the morph keys blended.
+fn path_at<'a>(d: &'a PathData, morph: &'a [PathKey], lt: f32) -> Option<std::borrow::Cow<'a, [crate::path::Polyline]>> {
+    use std::borrow::Cow;
+    fn shape(k: &PathKey) -> Option<&[crate::path::Polyline]> {
+        k.d.lines().as_ref().ok().map(|l| l.as_slice())
+    }
+    let (Some(first), Some(last)) = (morph.first(), morph.last()) else {
+        return d.lines().as_ref().ok().map(|l| Cow::Borrowed(l.as_slice()));
+    };
+    if lt <= first.t {
+        return shape(first).map(Cow::Borrowed);
+    }
+    if lt >= last.t {
+        return shape(last).map(Cow::Borrowed);
+    }
+    let i = morph.partition_point(|k| k.t <= lt);
+    let (a, b) = (&morph[i - 1], &morph[i]);
+    let u = a.ease.apply((lt - a.t) / (b.t - a.t).max(f32::EPSILON));
+    Some(Cow::Owned(crate::path::morph(shape(a)?, shape(b)?, u)))
 }
 
 /// SVG path data, parsed once.
@@ -168,8 +203,9 @@ pub struct Layer {
     /// Seconds. Defaults to the end of the scene.
     #[serde(default)]
     pub end: Option<f32>,
+    /// Fixed color or color keyframes.
     #[serde(default)]
-    pub fill: ColorRef,
+    pub fill: ColorAnim,
     /// Named point of the composition (e.g. "hero"). When set, `x`/`y` are offsets from it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anchor: Option<String>,
@@ -225,6 +261,26 @@ pub struct Layer {
     pub pivot: [f32; 2],
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repeat: Option<Repeater>,
+    /// Time remap: the layer's own clock as a function of the time since it started, like AE's
+    /// time remapping (`"t*0.5"` slow motion, `"mod(t, 2)"` loop, keys to freeze or reverse).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub time: Option<Animated>,
+    /// Move along a path (position comes from it; `x`/`y` add an offset).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub motion_path: Option<MotionPath>,
+}
+
+/// AE motion path: `{"d":"M100 900 C600 200 1300 1000 1800 300","progress":[{"t":0,"v":0},{"t":2,"v":1}],"orient":true}`.
+/// Path coordinates are scene pixels (parent space when parented).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MotionPath {
+    pub d: PathData,
+    /// 0..1 along the path's length.
+    #[serde(default)]
+    pub progress: Animated,
+    /// Rotate the layer to follow the path direction (added to `rotation`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub orient: bool,
 }
 
 fn is_zero(a: &Animated) -> bool {
@@ -348,6 +404,12 @@ pub enum DrawItem {
 }
 
 impl Layer {
+    /// Layer-local time at scene time `t`, after time remapping.
+    pub fn local_time(&self, t: f32) -> f32 {
+        let lt = t - self.start;
+        self.time.as_ref().map_or(lt, |remap| remap.sample(lt))
+    }
+
     /// Resolve this layer at layer-local time `lt`. `None` when fully transparent.
     pub fn draw(&self, lt: f32, ctx: &EvalCtx) -> Option<DrawItem> {
         self.resolve(lt, ctx, true, &Xform::default())
@@ -376,7 +438,13 @@ impl Layer {
                 .and_then(|a| ctx.library.anchor(a))
                 .map_or([0.0, 0.0], |[ax, ay]| [ax * ctx.scene_size[0], ay * ctx.scene_size[1]])
         };
-        let local_rot = (self.rotation.sample(lt) + anim.rotation).to_radians() + xf.spin;
+        let along = self.motion_path.as_ref().and_then(|m| {
+            let lines = m.d.lines().as_ref().ok()?;
+            crate::path::point_at(lines, m.progress.sample(lt)).map(|(p, a)| (p, if m.orient { a } else { 0.0 }))
+        });
+        let (path_pos, path_rot) = along.unwrap_or(([0.0, 0.0], 0.0));
+        let origin = [origin[0] + path_pos[0], origin[1] + path_pos[1]];
+        let local_rot = (self.rotation.sample(lt) + anim.rotation).to_radians() + path_rot + xf.spin;
         let mut center = [origin[0] + self.x.sample(lt) + anim.dx + xf.offset[0], origin[1] + self.y.sample(lt) + anim.dy + xf.offset[1]];
         // Rotate/scale around the pivot instead of the center.
         if self.pivot != [0.0, 0.0] {
@@ -394,7 +462,7 @@ impl Layer {
     fn resolve(&self, lt: f32, ctx: &EvalCtx, animated: bool, xf: &Xform) -> Option<DrawItem> {
         let anim_opacity = if animated { self.anim_offsets(lt, ctx.library).opacity } else { 1.0 };
         let opacity = (self.opacity.sample(lt) * anim_opacity * xf.opacity).clamp(0.0, 1.0);
-        let mut color = self.fill.resolve(ctx.palette);
+        let mut color = self.fill.resolve(lt, ctx.palette);
         color.0[3] *= opacity;
         if animated && opacity <= 0.0 {
             return None;
@@ -402,7 +470,7 @@ impl Layer {
         let (center, size, rotation, scale) = self.place(lt, ctx, xf, animated);
         let gradient = self.gradient.as_ref().map(|g| g.resolve(lt, ctx.palette, opacity));
         let stroke = self.stroke.as_ref().map(|s| {
-            let mut c = s.color.resolve(ctx.palette);
+            let mut c = s.color.resolve(lt, ctx.palette);
             c.0[3] *= opacity;
             (s.width.sample(lt) * scale, c)
         });
@@ -415,8 +483,9 @@ impl Layer {
                 let style = ShapeStyle { gradient, stroke, soft: self.soft.sample(lt).max(0.0) * scale, dash: self.stroke.as_ref().and_then(|s| s.dash) };
                 Some(DrawItem::Shape(DrawShape { center, size, radius, rotation, color, style }))
             }
-            LayerContent::Path { d, trim_start, trim_end, trim_offset, filled } => {
-                let Ok(lines) = d.lines() else { return None };
+            LayerContent::Path { d, trim_start, trim_end, trim_offset, filled, morph } => {
+                let lines = path_at(d, if animated { morph } else { &[] }, lt)?;
+                let lines = lines.as_ref();
                 let to_world = |p: [f32; 2]| {
                     let q = rot([p[0] * scale, p[1] * scale], rotation);
                     [center[0] + q[0], center[1] + q[1]]
