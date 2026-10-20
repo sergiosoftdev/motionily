@@ -14,7 +14,9 @@ pub struct FxParams {
     pub a: [f32; 4],
     pub b: [f32; 4],
     pub color: [f32; 4],
-    pub _pad: [f32; 4],
+    pub adj: [f32; 4],
+    pub warp: [f32; 4],
+    pub grain: [f32; 4],
 }
 
 /// Uniform slot stride (WebGPU's minimum dynamic-offset alignment).
@@ -27,6 +29,8 @@ pub enum Tex {
     Layer = 0,
     Temp = 1,
     Copy = 2,
+    /// One motion-blur sample.
+    Accum = 3,
 }
 
 pub struct FxPass {
@@ -41,7 +45,8 @@ pub struct FxPass {
     pub temp: wgpu::TextureView,
     pub copy: wgpu::TextureView,
     pub matte: wgpu::TextureView,
-    /// Bind groups reading layer / temp / copy (each with the matte).
+    pub accum: wgpu::TextureView,
+    /// Bind groups reading layer / temp / copy / accum (each with the matte).
     groups: Vec<wgpu::BindGroup>,
     size: [u32; 2],
     params: Vec<FxParams>,
@@ -130,6 +135,7 @@ impl FxPass {
         });
         let uniform = make_uniform(device, INITIAL_SLOTS);
         let (layer, matte) = (make_texture(device, format, width, height), make_texture(device, format, width, height));
+        let accum = make_texture(device, format, width, height);
         // Blurs run at half resolution: the blur hides it and it costs a quarter of the fill rate.
         let (temp, copy) = (make_texture(device, format, width / 2, height / 2), make_texture(device, format, width / 2, height / 2));
         let mut fx = FxPass {
@@ -144,6 +150,7 @@ impl FxPass {
             temp,
             copy,
             matte,
+            accum,
             groups: Vec::new(),
             size: [width, height],
             params: Vec::new(),
@@ -153,9 +160,11 @@ impl FxPass {
     }
 
     fn rebind(&mut self, device: &wgpu::Device) {
-        self.groups = [&self.layer, &self.temp, &self.copy]
-            .iter()
-            .map(|src| {
+        self.groups = [&self.layer, &self.temp, &self.copy, &self.accum].iter().map(|src| self.group_for(device, src)).collect();
+    }
+
+    /// A bind group reading `src` (e.g. the scene so far, for adjustment layers).
+    pub fn group_for(&self, device: &wgpu::Device, src: &wgpu::TextureView) -> wgpu::BindGroup {
                 device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("fx"),
                     layout: &self.layout,
@@ -173,8 +182,6 @@ impl FxPass {
                         },
                     ],
                 })
-            })
-            .collect();
     }
 
     pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) {
@@ -184,6 +191,7 @@ impl FxPass {
         self.size = [width, height];
         self.layer = make_texture(device, self.format, width, height);
         self.matte = make_texture(device, self.format, width, height);
+        self.accum = make_texture(device, self.format, width, height);
         self.temp = make_texture(device, self.format, width / 2, height / 2);
         self.copy = make_texture(device, self.format, width / 2, height / 2);
         self.rebind(device);
@@ -242,6 +250,11 @@ impl FxPass {
 
     /// Composite `from` onto `target` (loaded, not cleared).
     pub fn composite(&self, encoder: &mut wgpu::CommandEncoder, from: Tex, target: &wgpu::TextureView, blend: BlendMode, offset: u32) {
+        self.composite_group(encoder, &self.groups[from as usize], target, blend, offset);
+    }
+
+    /// Composite whatever `group` reads onto `target`.
+    pub fn composite_group(&self, encoder: &mut wgpu::CommandEncoder, group: &wgpu::BindGroup, target: &wgpu::TextureView, blend: BlendMode, offset: u32) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("fx composite"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -259,7 +272,7 @@ impl FxPass {
             BlendMode::Multiply => 3,
         };
         pass.set_pipeline(&self.composite[index]);
-        pass.set_bind_group(0, &self.groups[from as usize], &[offset]);
+        pass.set_bind_group(0, group, &[offset]);
         pass.draw(0..3, 0..1);
     }
 }
@@ -269,6 +282,8 @@ pub fn matte_code(m: Option<MatteMode>) -> f32 {
         None => 0.0,
         Some(MatteMode::Alpha) => 1.0,
         Some(MatteMode::AlphaInverted) => 2.0,
+        Some(MatteMode::Luma) => 3.0,
+        Some(MatteMode::LumaInverted) => 4.0,
     }
 }
 

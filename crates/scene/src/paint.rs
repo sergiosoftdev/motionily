@@ -209,7 +209,54 @@ pub enum Effect {
         #[serde(default = "shadow_opacity")]
         opacity: Animated,
     },
+    /// Color correction: hue shift (degrees), saturation (1 = unchanged, 0 = grey), brightness
+    /// (-1..1), contrast (1 = unchanged).
+    Color {
+        #[serde(default)]
+        hue: Animated,
+        #[serde(default = "one")]
+        saturation: Animated,
+        #[serde(default)]
+        brightness: Animated,
+        #[serde(default = "one")]
+        contrast: Animated,
+    },
+    /// RGB split: red and blue shifted apart by `amount` px (glitch, lens edge).
+    Chromatic { amount: Animated },
+    /// Wave warp: pixels pushed sideways by a travelling sine (heat haze, flags, liquid).
+    Wave {
+        /// Displacement in px.
+        amplitude: Animated,
+        /// Px between crests.
+        #[serde(default = "wavelength")]
+        wavelength: Animated,
+        /// Crests per second.
+        #[serde(default = "one")]
+        speed: Animated,
+    },
+    /// Animated film grain (0..1).
+    Grain { amount: Animated },
+    /// Motion blur: the layer averaged over the shutter (degrees of a frame, 180 = film look).
+    MotionBlur {
+        #[serde(default = "shutter")]
+        shutter: f32,
+        #[serde(default = "blur_samples")]
+        samples: u32,
+    },
 }
+
+fn wavelength() -> Animated {
+    Animated::Static(200.0)
+}
+fn shutter() -> f32 {
+    180.0
+}
+fn blur_samples() -> u32 {
+    8
+}
+
+/// Most sub-frame samples motion blur takes.
+pub const MAX_BLUR_SAMPLES: u32 = 16;
 
 fn shadow_y() -> Animated {
     Animated::Static(18.0)
@@ -230,11 +277,18 @@ pub enum DrawEffect {
     Blur { radius: f32 },
     Glow { radius: f32, strength: f32, color: Option<Rgba> },
     Shadow { offset: [f32; 2], blur: f32, color: Rgba },
+    Color { hue: f32, saturation: f32, brightness: f32, contrast: f32 },
+    Chromatic { amount: f32 },
+    /// `phase` in radians.
+    Wave { amplitude: f32, wavelength: f32, phase: f32 },
+    /// `seed` changes every frame so the grain moves.
+    Grain { amount: f32, seed: f32 },
 }
 
 impl Effect {
-    pub fn resolve(&self, t: f32, palette: &Palette) -> DrawEffect {
-        match self {
+    /// The effect at layer time `t`; `None` for motion blur, which the scene applies itself.
+    pub fn resolve(&self, t: f32, palette: &Palette) -> Option<DrawEffect> {
+        Some(match self {
             Effect::Blur { radius } => DrawEffect::Blur { radius: radius.sample(t).max(0.0) },
             Effect::Glow { radius, strength, color } => DrawEffect::Glow {
                 radius: radius.sample(t).max(0.0),
@@ -246,7 +300,21 @@ impl Effect {
                 c.0[3] *= opacity.sample(t).clamp(0.0, 1.0);
                 DrawEffect::Shadow { offset: [x.sample(t), y.sample(t)], blur: blur.sample(t).max(0.0), color: c }
             }
-        }
+            Effect::Color { hue, saturation, brightness, contrast } => DrawEffect::Color {
+                hue: hue.sample(t),
+                saturation: saturation.sample(t).max(0.0),
+                brightness: brightness.sample(t),
+                contrast: contrast.sample(t).max(0.0),
+            },
+            Effect::Chromatic { amount } => DrawEffect::Chromatic { amount: amount.sample(t) },
+            Effect::Wave { amplitude, wavelength, speed } => DrawEffect::Wave {
+                amplitude: amplitude.sample(t),
+                wavelength: wavelength.sample(t).max(1.0),
+                phase: speed.sample(t) * t * std::f32::consts::TAU,
+            },
+            Effect::Grain { amount } => DrawEffect::Grain { amount: amount.sample(t).clamp(0.0, 1.0), seed: (t * 24.0).floor() },
+            Effect::MotionBlur { .. } => return None,
+        })
     }
 }
 
@@ -258,6 +326,9 @@ pub enum MatteMode {
     Alpha,
     /// Show it where the matte is transparent (cut-outs).
     AlphaInverted,
+    /// Show it where the matte is bright (luma matte).
+    Luma,
+    LumaInverted,
 }
 
 /// Track matte: another layer's alpha masks this one. Matte layers usually set `"visible": false`.
@@ -391,6 +462,10 @@ pub struct DrawFx {
     pub effects: Vec<DrawEffect>,
     pub blend: BlendMode,
     pub matte: Option<(Vec<crate::DrawItem>, MatteMode)>,
+    /// Motion blur: the layer at other instants of the shutter, averaged with `items`.
+    pub samples: Vec<Vec<crate::DrawItem>>,
+    /// Adjustment layer: the effects apply to everything drawn below, inside the matte.
+    pub adjust: bool,
 }
 
 /// One stroked/filled vector path for one frame, already flattened to polylines in scene pixels.

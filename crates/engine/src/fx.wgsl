@@ -5,11 +5,16 @@ struct Params {
     // Blur: texel step direction (x, y), sigma in texels, unused.
     // Composite: mode (0 layer, 1 shadow, 2 glow), matte mode (0 none, 1 alpha, 2 inverted), strength, use color.
     a: vec4<f32>,
-    // Composite: uv offset (shadow), unused, unused.
+    // Composite: uv offset (shadow), clamp edges (adjustment layers: warps never pull in emptiness), unused.
     b: vec4<f32>,
     // Composite: tint color (straight alpha).
     color: vec4<f32>,
-    _pad: vec4<f32>,
+    // Layer composite color correction: hue (radians), saturation - 1, brightness, contrast - 1.
+    adj: vec4<f32>,
+    // Layer composite distortion: wave amplitude (uv x), wave cycles per uv y, wave phase, RGB split (uv x).
+    warp: vec4<f32>,
+    // Layer composite grain: amount, seed.
+    grain: vec4<f32>,
 };
 
 @group(0) @binding(0) var src: texture_2d<f32>;
@@ -51,14 +56,51 @@ fn fs_blur(in: VsOut) -> @location(0) vec4<f32> {
     return acc / wsum;
 }
 
+fn sample_in(uv_in: vec2<f32>) -> vec4<f32> {
+    var uv = uv_in;
+    if (p.b.z > 0.5) {
+        uv = clamp(uv, vec2(0.0), vec2(1.0));
+    }
+    if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) {
+        return vec4(0.0);
+    }
+    return textureSampleLevel(src, samp, uv, 0.0);
+}
+
+fn hash(q: vec2<f32>) -> f32 {
+    return fract(sin(dot(q, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+/// Hue rotation around the grey axis (Rodrigues).
+fn rotate_hue(c: vec3<f32>, angle: f32) -> vec3<f32> {
+    let k = vec3(0.57735);
+    let cs = cos(angle);
+    return c * cs + cross(k, c) * sin(angle) + k * dot(k, c) * (1.0 - cs);
+}
+
 @fragment
 fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
     let mode = i32(p.a.x + 0.5);
     let matte_mode = i32(p.a.y + 0.5);
-    let uv = in.uv - p.b.xy;
-    var c = textureSampleLevel(src, samp, uv, 0.0);
-    if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) {
-        c = vec4(0.0);
+    var uv = in.uv - p.b.xy;
+    if (mode == 0) {
+        uv.x += p.warp.x * sin(uv.y * p.warp.y * 6.2831853 + p.warp.z);
+    }
+    var c = sample_in(uv);
+    if (mode == 0 && p.warp.w != 0.0) {
+        let r = sample_in(uv + vec2(p.warp.w, 0.0));
+        let b = sample_in(uv - vec2(p.warp.w, 0.0));
+        c = vec4(r.r, c.g, b.b, max(c.a, max(r.a, b.a)));
+    }
+    if (mode == 0 && (any(p.adj != vec4(0.0)) || p.grain.x > 0.0) && c.a > 0.0) {
+        var rgb = c.rgb / c.a;
+        rgb = rgb + p.adj.z;
+        rgb = (rgb - 0.5) * (1.0 + p.adj.w) + 0.5;
+        let luma = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+        rgb = mix(vec3(luma), rgb, 1.0 + p.adj.y);
+        rgb = rotate_hue(rgb, p.adj.x);
+        rgb = rgb + (hash(floor(in.pos.xy) + p.grain.y) - 0.5) * p.grain.x;
+        c = vec4(clamp(rgb, vec3(0.0), vec3(1.0)) * c.a, c.a);
     }
     if (mode == 1) {
         // Shadow: the layer's alpha tinted.
@@ -72,8 +114,13 @@ fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
         c = c * p.a.z;
     }
     if (matte_mode > 0) {
-        let m = textureSampleLevel(matte, samp, in.uv, 0.0).a;
-        c = c * select(m, 1.0 - m, matte_mode == 2);
+        let mt = textureSampleLevel(matte, samp, in.uv, 0.0);
+        var m = mt.a;
+        if (matte_mode >= 3) {
+            // Premultiplied, so this is luma times coverage.
+            m = dot(mt.rgb, vec3(0.2126, 0.7152, 0.0722));
+        }
+        c = c * select(m, 1.0 - m, matte_mode == 2 || matte_mode == 4);
     }
     return c;
 }

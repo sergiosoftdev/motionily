@@ -98,6 +98,10 @@ enum Run {
 
 struct FxRun {
     runs: Vec<Run>,
+    /// Motion-blur samples, averaged with `runs`.
+    samples: Vec<Vec<Run>>,
+    /// Adjustment layer: the effects run on the scene drawn so far.
+    adjust: bool,
     matte: Option<(Vec<Run>, scene::paint::MatteMode)>,
     effects: Vec<DrawEffect>,
     blend: scene::paint::BlendMode,
@@ -137,16 +141,24 @@ impl Batches {
                     continue;
                 }
                 DrawItem::Fx(fx) => {
-                    let DrawFx { items, effects, blend, matte } = *fx;
+                    let DrawFx { items, effects, blend, matte, samples, adjust } = *fx;
                     if top {
                         let mut inner = Vec::new();
                         self.push_all(items, &mut inner, false);
+                        let samples = samples
+                            .into_iter()
+                            .map(|s| {
+                                let mut r = Vec::new();
+                                self.push_all(s, &mut r, false);
+                                r
+                            })
+                            .collect();
                         let matte = matte.map(|(m, mode)| {
                             let mut mr = Vec::new();
                             self.push_all(m, &mut mr, false);
                             (mr, mode)
                         });
-                        runs.push(Run::Fx(FxRun { runs: inner, matte, effects, blend }));
+                        runs.push(Run::Fx(FxRun { runs: inner, samples, adjust, matte, effects, blend }));
                     } else {
                         self.push_all(items, runs, false);
                     }
@@ -483,7 +495,21 @@ impl Renderer {
     }
 
     fn render_fx(&self, encoder: &mut wgpu::CommandEncoder, f: &FxRun, plan: &FxPlan) {
-        self.draw_offscreen(encoder, &self.fx.layer, &f.runs);
+        if f.adjust {
+            // The scene so far becomes the layer; compositing it back replaces what is below.
+            drop(FxPass::clear_pass(encoder, &self.fx.layer, "fx adjust"));
+            let scene = self.fx.group_for(&self.device, self.post.target());
+            self.fx.composite_group(encoder, &scene, &self.fx.layer, scene::paint::BlendMode::Normal, plan.copy);
+        } else if f.samples.is_empty() {
+            self.draw_offscreen(encoder, &self.fx.layer, &f.runs);
+        } else {
+            // Motion blur: every sample drawn alone, then added in at 1/n.
+            drop(FxPass::clear_pass(encoder, &self.fx.layer, "fx motion blur"));
+            for runs in std::iter::once(&f.runs).chain(&f.samples) {
+                self.draw_offscreen(encoder, &self.fx.accum, runs);
+                self.fx.composite(encoder, Tex::Accum, &self.fx.layer, scene::paint::BlendMode::Add, plan.average);
+            }
+        }
         if let Some((m, _)) = &f.matte {
             self.draw_offscreen(encoder, &self.fx.matte, m);
         }
@@ -515,6 +541,10 @@ struct FxPlan {
     shadows: Vec<(u32, u32, u32)>,
     layer: u32,
     glows: Vec<(u32, u32, u32)>,
+    /// Plain copy (adjustment layers).
+    copy: u32,
+    /// One motion-blur sample at 1/n.
+    average: u32,
 }
 
 fn plan_fx(fx: &mut FxPass, f: &FxRun, px_per_scene: f32, texel: [f32; 2], scene_w: f32, scene_h: f32, linear: bool) -> FxPlan {
@@ -530,7 +560,11 @@ fn plan_fx(fx: &mut FxPass, f: &FxRun, px_per_scene: f32, texel: [f32; 2], scene
         let [r, g, b, a] = c.0;
         if linear { [srgb_to_linear(r), srgb_to_linear(g), srgb_to_linear(b), a] } else { [r, g, b, a] }
     };
-    let mut plan = FxPlan { blurs: Vec::new(), shadows: Vec::new(), layer: 0, glows: Vec::new() };
+    let mut plan = FxPlan { blurs: Vec::new(), shadows: Vec::new(), layer: 0, glows: Vec::new(), copy: 0, average: 0 };
+    // Color correction, distortion and grain all happen in the final layer composite.
+    let (mut hue, mut sat, mut bright, mut contrast) = (0.0, 1.0, 0.0, 1.0);
+    let mut warp = [0.0f32; 4];
+    let mut grain = [0.0f32; 4];
     for e in &f.effects {
         match *e {
             DrawEffect::Blur { radius } if radius > 0.0 => plan.blurs.push(blur_pair(fx, radius)),
@@ -554,9 +588,25 @@ fn plan_fx(fx: &mut FxPass, f: &FxRun, px_per_scene: f32, texel: [f32; 2], scene
                 plan.glows.push((h, v, comp));
             }
             DrawEffect::Blur { .. } => {}
+            DrawEffect::Color { hue: h, saturation, brightness, contrast: k } => {
+                hue += h.to_radians();
+                sat *= saturation;
+                bright += brightness;
+                contrast *= k;
+            }
+            DrawEffect::Chromatic { amount } => warp[3] += amount / scene_w,
+            DrawEffect::Wave { amplitude, wavelength, phase } => warp = [amplitude / scene_w, scene_h / wavelength, phase, warp[3]],
+            DrawEffect::Grain { amount, seed } => grain = [amount, seed, 0.0, 0.0],
         }
     }
-    plan.layer = fx.push(FxParams { a: [0.0, matte, 1.0, 0.0], ..Default::default() });
+    let clamp_edges = if f.adjust { 1.0 } else { 0.0 };
+    plan.layer = fx.push(FxParams { a: [0.0, matte, 1.0, 0.0], b: [0.0, 0.0, clamp_edges, 0.0], adj: [hue, sat - 1.0, bright, contrast - 1.0], warp, grain, ..Default::default() });
+    if f.adjust {
+        plan.copy = fx.push(FxParams::default());
+    }
+    if !f.samples.is_empty() {
+        plan.average = fx.push(FxParams { a: [2.0, 0.0, 1.0 / (f.samples.len() + 1) as f32, 0.0], ..Default::default() });
+    }
     plan
 }
 

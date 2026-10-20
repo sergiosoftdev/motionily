@@ -181,19 +181,22 @@ impl Scene {
             if drawn.is_empty() {
                 continue;
             }
-            let needs_fx = !l.effects.is_empty() || l.blend != paint::BlendMode::Normal || l.matte.is_some();
+            let needs_fx = !l.effects.is_empty() || l.blend != paint::BlendMode::Normal || l.matte.is_some() || l.adjustment;
             if needs_fx {
                 let lt = l.local_time(t);
                 let matte = l.matte.as_ref().and_then(|m| {
                     let src = self.layers.iter().find(|x| x.id == m.layer)?;
                     Some((if self.active(src, t) { self.layer_items(src, t, &ctx) } else { Vec::new() }, m.mode))
                 });
-                items.push(DrawItem::Fx(Box::new(paint::DrawFx {
-                    items: std::mem::take(&mut drawn),
-                    effects: l.effects.iter().map(|e| e.resolve(lt, &palette)).collect(),
-                    blend: l.blend,
-                    matte,
-                })));
+                let samples = self.motion_samples(l, t, &ctx);
+                let effects = l.effects.iter().filter_map(|e| e.resolve(lt, &palette)).collect();
+                let fx = if l.adjustment {
+                    // The layer's own shape bounds the adjustment.
+                    paint::DrawFx { items: Vec::new(), effects, blend: l.blend, matte: Some((std::mem::take(&mut drawn), paint::MatteMode::Alpha)), samples: Vec::new(), adjust: true }
+                } else {
+                    paint::DrawFx { items: std::mem::take(&mut drawn), effects, blend: l.blend, matte, samples, adjust: false }
+                };
+                items.push(DrawItem::Fx(Box::new(fx)));
             } else {
                 items.append(&mut drawn);
             }
@@ -201,6 +204,28 @@ impl Scene {
         items.extend(text::caption_frame(self, &palette, t).map(DrawItem::Text));
         transition::apply(self, &palette, t, &mut items);
         items
+    }
+
+    /// The layer at the other instants of its motion-blur shutter (none without the effect).
+    fn motion_samples(&self, l: &Layer, t: f32, ctx: &EvalCtx) -> Vec<Vec<DrawItem>> {
+        let Some((shutter, samples)) = l.effects.iter().find_map(|e| match e {
+            paint::Effect::MotionBlur { shutter, samples } => Some((*shutter, *samples)),
+            _ => None,
+        }) else {
+            return Vec::new();
+        };
+        let n = samples.clamp(2, paint::MAX_BLUR_SAMPLES);
+        let open = shutter.clamp(0.0, 720.0) / 360.0 / self.fps.max(1.0);
+        // `t` itself is the main sample; the others spread back over the shutter.
+        let out = (1..n)
+            .map(|k| {
+                let tk = t - open * k as f32 / (n - 1) as f32;
+                expr::set_scene_time(tk);
+                self.layer_items(l, tk, ctx)
+            })
+            .collect();
+        expr::set_scene_time(t);
+        out
     }
 
     fn active(&self, l: &Layer, t: f32) -> bool {
@@ -466,5 +491,18 @@ mod tests {
         let layer = r#"{"id":"a","type":"shape","shape":"rect","w":10,"h":10,"time":"mod(t, 1)",
             "x":[{"t":0,"v":0,"ease":"linear"},{"t":1,"v":100}]}"#;
         assert!((shape_at(layer, 1.25).center[0] - 25.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn motion_blur_samples_the_shutter() {
+        let mut scene = Scene::default();
+        scene.layers.push(serde_json::from_str(r#"{"id":"a","type":"shape","shape":"rect","w":10,"h":10,
+            "x":[{"t":0,"v":0,"ease":"linear"},{"t":1,"v":300}],"effects":[{"fx":"motion_blur","samples":4}]}"#).unwrap());
+        let Some(DrawItem::Fx(fx)) = scene.frame(0.5).into_iter().next() else { panic!("expected an offscreen layer") };
+        assert_eq!(fx.samples.len(), 3);
+        assert!(fx.effects.is_empty());
+        let Some(DrawItem::Shape(last)) = fx.samples[2].first() else { panic!() };
+        // 180° at 30 fps: the shutter opened 1/60 s earlier.
+        assert!((last.center[0] - (150.0 - 300.0 / 60.0)).abs() < 1e-3, "{:?}", last.center);
     }
 }

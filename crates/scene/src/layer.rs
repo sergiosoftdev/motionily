@@ -261,6 +261,10 @@ pub struct Layer {
     pub pivot: [f32; 2],
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repeat: Option<Repeater>,
+    /// Adjustment layer: its effects change everything below it, inside this layer's shape
+    /// (a full-frame rect for the whole picture).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub adjustment: bool,
     /// Time remap: the layer's own clock as a function of the time since it started, like AE's
     /// time remapping (`"t*0.5"` slow motion, `"mod(t, 2)"` loop, keys to freeze or reverse).
     #[serde(default, skip_serializing_if = "Option::is_none")]

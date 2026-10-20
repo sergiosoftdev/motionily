@@ -100,7 +100,7 @@ impl DrawItem {
                 path.stroke = path.stroke.map(|(w, c)| (w * s, c));
             }
             DrawItem::Fx(fx) => {
-                fx.items.iter_mut().for_each(|i| i.scale_about(origin, s));
+                fx.items.iter_mut().chain(fx.samples.iter_mut().flatten()).for_each(|i| i.scale_about(origin, s));
                 if let Some((m, _)) = &mut fx.matte {
                     m.iter_mut().for_each(|i| i.scale_about(origin, s));
                 }
