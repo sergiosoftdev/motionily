@@ -16,6 +16,8 @@ const SOLO_PHASES: { id: Phase; label: string }[] = [
 ];
 /** Role tag of the premium designer's events. */
 const DESIGN_ROLE = "design";
+/** The premium designer announces each beat as "Escena N: …" before building it. */
+const SCENE_LINE = /^Escena \d+\s*[:.·-]\s*(.*)$/i;
 /** After this long without a tool call, say when the last step was (the agent is writing or thinking). */
 const QUIET_MS = 20_000;
 
@@ -32,7 +34,7 @@ const GAGS = [
   "Poniendo el café para el revisor…",
 ];
 const GAG_MS = 3400;
-const TAG = /^\[([^\]]+)\] (.*)$/;
+const TAG = /^\[([^\]]+)\] ([\s\S]*)$/;
 const MAX_BRICKS = 12;
 
 export type Lane = { group: string; start: number; end: number; tools: number; last: string | null; done: boolean };
@@ -45,7 +47,7 @@ export function readState(state: GenerateState) {
   let plannerSteps = 0;
   let reviewLast: string | null = null;
   let solo = false;
-  let design: { tools: number; last: string | null } = { tools: 0, last: null };
+  let design: { tools: number; last: string | null; scenes: string[] } = { tools: 0, last: null, scenes: [] };
   let lastStepAt: number | null = null;
   for (const e of state.events) {
     if (e.kind === GenerateEventKind.Phase) {
@@ -62,6 +64,12 @@ export function readState(state: GenerateState) {
     } else if (e.kind === GenerateEventKind.Done) {
       const l = lanes.find((x) => x.group === e.text);
       if (l) l.done = true;
+    } else if (e.kind === GenerateEventKind.Text && TAG.exec(e.text)?.[1] === DESIGN_ROLE) {
+      // A message may hold more prose around its "Escena N:" line.
+      const lines = TAG.exec(e.text)![2]!.split("\n").map((l) => l.trim()).filter(Boolean);
+      const scenes = lines.flatMap((l) => SCENE_LINE.exec(l)?.[1] ?? []);
+      if (scenes.length) design.scenes.push(...scenes);
+      else if (!direction && lines[0]) direction = lines[0];
     } else if (e.kind === GenerateEventKind.Text && !direction && !TAG.test(e.text)) direction = e.text;
     else if (e.kind === GenerateEventKind.Tool) {
       lastStepAt = Date.parse(e.at);
@@ -73,7 +81,7 @@ export function readState(state: GenerateState) {
         lane.tools += 1;
         lane.last = TOOL_LABEL[tool] ?? tool;
       } else if (role === "plan") plannerSteps += 1;
-      else if (role === DESIGN_ROLE) design = { tools: design.tools + 1, last: TOOL_LABEL[tool] ?? tool };
+      else if (role === DESIGN_ROLE) design = { ...design, tools: design.tools + 1, last: TOOL_LABEL[tool] ?? tool };
       else if (role === "review") reviewLast = TOOL_LABEL[tool] ?? tool;
     }
   }
@@ -125,12 +133,26 @@ export function AgentWorkshop({ state }: { state: GenerateState }) {
       </div>
 
       {solo && phase === Phase.Build ? (
-        <div className="flex items-center gap-3">
-          <Builder working />
-          <div className="flex min-w-0 flex-col text-xs">
-            <span className="text-neutral-200">El diseñador monta el vídeo entero</span>
-            <span className="truncate text-neutral-500">{design.last ? `${design.tools} pasos · ${design.last}` : "Leyendo el brief y tu marca…"}</span>
+        <div className="flex flex-col gap-2">
+          {direction && <p className="line-clamp-2 text-[11px] text-neutral-400 italic">“{direction}”</p>}
+          <div className="flex items-center gap-3">
+            <Builder working />
+            <div className="flex min-w-0 flex-col text-xs">
+              <span className="truncate text-neutral-200">
+                {design.scenes.length ? `Escena ${design.scenes.length} · ${design.scenes.at(-1)}` : direction ? "Montando el mundo y la cámara" : "Leyendo el brief y tu marca…"}
+              </span>
+              <span className="truncate text-neutral-500">{design.last ? `${design.tools} pasos · ${design.last}` : "Afilando el lápiz…"}</span>
+            </div>
           </div>
+          {design.scenes.length > 1 && (
+            <ul className="flex flex-col gap-0.5 pl-10 text-[10px] text-neutral-500">
+              {design.scenes.slice(0, -1).map((sc, i) => (
+                <li key={i} className="truncate">
+                  <span className="text-emerald-400">✓</span> Escena {i + 1} · {sc}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       ) : phase === Phase.Plan || !phase ? (
         <div className="flex items-center gap-3">

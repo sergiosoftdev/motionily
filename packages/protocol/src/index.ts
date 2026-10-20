@@ -292,6 +292,8 @@ export type ImageHit = {
 /** Attribution of an image imported into a video (CC BY / BY-SA require it). */
 export type ImageCredit = {
   src: string;
+  /** Small copy the agent looks at (the full image would flood its context). Missing on early imports. */
+  preview?: string;
   source: ImageSource;
   title: string;
   author: string;

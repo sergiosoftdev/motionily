@@ -213,12 +213,14 @@ server.registerTool(
 server.registerTool(
   "view_image",
   {
-    description: "Look at a reference image the user attached (a /media/… path from the request or get_project). Use it to understand what they mean; it is not brand material unless they say so.",
+    description: "Look at an image by its /media/… path: a reference the user attached (not brand material unless they say so) or a photo you imported (you see a small preview; the layer still uses the full src).",
     inputSchema: { url: z.string().regex(/^\/media\/[a-f0-9-]{36}\.[a-z0-9]{1,5}$/) },
   },
   async ({ url }) => {
     try {
-      const img = await api.media(url);
+      // Imported photos are big: show their preview so a few of them do not flood the context.
+      const preview = (await api.project()).imageCredits?.find((c) => c.src === url)?.preview;
+      const img = await api.media(preview ?? url);
       return { content: [{ type: "image" as const, data: img.bytes.toString("base64"), mimeType: img.mime }] };
     } catch (e) {
       return fail((e as Error).message);

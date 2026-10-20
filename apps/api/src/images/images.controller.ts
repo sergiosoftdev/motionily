@@ -40,12 +40,19 @@ export class ImagesController {
     });
     const known = project.imageCredits?.find((c) => c.pageUrl === image.credit.pageUrl);
     if (known) return known;
-    const file = await downloadImage(image.download, MAX_REFERENCE_BYTES).catch((e: Error) => {
+    const [file, small] = await Promise.all([
+      downloadImage(image.download, MAX_REFERENCE_BYTES),
+      // The preview only spares the agent's context: without it, it looks at the full image.
+      downloadImage(image.preview, MAX_REFERENCE_BYTES).catch(() => null),
+    ]).catch((e: Error) => {
       throw new BadGatewayException(e.message);
     });
-    const name = mediaName(`image${file.ext}`);
-    await writeFile(join(MEDIA_DIR, name), file.bytes);
-    const credit = { src: `/media/${name}`, ...image.credit };
+    const save = async (f: { bytes: Buffer; ext: string }) => {
+      const name = mediaName(`image${f.ext}`);
+      await writeFile(join(MEDIA_DIR, name), f.bytes);
+      return `/media/${name}`;
+    };
+    const credit = { src: await save(file), ...(small ? { preview: await save(small) } : {}), ...image.credit };
     await this.projects.addImageCredit(id, credit);
     return credit;
   }

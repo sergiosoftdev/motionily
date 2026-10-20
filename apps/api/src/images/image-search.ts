@@ -25,6 +25,8 @@ export type ImageHit = {
 
 export type ImageCredit = {
   src: string;
+  /** Small copy the agent looks at (the full image would flood its context). Missing on early imports. */
+  preview?: string;
   source: ImageSource;
   title: string;
   author: string;
@@ -33,8 +35,8 @@ export type ImageCredit = {
   pageUrl: string;
 };
 
-/** Where to download an image from, and how to credit it. */
-export type ResolvedImage = { download: string; credit: Omit<ImageCredit, "src"> };
+/** Where to download an image (and its small preview) from, and how to credit it. */
+export type ResolvedImage = { download: string; preview: string; credit: Omit<ImageCredit, "src" | "preview"> };
 
 const COMMONS_API = "https://commons.wikimedia.org/w/api.php";
 const OPENVERSE_API = "https://api.openverse.org/v1/images";
@@ -44,6 +46,8 @@ const HEADERS = { "User-Agent": "Motionily/0.1 (https://github.com/sergiosoftdev
 const SOURCE_TIMEOUT_MS = 8000;
 /** Enough to judge a photo; small, since every thumbnail stays in the agent's context. */
 const THUMB_WIDTH = 200;
+/** What the agent sees of an imported photo: enough to compose around it. */
+const PREVIEW_WIDTH = 480;
 /** Big enough for a slow zoom on a 1080p frame, small enough to load fast. */
 const IMPORT_WIDTH = 2560;
 const TEXT_MAX = 200;
@@ -182,15 +186,20 @@ export async function resolveImage(id: string): Promise<ResolvedImage> {
   const ref = id.slice(at + 1);
   if (source === ImageSource.Commons) {
     if (!/^File:/.test(ref)) throw new Error("commons ids look like commons:File:Name.jpg");
-    const data = await getJson<{ query?: { pages?: Record<string, Omit<CommonsPage, "index">> } }>(commonsUrl({ titles: ref, iiurlwidth: String(IMPORT_WIDTH) }));
-    const page = Object.values(data.query?.pages ?? {})[0];
-    const info = page?.imageinfo?.[0];
+    type Pages = { query?: { pages?: Record<string, Omit<CommonsPage, "index">> } };
+    const [data, small] = await Promise.all([
+      getJson<Pages>(commonsUrl({ titles: ref, iiurlwidth: String(IMPORT_WIDTH) })),
+      getJson<Pages>(commonsUrl({ titles: ref, iiurlwidth: String(PREVIEW_WIDTH) })),
+    ]);
+    const info = Object.values(data.query?.pages ?? {})[0]?.imageinfo?.[0];
+    const previewInfo = Object.values(small.query?.pages ?? {})[0]?.imageinfo?.[0];
     const meta = info?.extmetadata ?? {};
     const license = plain(meta.LicenseShortName?.value, 40);
     if (!info) throw new Error(`no image ${ref} on Wikimedia Commons`);
     if (!COMMONS_OK.test(license)) throw new Error(`${ref} is ${license || "unlicensed"}: not reusable`);
     return {
       download: info.thumburl ?? info.url,
+      preview: previewInfo?.thumburl ?? info.thumburl ?? info.url,
       credit: {
         source,
         title: plain(meta.ObjectName?.value) || ref.replace(/^File:/, ""),
@@ -207,6 +216,7 @@ export async function resolveImage(id: string): Promise<ResolvedImage> {
     if (!OPENVERSE_LICENSES.split(",").includes(x.license)) throw new Error(`${ref} is ${x.license}: not reusable`);
     return {
       download: x.url,
+      preview: x.thumbnail,
       credit: { source, title: plain(x.title ?? "") || "Untitled", author: plain(x.creator ?? "", 80) || "Unknown", license: openverseLicense(x), licenseUrl: x.license_url, pageUrl: x.foreign_landing_url },
     };
   }

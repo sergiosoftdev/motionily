@@ -112,7 +112,8 @@ export class ProjectsService {
     const project = await this.get(ownerId, id);
     await Promise.all([project.deleteOne(), this.feedback.deleteMany({ projectId: project._id })]);
     // Imported photos belong to this video only.
-    await Promise.all((project.imageCredits ?? []).map((c) => removeMedia(c.src.replace(/^\/media\//, ""))));
+    const files = (project.imageCredits ?? []).flatMap((c) => [c.src, c.preview ?? ""]).filter(Boolean);
+    await Promise.all(files.map((f) => removeMedia(f.replace(/^\/media\//, ""))));
   }
 
   /** Snap a brick (or several) into one slot. Records the choice as feedback for the agent. */

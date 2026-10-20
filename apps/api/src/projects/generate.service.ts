@@ -172,6 +172,21 @@ ${COMPACT_REF}
 Finish with a 2-3 sentence summary in Spanish: the art direction and what the video shows.
 ${CRAFT}`;
 
+/**
+ * Premium builds the film beat by beat: the user watches it grow, each turn stays short (no
+ * minutes of silent planning of the whole film) and a cut-off run keeps what it built.
+ */
+const SOLO_STEPS = `Build it STEP BY STEP, as ONE continuous world the camera travels through:
+1. Gather: get_project, get_brand, references and photos. Decide the direction and the beat list briefly; do not
+   compose every beat in your head now.
+2. Write ONE short line of plain text in Spanish: the art direction. Then apply_ops (palette, duration), set_font and
+   ONE add_layers with ONLY the world: the background and the camera "cam" keyed for the whole film, visiting one
+   region per beat.
+3. Then each beat IN ORDER: first a plain-text line "Escena N: <what it shows>" (the user sees it), then ONE add_layers
+   with only that beat's layers (its own group), then get_layout at its key instants and fix what is off. Never put
+   two beats in one add_layers, and do not design the next beat until this one is on screen.
+4. When every beat is in: review_video, fix, review again until clean (max 3 rounds).`;
+
 /** How the agent should work when launched from the editor's Generate button. */
 const AGENT_GUIDE = `You are Motionily's motion designer and art director. You build the WHOLE video through the motionily MCP tools.
 There are NO presets in Motionily: no built-in animations, transitions, styles, templates or stock models.
@@ -447,7 +462,7 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
     this.push(run, GenerateEventKind.Phase, GeneratePhase.Build);
     const designer = await this.agent(
       run,
-      `This is a NEW video from scratch: first call apply_ops [{"op":"clear_layers"}] to drop any old cut. Then design and build this whole video from its brief as ONE continuous world the camera travels through: lay out the world and the camera path first ("cam" layer keyed for the whole film), then fill each region, then review it against the references until it is clean. Canvas ${base.size[0]}x${base.size[1]} px.${refs}`,
+      `This is a NEW video from scratch: first call apply_ops [{"op":"clear_layers"}] to drop any old cut. Canvas ${base.size[0]}x${base.size[1]} px.${refs}\n${SOLO_STEPS}`,
       AGENT_GUIDE,
       { ...base, ...team.build },
       "design",
