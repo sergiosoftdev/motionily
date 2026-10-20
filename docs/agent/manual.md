@@ -83,8 +83,9 @@ Rejected on purpose: `set_size` (use `set_format`), `set_style`, `set_library`, 
 
 ## Real photos
 For real subjects (history, events, places, people, nature, documentary) or when the brief asks for real images:
-- `search_images` with specific English queries (names, places, years; the topic's language too if few hits). You see
-  every thumbnail: choose sharp, on-topic images whose shape fits the frame (portrait photos for 9:16).
+- ONE `search_images` call with every query (one per subject: names, places, years, in English). At most one more call
+  for the subjects that came back empty. Every thumbnail stays in your context: never search photo by photo. Choose
+  sharp, on-topic images whose shape fits the frame (portrait photos for 9:16).
 - `import_image` with all chosen ids in ONE call; each comes back as a `/media/…` src. Import only what you show.
 - Credits are recorded automatically and listed in the editor for the post description: do not write them into the video.
 - Documentary look: the photo fills its box (`fit=cover`), always moving slowly (`s=1>1.12@0-5:l` push or an x/y pan,

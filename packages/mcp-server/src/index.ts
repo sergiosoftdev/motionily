@@ -343,20 +343,27 @@ const THUMB_TIMEOUT_MS = 8000;
 /** Wikimedia asks every client to identify itself. */
 const THUMB_HEADERS = { "User-Agent": "Motionily/0.1 (https://github.com/sergiosoftdev/motionily)" };
 
+/** Hits per query by default: a few per subject is enough to choose, and every thumbnail costs context. */
+const HITS_PER_QUERY = 4;
+
 server.registerTool(
   "search_images",
   {
     description:
-      "Find REAL photos (history, places, people, events, nature, documentary) in free libraries: Wikimedia Commons and Openverse. Only reusable licenses come back (public domain, CC0, CC BY, CC BY-SA). You see each hit's thumbnail with its id, size, date and license: pick by looking, then import_image. Query in English (better results), and also in the topic's own language if few hits.",
+      "Find REAL photos (history, places, people, events, nature, documentary) in free libraries: Wikimedia Commons and Openverse. Only reusable licenses come back (public domain, CC0, CC BY, CC BY-SA). Put ALL your queries in ONE call (one per subject); you see each hit's small thumbnail with its id, size, date and license: pick by looking, then import_image. Queries in English (better results), names, places and years.",
     inputSchema: {
-      query: z.string().min(2).max(120).describe("what the photo shows, e.g. 'Spanish Civil War Madrid 1936 barricade'"),
+      queries: z.array(z.string().min(2).max(120)).min(1).max(8).describe("one per subject, e.g. ['Spanish Civil War Madrid 1936 barricade', 'Guernica 1937 ruins']"),
       source: z.enum([ImageSource.Commons, ImageSource.Openverse]).optional().describe("one library only; default both"),
-      limit: z.number().int().min(1).max(12).default(8),
+      per_query: z.number().int().min(1).max(8).default(HITS_PER_QUERY),
     },
   },
-  async ({ query, source, limit }) => {
+  async ({ queries, source, per_query }) => {
     try {
-      const { hits, unavailable } = await api.searchImages(query, limit, source);
+      const results = await Promise.all(queries.map((q) => api.searchImages(q, per_query, source)));
+      const seen = new Set<string>();
+      const groups = results.map((r, i) => ({ query: queries[i]!, hits: r.hits.filter((h) => !seen.has(h.id) && seen.add(h.id)) }));
+      const unavailable = [...new Set(results.flatMap((r) => r.unavailable.map((u) => u.split(" (")[0]!)))];
+      const hits = groups.flatMap((g) => g.hits);
       const thumbs = await Promise.all(
         hits.map(async (h) => {
           try {
@@ -369,14 +376,17 @@ server.registerTool(
         }),
       );
       const content: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[] = [];
-      if (unavailable.length) content.push({ type: "text", text: `Unavailable right now: ${unavailable.join("; ")}` });
-      if (!hits.length) content.push({ type: "text", text: `No reusable images for '${query}'. Try other words (English, names, places, years).` });
-      hits.forEach((h, i) => {
-        const facts = [h.title, h.date, `${h.width}x${h.height}`, h.license, `by ${h.author}`, h.description].filter(Boolean).join(" | ");
-        content.push({ type: "text", text: `[${i + 1}] id="${h.id}" ${facts}` });
-        const t = thumbs[i];
-        if (t) content.push({ type: "image", ...t });
-      });
+      if (unavailable.length) content.push({ type: "text", text: `Unavailable right now: ${unavailable.join(", ")}` });
+      let n = 0;
+      for (const g of groups) {
+        content.push({ type: "text", text: g.hits.length ? `## ${g.query}` : `## ${g.query}: no reusable images (try other words: names, places, years)` });
+        for (const h of g.hits) {
+          const facts = [h.title, h.date, `${h.width}x${h.height}`, h.license, `by ${h.author}`, h.description].filter(Boolean).join(" | ");
+          content.push({ type: "text", text: `[${n + 1}] id="${h.id}" ${facts}` });
+          const t = thumbs[n++];
+          if (t) content.push({ type: "image", ...t });
+        }
+      }
       return { content };
     } catch (e) {
       return fail((e as Error).message);

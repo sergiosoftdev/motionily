@@ -9,6 +9,15 @@ const PHASES: { id: Phase; label: string }[] = [
   { id: Phase.Build, label: "Montaje en paralelo" },
   { id: Phase.Review, label: "Revisión" },
 ];
+/** Premium mode: one designer plans and builds the whole film, then the reviewer. */
+const SOLO_PHASES: { id: Phase; label: string }[] = [
+  { id: Phase.Build, label: "Diseño y montaje" },
+  { id: Phase.Review, label: "Revisión" },
+];
+/** Role tag of the premium designer's events. */
+const DESIGN_ROLE = "design";
+/** After this long without a tool call, say when the last step was (the agent is writing or thinking). */
+const QUIET_MS = 20_000;
 
 const GAGS = [
   "Discutiendo si ese verde es menta o pistacho…",
@@ -35,8 +44,15 @@ export function readState(state: GenerateState) {
   let direction: string | null = null;
   let plannerSteps = 0;
   let reviewLast: string | null = null;
+  let solo = false;
+  let design: { tools: number; last: string | null } = { tools: 0, last: null };
+  let lastStepAt: number | null = null;
   for (const e of state.events) {
-    if (e.kind === GenerateEventKind.Phase) phase = e.text as Phase;
+    if (e.kind === GenerateEventKind.Phase) {
+      // Team runs open with the planner; premium runs go straight to building.
+      if (!phase && e.text === Phase.Build) solo = true;
+      phase = e.text as Phase;
+    }
     else if (e.kind === GenerateEventKind.Plan) {
       try {
         lanes = (JSON.parse(e.text) as { group: string; start: number; end: number }[]).map((b) => ({ ...b, tools: 0, last: null, done: false }));
@@ -48,6 +64,7 @@ export function readState(state: GenerateState) {
       if (l) l.done = true;
     } else if (e.kind === GenerateEventKind.Text && !direction && !TAG.test(e.text)) direction = e.text;
     else if (e.kind === GenerateEventKind.Tool) {
+      lastStepAt = Date.parse(e.at);
       const m = TAG.exec(e.text);
       const role = m?.[1];
       const tool = m?.[2] ?? e.text;
@@ -56,10 +73,11 @@ export function readState(state: GenerateState) {
         lane.tools += 1;
         lane.last = TOOL_LABEL[tool] ?? tool;
       } else if (role === "plan") plannerSteps += 1;
+      else if (role === DESIGN_ROLE) design = { tools: design.tools + 1, last: TOOL_LABEL[tool] ?? tool };
       else if (role === "review") reviewLast = TOOL_LABEL[tool] ?? tool;
     }
   }
-  return { phase, lanes, direction, plannerSteps, reviewLast };
+  return { phase, lanes, direction, plannerSteps, reviewLast, solo, design, lastStepAt };
 }
 
 /**
@@ -67,7 +85,7 @@ export function readState(state: GenerateState) {
  * (bricks = layers written), the reviewer sweeping at the end, and a running gag.
  */
 export function AgentWorkshop({ state }: { state: GenerateState }) {
-  const { phase, lanes, direction, plannerSteps, reviewLast } = readState(state);
+  const { phase, lanes, direction, plannerSteps, reviewLast, solo, design, lastStepAt } = readState(state);
   const [gag, setGag] = useState(() => Math.floor(Math.random() * GAGS.length));
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -80,20 +98,22 @@ export function AgentWorkshop({ state }: { state: GenerateState }) {
   }, []);
   const started = state.events[0] ? Date.parse(state.events[0].at) : now;
   const secs = Math.max(0, Math.round((now - started) / 1000));
-  const phaseIndex = PHASES.findIndex((p) => p.id === phase);
+  const phases = solo ? SOLO_PHASES : PHASES;
+  const phaseIndex = phases.findIndex((p) => p.id === phase);
+  const quiet = lastStepAt !== null && now - lastStepAt > QUIET_MS ? Math.round((now - lastStepAt) / 1000) : null;
 
   return (
     <div className="flex flex-col gap-3 rounded-xl bg-neutral-900/70 p-3 ring-1 ring-white/5">
       <div className="flex items-center justify-between text-[11px] text-neutral-500">
         <span className="font-mono">
-          {Math.floor(secs / 60)}:{String(secs % 60).padStart(2, "0")}
+          {clock(secs)}
         </span>
-        <span>El vídeo se monta en directo a la izquierda</span>
+        <span>{quiet !== null ? `Escribiendo · último paso hace ${clock(quiet)}` : "El vídeo se monta en directo a la izquierda"}</span>
       </div>
 
       {/* Phase rail */}
       <div className="flex gap-1">
-        {PHASES.map((p, i) => (
+        {phases.map((p, i) => (
           <div key={p.id} className="flex flex-1 flex-col gap-1">
             <span className="relative h-1 overflow-hidden rounded-full bg-white/10">
               {i < phaseIndex && <span className="absolute inset-0 bg-emerald-400" />}
@@ -104,7 +124,15 @@ export function AgentWorkshop({ state }: { state: GenerateState }) {
         ))}
       </div>
 
-      {phase === Phase.Plan || !phase ? (
+      {solo && phase === Phase.Build ? (
+        <div className="flex items-center gap-3">
+          <Builder working />
+          <div className="flex min-w-0 flex-col text-xs">
+            <span className="text-neutral-200">El diseñador monta el vídeo entero</span>
+            <span className="truncate text-neutral-500">{design.last ? `${design.tools} pasos · ${design.last}` : "Leyendo el brief y tu marca…"}</span>
+          </div>
+        </div>
+      ) : phase === Phase.Plan || !phase ? (
         <div className="flex items-center gap-3">
           <Director />
           <div className="flex flex-col text-xs">
@@ -147,6 +175,8 @@ export function AgentWorkshop({ state }: { state: GenerateState }) {
     </div>
   );
 }
+
+const clock = (secs: number) => `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
 
 /** The crew: faceless black stickmen, like the rest of the brand. */
 function Builder({ working }: { working: boolean }) {

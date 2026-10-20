@@ -42,7 +42,8 @@ const OPENVERSE_API = "https://api.openverse.org/v1/images";
 const HEADERS = { "User-Agent": "Motionily/0.1 (https://github.com/sergiosoftdev/motionily)" };
 /** Openverse is often slow: one source timing out must not sink the search. */
 const SOURCE_TIMEOUT_MS = 8000;
-const THUMB_WIDTH = 400;
+/** Enough to judge a photo; small, since every thumbnail stays in the agent's context. */
+const THUMB_WIDTH = 200;
 /** Big enough for a slow zoom on a 1080p frame, small enough to load fast. */
 const IMPORT_WIDTH = 2560;
 const TEXT_MAX = 200;
@@ -116,7 +117,7 @@ async function searchCommons(query: string, limit: number): Promise<ImageHit[]> 
           description: plain(meta.ImageDescription?.value),
           author: author(meta.Artist?.value),
           license,
-          date: plain(meta.DateTimeOriginal?.value, 40),
+          date: plain(meta.DateTimeOriginal?.value, 80).replace(/\b\w+ QS:\S+/g, "").trim().slice(0, 40),
           width: info.width,
           height: info.height,
           thumb: info.thumburl,

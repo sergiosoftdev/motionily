@@ -121,7 +121,8 @@ Your job is ONLY to plan, set the global look and lay out the WORLD, fast. Do no
 2. Decide an art direction (concept, palette with hex codes following COLOR below, typography, motion language,
    recurring motif) for THIS brief. Unique palette: never the generic violet/magenta/cyan AI look.
 2b. REAL PHOTOS: if the brief asks for real images or its subject is real (history, events, places, people, nature,
-   documentary), search_images (2-4 queries, English first, specific: names, places, years), pick by looking at the
+   documentary), ONE search_images call with all queries (one per subject, English, specific: names, places, years;
+   at most one more call for empty subjects), pick by looking at the
    thumbnails (sharp, on topic, fits the format) and import_image the chosen ones in ONE call (one or two per beat).
    Write each photo's src and how to show it (slow push/pan, grade, what text sits on it) into the beat's brief:
    builders only know the photos you hand them. Brand/product videos use get_brand images instead.
