@@ -135,3 +135,30 @@ test("icons expand to centered paths and read back by name", () => {
   assert.deepEqual(parseLine(out), l);
   assert.throws(() => parseLine("x path 0 ic=not-an-icon"), /unknown icon/);
 });
+
+test("text3d lines are object layers with one text node, and read back as text3d", () => {
+  const l = parseLine('logo text3d .2 x=960 y=540 w=900 h=300 depth=0.3 family="Space Grotesk" weight=700 ls=-0.02 finish=chrome spin=0,(20*sin(t)),0 fill=#c9e3f2 g=end "Lumen"');
+  assert.equal(l.type, "object");
+  assert.deepEqual(l.node, { shape: "text", text: "Lumen", depth: 0.3, family: "Space Grotesk", weight: 700, letter_spacing: -0.02 });
+  assert.equal(l.finish, "chrome");
+  assert.deepEqual(l.spin, [0, "20*sin(t)", 0]);
+  assert.equal(l.letter_spacing, undefined, "text keys move onto the node");
+  const back = formatLayer({ ...l, fov: 28 });
+  assert.match(back, /^logo text3d 0\.2 g=end /);
+  assert.deepEqual(parseLine(back), l);
+  // What the engine writes back (every default filled in) still reads as a short text3d line.
+  const engine = { ...l, fov: 28, spin: [0, 0, 0], node: { ...(l.node as object), size: 1, align: "center", line_height: 1.2, position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] } };
+  assert.equal(formatLayer(engine), 'logo text3d 0.2 g=end x=960 y=540 w=900 h=300 fill=#c9e3f2 finish=chrome depth=0.3 family="Space Grotesk" weight=700 ls=-0.02 "Lumen"');
+});
+
+test("object layers take finish, spin (keys with ;) and fov", () => {
+  const o = parseLine('tile object 0 x=500 y=500 w=200 h=200 finish=glass spin=0:0:eo,0.5:45,1:90;0;(t*40) fov=40 {"node":{"shape":"sphere","radius":0.5}}');
+  assert.deepEqual(o.spin, [[{ t: 0, v: 0, ease: "expo_out" }, { t: 0.5, v: 45 }, { t: 1, v: 90 }], 0, "t*40"]);
+  assert.equal(o.fov, 40);
+  const back = formatLayer(o);
+  assert.match(back, / finish=glass spin=0:0:eo,0\.5:45,1:90;0;\(t\*40\) fov=40 /);
+  assert.deepEqual(parseLine(back), o);
+  assert.match(formatLayer(parseLine("t object 0 w=1 h=1 spin=0>90@0-1:eo,0,0")), / spin=0>90@0-1:eo,0,0/);
+  assert.throws(() => parseLine("x object 0 w=1 h=1 finish=gold"), /finish is/);
+  assert.throws(() => parseLine("x text3d 0 w=1 h=1"), /needs its "text"/);
+});

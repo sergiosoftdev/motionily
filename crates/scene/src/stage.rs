@@ -372,6 +372,9 @@ pub enum Finish {
 
 /// Camera framing `solids` (seen from the front, `fov` degrees) so they fill the box.
 pub fn frame_solids(solids: &[DrawSolid], fov: f32, aspect: f32) -> DrawCamera {
+    if !solids.is_empty() && solids.iter().all(|s| matches!(s.geometry, crate::Geometry::Text { .. })) {
+        return frame_tight(solids, fov, aspect);
+    }
     let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
     for s in solids {
         let m = Mat4::from_cols_array_2d(&s.transform);
@@ -392,8 +395,32 @@ pub fn frame_solids(solids: &[DrawSolid], fov: f32, aspect: f32) -> DrawCamera {
     DrawCamera { kind: CameraKind::Perspective, eye: (target + Vec3::Z * dist).into(), target: target.into(), fov, ortho: radius }
 }
 
+/// Words fill their box: the front face of their ink box touches the box's sides or its top and
+/// bottom, whichever comes first (a sphere around a long word would leave it tiny).
+fn frame_tight(solids: &[DrawSolid], fov: f32, aspect: f32) -> DrawCamera {
+    let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+    for s in solids {
+        let m = Mat4::from_cols_array_2d(&s.transform);
+        let half = Vec3::from(s.geometry.half_extents());
+        for corner in [-1.0f32, 1.0].into_iter().flat_map(|x| [-1.0f32, 1.0].into_iter().flat_map(move |y| [-1.0f32, 1.0].map(|z| Vec3::new(x, y, z)))) {
+            let p = m.transform_point3(corner * half);
+            lo = lo.min(p);
+            hi = hi.max(p);
+        }
+    }
+    let target = (lo + hi) / 2.0;
+    let half = ((hi - lo) / 2.0).max(Vec3::splat(0.001));
+    let half_v = fov.to_radians() / 2.0;
+    let half_h = (half_v.tan() * aspect).atan();
+    let dist = (half.x / half_h.tan()).max(half.y / half_v.tan()) * TIGHT_MARGIN + half.z;
+    DrawCamera { kind: CameraKind::Perspective, eye: (target + Vec3::Z * dist).into(), target: target.into(), fov, ortho: half.x.max(half.y) }
+}
+
+/// Breathing room around framed text (2%), like the sphere framing.
+const TIGHT_MARGIN: f32 = 1.02;
+
 impl Stage {
-    pub fn draw(&self, t: f32, palette: &Palette, prefabs: &BTreeMap<String, Node3D>) -> DrawStage {
+    pub fn draw(&self, t: f32, palette: &Palette, prefabs: &BTreeMap<String, Node3D>, typography: Option<&crate::Typography>) -> DrawStage {
         let mut solids = Vec::new();
         let mut placed = Vec::new();
         let mut bounds: BTreeMap<String, Aabb> = BTreeMap::new();
@@ -424,7 +451,7 @@ impl Stage {
                 if let Some(tree) = tree {
                     let base = Mat4::from_scale_rotation_translation(Vec3::from(scale), Quat::from_rotation_y(rotation), Vec3::from(pos));
                     let action = beat.action.or_else(|| p.action.as_deref().and_then(|a| serde_json::from_value::<Action>(serde_json::Value::String(a.to_owned())).ok()));
-                    let ctx = NodeCtx { palette, prefabs, time: lt, action };
+                    let ctx = NodeCtx { palette, prefabs, time: lt, action, typography };
                     let tint = p.tint.map_or(palette.surface, |c| c.resolve(palette));
                     let first = solids.len();
                     tree.flatten(base, tint, &ctx, &mut solids, &mut placed, 0);
@@ -550,7 +577,7 @@ mod tests {
     #[test]
     fn camera_orbits_its_target() {
         let s = Stage { camera: Camera3D { yaw: 0.0.into(), pitch: 0.0.into(), ..Default::default() }, ..Default::default() };
-        let d = s.draw(0.0, &crate::StylePreset::Clean.palette(), &BTreeMap::new());
+        let d = s.draw(0.0, &crate::StylePreset::Clean.palette(), &BTreeMap::new(), None);
         assert!((d.camera.eye[2] - 6.0).abs() < 1e-4 && (d.camera.eye[1] - 0.8).abs() < 1e-4);
     }
 
@@ -564,13 +591,13 @@ mod tests {
         .unwrap();
         let p = crate::StylePreset::Clean.palette();
         let none = BTreeMap::new();
-        let a = stage.draw(0.0, &p, &none).camera;
+        let a = stage.draw(0.0, &p, &none, None).camera;
         assert!((a.target[0] - 3.0).abs() < 0.2, "orbit looks at the box: {:?}", a.target);
-        let b = stage.draw(1.0, &p, &none).camera;
+        let b = stage.draw(1.0, &p, &none, None).camera;
         assert_ne!(a.eye, b.eye, "orbit moves");
-        let mid_blend = stage.draw(2.25, &p, &none).camera;
+        let mid_blend = stage.draw(2.25, &p, &none, None).camera;
         assert!(mid_blend.target[0] > 0.1 && mid_blend.target[0] < 2.9, "blending between targets");
-        let after = stage.draw(3.0, &p, &none).camera;
+        let after = stage.draw(3.0, &p, &none, None).camera;
         assert!(after.target[0].abs() < 1e-4);
     }
 
@@ -590,7 +617,7 @@ mod tests {
         let end = run_beats(p, 4.0, &others);
         assert_eq!(end.action, Some(Action::Sit));
         assert!((end.pos[0] - 2.0).abs() < 1e-4 && (end.pos[1] - 0.45).abs() < 1e-4);
-        let _ = stage.draw(2.0, &crate::StylePreset::Clean.palette(), &none);
+        let _ = stage.draw(2.0, &crate::StylePreset::Clean.palette(), &none, None);
     }
 
     #[test]
@@ -599,7 +626,7 @@ mod tests {
         let s = Stage { props: vec![prop], ..Default::default() };
         let p = crate::StylePreset::Clean.palette();
         let none = BTreeMap::new();
-        assert!(s.draw(0.2, &p, &none).props.is_empty(), "hidden before its pop");
-        assert_eq!(s.draw(2.0, &p, &none).props[0].scale, [1.0, 1.0, 1.0]);
+        assert!(s.draw(0.2, &p, &none, None).props.is_empty(), "hidden before its pop");
+        assert_eq!(s.draw(2.0, &p, &none, None).props[0].scale, [1.0, 1.0, 1.0]);
     }
 }

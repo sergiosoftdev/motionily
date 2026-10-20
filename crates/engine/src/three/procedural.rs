@@ -3,10 +3,17 @@
 
 use super::model::Vertex3D;
 use glam::{Vec2, Vec3};
+use lyon_tessellation::geom::point;
+use lyon_tessellation::path::Path as LyonPath;
+use lyon_tessellation::{BuffersBuilder, FillOptions, FillRule, FillTessellator, FillVertex, VertexBuffers};
+use scene::glyphs::TextOutline;
 use scene::Geometry;
 use std::f32::consts::{PI, TAU};
 
 const SEGMENTS: usize = 28;
+/// Outline edges turning less than this (cos ≈ 35°) share a smooth normal (curves); sharper
+/// turns keep crisp corners.
+const SMOOTH_TEXT_COS: f32 = 0.82;
 
 pub struct Mesh {
     pub vertices: Vec<Vertex3D>,
@@ -83,6 +90,12 @@ pub fn build(g: &Geometry) -> Mesh {
         }
         Geometry::Lathe { points } => lathe(&mut m, points, true),
         Geometry::Extrude { points, depth } => extrude(&mut m, points, *depth),
+        // No font registered yet: no mesh (the caller waits for the font).
+        Geometry::Text { depth, .. } => {
+            if let Some(o) = scene::glyphs::outline(g) {
+                text(&mut m, &o, *depth);
+            }
+        }
     }
     orient_outwards(&mut m);
     m
@@ -191,6 +204,66 @@ fn extrude(m: &mut Mesh, points: &[[f32; 2]], depth: f32) {
     }
 }
 
+/// Glyph outlines: front and back caps tessellated with their holes (non-zero fill, the TrueType
+/// and CFF rule), then side walls whose normals face out of the solid.
+fn text(m: &mut Mesh, o: &TextOutline, depth: f32) {
+    let z = depth.max(0.0) / 2.0;
+    let mut builder = LyonPath::builder();
+    for c in &o.contours {
+        let [first, rest @ ..] = c.points.as_slice() else { continue };
+        builder.begin(point(first[0], first[1]));
+        for p in rest {
+            builder.line_to(point(p[0], p[1]));
+        }
+        builder.end(true);
+    }
+    let mut caps: VertexBuffers<[f32; 2], u32> = VertexBuffers::new();
+    let filled = FillTessellator::new().tessellate_path(
+        &builder.build(),
+        &FillOptions::DEFAULT.with_fill_rule(FillRule::NonZero),
+        &mut BuffersBuilder::new(&mut caps, |v: FillVertex| v.position().to_array()),
+    );
+    if filled.is_ok() {
+        for (zz, normal) in [(z, Vec3::Z), (-z, -Vec3::Z)] {
+            let base = m.vertices.len() as u32;
+            for p in &caps.vertices {
+                m.vertex(Vec3::new(p[0], p[1], zz), normal);
+            }
+            for t in caps.indices.chunks_exact(3) {
+                m.tri(base + t[0], base + t[1], base + t[2]);
+            }
+        }
+    }
+    if z == 0.0 {
+        return;
+    }
+    for c in &o.contours {
+        let pts = &c.points;
+        let n = pts.len();
+        if n < 3 {
+            continue;
+        }
+        let normals: Vec<Vec2> = (0..n)
+            .map(|i| {
+                let (a, b) = (pts[i], pts[(i + 1) % n]);
+                Vec2::new(b[1] - a[1], a[0] - b[0]).normalize_or_zero() * c.sign
+            })
+            .collect();
+        // An edge's normal at a corner, shared with the neighbouring edge when the turn is gentle.
+        let corner = |i: usize, other: usize| {
+            let (a, b) = (normals[i], normals[other]);
+            if a.dot(b) >= SMOOTH_TEXT_COS { (a + b).normalize_or(a) } else { a }
+        };
+        for i in 0..n {
+            let (a, b) = (pts[i], pts[(i + 1) % n]);
+            let (na, nb) = (corner(i, (i + n - 1) % n), corner(i, (i + 1) % n));
+            let q = [(a, na, z), (b, nb, z), (b, nb, -z), (a, na, -z)].map(|(p, nn, zz)| m.vertex(Vec3::new(p[0], p[1], zz), Vec3::new(nn.x, nn.y, 0.0)));
+            m.tri(q[0], q[2], q[1]);
+            m.tri(q[0], q[3], q[2]);
+        }
+    }
+}
+
 /// Triangulate a simple counter-clockwise polygon.
 fn ear_clip(pts: &[Vec2]) -> Vec<[u32; 3]> {
     let mut idx: Vec<usize> = (0..pts.len()).collect();
@@ -266,6 +339,60 @@ mod tests {
                 assert!(face.dot(Vec3::from(a.normal) + Vec3::from(b.normal) + Vec3::from(c.normal)) >= 0.0);
             }
         }
+    }
+
+    const INTER_700: &[u8] = include_bytes!("../../../../apps/web/public/fonts/Inter-700.ttf");
+
+    fn text(s: &str) -> Geometry {
+        Geometry::Text { text: s.to_owned(), size: 1.0, depth: 0.3, family: Some("Inter".into()), weight: Some(700), align: scene::TextAlign::Center, letter_spacing: 0.0, line_height: 1.2 }
+    }
+
+    /// Non-zero winding of `p` against the outline (0 = outside the letters).
+    fn winding(o: &TextOutline, p: Vec2) -> i32 {
+        let mut w = 0;
+        for c in &o.contours {
+            for (a, b) in c.points.iter().zip(c.points.iter().cycle().skip(1)) {
+                let (a, b) = (Vec2::from(*a), Vec2::from(*b));
+                let side = (b - a).perp_dot(p - a);
+                if a.y <= p.y && b.y > p.y && side > 0.0 {
+                    w += 1;
+                } else if a.y > p.y && b.y <= p.y && side < 0.0 {
+                    w -= 1;
+                }
+            }
+        }
+        w
+    }
+
+    #[test]
+    fn text_walls_face_out_of_the_letters() {
+        scene::glyphs::register("Inter", 700, INTER_700).unwrap();
+        for word in ["o", "Lumen", "A&8"] {
+            let g = text(word);
+            let o = scene::glyphs::outline(&g).unwrap();
+            let m = build(&g);
+            assert!(!m.indices.is_empty());
+            // Each wall normal points from inside a letter to outside it (holes included).
+            for v in m.vertices.iter().filter(|v| v.normal[2].abs() < 0.5) {
+                let (p, n) = (Vec2::new(v.pos[0], v.pos[1]), Vec2::new(v.normal[0], v.normal[1]));
+                let eps = 0.004;
+                if winding(&o, p + n * eps) != 0 || winding(&o, p - n * eps) == 0 {
+                    // Corners can sit on both sides of a thin stroke; only flag clear mistakes.
+                    assert!(winding(&o, p + n * eps * 0.25) == 0 || winding(&o, p - n * eps * 0.25) != 0, "{word}: wall normal {n:?} at {p:?} points inward");
+                }
+            }
+            for t in m.indices.chunks_exact(3) {
+                let [a, b, c] = [t[0], t[1], t[2]].map(|i| m.vertices[i as usize]);
+                let face = (Vec3::from(b.pos) - Vec3::from(a.pos)).cross(Vec3::from(c.pos) - Vec3::from(a.pos));
+                assert!(face.dot(Vec3::from(a.normal) + Vec3::from(b.normal) + Vec3::from(c.normal)) >= 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn text_without_a_font_builds_nothing() {
+        // Its own thread: the font registry is per thread, and this one has none.
+        std::thread::spawn(|| assert!(build(&text("Hi")).indices.is_empty())).join().unwrap();
     }
 
     #[test]

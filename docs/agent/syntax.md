@@ -70,9 +70,25 @@ id type start[-end] key=value… "text or path data" {optional JSON merged into 
 - image: `id image START x= y= w= h= src=/media/… fit=cover|contain rad=28` — src from get_brand or import_image; `contain` for logos
   (never crop them), `cover` for photos. Put screenshots on a card or a device frame built from shapes and walk through
   features by keying the image's scale/x/y while text explains them.
-- 3D object inside the 2D frame: `id object START x= y= w= h= {"node":{…},"finish":"glossy|glass|chrome|matte|toon","spin":["t*40",0,0],"fov":28}`
-  — a procedural 3D tree (see 3D) framed to fill the box; spin degrees x,y,z (numbers, keyframes or expression strings);
-  effects, opacity and blend apply like any layer. Glossy app tiles, glass orbs, chrome rings/ribbons, 3D emoji.
+- 3D object inside the 2D frame: `id object START x= y= w= h= finish=glossy|glass|chrome|matte|toon spin=RX,RY,RZ fov=28 {"node":{…}}`
+  — a procedural 3D tree (see 3D) framed to fill the box at rest (its bounding sphere: turning never changes its size);
+  spin = degrees x,y,z, each a number, `(expression)` or keys (separate the three with `;` when one is keys: `spin=0:0,1:90;0;(t*40)`);
+  fov = lens degrees (small = flat, large = dramatic). Defaults: glossy, spin 0, fov 28. Effects, opacity and blend apply
+  like any layer. Glossy app tiles, glass orbs, chrome rings/ribbons, 3D emoji.
+<!-- text3d:begin -->
+- 3D text: `id text3d START x= y= w= h= [depth=0.25] [family="Space Grotesk"] [weight=700] [align=left|center|right] [ls=EM] [lh=1.2] [finish=…] [spin=…] [fov=…] fill=COLOR "Lumen"`
+  — the words extruded from the font's real glyph outlines (holes included), a 3D object whose node is
+  `{"shape":"text","text":"Lumen","depth":0.25,…}` (the same node works in prefabs and on the stage, see 3D).
+  - defaults: the video's font (set_font) at its heading weight, depth 0.25 em, align center, glossy, fov 28.
+  - framing, exact: at rest (unspun) the front face of the words' ink box fills the layer box's width or its height,
+    whichever comes first, with 2% margin. So `w`×`h` sets the size; give the box roughly the word's aspect (≈ 0.6 em
+    per letter wide, ≈ 0.7 em tall for caps) to fill both. It is not re-framed while it spins: a wide word turned around z
+    overflows a tight box (leave room, or spin around y).
+  - `fill` colors the letters (the text node has no color). `ls` is in em here (2D text uses px). `\n` in the text breaks
+    lines, `lh` em per line, `align` aligns the lines.
+  - a `family` other than the video's loads on demand (drawn with a fallback font for a moment).
+  - kerning: only the font's legacy `kern` table; pairs kerned via GPOS (most Google Fonts) are not applied.
+<!-- text3d:end -->
 
 ## World, camera and depth — exact rules
 Trust these formulas; `get_layout` prints the resulting screen boxes if you want numbers. Never render test shapes to find out.
@@ -127,5 +143,8 @@ typed text 1.2 x=960 y=540 w=640 h=60 size=34 align=left fill=#ffffff reveal=(ma
 fluid ellipse 0 x=520 y=320 w=1200 h=900 fill=#ff6a2b soft=320 turb=150,400,0.5
 grade rect 0 x=960 y=540 w=1920 h=1080 fixed=1 adj=1 grain=.04 color=0,1.05,0,1.04
 glitch rect 5.8-6.2 x=960 y=540 w=1920 h=1080 fixed=1 adj=1 rgb=8 wave=6,120,3 grain=.06
-tile object .5 x=1500 y=420 w=260 h=260 s=0>1@0-.6:b {"node":{"shape":"box","size":[1,1,0.3],"radius":0.22,"color":"#57a0db"},"finish":"glossy","spin":["10*sin(t)","t*40",0]}
+tile object .5 x=1500 y=420 w=260 h=260 s=0>1@0-.6:b spin=(10*sin(t)),(t*40),0 {"node":{"shape":"box","size":[1,1,0.3],"radius":0.22,"color":"#57a0db"}}
+logo text3d 1 x=960 y=540 w=1100 h=360 depth=0.3 finish=chrome fill=#d7dde8 s=.8>1@0-1.2:eo spin=(-70*(1-ease_out(min(1,t/1.2)))),(25*(1-ease_out(min(1,t/1.2)))),0 "Lumen"
+glassy text3d .5 x=960 y=400 w=1400 h=300 depth=0.2 finish=glass fill=#57a0db glow=40,1.2,#9fd2ff spin=0,(8*sin(t*0.8)),0 "Día claro"
+pop text3d 2 x=960 y=700 w=700 h=240 finish=toon fill=accent s=0:0,.35:1.15:b,.6:1 spin=0,0,(6*sin(t*3)) "¡Listo!"
 ```

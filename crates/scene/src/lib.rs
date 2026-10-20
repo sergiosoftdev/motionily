@@ -7,6 +7,7 @@
 
 mod anim;
 pub mod expr;
+pub mod glyphs;
 pub mod paint;
 pub mod path;
 mod character;
@@ -192,7 +193,7 @@ impl Scene {
             library: &self.library,
             scene_size: [self.width as f32, self.height as f32],
         };
-        let mut items: Vec<DrawItem> = self.stage.iter().map(|s| DrawItem::Stage(s.draw(t, &palette, &self.library.prefabs))).collect();
+        let mut items: Vec<DrawItem> = self.stage.iter().map(|s| DrawItem::Stage(s.draw(t, &palette, &self.library.prefabs, self.typography.as_ref()))).collect();
         items.extend(self
             .scenario
             .filter(|_| self.stage.is_none())

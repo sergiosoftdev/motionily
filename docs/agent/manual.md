@@ -102,6 +102,9 @@ Most videos are 2D layers; 3D objects inside them (`object` layers, see syntax) 
   `{"shape":"sphere","radius":r}` · `{"shape":"capsule","radius":r,"height":h}` · `{"shape":"torus","radius":r,"tube":t}` ·
   `{"shape":"plane","size":[w,d]}` (floor-like) · `{"shape":"extrude","points":[[x,y]…],"depth":d}` (logos, signs, 3D letters
   from an outline, counter-clockwise) · `{"shape":"lathe","points":[[radius,y]…]}` (vases, lamps, bottles).
+  · `{"shape":"text","text":"Lumen","size":1,"depth":0.25,"family":"…","weight":700,"align":"center","letter_spacing":0,"line_height":1.2}`
+  (3D words from the font's glyphs, centered on their ink box; size = em in meters; family/weight default to the video's
+  heading font; letter_spacing and line_height in em — see 3D text in the syntax).
 - a node without shape is a group; `{"prefab":"camilla","position":[…]}` reuses a saved prefab; color is inherited.
 - shapes sit centered on their position (a box of height h at y=h/2 rests on the floor).
 - people are ALWAYS stickman rigs (black silhouette, round faceless head, tube limbs, no hands/feet; only clothes change):

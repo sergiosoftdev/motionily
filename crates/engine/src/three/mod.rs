@@ -408,7 +408,12 @@ impl StageRenderer {
 
         // Procedural pieces: one cached mesh per recipe, tinted per piece.
         for solid in &stage.solids {
-            let key = format!("@proc:{}", solid.geometry.key());
+            // 3D text meshes depend on the font really used: a font that arrives later rebuilds them.
+            let key = match scene::glyphs::outline(&solid.geometry) {
+                Some(o) => format!("@proc:{}@{}", solid.geometry.key(), o.font),
+                None if matches!(solid.geometry, scene::Geometry::Text { .. }) => continue,
+                None => format!("@proc:{}", solid.geometry.key()),
+            };
             if !self.models.contains_key(&key) {
                 let mesh = procedural::build(&solid.geometry);
                 let data = ModelData {
