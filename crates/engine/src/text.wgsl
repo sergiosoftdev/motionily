@@ -1,4 +1,5 @@
-// Textured quads from the glyph atlas (coverage in the red channel).
+// Textured quads from the glyph atlas: coverage in the red channel, or a signed distance field
+// (large text, `sdf` = 1) that is thresholded here at the screen's pixel size.
 
 struct Globals {
     scene_size: vec2<f32>,
@@ -18,6 +19,7 @@ struct Quad {
     @location(4) pivot: vec2<f32>,
     @location(5) rotation: f32,
     @location(6) blur: f32,
+    @location(7) sdf: f32,
 };
 
 struct VsOut {
@@ -27,6 +29,7 @@ struct VsOut {
     // Glyph rect in the atlas (samples outside it are empty) and blur radius in uv.
     @location(2) @interpolate(flat) rect: vec4<f32>,
     @location(3) @interpolate(flat) blur_uv: vec2<f32>,
+    @location(4) @interpolate(flat) sdf: f32,
 };
 
 const CORNERS = array<vec2<f32>, 6>(
@@ -50,6 +53,7 @@ fn vs(@builtin(vertex_index) vi: u32, q: Quad) -> VsOut {
     out.color = q.color;
     out.rect = q.uv;
     out.blur_uv = q.blur * uv_per_px;
+    out.sdf = q.sdf;
     return out;
 }
 
@@ -57,8 +61,19 @@ fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
     return select(pow((c + 0.055) / 1.055, vec3(2.4)), c / 12.92, c <= vec3(0.04045));
 }
 
+/// Coverage at `uv` inside the glyph rect: the atlas value, or for distance fields the smooth
+/// threshold at 0.5 with a ramp `edge` wide (about one screen pixel).
+fn cover(uv: vec2<f32>, rect: vec4<f32>, sdf: f32, edge: f32) -> f32 {
+    let inside = all(uv >= rect.xy) && all(uv <= rect.zw);
+    let v = textureSampleLevel(atlas, atlas_sampler, uv, 0.0).r;
+    let shaped = smoothstep(0.5 - edge, 0.5 + edge, v);
+    return select(0.0, select(v, shaped, sdf > 0.5), inside);
+}
+
 @fragment
 fn fs(in: VsOut) -> @location(0) vec4<f32> {
+    // The field's change per screen pixel sets the ramp: half of it gives a one-pixel edge.
+    let edge = 0.5 * fwidth(textureSampleLevel(atlas, atlas_sampler, clamp(in.uv, in.rect.xy, in.rect.zw), 0.0).r);
     var coverage = 0.0;
     if (in.blur_uv.x > 0.0) {
         // Disc of taps over the blur radius, ignoring neighbours in the atlas.
@@ -69,13 +84,11 @@ fn fs(in: VsOut) -> @location(0) vec4<f32> {
             let r = sqrt(f / f32(taps));
             let a = f * 2.39996;
             let uv = in.uv + vec2(cos(a), sin(a)) * r * in.blur_uv;
-            let inside = all(uv >= in.rect.xy) && all(uv <= in.rect.zw);
-            sum += select(0.0, textureSampleLevel(atlas, atlas_sampler, uv, 0.0).r, inside);
+            sum += cover(uv, in.rect, in.sdf, edge);
         }
         coverage = sum / f32(taps);
     } else {
-        let inside = all(in.uv >= in.rect.xy) && all(in.uv <= in.rect.zw);
-        coverage = select(0.0, textureSampleLevel(atlas, atlas_sampler, in.uv, 0.0).r, inside);
+        coverage = cover(in.uv, in.rect, in.sdf, edge);
     }
     var rgb = in.color.rgb;
     if (g.linearize > 0.5) {

@@ -80,6 +80,14 @@ pub enum PaletteSlot {
     Primary,
     Accent,
     Text,
+    /// Whichever of the palette text, white or ink reads best on the background (WCAG contrast).
+    OnBackground,
+    /// Same, on the surface color.
+    OnSurface,
+    /// Same, on the primary color: text sitting on a primary pill or card.
+    OnPrimary,
+    /// Same, on the accent color.
+    OnAccent,
 }
 
 /// A color is either a palette slot (preferred, follows the style) or a raw value.
@@ -107,8 +115,36 @@ impl ColorRef {
             ColorRef::Slot(PaletteSlot::Primary) => p.primary,
             ColorRef::Slot(PaletteSlot::Accent) => p.accent,
             ColorRef::Slot(PaletteSlot::Text) => p.text,
+            ColorRef::Slot(PaletteSlot::OnBackground) => readable_on(p.background, p),
+            ColorRef::Slot(PaletteSlot::OnSurface) => readable_on(p.surface, p),
+            ColorRef::Slot(PaletteSlot::OnPrimary) => readable_on(p.primary, p),
+            ColorRef::Slot(PaletteSlot::OnAccent) => readable_on(p.accent, p),
         }
     }
+}
+
+/// The candidate with the highest WCAG contrast against `bg`: the palette's text color, white or
+/// a near-black ink. Lets a text layer read on any palette color without anyone picking the ink.
+pub fn readable_on(bg: Rgba, p: &Palette) -> Rgba {
+    let ink = Rgba([0.07, 0.07, 0.1, 1.0]);
+    let white = Rgba([1.0, 1.0, 1.0, 1.0]);
+    [p.text, white, ink]
+        .into_iter()
+        .max_by(|a, b| contrast(*a, bg).total_cmp(&contrast(*b, bg)))
+        .unwrap_or(ink)
+}
+
+/// WCAG contrast ratio of two colors (1 to 21), ignoring alpha.
+pub fn contrast(a: Rgba, b: Rgba) -> f32 {
+    let (la, lb) = (luminance(a), luminance(b));
+    (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+}
+
+/// Relative luminance of an sRGB color (WCAG definition).
+pub fn luminance(c: Rgba) -> f32 {
+    let lin = |v: f32| if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) };
+    let [r, g, b, _] = c.0;
+    0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
 }
 
 /// How captions are animated. Picked by the user, rendered by the engine.
@@ -209,3 +245,49 @@ pub struct RenderStyle {
 fn unit_amount() -> f32 {
     1.0
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn palette(primary: [f32; 4]) -> Palette {
+        Palette {
+            background: Rgba([0.95, 0.95, 0.93, 1.0]),
+            surface: Rgba([1.0, 1.0, 1.0, 1.0]),
+            primary: Rgba(primary),
+            accent: Rgba([0.2, 0.5, 1.0, 1.0]),
+            text: Rgba([0.1, 0.1, 0.12, 1.0]),
+        }
+    }
+
+    #[test]
+    fn on_tokens_pick_the_readable_ink_for_each_slot() {
+        // Dark pill: white reads best, not the dark palette text.
+        let dark = palette([0.07, 0.1, 0.3, 1.0]);
+        let on_primary = ColorRef::Slot(PaletteSlot::OnPrimary).resolve(&dark);
+        assert_eq!(on_primary, Rgba([1.0, 1.0, 1.0, 1.0]));
+        // Light background: a dark ink reads best (the palette text or the near-black, both clear 4.5:1).
+        let light = palette([1.0, 0.9, 0.2, 1.0]);
+        let on_bg = ColorRef::Slot(PaletteSlot::OnBackground).resolve(&light);
+        assert!(on_bg.0[0] < 0.2, "dark ink on a light background: {on_bg:?}");
+        // The chosen color always clears the WCAG 4.5:1 text threshold on these palettes.
+        for p in [&dark, &light] {
+            for slot in [PaletteSlot::OnBackground, PaletteSlot::OnSurface, PaletteSlot::OnPrimary, PaletteSlot::OnAccent] {
+                let bg = match slot {
+                    PaletteSlot::OnBackground => p.background,
+                    PaletteSlot::OnSurface => p.surface,
+                    PaletteSlot::OnPrimary => p.primary,
+                    _ => p.accent,
+                };
+                assert!(contrast(ColorRef::Slot(slot).resolve(p), bg) >= 4.5, "{slot:?} on {bg:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn on_tokens_parse_by_name() {
+        let slot: PaletteSlot = serde_json::from_str("\"on_primary\"").unwrap();
+        assert_eq!(slot, PaletteSlot::OnPrimary);
+    }
+}
+

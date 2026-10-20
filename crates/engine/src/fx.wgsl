@@ -104,6 +104,11 @@ fn rotate_hue(c: vec3<f32>, angle: f32) -> vec3<f32> {
     return c * cs + cross(k, c) * sin(angle) + k * dot(k, c) * (1.0 - cs);
 }
 
+/// Luma of a premultiplied color (un-premultiplied first; 0 where the pixel is empty).
+fn lum_of(c: vec4<f32>) -> f32 {
+    return dot(select(vec3(0.0), c.rgb / c.a, c.a > 1e-5), vec3(0.2126, 0.7152, 0.0722));
+}
+
 @fragment
 fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
     let mode = i32(p.a.x + 0.5);
@@ -154,6 +159,10 @@ fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
             c = vec4(p.color.rgb * c.a, c.a);
         }
         c = c * p.a.z;
+    } else if (mode == 3) {
+        // Glow threshold: keep the pixels whose luma is above adj.x (soft edge of 0.08).
+        let luma = lum_of(c);
+        c = c * smoothstep(p.adj.x, p.adj.x + 0.08, luma);
     }
     if (matte_mode > 0) {
         // A projected layer's matte lives in the same flat space as the layer.
@@ -166,4 +175,102 @@ fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
         c = c * select(m, 1.0 - m, matte_mode == 2 || matte_mode == 4);
     }
     return c;
+}
+
+// ---- Backdrop blend modes (W3C compositing, premultiplied in and out). ----
+// `src` is the layer as composited, `matte` slot holds the scene so far (both premultiplied).
+// Mode ids match `BlendMode::shader_id` in scene/paint.rs.
+
+fn screen_c(a: vec3<f32>, b: vec3<f32>) -> vec3<f32> {
+    return a + b - a * b;
+}
+
+// Hard light with `base` as the backdrop and `top` deciding multiply vs screen. Overlay is the
+// same with the roles swapped.
+fn hard_c(base: vec3<f32>, top: vec3<f32>) -> vec3<f32> {
+    return select(screen_c(base, 2.0 * top - 1.0), base * 2.0 * top, top <= vec3(0.5));
+}
+
+fn soft_d(x: vec3<f32>) -> vec3<f32> {
+    return select(sqrt(x), ((16.0 * x - 12.0) * x + 4.0) * x, x <= vec3(0.25));
+}
+
+fn lum_c(c: vec3<f32>) -> f32 {
+    return dot(c, vec3(0.3, 0.59, 0.11));
+}
+
+fn clip_c(c: vec3<f32>) -> vec3<f32> {
+    let l = lum_c(c);
+    let n = min(c.r, min(c.g, c.b));
+    let x = max(c.r, max(c.g, c.b));
+    var o = c;
+    if (n < 0.0) {
+        o = l + (o - l) * l / max(l - n, 1e-6);
+    }
+    if (x > 1.0) {
+        o = l + (o - l) * (1.0 - l) / max(x - l, 1e-6);
+    }
+    return o;
+}
+
+fn set_lum_c(c: vec3<f32>, l: f32) -> vec3<f32> {
+    return clip_c(c + (l - lum_c(c)));
+}
+
+fn sat_c(c: vec3<f32>) -> f32 {
+    return max(c.r, max(c.g, c.b)) - min(c.r, min(c.g, c.b));
+}
+
+fn set_sat_c(c: vec3<f32>, s: f32) -> vec3<f32> {
+    let mx = max(c.r, max(c.g, c.b));
+    let mn = min(c.r, min(c.g, c.b));
+    if (mx <= mn) {
+        return vec3(0.0);
+    }
+    return (c - mn) * s / (mx - mn);
+}
+
+/// B(cb, cs): the blend function, backdrop `cb` and layer `cs` un-premultiplied.
+fn blend_color(mode: i32, cb: vec3<f32>, cs: vec3<f32>) -> vec3<f32> {
+    if (mode == 4) { return min(cb, cs); }
+    if (mode == 5) { return max(cb, cs); }
+    if (mode == 6) { return abs(cb - cs); }
+    if (mode == 7) { return cb + cs - 2.0 * cb * cs; }
+    if (mode == 8) { return hard_c(cs, cb); }
+    if (mode == 9) {
+        let below = cb - (1.0 - 2.0 * cs) * cb * (1.0 - cb);
+        let above = cb + (2.0 * cs - 1.0) * (soft_d(cb) - cb);
+        return select(above, below, cs <= vec3(0.5));
+    }
+    if (mode == 10) { return hard_c(cb, cs); }
+    if (mode == 11) {
+        var d = min(vec3(1.0), cb / max(1.0 - cs, vec3(1e-6)));
+        d = select(d, vec3(1.0), cs >= vec3(1.0));
+        return select(d, vec3(0.0), cb <= vec3(0.0));
+    }
+    if (mode == 12) {
+        var b = 1.0 - min(vec3(1.0), (1.0 - cb) / max(cs, vec3(1e-6)));
+        b = select(b, vec3(0.0), cs <= vec3(0.0));
+        return select(b, vec3(1.0), cb >= vec3(1.0));
+    }
+    if (mode == 13) { return max(vec3(0.0), cb + cs - 1.0); }
+    if (mode == 14) { return set_lum_c(set_sat_c(cs, sat_c(cb)), lum_c(cb)); }
+    if (mode == 15) { return set_lum_c(set_sat_c(cb, sat_c(cs)), lum_c(cb)); }
+    if (mode == 16) { return set_lum_c(cs, lum_c(cb)); }
+    if (mode == 17) { return set_lum_c(cb, lum_c(cs)); }
+    return cs;
+}
+
+@fragment
+fn fs_blend(in: VsOut) -> @location(0) vec4<f32> {
+    let s = textureSampleLevel(src, samp, in.uv, 0.0);
+    let d = textureSampleLevel(matte, samp, in.uv, 0.0);
+    let mode = i32(p.a.x + 0.5);
+    let as_ = s.a;
+    let ab = d.a;
+    let cs = select(vec3(0.0), s.rgb / as_, as_ > 1e-5);
+    let cb = select(vec3(0.0), d.rgb / ab, ab > 1e-5);
+    // co = (1 - ab) * Cs_pre + (1 - as) * Cb_pre + as * ab * B(cb, cs)  (W3C, premultiplied).
+    let rgb = (1.0 - ab) * s.rgb + (1.0 - as_) * d.rgb + as_ * ab * blend_color(mode, cb, cs);
+    return vec4(rgb, as_ + ab - as_ * ab);
 }

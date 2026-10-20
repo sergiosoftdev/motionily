@@ -312,6 +312,45 @@ impl LayerContent {
     }
 }
 
+/// Relative placement: `below:card gap=40 align=center` puts this layer 40 px under layer `card`,
+/// centered on it. `inside` centers on the other layer; `align` sets the cross-axis edge.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Place {
+    pub of: String,
+    pub side: PlaceSide,
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub gap: f32,
+    #[serde(default, skip_serializing_if = "is_center")]
+    pub align: PlaceAlign,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlaceSide {
+    Above,
+    Below,
+    Left,
+    Right,
+    Inside,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlaceAlign {
+    Start,
+    #[default]
+    Center,
+    End,
+}
+
+fn is_zero_f32(v: &f32) -> bool {
+    *v == 0.0
+}
+
+fn is_center(a: &PlaceAlign) -> bool {
+    *a == PlaceAlign::Center
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Layer {
     pub id: String,
@@ -386,6 +425,10 @@ pub struct Layer {
     /// Inherit position, rotation and scale from another layer (x/y become relative to it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
+    /// Where this layer sits relative to another one (`side`, `gap`, `align`). The agent tools resolve it
+    /// into x and y when they write the layer and again when the other layer moves; the engine draws x/y.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place: Option<Place>,
     /// Point (px, relative to the center) the layer rotates and scales around.
     #[serde(default, skip_serializing_if = "is_origin")]
     pub pivot: [f32; 2],
@@ -1009,3 +1052,18 @@ pub(crate) fn migrate(scene: &mut serde_json::Value) {
         }
     }
 }
+
+#[cfg(test)]
+mod place_tests {
+    use super::*;
+
+    #[test]
+    fn place_round_trips_and_defaults_to_centered() {
+        let l: Layer = serde_json::from_str(r#"{"id":"sub","type":"shape","shape":"rect","x":0,"y":0,"place":{"of":"card","side":"below","gap":40}}"#).unwrap();
+        let p = l.place.clone().expect("place parsed");
+        assert_eq!((p.of.as_str(), p.side, p.gap, p.align), ("card", PlaceSide::Below, 40.0, PlaceAlign::Center));
+        let back = serde_json::to_string(&l).unwrap();
+        assert!(back.contains("\"side\":\"below\"") && back.contains("\"gap\":40"), "{back}");
+    }
+}
+

@@ -21,6 +21,9 @@ pub enum Easing {
     Elastic,
     /// Lands and bounces.
     Bounce,
+    /// A real spring released at rest: overshoots about 23% and settles inside the segment with
+    /// no tuning (damping ratio 0.42). Use for pops, drops and UI settles that feel physical.
+    Spring,
 }
 
 impl Easing {
@@ -61,6 +64,7 @@ impl Easing {
                     2f32.powf(-10.0 * t) * ((t * 10.0 - 0.75) * std::f32::consts::TAU / 3.0).sin() + 1.0
                 }
             }
+            Easing::Spring => spring_step(t),
             Easing::Bounce => {
                 const N: f32 = 7.5625;
                 const D: f32 = 2.75;
@@ -79,6 +83,17 @@ impl Easing {
             }
         }
     }
+}
+
+/// Step response of a damped oscillator (damping ratio 0.42) over one segment, scaled so it lands
+/// exactly on 1 at `u = 1`. The envelope decays to 0.1% by then, so the rescale is tiny.
+fn spring_step(u: f32) -> f32 {
+    const ZETA: f32 = 0.42;
+    // exp(-ZETA * w * 1) = 0.001 sets the decay rate; w is the natural frequency in segments.
+    let w = 1000f32.ln() / ZETA;
+    let wd = w * (1.0 - ZETA * ZETA).sqrt();
+    let x = |u: f32| 1.0 - (-ZETA * w * u).exp() * ((wd * u).cos() + ZETA * w / wd * (wd * u).sin());
+    if u >= 1.0 { 1.0 } else { x(u) / x(1.0) }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -227,8 +242,16 @@ mod tests {
     fn bezier_and_new_eases() {
         assert!((cubic_bezier([0.0, 0.0, 1.0, 1.0], 0.3) - 0.3).abs() < 1e-3);
         assert!(cubic_bezier([0.2, 0.8, 0.2, 1.0], 0.3) > 0.6, "fast-out curve");
-        for e in [Easing::ExpoOut, Easing::Elastic, Easing::Bounce, Easing::ExpoInOut] {
+        for e in [Easing::ExpoOut, Easing::Elastic, Easing::Bounce, Easing::ExpoInOut, Easing::Spring] {
             assert!((e.apply(1.0) - 1.0).abs() < 1e-3 && e.apply(0.0).abs() < 1e-3);
         }
+    }
+
+    #[test]
+    fn spring_overshoots_then_settles() {
+        let peak = (0..=100).map(|i| Easing::Spring.apply(i as f32 / 100.0)).fold(0.0f32, f32::max);
+        assert!((1.15..1.3).contains(&peak), "overshoot about 23%, got {peak}");
+        assert!((Easing::Spring.apply(0.8) - 1.0).abs() < 0.02, "settled before the segment ends");
+        assert_eq!(Easing::Spring.apply(1.0), 1.0);
     }
 }

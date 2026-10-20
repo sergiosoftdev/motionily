@@ -12,6 +12,21 @@ const ATLAS_SIZE: u32 = 2048;
 const PX_STEP: f32 = 8.0;
 const PX_MIN: f32 = 8.0;
 const PX_MAX: f32 = 256.0;
+/// Large text is drawn from a distance field rasterized at SDF_BASE px, so it stays sharp at any size.
+const SDF_BASE: f32 = 128.0;
+/// Border around a distance field, in its raster px: the field fades to 0 over this distance.
+const SDF_PAD: usize = 8;
+/// Below this size every pixel gets its own glyph bitmap: small text is where a step shows.
+const PX_EXACT_MAX: f32 = 96.0;
+
+/// Raster size for a glyph drawn at `px`: exact for small text, steps of PX_STEP above it.
+fn quantize_px(px: f32) -> f32 {
+    if px <= PX_EXACT_MAX {
+        px.round().max(1.0)
+    } else {
+        ((px / PX_STEP).round() * PX_STEP).clamp(PX_MIN, PX_MAX)
+    }
+}
 const GLYPH_PAD: u32 = 2;
 /// A tiny opaque square in the atlas, used for highlight blocks behind words.
 const WHITE: [u32; 2] = [0, 0];
@@ -28,6 +43,8 @@ struct Quad {
     rotation: f32,
     /// Blur radius in scene px (text animators blur units in and out).
     blur: f32,
+    /// 1 when the uv rect holds a signed distance field (large text), 0 for coverage.
+    sdf: f32,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -35,18 +52,23 @@ struct GlyphKey {
     font: usize,
     ch: char,
     px: u32,
+    sdf: bool,
 }
 
 #[derive(Clone, Copy)]
 struct Glyph {
     uv: [f32; 4],
     metrics: fontdue::Metrics,
+    /// The bitmap's rectangle relative to the pen and baseline, in base px (left, top, right, bottom).
+    rect: [f32; 4],
 }
 
 struct FontEntry {
     family: String,
     weight: u16,
     font: fontdue::Font,
+    /// The file itself: HarfBuzz (rustybuzz) reads GPOS kerning from it, which fontdue does not.
+    data: Vec<u8>,
 }
 
 /// Shelf-packed R8 atlas. When full it is wiped and refilled on demand.
@@ -98,6 +120,8 @@ pub struct TextPipeline {
     atlas_group: wgpu::BindGroup,
     atlas: Atlas,
     fonts: Vec<FontEntry>,
+    /// Advances per char of a shaped word, by (font, word, px bits).
+    shaped: HashMap<(usize, String, u32), Vec<f32>>,
     quads: wgpu::Buffer,
     capacity: usize,
     /// Quad range of each text item of the current frame.
@@ -160,8 +184,8 @@ impl TextPipeline {
             ..Default::default()
         });
         let shader = device.create_shader_module(wgpu::include_wgsl!("text.wgsl"));
-        const ATTRS: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![
-            0 => Float32x2, 1 => Float32x2, 2 => Float32x4, 3 => Float32x4, 4 => Float32x2, 5 => Float32, 6 => Float32
+        const ATTRS: [wgpu::VertexAttribute; 8] = wgpu::vertex_attr_array![
+            0 => Float32x2, 1 => Float32x2, 2 => Float32x4, 3 => Float32x4, 4 => Float32x2, 5 => Float32, 6 => Float32, 7 => Float32
         ];
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("text"),
@@ -199,13 +223,14 @@ impl TextPipeline {
             quads: make_buffer(device, capacity),
             capacity,
             item_quads: Vec::new(),
+            shaped: HashMap::new(),
         }
     }
 
     pub fn add_font(&mut self, family: &str, weight: u16, bytes: &[u8]) -> Result<(), String> {
         let font = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default()).map_err(str::to_owned)?;
         self.fonts.retain(|f| !(f.family == family && f.weight == weight));
-        self.fonts.push(FontEntry { family: family.to_owned(), weight, font });
+        self.fonts.push(FontEntry { family: family.to_owned(), weight, font, data: bytes.to_vec() });
         Ok(())
     }
 
@@ -218,13 +243,24 @@ impl TextPipeline {
             .or(if self.fonts.is_empty() { None } else { Some(0) })
     }
 
-    fn glyph(&mut self, queue: &wgpu::Queue, font: usize, ch: char, px: u32) -> Option<Glyph> {
-        let key = GlyphKey { font, ch, px };
+    /// A glyph in the atlas. `sdf` glyphs are a distance field of the glyph (see `glyph_field`).
+    fn glyph(&mut self, queue: &wgpu::Queue, font: usize, ch: char, px: u32, sdf: bool) -> Option<Glyph> {
+        let key = GlyphKey { font, ch, px, sdf };
         if let Some(g) = self.atlas.glyphs.get(&key) {
             return Some(*g);
         }
-        let (metrics, bitmap) = self.fonts[font].font.rasterize(ch, px as f32);
-        let size = [metrics.width as u32, metrics.height as u32];
+        let (metrics, bitmap, size, rect) = if sdf {
+            let (metrics, _) = self.fonts[font].font.rasterize(ch, SDF_BASE);
+            match glyph_field(&self.fonts[font].font, ch) {
+                Some((field, size, rect)) => (metrics, field, size, rect),
+                None => (metrics, Vec::new(), [0, 0], [0.0; 4]),
+            }
+        } else {
+            let (metrics, bitmap) = self.fonts[font].font.rasterize(ch, px as f32);
+            let size = [metrics.width as u32, metrics.height as u32];
+            let (l, t) = (metrics.xmin as f32, -(metrics.height as f32 + metrics.ymin as f32));
+            (metrics, bitmap, size, [l, t, l + size[0] as f32, t + size[1] as f32])
+        };
         let at = match self.atlas.alloc(size) {
             Some(at) => at,
             None => {
@@ -236,7 +272,7 @@ impl TextPipeline {
         upload(queue, &self.atlas.texture, at, size, &bitmap);
         let s = ATLAS_SIZE as f32;
         let uv = [at[0] as f32 / s, at[1] as f32 / s, (at[0] + size[0]) as f32 / s, (at[1] + size[1]) as f32 / s];
-        let glyph = Glyph { uv, metrics };
+        let glyph = Glyph { uv, metrics, rect };
         self.atlas.glyphs.insert(key, glyph);
         Some(glyph)
     }
@@ -275,7 +311,7 @@ impl TextPipeline {
 
     /// Largest size (≤ requested) at which the block fits its box: no word wider than the
     /// wrap width and, when the layer has a height, all lines inside it.
-    fn fit_size(&self, font: usize, item: &DrawText) -> f32 {
+    fn fit_size(&mut self, font: usize, item: &DrawText) -> f32 {
         // On a path, lay the line out centered and unrotated (the path carries the layer's
         // rotation); `follow_path` aligns it along the path.
         let on_path;
@@ -396,14 +432,18 @@ impl TextPipeline {
                         pivot,
                         rotation: item.rotation,
                         blur: 0.0,
+                        sdf: 0.0,
                     });
                 }
                 let px = item.size * w.scale;
-                let px_q = ((px / PX_STEP).round() * PX_STEP).clamp(PX_MIN, PX_MAX);
+                // Past PX_MAX a bitmap would be stretched and blur: draw the glyph as a distance field instead.
+                let sdf = px > PX_MAX;
+                let px_q = if sdf { SDF_BASE } else { quantize_px(px) };
                 let k = px / px_q;
+                let advances = self.advances(font, &w.text, px);
                 let mut pen = x;
-                for ch in w.text.chars() {
-                    let Some(g) = self.glyph(queue, font, ch, px_q as u32) else { continue };
+                for (ci, ch) in w.text.chars().enumerate() {
+                    let Some(g) = self.glyph(queue, font, ch, px_q as u32, sdf) else { continue };
                     let m = g.metrics;
                     if shown == Some(char_i) {
                         caret_at = Some([pen, baseline]);
@@ -412,16 +452,17 @@ impl TextPipeline {
                     if m.width > 0 && m.height > 0 && !hidden {
                         glyphs.push((out.len(), char_i, word_i, line_i));
                         out.push(Quad {
-                            pos: [pen + m.xmin as f32 * k, baseline - (m.height as f32 + m.ymin as f32) * k],
-                            size: [m.width as f32 * k, m.height as f32 * k],
+                            pos: [pen + g.rect[0] * k, baseline + g.rect[1] * k],
+                            size: [(g.rect[2] - g.rect[0]) * k, (g.rect[3] - g.rect[1]) * k],
                             uv: g.uv,
                             color: span_color(span.color),
                             pivot,
                             rotation: item.rotation,
                             blur: 0.0,
+                            sdf: if sdf { 1.0 } else { 0.0 },
                         });
                     }
-                    pen += m.advance_width * k + item.letter_spacing;
+                    pen += advances.get(ci).copied().unwrap_or(m.advance_width * k) + item.letter_spacing;
                     if !hidden {
                         last_end = [pen, baseline];
                     }
@@ -449,6 +490,7 @@ impl TextPipeline {
                 pivot,
                 rotation: item.rotation,
                 blur: 0.0,
+                sdf: 0.0,
             });
         }
         if let Some(a) = &item.animator {
@@ -459,19 +501,30 @@ impl TextPipeline {
         }
     }
 
-    fn measure_words(&self, font: usize, item: &DrawText) -> Vec<MeasuredWord> {
-        let f = &self.fonts[font].font;
-        item.spans
-            .iter()
-            .enumerate()
-            .flat_map(|(i, span)| {
-                span.text.split_whitespace().map(move |word| {
-                    let px = item.size * span.scale;
-                    let width = word.chars().map(|c| f.metrics(c, px).advance_width + item.letter_spacing).sum();
-                    MeasuredWord { text: word.to_owned(), width, scale: span.scale, span: i }
-                })
-            })
-            .collect()
+    /// Advance of every char of `word` at `px`, kerned: HarfBuzz's `kern` feature on the font's GPOS.
+    /// Ligatures are off, so one glyph stays one char and per-character animation keeps its meaning.
+    /// Falls back to plain advances when the shaper cannot read the face.
+    fn advances(&mut self, font: usize, word: &str, px: f32) -> Vec<f32> {
+        let key = (font, word.to_owned(), px.to_bits());
+        if let Some(a) = self.shaped.get(&key) {
+            return a.clone();
+        }
+        let entry = &self.fonts[font];
+        let advances = shaped_advances(&entry.font, &entry.data, word, px);
+        self.shaped.insert(key, advances.clone());
+        advances
+    }
+
+    fn measure_words(&mut self, font: usize, item: &DrawText) -> Vec<MeasuredWord> {
+        let mut words = Vec::new();
+        for (i, span) in item.spans.iter().enumerate() {
+            for word in span.text.split_whitespace() {
+                let px = item.size * span.scale;
+                let width = self.advances(font, word, px).iter().sum::<f32>() + item.letter_spacing * word.chars().count() as f32;
+                words.push(MeasuredWord { text: word.to_owned(), width, scale: span.scale, span: i });
+            }
+        }
+        words
     }
 }
 
@@ -606,4 +659,193 @@ fn make_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buffer {
         contents: &vec![0u8; capacity * std::mem::size_of::<Quad>()],
         usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
     })
+}
+
+/// Source resolution of a distance field, relative to SDF_BASE: the outline is thresholded at this
+/// finer grid and the distances are averaged back down, so the edge keeps sub-pixel accuracy.
+const SDF_SUPER: usize = 4;
+
+/// Signed distance field of `ch`, at SDF_BASE px, from a SDF_SUPER x raster. Returns the bytes
+/// (255 deep inside, 128 on the outline, 0 well outside), their size in base px, and the field's
+/// rectangle relative to the pen and baseline in base px (left, top, right, bottom).
+fn glyph_field(font: &fontdue::Font, ch: char) -> Option<(Vec<u8>, [u32; 2], [f32; 4])> {
+    const F: usize = SDF_SUPER;
+    let (base, _) = font.rasterize(ch, SDF_BASE);
+    let (fine, coverage) = font.rasterize(ch, SDF_BASE * F as f32);
+    if fine.width == 0 || fine.height == 0 {
+        return None;
+    }
+    let pad = (SDF_PAD * F) as i32;
+    // The field's origin in fine px: the base glyph box grown by the pad (a multiple of F).
+    let (x0, y0) = (base.xmin * F as i32 - pad, -(base.height as i32 + base.ymin) * F as i32 - pad);
+    let (ox, oy) = ((fine.xmin - x0) as usize, (-(fine.height as i32 + fine.ymin) - y0) as usize);
+    let (fw, fh) = (fine.width, fine.height);
+    let w = (ox + fw + pad as usize).div_ceil(F) * F;
+    let h = (oy + fh + pad as usize).div_ceil(F) * F;
+    let mut inside = vec![false; w * h];
+    for y in 0..fh {
+        for x in 0..fw {
+            inside[(y + oy) * w + x + ox] = coverage[y * fw + x] >= 128;
+        }
+    }
+    let to_inside = distance_to(&inside, w, h, true);
+    let to_outside = distance_to(&inside, w, h, false);
+    let pad_f = pad as f32;
+    // Fine-grid value per cell, then the mean of each F x F block: one byte per base px.
+    let value: Vec<f32> = (0..w * h)
+        .map(|i| {
+            let sd = if inside[i] { -to_outside[i] } else { to_inside[i] };
+            (0.5 - sd / (2.0 * pad_f)).clamp(0.0, 1.0)
+        })
+        .collect();
+    let (bw, bh) = (w / F, h / F);
+    let mut out = vec![0u8; bw * bh];
+    for by in 0..bh {
+        for bx in 0..bw {
+            let mut sum = 0.0;
+            for dy in 0..F {
+                for dx in 0..F {
+                    sum += value[(by * F + dy) * w + bx * F + dx];
+                }
+            }
+            out[by * bw + bx] = (sum / (F * F) as f32 * 255.0).round() as u8;
+        }
+    }
+    let rect = [
+        x0 as f32 / F as f32,
+        y0 as f32 / F as f32,
+        (x0 + w as i32) as f32 / F as f32,
+        (y0 + h as i32) as f32 / F as f32,
+    ];
+    Some((out, [bw as u32, bh as u32], rect))
+}
+
+/// Distance from every cell to the nearest cell whose mask equals `target`.
+fn distance_to(mask: &[bool], w: usize, h: usize, target: bool) -> Vec<f32> {
+    let inf = (w * w + h * h) as f32 + 1.0;
+    let mut g: Vec<f32> = mask.iter().map(|&m| if m == target { 0.0 } else { inf }).collect();
+    let mut col = vec![0f32; h];
+    for x in 0..w {
+        for y in 0..h {
+            col[y] = g[y * w + x];
+        }
+        let d = dt_1d(&col);
+        for y in 0..h {
+            g[y * w + x] = d[y];
+        }
+    }
+    let mut out = vec![0f32; w * h];
+    for y in 0..h {
+        let d = dt_1d(&g[y * w..(y + 1) * w]);
+        for x in 0..w {
+            out[y * w + x] = d[x].sqrt();
+        }
+    }
+    out
+}
+
+/// Squared distance transform of one line: `f` holds 0 at seeds and "infinity" elsewhere.
+fn dt_1d(f: &[f32]) -> Vec<f32> {
+    let n = f.len();
+    let mut v = vec![0usize; n];
+    let mut z = vec![0f32; n + 1];
+    let mut k = 0usize;
+    z[0] = f32::NEG_INFINITY;
+    z[1] = f32::INFINITY;
+    for q in 1..n {
+        let qf = q as f32;
+        let mut s;
+        loop {
+            let p = v[k];
+            let pf = p as f32;
+            s = ((f[q] + qf * qf) - (f[p] + pf * pf)) / (2.0 * (qf - pf));
+            if s <= z[k] {
+                k -= 1;
+            } else {
+                break;
+            }
+        }
+        k += 1;
+        v[k] = q;
+        z[k] = s;
+        z[k + 1] = f32::INFINITY;
+    }
+    let mut d = vec![0f32; n];
+    k = 0;
+    for (q, out) in d.iter_mut().enumerate() {
+        while z[k + 1] < q as f32 {
+            k += 1;
+        }
+        let dq = q as f32 - v[k] as f32;
+        *out = dq * dq + f[v[k]];
+    }
+    d
+}
+
+/// Kerned advance per char of `word` at `px` (see `TextPipeline::advances`).
+pub fn shaped_advances(font: &fontdue::Font, data: &[u8], word: &str, px: f32) -> Vec<f32> {
+    let plain = || word.chars().map(|c| font.metrics(c, px).advance_width).collect::<Vec<f32>>();
+    let Some(face) = rustybuzz::Face::from_slice(data, 0) else { return plain() };
+    let mut buffer = rustybuzz::UnicodeBuffer::new();
+    buffer.push_str(word);
+    let tag = |t: &[u8; 4]| rustybuzz::ttf_parser::Tag::from_bytes(t);
+    // Kerning on; ligatures and contextual alternates off, so one glyph is one char.
+    let features = [
+        rustybuzz::Feature::new(tag(b"kern"), 1, ..),
+        rustybuzz::Feature::new(tag(b"liga"), 0, ..),
+        rustybuzz::Feature::new(tag(b"clig"), 0, ..),
+        rustybuzz::Feature::new(tag(b"calt"), 0, ..),
+    ];
+    let out = rustybuzz::shape(&face, &features, buffer);
+    let positions = out.glyph_positions();
+    if positions.len() != word.chars().count() {
+        return plain();
+    }
+    let scale = px / face.units_per_em() as f32;
+    positions.iter().map(|p| p.x_advance as f32 * scale).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::shaped_advances;
+
+    const INTER: &[u8] = include_bytes!("../../../apps/web/public/fonts/Inter-500.ttf");
+
+    #[test]
+    fn kerning_tightens_known_pairs() {
+        let font = fontdue::Font::from_bytes(INTER, fontdue::FontSettings::default()).unwrap();
+        // "To" and "AV" carry GPOS kerning in Inter; plain advances would not move.
+        for pair in ["To", "AV", "Yo"] {
+            let kerned: f32 = shaped_advances(&font, INTER, pair, 100.0).iter().sum();
+            let plain: f32 = pair.chars().map(|c| font.metrics(c, 100.0).advance_width).sum();
+            assert!(kerned < plain - 0.5, "{pair}: kerned {kerned} vs plain {plain}");
+        }
+        // Letters without a pair keep their plain advances.
+        let kerned: Vec<f32> = shaped_advances(&font, INTER, "lm", 100.0);
+        let plain: Vec<f32> = "lm".chars().map(|c| font.metrics(c, 100.0).advance_width).collect();
+        assert_eq!(kerned.len(), 2);
+        assert!((kerned[1] - plain[1]).abs() < 0.01);
+    }
+
+    #[test]
+    fn distance_field_is_bright_inside_and_dark_outside() {
+        let font = fontdue::Font::from_bytes(INTER, fontdue::FontSettings::default()).unwrap();
+        let (field, size, _) = super::glyph_field(&font, 'l').expect("'l' has an outline");
+        let (w, h) = (size[0] as usize, size[1] as usize);
+        let mid = &field[(h / 2) * w..(h / 2 + 1) * w];
+        // A thin stem is narrower than the pad, so its centre stops short of 255; it is still well inside 128.
+        assert!(mid.iter().copied().max().unwrap() > 200, "stem is inside the field");
+        assert!(mid[0] <= 8 && mid[w - 1] <= 8, "the pad fades out to nearly empty");
+        // The outline crosses 50 % once on each side of the stem.
+        let crossings = mid.windows(2).filter(|p| (p[0] < 128) != (p[1] < 128)).count();
+        assert_eq!(crossings, 2);
+    }
+
+    #[test]
+    fn small_text_rasters_at_its_own_size() {
+        assert_eq!(super::quantize_px(18.0), 18.0);
+        assert_eq!(super::quantize_px(20.4), 20.0);
+        assert_eq!(super::quantize_px(137.0), 136.0);
+        assert_eq!(super::quantize_px(400.0), 256.0);
+    }
 }

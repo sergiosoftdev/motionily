@@ -269,6 +269,12 @@ impl Engine {
         self.renderer.resize(width, height);
     }
 
+    /// Draw at 2x and average down (every edge supersampled) when 2; 1 is the default and the fastest.
+    #[wasm_bindgen(js_name = setSupersample)]
+    pub fn set_supersample(&mut self, factor: u32) {
+        self.renderer.set_supersample(factor);
+    }
+
     pub fn render(&mut self, t: f32) {
         self.renderer.render(&self.scene, t);
     }

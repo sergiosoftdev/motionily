@@ -218,7 +218,8 @@ impl Batches {
 pub struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    surface: wgpu::Surface<'static>,
+    /// `None` for headless renderers, which draw into textures (`render_rgba`).
+    surface: Option<wgpu::Surface<'static>>,
     config: wgpu::SurfaceConfiguration,
     globals: wgpu::Buffer,
     globals_layout: wgpu::BindGroupLayout,
@@ -236,6 +237,10 @@ pub struct Renderer {
     fx: FxPass,
     /// Agent-written shader layers and effects.
     custom: CustomShaders,
+    /// Internal resolution as a multiple of the output size (1 or 2). At 2 the scene is drawn at
+    /// double size and the post pass averages it down: every edge (shapes, text, strokes, 3D) is
+    /// supersampled, whatever the layer type.
+    supersample: u32,
     pub adapter_info: String,
 }
 
@@ -275,6 +280,50 @@ impl Renderer {
         }
         surface.configure(&device, &config);
 
+        let info = adapter.get_info();
+        let adapter_info = if info.name.is_empty() { format!("{:?}", info.backend) } else { format!("{} ({:?})", info.name, info.backend) };
+        Ok(Self::assemble(device, queue, config, Some(surface), adapter_info))
+    }
+
+    /// A renderer with no window: frames go to textures and come back as pixels (`render_rgba`).
+    /// Native tests and stills; the same pipelines as the surface renderer.
+    pub async fn new_headless(width: u32, height: u32) -> Result<Self, EngineError> {
+        let instance = wgpu::Instance::default();
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+                apply_limit_buckets: false,
+            })
+            .await
+            .map_err(|e| EngineError::NoAdapter(e.to_string()))?;
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("motionily headless"),
+                required_limits: wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits()),
+                ..Default::default()
+            })
+            .await
+            .map_err(|e| EngineError::NoDevice(e.to_string()))?;
+        // Non-sRGB, like the web surface: palette colors are written as they are.
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            color_space: wgpu::SurfaceColorSpace::Srgb,
+            width: width.max(1),
+            height: height.max(1),
+            present_mode: wgpu::PresentMode::Fifo,
+            desired_maximum_frame_latency: 2,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            view_formats: vec![],
+        };
+        let info = adapter.get_info();
+        let adapter_info = if info.name.is_empty() { format!("{:?}", info.backend) } else { format!("{} ({:?})", info.name, info.backend) };
+        Ok(Self::assemble(device, queue, config, None, adapter_info))
+    }
+
+    fn assemble(device: wgpu::Device, queue: wgpu::Queue, config: wgpu::SurfaceConfiguration, surface: Option<wgpu::Surface<'static>>, adapter_info: String) -> Self {
         let globals = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("globals"),
             size: std::mem::size_of::<Globals>() as u64,
@@ -318,12 +367,12 @@ impl Renderer {
         let images = ImagePipeline::new(&ctx);
         let paths = PathPipeline::new(&ctx);
         let custom = CustomShaders::new(&ctx);
-        let post = PostPass::new(&device, config.format, config.width, config.height);
-        let fx = FxPass::new(&device, config.format, config.width, config.height);
-        let stage = StageRenderer::new(&device, &queue, config.format, [config.width, config.height]);
+        let internal = [config.width, config.height];
+        let post = PostPass::new(&device, config.format, internal[0], internal[1]);
+        let fx = FxPass::new(&device, config.format, internal[0], internal[1]);
+        let stage = StageRenderer::new(&device, &queue, config.format, internal);
 
-        let info = adapter.get_info();
-        Ok(Renderer {
+        Renderer {
             shapes,
             text,
             polys,
@@ -334,6 +383,7 @@ impl Renderer {
             post,
             fx,
             custom,
+            supersample: 1,
             device,
             queue,
             surface,
@@ -342,12 +392,8 @@ impl Renderer {
             globals_layout,
             globals_pipeline_layout,
             bind_group,
-            adapter_info: if info.name.is_empty() {
-                format!("{:?}", info.backend)
-            } else {
-                format!("{} ({:?})", info.name, info.backend)
-            },
-        })
+            adapter_info,
+        }
     }
 
     /// Register a glTF binary (GLB) model under `key`, e.g. "characters/character-female-b".
@@ -444,17 +490,105 @@ impl Renderer {
         }
         self.config.width = width;
         self.config.height = height;
-        self.surface.configure(&self.device, &self.config);
-        self.post.resize(&self.device, width, height);
-        self.fx.resize(&self.device, width, height);
-        self.stage.resize(&self.device, [width, height]);
-        for o in &mut self.objects {
-            o.resize(&self.device, [width, height]);
+        if let Some(surface) = &self.surface {
+            surface.configure(&self.device, &self.config);
+        }
+        self.resize_targets();
+    }
+
+    /// Supersampling: 1 (default) or 2. Takes effect on the next frame.
+    pub fn set_supersample(&mut self, factor: u32) {
+        let factor = factor.clamp(1, 2);
+        if factor != self.supersample {
+            self.supersample = factor;
+            self.resize_targets();
         }
     }
 
-    /// Draw `scene` at time `t` (seconds) into the surface.
+    /// Size of the offscreen targets the scene is drawn into (output size times supersampling).
+    fn internal_size(&self) -> [u32; 2] {
+        [self.config.width * self.supersample, self.config.height * self.supersample]
+    }
+
+    fn resize_targets(&mut self) {
+        let [w, h] = self.internal_size();
+        self.post.resize(&self.device, w, h);
+        self.fx.resize(&self.device, w, h);
+        self.stage.resize(&self.device, [w, h]);
+        for o in &mut self.objects {
+            o.resize(&self.device, [w, h]);
+        }
+    }
+
+    /// Draw `scene` at time `t` (seconds) into the surface. Does nothing on a headless renderer.
     pub fn render(&mut self, scene: &Scene, t: f32) {
+        let Some(surface) = &self.surface else { return };
+        let frame = match surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(f) | wgpu::CurrentSurfaceTexture::Suboptimal(f) => f,
+            _ => {
+                surface.configure(&self.device, &self.config);
+                return;
+            }
+        };
+        let view = frame.texture.create_view(&Default::default());
+        self.draw(scene, t, &view);
+        self.queue.present(frame);
+    }
+
+    /// Draw `scene` at time `t` into a texture of the renderer's size and read it back as tightly
+    /// packed RGBA8 rows (top row first). Works on any renderer; the output is not sRGB-converted.
+    pub fn render_rgba(&mut self, scene: &Scene, t: f32) -> Vec<u8> {
+        let (width, height) = (self.config.width, self.config.height);
+        let target = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("still"),
+            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: self.config.format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = target.create_view(&Default::default());
+        self.draw(scene, t, &view);
+        // Rows are copied with 256-byte alignment, as the GPU requires, then unpacked.
+        let row = (width * 4).div_ceil(256) * 256;
+        let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("still readback"),
+            size: row as u64 * height as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo { texture: &target, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &readback,
+                layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(row), rows_per_image: Some(height) },
+            },
+            wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+        );
+        self.queue.submit([encoder.finish()]);
+        let slice = readback.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = tx.send(result);
+        });
+        let _ = self.device.poll(wgpu::PollType::wait_indefinitely());
+        rx.recv().ok().and_then(Result::ok).expect("readback map failed");
+        let data = slice.get_mapped_range().expect("readback range");
+        let mut out = Vec::with_capacity((width * height * 4) as usize);
+        for y in 0..height as usize {
+            let start = y * row as usize;
+            out.extend_from_slice(&data[start..start + width as usize * 4]);
+        }
+        drop(data);
+        readback.unmap();
+        out
+    }
+
+    /// The frame at `t` into `view`: 3D stage, then the 2D runs over it, then the post pass.
+    fn draw(&mut self, scene: &Scene, t: f32, view: &wgpu::TextureView) {
         let batches = Batches::build(scene.frame(t));
         let linearize = if self.config.format.is_srgb() { 1.0 } else { 0.0 };
         self.queue.write_buffer(
@@ -482,7 +616,7 @@ impl Renderer {
         self.custom.prepare_layers(&batches.shaders, &shading);
         self.stage.prepare(&self.device, &self.queue, batches.stage.as_ref(), scene.width as f32 / scene.height as f32, linearize > 0.5);
         while self.objects.len() < batches.objects.len() {
-            self.objects.push(StageRenderer::new(&self.device, &self.queue, self.config.format, [self.config.width, self.config.height]));
+            self.objects.push(StageRenderer::new(&self.device, &self.queue, self.config.format, self.internal_size()));
         }
         let scene_px = [scene.width as f32, scene.height as f32];
         for (renderer, o) in self.objects.iter_mut().zip(&batches.objects) {
@@ -491,14 +625,6 @@ impl Renderer {
             renderer.prepare_in(&self.device, &self.queue, Some(&o.stage), 1.0, linearize > 0.5, Some(screen));
         }
 
-        let frame = match self.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(f) | wgpu::CurrentSurfaceTexture::Suboptimal(f) => f,
-            _ => {
-                self.surface.configure(&self.device, &self.config);
-                return;
-            }
-        };
-        let view = frame.texture.create_view(&Default::default());
         let palette = scene.palette();
         let to_surface = |c: scene::Rgba| {
             let [r, g, b, _] = c.0;
@@ -511,8 +637,9 @@ impl Renderer {
         };
 
         // Plan every offscreen pass first: they share one uniform buffer written before submit.
-        let px_per_scene = self.config.width as f32 / scene.width.max(1) as f32;
-        let texel = [1.0 / self.config.width.max(1) as f32, 1.0 / self.config.height.max(1) as f32];
+        let [internal_w, internal_h] = self.internal_size();
+        let px_per_scene = internal_w as f32 / scene.width.max(1) as f32;
+        let texel = [1.0 / internal_w.max(1) as f32, 1.0 / internal_h.max(1) as f32];
         self.fx.begin();
         let plans: Vec<Option<FxPlan>> = batches
             .runs
@@ -585,9 +712,8 @@ impl Renderer {
                 ..Default::default()
             });
         }
-        self.post.run(&self.queue, &mut encoder, &view, scene.render_style, &colors, scene.width as f32, t);
+        self.post.run(&self.queue, &mut encoder, view, scene.render_style, &colors, scene.width as f32, t);
         self.queue.submit([encoder.finish()]);
-        self.queue.present(frame);
     }
 }
 
@@ -679,9 +805,23 @@ impl Renderer {
             self.fx.blur(encoder, Tex::Temp, &self.fx.copy, *v);
             self.fx.composite(encoder, Tex::Copy, target, scene::paint::BlendMode::Normal, *comp);
         }
-        self.fx.composite(encoder, Tex::Layer, target, f.blend, plan.layer);
-        for (h, v, comp) in &plan.glows {
-            self.fx.blur(encoder, Tex::Layer, &self.fx.temp, *h);
+        if f.blend.reads_backdrop() {
+            // The layer alone, then blended over a copy of the scene so far.
+            drop(FxPass::clear_pass(encoder, &self.fx.scratch, "fx blend source"));
+            self.fx.composite(encoder, Tex::Layer, &self.fx.scratch, scene::paint::BlendMode::Normal, plan.layer);
+            self.fx.blend_over(&self.device, encoder, self.post.texture(), target, plan.blend);
+        } else {
+            self.fx.composite(encoder, Tex::Layer, target, f.blend, plan.layer);
+        }
+        for (h, v, comp, thresh) in &plan.glows {
+            match thresh {
+                Some(thresh) => {
+                    drop(FxPass::clear_pass(encoder, &self.fx.accum, "fx glow threshold"));
+                    self.fx.composite(encoder, Tex::Layer, &self.fx.accum, scene::paint::BlendMode::Normal, *thresh);
+                    self.fx.blur(encoder, Tex::Accum, &self.fx.temp, *h);
+                }
+                None => self.fx.blur(encoder, Tex::Layer, &self.fx.temp, *h),
+            }
             self.fx.blur(encoder, Tex::Temp, &self.fx.copy, *v);
             self.fx.composite(encoder, Tex::Copy, target, scene::paint::BlendMode::Add, *comp);
         }
@@ -705,11 +845,14 @@ struct FxPlan {
     /// (h blur, v blur, composite) per shadow.
     shadows: Vec<(u32, u32, u32)>,
     layer: u32,
-    glows: Vec<(u32, u32, u32)>,
+    /// (h blur, v blur, composite, threshold pass) per glow.
+    glows: Vec<(u32, u32, u32, Option<u32>)>,
     /// Plain copy (adjustment layers).
     copy: u32,
     /// One motion-blur sample at 1/n.
     average: u32,
+    /// Uniform slot holding a backdrop blend's mode id (unused for fixed-function modes).
+    blend: u32,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -726,7 +869,7 @@ fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, shading: &FrameInfo, f: 
         let [r, g, b, a] = c.0;
         if linear { [srgb_to_linear(r), srgb_to_linear(g), srgb_to_linear(b), a] } else { [r, g, b, a] }
     };
-    let mut plan = FxPlan { steps: Vec::new(), replace: 0, shadows: Vec::new(), layer: 0, glows: Vec::new(), copy: 0, average: 0 };
+    let mut plan = FxPlan { steps: Vec::new(), replace: 0, shadows: Vec::new(), layer: 0, glows: Vec::new(), copy: 0, average: 0, blend: 0 };
     // Color correction, distortion and grain all happen in the final layer composite.
     let (mut hue, mut sat, mut bright, mut contrast) = (0.0, 1.0, 0.0, 1.0);
     let mut warp = [0.0f32; 4];
@@ -757,7 +900,7 @@ fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, shading: &FrameInfo, f: 
                 });
                 plan.shadows.push((h, v, comp));
             }
-            DrawEffect::Glow { radius, strength, color } => {
+            DrawEffect::Glow { radius, strength, color, threshold } => {
                 let (h, v) = blur_pair(fx, radius);
                 let comp = fx.push(FxParams {
                     a: [2.0, matte, strength, if color.is_some() { 1.0 } else { 0.0 }],
@@ -767,7 +910,9 @@ fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, shading: &FrameInfo, f: 
                     h2,
                     ..Default::default()
                 });
-                plan.glows.push((h, v, comp));
+                // Threshold: a pass that keeps only the bright pixels, blurred instead of the whole layer.
+                let thresh = (threshold > 0.0).then(|| fx.push(FxParams { a: [3.0, matte, 1.0, 0.0], adj: [threshold, 0.0, 0.0, 0.0], ..Default::default() }));
+                plan.glows.push((h, v, comp, thresh));
             }
             DrawEffect::Blur { .. } => {}
             DrawEffect::Color { hue: h, saturation, brightness, contrast: k } => {
@@ -785,6 +930,9 @@ fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, shading: &FrameInfo, f: 
     // Warps pull pixels from around them: at the frame edge, repeat the edge instead of emptiness.
     let clamp_edges = if f.adjust || turb[0] != 0.0 { 1.0 } else { 0.0 };
     plan.layer = fx.push(FxParams { a: [0.0, matte, 1.0, 0.0], b: [0.0, 0.0, clamp_edges, if f.adjust { 1.0 } else { 0.0 }], adj: [hue, sat - 1.0, bright, contrast - 1.0], warp, grain, turb, h0, h1, h2, ..Default::default() });
+    if f.blend.reads_backdrop() {
+        plan.blend = fx.push(FxParams { a: [f.blend.shader_id(), 0.0, 0.0, 0.0], ..Default::default() });
+    }
     if f.adjust {
         plan.copy = fx.push(FxParams::default());
     }

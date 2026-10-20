@@ -51,6 +51,12 @@ pub struct FxPass {
     pub copy: wgpu::TextureView,
     pub matte: wgpu::TextureView,
     pub accum: wgpu::TextureView,
+    /// Backdrop blend modes: the layer alone (cleared, composited, then blended over `backdrop`).
+    pub scratch: wgpu::TextureView,
+    /// Copy of the scene so far, taken before a backdrop blend.
+    backdrop_texture: wgpu::Texture,
+    pub backdrop: wgpu::TextureView,
+    blend_pipeline: wgpu::RenderPipeline,
     /// Bind groups reading layer / temp / copy / accum (each with the matte).
     groups: Vec<wgpu::BindGroup>,
     size: [u32; 2],
@@ -65,6 +71,8 @@ fn blend_state(mode: BlendMode) -> wgpu::BlendState {
         BlendMode::Add => BlendComponent { src_factor: F::One, dst_factor: F::One, operation: Add },
         BlendMode::Screen => BlendComponent { src_factor: F::One, dst_factor: F::OneMinusSrc, operation: Add },
         BlendMode::Multiply => BlendComponent { src_factor: F::Dst, dst_factor: F::OneMinusSrcAlpha, operation: Add },
+        // Backdrop modes never use fixed-function blending (see `FxPass::blend_over`).
+        _ => BlendComponent { src_factor: F::One, dst_factor: F::OneMinusSrcAlpha, operation: Add },
     };
     let alpha = if mode == BlendMode::Add { BlendComponent { src_factor: F::One, dst_factor: F::One, operation: Add } } else { alpha };
     wgpu::BlendState { color, alpha }
@@ -131,6 +139,7 @@ impl FxPass {
         };
         let blur_pipeline = make("fx blur", "fs_blur", None);
         let composite = [BlendMode::Normal, BlendMode::Add, BlendMode::Screen, BlendMode::Multiply].map(|m| make("fx composite", "fs_composite", Some(blend_state(m))));
+        let blend_pipeline = make("fx blend", "fs_blend", None);
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
@@ -141,6 +150,8 @@ impl FxPass {
         let uniform = make_uniform(device, INITIAL_SLOTS);
         let (layer, matte) = (make_texture(device, format, width, height), make_texture(device, format, width, height));
         let accum = make_texture(device, format, width, height);
+        let scratch = make_texture(device, format, width, height);
+        let (backdrop_texture, backdrop) = make_copy_target(device, format, width, height);
         // Blurs run at half resolution: the blur hides it and it costs a quarter of the fill rate.
         let (temp, copy) = (make_texture(device, format, width / 2, height / 2), make_texture(device, format, width / 2, height / 2));
         let mut fx = FxPass {
@@ -156,6 +167,10 @@ impl FxPass {
             copy,
             matte,
             accum,
+            scratch,
+            backdrop_texture,
+            backdrop,
+            blend_pipeline,
             groups: Vec::new(),
             size: [width, height],
             params: Vec::new(),
@@ -170,12 +185,17 @@ impl FxPass {
 
     /// A bind group reading `src` (e.g. the scene so far, for adjustment layers).
     pub fn group_for(&self, device: &wgpu::Device, src: &wgpu::TextureView) -> wgpu::BindGroup {
+        self.bind(device, src, &self.matte, "fx")
+    }
+
+    /// Bind group with `src` in slot 0 and `second` in slot 1 (the matte, or the backdrop for blends).
+    fn bind(&self, device: &wgpu::Device, src: &wgpu::TextureView, second: &wgpu::TextureView, label: &str) -> wgpu::BindGroup {
                 device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("fx"),
+                    label: Some(label),
                     layout: &self.layout,
                     entries: &[
                         wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(src) },
-                        wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&self.matte) },
+                        wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(second) },
                         wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.sampler) },
                         wgpu::BindGroupEntry {
                             binding: 3,
@@ -197,6 +217,8 @@ impl FxPass {
         self.layer = make_texture(device, self.format, width, height);
         self.matte = make_texture(device, self.format, width, height);
         self.accum = make_texture(device, self.format, width, height);
+        self.scratch = make_texture(device, self.format, width, height);
+        (self.backdrop_texture, self.backdrop) = make_copy_target(device, self.format, width, height);
         self.temp = make_texture(device, self.format, width / 2, height / 2);
         self.copy = make_texture(device, self.format, width / 2, height / 2);
         self.rebind(device);
@@ -245,6 +267,31 @@ impl FxPass {
         })
     }
 
+    /// Blend the layer in `scratch` over the scene in `scene` (the texture behind `target`), with the
+    /// blend mode at uniform slot `offset`. Modes that read the backdrop need this two-step path.
+    pub fn blend_over(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, scene: &wgpu::Texture, target: &wgpu::TextureView, offset: u32) {
+        let size = wgpu::Extent3d { width: self.size[0], height: self.size[1], depth_or_array_layers: 1 };
+        encoder.copy_texture_to_texture(
+            wgpu::TexelCopyTextureInfo { texture: scene, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            wgpu::TexelCopyTextureInfo { texture: &self.backdrop_texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            size,
+        );
+        let group = self.bind(device, &self.scratch, &self.backdrop, "fx blend");
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("fx blend"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: target,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+            })],
+            ..Default::default()
+        });
+        pass.set_pipeline(&self.blend_pipeline);
+        pass.set_bind_group(0, &group, &[offset]);
+        pass.draw(0..3, 0..1);
+    }
+
     /// One blur direction: `from` → `to` (cleared).
     pub fn blur(&self, encoder: &mut wgpu::CommandEncoder, from: Tex, to: &wgpu::TextureView, offset: u32) {
         let mut pass = Self::clear_pass(encoder, to, "fx blur");
@@ -275,6 +322,7 @@ impl FxPass {
             BlendMode::Add => 1,
             BlendMode::Screen => 2,
             BlendMode::Multiply => 3,
+            _ => unreachable!("backdrop modes go through blend_over"),
         };
         pass.set_pipeline(&self.composite[index]);
         pass.set_bind_group(0, group, &[offset]);
@@ -299,6 +347,22 @@ fn make_uniform(device: &wgpu::Device, slots: u64) -> wgpu::Buffer {
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     })
+}
+
+/// A texture that receives a copy of the scene (backdrop blends), not a render target.
+fn make_copy_target(device: &wgpu::Device, format: wgpu::TextureFormat, width: u32, height: u32) -> (wgpu::Texture, wgpu::TextureView) {
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("fx backdrop"),
+        size: wgpu::Extent3d { width: width.max(1), height: height.max(1), depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    let view = texture.create_view(&Default::default());
+    (texture, view)
 }
 
 fn make_texture(device: &wgpu::Device, format: wgpu::TextureFormat, width: u32, height: u32) -> wgpu::TextureView {

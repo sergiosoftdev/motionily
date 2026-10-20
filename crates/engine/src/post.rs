@@ -42,6 +42,7 @@ pub struct PostPass {
     sampler: wgpu::Sampler,
     uniform: wgpu::Buffer,
     format: wgpu::TextureFormat,
+    texture: wgpu::Texture,
     target: wgpu::TextureView,
     bind_group: wgpu::BindGroup,
     size: [u32; 2],
@@ -115,8 +116,8 @@ impl PostPass {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let (target, bind_group) = Self::make_target(device, &layout, &sampler, &uniform, format, width, height);
-        PostPass { pipeline, layout, sampler, uniform, format, target, bind_group, size: [width, height] }
+        let (texture, target, bind_group) = Self::make_target(device, &layout, &sampler, &uniform, format, width, height);
+        PostPass { pipeline, layout, sampler, uniform, format, texture, target, bind_group, size: [width, height] }
     }
 
     fn make_target(
@@ -127,7 +128,7 @@ impl PostPass {
         format: wgpu::TextureFormat,
         width: u32,
         height: u32,
-    ) -> (wgpu::TextureView, wgpu::BindGroup) {
+    ) -> (wgpu::Texture, wgpu::TextureView, wgpu::BindGroup) {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("scene"),
             size: wgpu::Extent3d { width: width.max(1), height: height.max(1), depth_or_array_layers: 1 },
@@ -135,7 +136,8 @@ impl PostPass {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            // COPY_SRC: backdrop blend modes copy the scene so far before blending over it.
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
         let view = texture.create_view(&Default::default());
@@ -148,10 +150,15 @@ impl PostPass {
                 wgpu::BindGroupEntry { binding: 2, resource: uniform.as_entire_binding() },
             ],
         });
-        (view, bind_group)
+        (texture, view, bind_group)
     }
 
     /// Where scene pipelines draw this frame.
+    /// The scene texture itself (copy source for backdrop blends).
+    pub fn texture(&self) -> &wgpu::Texture {
+        &self.texture
+    }
+
     pub fn target(&self) -> &wgpu::TextureView {
         &self.target
     }
@@ -160,7 +167,8 @@ impl PostPass {
         if self.size == [width, height] {
             return;
         }
-        let (target, bind_group) = Self::make_target(device, &self.layout, &self.sampler, &self.uniform, self.format, width, height);
+        let (texture, target, bind_group) = Self::make_target(device, &self.layout, &self.sampler, &self.uniform, self.format, width, height);
+        self.texture = texture;
         self.target = target;
         self.bind_group = bind_group;
         self.size = [width, height];

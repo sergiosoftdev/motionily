@@ -251,10 +251,64 @@ fn bevel_strength() -> Animated {
 pub enum BlendMode {
     #[default]
     Normal,
-    /// Light adds up: glows, light leaks, flares.
+    /// Light adds up: glows, light leaks, flares (AE "Linear Dodge" / "Add").
     Add,
     Screen,
     Multiply,
+    /// Keeps the darker / lighter channel of the two.
+    Darken,
+    Lighten,
+    /// Absolute difference of the two colors: inverts where they differ.
+    Difference,
+    /// Like difference but lower contrast.
+    Exclusion,
+    /// Multiply or screen depending on the layer's own brightness: contrast boost.
+    Overlay,
+    /// Gentle version of overlay: dodges and burns softly.
+    SoftLight,
+    /// Overlay with the layer's brightness deciding: strong light / shadow.
+    HardLight,
+    ColorDodge,
+    ColorBurn,
+    /// Subtracts the layer from what is below (darkens by the layer's brightness).
+    LinearBurn,
+    /// The layer's hue on the backdrop's saturation and luminosity.
+    Hue,
+    /// The layer's saturation on the backdrop's hue and luminosity.
+    Saturation,
+    /// The layer's hue and saturation on the backdrop's luminosity (tints gray images).
+    Color,
+    /// The layer's luminosity on the backdrop's hue and saturation.
+    Luminosity,
+}
+
+impl BlendMode {
+    /// Modes that read what is already on the scene. The first four blend in fixed function, so
+    /// they cost one pass; the rest copy the scene and blend in a shader (see `fx.wgsl`, `fs_blend`).
+    pub fn reads_backdrop(self) -> bool {
+        !matches!(self, BlendMode::Normal | BlendMode::Add | BlendMode::Screen | BlendMode::Multiply)
+    }
+
+    /// Mode id for the backdrop blend shader (`fs_blend` switch).
+    pub fn shader_id(self) -> f32 {
+        match self {
+            BlendMode::Normal | BlendMode::Add | BlendMode::Screen | BlendMode::Multiply => 0.0,
+            BlendMode::Darken => 4.0,
+            BlendMode::Lighten => 5.0,
+            BlendMode::Difference => 6.0,
+            BlendMode::Exclusion => 7.0,
+            BlendMode::Overlay => 8.0,
+            BlendMode::SoftLight => 9.0,
+            BlendMode::HardLight => 10.0,
+            BlendMode::ColorDodge => 11.0,
+            BlendMode::ColorBurn => 12.0,
+            BlendMode::LinearBurn => 13.0,
+            BlendMode::Hue => 14.0,
+            BlendMode::Saturation => 15.0,
+            BlendMode::Color => 16.0,
+            BlendMode::Luminosity => 17.0,
+        }
+    }
 }
 
 /// Per-layer effects, applied in order on the layer's own pixels (like an AE effect stack).
@@ -263,13 +317,16 @@ pub enum BlendMode {
 pub enum Effect {
     /// Gaussian blur (depth of field, motion softness, frosted backgrounds).
     Blur { radius: Animated },
-    /// Bloom around bright edges: the layer blurred and added on top.
+    /// Bloom around bright edges: the layer blurred and added on top. `threshold` (0..1, luma) keeps
+    /// only the bright parts glowing, so light and neon read as light instead of a haze on the whole layer.
     Glow {
         radius: Animated,
         #[serde(default = "one")]
         strength: Animated,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         color: Option<ColorRef>,
+        #[serde(default)]
+        threshold: f32,
     },
     /// Soft drop shadow (colored shadows look premium: tint it with the brand color).
     Shadow {
@@ -372,7 +429,7 @@ fn shadow_opacity() -> Animated {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DrawEffect {
     Blur { radius: f32 },
-    Glow { radius: f32, strength: f32, color: Option<Rgba> },
+    Glow { radius: f32, strength: f32, color: Option<Rgba>, threshold: f32 },
     Shadow { offset: [f32; 2], blur: f32, color: Rgba },
     Color { hue: f32, saturation: f32, brightness: f32, contrast: f32 },
     Chromatic { amount: f32 },
@@ -416,10 +473,11 @@ impl Effect {
     pub fn resolve(&self, t: f32, palette: &Palette) -> Option<DrawEffect> {
         Some(match self {
             Effect::Blur { radius } => DrawEffect::Blur { radius: radius.sample(t).max(0.0) },
-            Effect::Glow { radius, strength, color } => DrawEffect::Glow {
+            Effect::Glow { radius, strength, color, threshold } => DrawEffect::Glow {
                 radius: radius.sample(t).max(0.0),
                 strength: strength.sample(t).max(0.0),
                 color: color.map(|c| c.resolve(palette)),
+                threshold: threshold.clamp(0.0, 1.0),
             },
             Effect::Shadow { x, y, blur, color, opacity } => {
                 let mut c = color.resolve(palette);
@@ -753,6 +811,33 @@ mod tests {
         let side = perspective_inverse([900.0, 400.0], 0.0, 0.0, 1800.0, &view).unwrap();
         assert!((apply(&side, [700.0, 400.0])[0] - 900.0).abs() < 1e-2);
     }
+
+    #[test]
+    fn blend_modes_parse_by_name_and_ids_match_the_shader() {
+        let all = [
+            "normal", "add", "screen", "multiply", "darken", "lighten", "difference", "exclusion", "overlay", "soft_light",
+            "hard_light", "color_dodge", "color_burn", "linear_burn", "hue", "saturation", "color", "luminosity",
+        ];
+        let mut ids = Vec::new();
+        for name in all {
+            let mode: BlendMode = serde_json::from_str(&format!("\"{name}\"")).unwrap_or_else(|e| panic!("{name}: {e}"));
+            if mode.reads_backdrop() {
+                ids.push(mode.shader_id() as u32);
+            }
+        }
+        // fx.wgsl's `blend_color` switch covers 4..=17 with no gaps or repeats.
+        assert_eq!(ids, (4..=17).collect::<Vec<u32>>());
+        assert!(serde_json::from_str::<BlendMode>("\"dissolve\"").is_err());
+    }
+
+    #[test]
+    fn glow_threshold_defaults_to_everything_glowing() {
+        let plain: Effect = serde_json::from_str(r#"{"fx":"glow","radius":40}"#).unwrap();
+        let bloom: Effect = serde_json::from_str(r#"{"fx":"glow","radius":40,"threshold":0.7}"#).unwrap();
+        assert!(matches!(plain, Effect::Glow { threshold, .. } if threshold == 0.0));
+        assert!(matches!(bloom, Effect::Glow { threshold, .. } if threshold == 0.7));
+    }
+
 }
 
 /// One stroked/filled vector path for one frame, already flattened to polylines in scene pixels.
@@ -770,4 +855,5 @@ pub struct DrawPath {
     /// Bounding box of the untrimmed geometry, for gradients and hit-tests.
     pub bounds: ([f32; 2], [f32; 2]),
     pub gradient: Option<DrawGradient>,
+
 }

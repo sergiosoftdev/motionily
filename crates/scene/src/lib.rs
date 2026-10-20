@@ -601,7 +601,7 @@ impl Scene {
     /// rendering test frames.
     pub fn layout(&self, t: f32) -> Layout {
         self.measuring(t, |m| {
-            let mut out = Layout { camera: m.camera.map(|v| LayoutCamera { look: v.look, dolly: v.dolly, focal: v.focal, roll: v.roll.to_degrees() }), layers: Vec::new(), behind: Vec::new() };
+            let mut out = Layout { camera: m.camera.map(|v| LayoutCamera { look: v.look, dolly: v.dolly, focal: v.focal, roll: v.roll.to_degrees() }), layers: Vec::new(), behind: Vec::new(), palette: LayoutPalette::of(&self.palette()) };
             for (idx, l) in self.layers.iter().enumerate() {
                 if l.camera.is_some() || !self.active(l, t) {
                     continue;
@@ -896,6 +896,28 @@ pub struct Layout {
     pub layers: Vec<LayoutRow>,
     /// Active layers the camera has already passed (not drawn).
     pub behind: Vec<String>,
+    /// The palette the frame is drawn with (the style's, when the scene has none), as hex.
+    pub palette: LayoutPalette,
+}
+
+/// Palette colors as `#rrggbb`, for the agent tools (lint, contrast).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct LayoutPalette {
+    pub background: String,
+    pub surface: String,
+    pub primary: String,
+    pub accent: String,
+    pub text: String,
+}
+
+impl LayoutPalette {
+    fn of(p: &Palette) -> Self {
+        let hex = |c: Rgba| {
+            let [r, g, b, _] = c.0.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8);
+            format!("#{r:02x}{g:02x}{b:02x}")
+        };
+        LayoutPalette { background: hex(p.background), surface: hex(p.surface), primary: hex(p.primary), accent: hex(p.accent), text: hex(p.text) }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -1206,5 +1228,14 @@ mod tests {
         assert!(height(0.0) > height(1.0) + 5.0, "{} {}", height(0.0), height(1.0));
         let b = scene.layer_bounds("plane", 1.0).unwrap();
         assert!((b.center[0] - 500.0).abs() < 2.0 && (b.center[1] - 500.0).abs() < 1e-2, "{b:?}");
+    }
+
+    #[test]
+    fn layout_reports_the_palette_the_frame_is_drawn_with() {
+        let scene = Scene::from_json(r##"{"width":1080,"height":1920,"fps":30,"duration":1,"palette":{"background":"#fbf7fb","surface":"#ffffff","primary":"#ff4d6d","accent":"#ffb347","text":"#0f1733"},"layers":[]}"##).unwrap();
+        let l = scene.layout(0.0);
+        assert_eq!(l.palette.background, "#fbf7fb");
+        assert_eq!(l.palette.primary, "#ff4d6d");
+        assert_eq!(l.palette.text, "#0f1733");
     }
 }
