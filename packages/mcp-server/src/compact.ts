@@ -47,7 +47,7 @@ const EASE: Record<string, string> = {
 };
 const EASE_SHORT: Record<string, string> = Object.fromEntries(Object.entries(EASE).map(([k, v]) => [v, k]));
 const SHAPES = ["rect", "ellipse"];
-const TYPES = [...SHAPES, "text", "image", "path"];
+const TYPES = [...SHAPES, "text", "image", "path", "object"];
 /** Short keys for animated numbers. */
 const NUM: Record<string, string> = {
   x: "x",

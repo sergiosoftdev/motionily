@@ -62,6 +62,15 @@ everything below it, inside its own shape. `"blend": "add" | "screen" | "multipl
 `"matte": {"layer":"mask_id","mode":"alpha"|"alpha_inverted"|"luma"|"luma_inverted"}` masks this layer with another
 layer's alpha or brightness (reveals, text-through-shape, gradient wipes); set `"visible": false` on the matte layer.
 
+**Materials** (shapes) — `"inner": {"x":0,"y":4,"blur":10,"color":"#000","opacity":0.3}` (inner shadow / inner glow),
+`"sheen": {"at":[{"t":0,"v":0},{"t":1.5,"v":1}],"angle":20,"width":0.18,"opacity":0.45}` (light sweep),
+`"bevel": {"width":6,"strength":0.35}` (embossed edge), `"backdrop": 24` (frosted glass: blurs what is behind).
+
+**Icons** — `add_layers` path lines take `ic=NAME:SIZE` (1,900 Lucide icons, ISC; `find_icons` searches them).
+
+**3D objects** — `{"type":"object","x":…,"y":…,"w":…,"h":…,"node":{…procedural tree…},"finish":"glossy|glass|chrome|matte|toon",
+"spin":[rx,ry,rz],"fov":28}`: the tree is framed to fill the box and rendered with that finish; effects apply.
+
 **Structure**
 - `"parent": "layer_id"` — inherit position/rotation/scale; x/y become relative to the parent's center. Invisible
   parents (`"visible": false`) are nulls: a "camera" null at x=0,y=0 with `"pivot":[cx,cy]` keeps children in
@@ -71,6 +80,10 @@ layer's alpha or brightness (reveals, text-through-shape, gradient wipes); set `
 - `"rotate_x": 50, "rotate_y": -12, "z": 400, "perspective": 1800` — 3D layer: it and every layer parented to it are
   drawn flat, then projected in perspective (UI pages lying back, dashboards turning, fly-overs). Use an invisible
   null as the plane. Effects of the children are ignored inside it (fake shadows with `soft` rects).
+- `"camera": {"focal": 1800, "focus": 0, "aperture": 12}` on an invisible layer makes it the scene camera: its
+  x/y is where it looks, `z` dollies it forward, `scale` zooms. With a camera every layer lives at its `z` depth
+  (parents' z adds up): far layers shrink and move less (parallax), are drawn behind, and blur away from `focus`
+  when `aperture` > 0. `"fixed": true` pins a layer to the screen.
 - `"time": "mod(t, 1.2)"` — time remap: the layer's own clock (loops, `"t*0.5"` slow motion, keys to freeze/reverse).
 - `"pivot": [px, py]` — point (relative to the center) the layer rotates/scales around.
 - `"repeat": {"count":60,"x":145,"y":160,"columns":12,"rotation":0,"scale":1,"opacity":1,"delay":0.02}` — copies

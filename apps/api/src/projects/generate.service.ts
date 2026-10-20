@@ -9,6 +9,7 @@ import { TokenScope, type JwtPayload } from "../auth/auth";
 import { ProjectsService } from "./projects.service";
 import { AgentEffort, AgentModel, GenerateMode, type GenerateDto } from "./projects.dto";
 import { VideoFormat, type AgentRunUsage } from "./project.schema";
+import { filmNotes } from "../references/film";
 
 export enum GenerateStatus {
   Idle = "idle",
@@ -156,6 +157,8 @@ Shared grammar (all families):
   describe it.
 - Type: one line at a time, 1 accent word, tight letter spacing on big type, readable for ≥0.8 s.
 - Timing: 0.4-0.7 s eo entrances, overlapping staggers, a beat every ≤1.5 s, holds only on the payoff/logo.
+- Real assets: product screenshots from get_brand in image layers whenever the video is about a product; Lucide
+  icons (find_icons) for every icon; 3D object layers for hero objects; never generic hand-drawn placeholders.
 - Finish: subtle grain (adjustment layer grain=0.03-0.06) and bloom on light sources; end on logo + one line CTA.`;
 
 /** Mirrors FORMAT_SIZE in @motionily/protocol. */
@@ -169,7 +172,7 @@ const FORMAT_SIZE: Record<VideoFormat, [number, number]> = {
 /** Everything a builder needs to write layers, inline (no get_reference round trip). */
 const COMPACT_REF = `WRITING LAYERS — add_layers, one line per layer (never JSON):
   id type start[-end] key=value… "text or path data" {optional JSON merged into the layer}
-  types: rect | ellipse | text | image | path. Scene pixels, x/y = CENTER, origin top-left. w,h required (not for path).
+  types: rect | ellipse | text | image | path | object. Scene pixels, x/y = CENTER, origin top-left. w,h required (not for path).
   value: number · tween from>to@t0-t1[:ease] · keys t:v[:ease],t:v… (t from the layer start) · (expression)
   eases: o i io b h · eo ei eio (expo; eo = premium UI) · el (elastic) · bo (bounce)
   expressions: (540 + 40*sin(t*2)) (wiggle(2,8)) (spring(t,2.2,7)) (lerp(0,1,ease(t/0.6))) — vars t (layer s),
@@ -185,6 +188,19 @@ const COMPACT_REF = `WRITING LAYERS — add_layers, one line per layer (never JS
   adj=1: adjustment layer — its effects apply to everything below, inside its own shape (full-frame rect = whole picture)
     · turb=AMOUNT,CELL_PX,SPEED (turbulent displace: on huge soft blobs = liquid/cloud backgrounds)
   matte=layer_id[:inv|:luma|:lumainv] (that layer's alpha or brightness masks this one; give the matte vis=0) · vis=0 hides a layer
+  WORLD + CAMERA: one vis=0 layer with cam=FOCAL[,FOCUS_Z,APERTURE] is the camera: x/y = where it looks, z = dolly
+    (+ = forward), s = zoom; key it for the whole film. Every layer has depth z= (+ = farther: smaller, slower
+    parallax; parents' z adds up); APERTURE>0 blurs layers away from FOCUS_Z (depth of field). fixed=1 pins a
+    layer to the screen (full-frame backgrounds, HUD). Layers are drawn far to near.
+  MATERIALS (rect/ellipse): inner=X,Y,BLUR,COLOR,OP (inner shadow; light color + 0,0 = inner glow) ·
+    sheen=AT,ANGLE,WIDTH,OP (light sweep: AT 0>1 animated) · bevel=WIDTH,STRENGTH (embossed plastic edge) ·
+    backdrop=BLUR (frosted glass: blurs what is behind the shape; pair with a light translucent fill + thin stroke)
+  ICONS: path layers take ic=NAME:SIZE (1,900 Lucide line icons centered on x,y; find_icons searches by words);
+    color/width via stroke=WIDTH:COLOR. Never hand-draw icons.
+  3D OBJECTS: id object START x= y= w= h= {"node":{…},"finish":"glossy|glass|chrome|matte","spin":[rx,ry,rz]} —
+    a procedural 3D tree (nodes like {"shape":"box","size":[1,1,0.3],"radius":0.2,"color":"#57a0db","children":[…]};
+    shapes box/sphere/cylinder/cone/capsule/torus/extrude(points,depth)/lathe(points)) framed to fill the box,
+    spin values animatable ("t*40"). Glossy app tiles, glass orbs, chrome rings/ribbons, 3D emoji, envelopes.
   3D: rx=DEG (top leans back) ry=DEG z=PX (away) persp=PX on a layer (usually an invisible null): it and all layers
     parented to it are drawn flat then projected in perspective (UI pages lying back, dashboards turning).
     Inside a 3D layer, children's own effects are ignored: fake their shadows with soft rects (soft=).
@@ -225,22 +241,31 @@ Other ops via apply_ops: {"op":"remove_layer","id":…} {"op":"remove_group","gr
 
 /** MCP tools each role sees (each tool description costs context on every turn). */
 const ROLE_TOOLS = {
-  planner: ["get_project", "get_brand", "view_image", "view_asset", "search_fonts", "set_font", "apply_ops"],
+  planner: ["get_project", "get_brand", "view_image", "view_asset", "search_fonts", "set_font", "apply_ops", "add_layers"],
   builder: ["add_layers", "apply_ops", "render_frames", "view_asset", "view_image", "get_brand", "find_icons"],
   finisher: ["review_video", "render_frames", "get_group", "add_layers", "apply_ops", "list_sounds", "add_sfx"],
 } as const;
 
 /** Plans the video and sets the look; builders do the heavy writing in parallel. */
 const PLANNER_GUIDE = `You are Motionily's art director. There are NO presets: everything is designed by the team.
-Your job is ONLY to plan and set the global look, fast. Do NOT build layers.
+Your job is ONLY to plan, set the global look and lay out the WORLD, fast. Do not build the beats' content.
 1. get_project, get_brand (and view_image for any reference images). If a voice script or captions exist, the
    beats follow its paragraphs / word timings.
 2. Decide an art direction (concept, palette with hex codes following COLOR below, typography, motion language,
    recurring motif) for THIS brief. Unique palette: never the generic violet/magenta/cyan AI look.
 3. Apply the global look with tools: set_palette op (apply_ops), set_font, set_duration op.
-4. Answer with ONLY this JSON (no prose): {"direction":"…","motif":"…","beats":[{"group":"hook","start":0,"end":2.5,
-   "brief":"what this beat shows, its layout, its motion, how it transitions out"}]} — 2 to ${MAX_BEATS} beats,
-   contiguous, covering the duration, group names snake_case and unique.
+4. WORLD FIRST: the video is ONE continuous space the camera travels through (like the reference films), not
+   slides. With ONE add_layers call create the global layers (group "world"): the background (fixed=1 for
+   screen-pinned backgrounds, or big world planes with z for parallax) and the camera "cam" (a vis=0 layer with
+   cam=FOCAL[,FOCUS,APERTURE]) keyed for the WHOLE video: x/y = where it looks, z = dolly, s = zoom; eased moves
+   between beat regions (eio), slow drift while a beat plays. Give each beat its own region of the world (x/y
+   center, depth z, optional tilt rx/ry) that the camera visits on time.
+5. If there is a REFERENCE FILM: first write a shot-by-shot breakdown from its sheets and timing (what is on
+   screen, layout, camera move, transition, duration of each shot) and mirror its rhythm and techniques.
+6. Answer with ONLY this JSON (no prose): {"direction":"…","motif":"…","reference":"shot-by-shot breakdown, or empty",
+   "beats":[{"group":"hook","start":0,"end":2.5,"region":"x=960 y=540 z=0 (rx=…)","brief":"what this beat shows,
+   its layout, its motion, how it hands over to the next"}]} — 2 to ${MAX_BEATS} beats, contiguous, covering the
+   duration, group names snake_case and unique.
 ${CRAFT}
 ${MOTION_2D}`;
 
@@ -249,6 +274,9 @@ There are NO presets: write every animation as keyframes yourself. Work ONLY on 
 - Every layer you add has "group" set to your group and an id starting with your group name.
 - Your layers live inside your time span (start/end), plus up to 0.4 s of overlap for the transition out.
 - Never remove, edit or read other groups. Do not change palette, font, size or duration.
+- The camera ("cam") and the world background exist already: never add a camera. Build your beat in YOUR region
+  of the world (its x/y center and depth z): the camera arrives there on time. Use z for depth inside your beat
+  (foreground pieces at z<0, far ones z>0) so the camera move gives real parallax.
 - Write ALL your layers in ONE add_layers call (fewer turns = cheaper and faster), then ONE render_frames at
   2 moments of your span; fix only what is clearly broken with one more add_layers. Do not run review_video.
 - Product screenshots/logos: get_brand lists them; use their src in image layers.
@@ -258,7 +286,8 @@ ${MOTION_2D}
 Reply with one short sentence when done.`;
 
 const FINISHER_GUIDE = `You are the finishing editor of a Motionily video built by a team in parallel.
-1. review_video. 2. Fix only what is wrong (overlaps between beats, off-frame, dead air, broken transitions,
+1. review_video. If there is a reference film, put your sheet next to its sheets (view_image) and name the 3
+biggest gaps (palette, density, camera, transitions, rhythm); fix them first. 2. Fix only what is wrong (overlaps between beats, off-frame, dead air, broken transitions,
 unreadable text): get_group to read a group as compact lines, add_layers to fix. 3. Review again only if you
 changed a lot (max 2 rounds).
 4. SOUND DESIGN: list_sounds, then ONE add_sfx call with a cue on every key motion moment of the timings below
@@ -279,7 +308,9 @@ exactly like a motion designer building a spot by hand. Avoid generic videos. Wo
    The VOICE-OVER drives the video: if there are captions (the user uploaded the voice), tie every beat, text
    and cut to the words' timings and make on-screen text mirror what is said. If there is only a voice script
    (get_project), time beats to its paragraphs (~2.3 words/s, "[long pause]" = scene change) and keep it.
-2. Decide an art direction that fits THIS brief (one sentence: concept, visual metaphor, mood, pacing), then plan
+2. Lay out the WORLD first: one camera layer ("cam", cam=…) keyed for the whole film and a region (x/y, depth z)
+   per beat that the camera travels to; the film is one continuous space, not slides.
+   Decide an art direction that fits THIS brief (one sentence: concept, visual metaphor, mood, pacing), then plan
    2-5 beats. One idea per beat, strong hierarchy, big legible type, deliberate composition.
 3. Express that direction yourself: set_palette op with your own colors, a Google Font that fits (search_fonts +
    set_font), hand-written keyframes on every element (or your own define_anim keys reused across layers),
@@ -305,7 +336,14 @@ ${COMPACT_REF}
 Finish with a 2-3 sentence summary in Spanish: the art direction you chose and what the video shows.`;
 
 type RoleModel = { model: AgentModel; effort: AgentEffort };
-type TeamSetup = { plan: RoleModel; build: RoleModel; review: RoleModel; reviewRounds: number };
+type TeamSetup = {
+  plan: RoleModel;
+  build: RoleModel;
+  review: RoleModel;
+  reviewRounds: number;
+  /** One designer owns the whole video (no split into parallel beats): best continuity. */
+  solo?: boolean;
+};
 
 /**
  * Who does what in each mode. Premium is all Opus thinking hard (best motion design, slowest and
@@ -314,9 +352,10 @@ type TeamSetup = { plan: RoleModel; build: RoleModel; review: RoleModel; reviewR
 const TEAM: Record<Exclude<GenerateMode, GenerateMode.Custom>, TeamSetup> = {
   [GenerateMode.Premium]: {
     plan: { model: AgentModel.Opus, effort: AgentEffort.High },
-    build: { model: AgentModel.Opus, effort: AgentEffort.Medium },
+    build: { model: AgentModel.Opus, effort: AgentEffort.High },
     review: { model: AgentModel.Opus, effort: AgentEffort.Medium },
     reviewRounds: 3,
+    solo: true,
   },
   [GenerateMode.Balanced]: {
     plan: { model: AgentModel.Opus, effort: AgentEffort.Medium },
@@ -339,8 +378,8 @@ function teamFor(mode: GenerateMode | undefined, model?: AgentModel, effort?: Ag
   return { plan: { model: m, effort: e }, build: { model: m, effort: e }, review: { model: m, effort: e }, reviewRounds: 2 };
 }
 
-type Beat = { group: string; start: number; end: number; brief: string };
-type Plan = { direction: string; motif?: string; beats: Beat[] };
+type Beat = { group: string; start: number; end: number; brief: string; region?: string };
+type Plan = { direction: string; motif?: string; reference?: string; beats: Beat[] };
 
 /**
  * Runs Claude Code headless (`claude -p`) for a project, with the Motionily MCP
@@ -434,7 +473,7 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
     this.runs.set(project.id, run);
     await this.projects.setLiveRun(project.id, { status: GenerateStatus.Running, startedAt: new Date().toISOString(), pids: [] });
     run.projectId = project.id;
-    const refs = references?.length ? ` The user attached reference images; look at each with view_image first: ${references.join(", ")}.` : "";
+    const refs = await referencePrompt([...new Set([...(project.references ?? []), ...(references ?? [])])]);
     const opts: AgentOpts = { config, model, effort, size: FORMAT_SIZE[project.format] ?? FORMAT_SIZE[VideoFormat.Vertical] };
 
     // Callers without a mode (prefab workshop, older clients) keep their explicit model/effort.
@@ -482,6 +521,7 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
     const o: AgentOpts = { ...base, ...team.plan };
     const results: ResultLine[] = [];
     const t0 = Date.now();
+    if (team.solo) return this.solo(run, refs, base, team, label, t0);
     this.push(run, GenerateEventKind.Phase, GeneratePhase.Plan);
     const planned = await this.agent(run, `Plan this video from its brief.${refs}`, PLANNER_GUIDE, o, "plan", ROLE_TOOLS.planner);
     results.push(planned.result);
@@ -496,7 +536,8 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
     const queue = [...plan.beats];
     const worker = async () => {
       for (let beat = queue.shift(); beat && run.status === GenerateStatus.Running; beat = queue.shift()) {
-        const prompt = `Art direction: ${plan.direction}\nRecurring motif: ${plan.motif ?? "—"}\nWhole video:\n${overview}\n\nYOUR BEAT: group "${beat.group}", ${beat.start}-${beat.end}s.\n${beat.brief}\nCanvas ${o.size[0]}x${o.size[1]} px. Palette and font are already set (use the slot names). Build it now.`;
+        const reference = plan.reference ? `\nReference breakdown (match its techniques and rhythm):\n${plan.reference}` : "";
+        const prompt = `Art direction: ${plan.direction}\nRecurring motif: ${plan.motif ?? "—"}${reference}\nWhole video:\n${overview}\n\nYOUR BEAT: group "${beat.group}", ${beat.start}-${beat.end}s, world region ${beat.region ?? "centered"}.\n${beat.brief}\nCanvas ${o.size[0]}x${o.size[1]} px. Palette and font are already set (use the slot names). Build it now.`;
         const r = await this.agent(run, prompt, BUILDER_GUIDE, crew, beat.group, ROLE_TOOLS.builder).catch((e: Error) => {
           this.push(run, GenerateEventKind.Error, `${beat!.group}: ${e.message}`);
           return null;
@@ -509,7 +550,35 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
     if (run.status !== GenerateStatus.Running) return sumUsage(results, t0, label);
 
     this.push(run, GenerateEventKind.Phase, GeneratePhase.Review);
-    const finished = await this.agent(run, `Review and polish the whole video. Canvas ${o.size[0]}x${o.size[1]} px. Groups: ${plan.beats.map((b) => `${b.group} ${b.start}-${b.end}s`).join(", ")}.`, FINISHER_GUIDE.replace("(max 2 rounds)", `(max ${team.reviewRounds} rounds)`), { ...base, ...team.review }, "review", ROLE_TOOLS.finisher);
+    const finished = await this.agent(run, `Review and polish the whole video. Canvas ${o.size[0]}x${o.size[1]} px. Groups: ${plan.beats.map((b) => `${b.group} ${b.start}-${b.end}s`).join(", ")}.${refs}`, FINISHER_GUIDE.replace("(max 2 rounds)", `(max ${team.reviewRounds} rounds)`), { ...base, ...team.review }, "review", ROLE_TOOLS.finisher);
+    results.push(finished.result);
+    run.summary = finished.text;
+    return sumUsage(results, t0, label);
+  }
+
+  /** Premium: one designer builds the whole film as one continuous world, then a reviewer polishes it. */
+  private async solo(run: Run, refs: string, base: AgentOpts, team: TeamSetup, label: AgentOpts, t0: number): Promise<AgentRunUsage> {
+    const results: ResultLine[] = [];
+    this.push(run, GenerateEventKind.Phase, GeneratePhase.Build);
+    const designer = await this.agent(
+      run,
+      `Design and build this whole video from its brief as ONE continuous world the camera travels through: lay out the world and the camera path first ("cam" layer keyed for the whole film), then fill each region, then review it against the references until it is clean. Canvas ${base.size[0]}x${base.size[1]} px.${refs}`,
+      AGENT_GUIDE,
+      { ...base, ...team.build },
+      "design",
+      undefined,
+    );
+    results.push(designer.result);
+    if (run.status !== GenerateStatus.Running) return sumUsage(results, t0, label);
+    this.push(run, GenerateEventKind.Phase, GeneratePhase.Review);
+    const finished = await this.agent(
+      run,
+      `Review and polish the whole video. Canvas ${base.size[0]}x${base.size[1]} px.${refs}`,
+      FINISHER_GUIDE.replace("(max 2 rounds)", `(max ${team.reviewRounds} rounds)`),
+      { ...base, ...team.review },
+      "review",
+      ROLE_TOOLS.finisher,
+    );
     results.push(finished.result);
     run.summary = finished.text;
     return sumUsage(results, t0, label);
@@ -619,10 +688,21 @@ function parsePlan(text: string): Plan {
     const plan = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1)) as Plan;
     const beats = (plan.beats ?? []).filter((b) => b.group && b.end > b.start).slice(0, MAX_BEATS);
     if (!beats.length) throw new Error("no beats");
-    return { direction: plan.direction ?? "", motif: plan.motif, beats };
+    return { direction: plan.direction ?? "", motif: plan.motif, reference: plan.reference, beats };
   } catch {
     throw new Error("El planificador no devolvió un plan válido; vuelve a intentarlo.");
   }
+}
+
+/** What the agents are told about the user's references (images, and films cut into sheets + timing). */
+async function referencePrompt(paths: string[]): Promise<string> {
+  if (!paths.length) return "";
+  const films = (await Promise.all(paths.map(filmNotes))).filter((n): n is string => !!n);
+  const unique = [...new Set(films)];
+  const film = unique.length
+    ? ` REFERENCE FILM(S) — the quality bar: match their palette, density, camera language, transitions and shot rhythm. ${unique.join(" ")}`
+    : "";
+  return ` The user attached references; look at each with view_image first: ${paths.join(", ")}.${film}`;
 }
 
 /** One usage row for the whole team (wall time, not the sum of each agent's time). */

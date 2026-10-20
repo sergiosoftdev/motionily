@@ -7,6 +7,7 @@ import { FileInterceptor } from "@nestjs/platform-express";
 import { diskStorage } from "multer";
 import type { Response } from "express";
 import { Public } from "./auth/auth";
+import { analyzeFilm } from "./references/film";
 
 /** Uploaded media lives on local disk for now (swap for object storage in production). */
 export const MEDIA_DIR = resolve(process.env.MEDIA_DIR ?? join(process.cwd(), "uploads"));
@@ -26,8 +27,11 @@ export async function removeMedia(file: string | undefined) {
 }
 
 export const MAX_REFERENCE_BYTES = 15 * 1024 * 1024;
+/** Reference films are cut into contact sheets on upload; the video itself is not kept. */
+export const MAX_REFERENCE_VIDEO_BYTES = 150 * 1024 * 1024;
 /** Raster formats Claude can see (no SVG: it is not an image to the model and could carry scripts). */
 const REFERENCE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+const REFERENCE_VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/webm"];
 /** Media paths a user can attach as reference images. */
 export const MEDIA_PATH = /^\/media\/[a-f0-9-]{36}\.[a-z0-9]{1,5}$/;
 
@@ -38,13 +42,28 @@ export class ReferencesController {
   @UseInterceptors(
     FileInterceptor("file", {
       storage: diskStorage({ destination: MEDIA_DIR, filename: (_req, f, cb) => cb(null, mediaName(f.originalname || "ref.png")) }),
-      limits: { fileSize: MAX_REFERENCE_BYTES },
-      fileFilter: (_req, f, cb) => cb(null, REFERENCE_TYPES.includes(f.mimetype)),
+      limits: { fileSize: MAX_REFERENCE_VIDEO_BYTES },
+      fileFilter: (_req, f, cb) => cb(null, REFERENCE_TYPES.includes(f.mimetype) || REFERENCE_VIDEO_TYPES.includes(f.mimetype)),
     }),
   )
-  upload(@UploadedFile() file?: Express.Multer.File) {
-    if (!file) throw new BadRequestException("an image file is required");
-    return { url: `/media/${file.filename}` };
+  async upload(@UploadedFile() file?: Express.Multer.File) {
+    if (!file) throw new BadRequestException("an image or video file is required");
+    if (REFERENCE_TYPES.includes(file.mimetype)) {
+      if (file.size > MAX_REFERENCE_BYTES) {
+        await removeMedia(file.filename);
+        throw new BadRequestException("reference images are limited to 15 MB");
+      }
+      return { url: `/media/${file.filename}`, urls: [`/media/${file.filename}`] };
+    }
+    // A film: keep what the agents read (contact sheets + timing), not the video.
+    try {
+      const film = await analyzeFilm(join(MEDIA_DIR, file.filename));
+      return { url: film.sheets[0], urls: film.sheets, film: film.notes };
+    } catch (e) {
+      throw new BadRequestException(`could not read that video: ${(e as Error).message}`);
+    } finally {
+      await removeMedia(file.filename);
+    }
   }
 }
 
