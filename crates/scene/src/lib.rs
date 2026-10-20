@@ -18,6 +18,7 @@ mod layer;
 mod library;
 mod node3d;
 mod ops;
+pub mod particles;
 mod style;
 mod text;
 mod transition;
@@ -564,10 +565,24 @@ impl Scene {
                     continue;
                 };
                 let plane = m.owners[idx].map(|i| self.layers[i].id.clone()).or(l.is_3d().then(|| l.id.clone()));
-                out.layers.push(LayoutRow { id: l.id.clone(), group: l.group.clone(), screen: b.rect(), k: map.scale_at(b.center), z: self.depth(l, t), visible: l.visible, plane });
+                let particles = self.particle_counts(l, t, m, &map);
+                out.layers.push(LayoutRow { id: l.id.clone(), group: l.group.clone(), screen: b.rect(), k: map.scale_at(b.center), z: self.depth(l, t), visible: l.visible, plane, particles });
             }
             out
         })
+    }
+
+    /// How many particles a particle layer has alive at `t`, and how many land inside the frame.
+    fn particle_counts(&self, l: &Layer, t: f32, m: &Measure, map: &ScreenMap) -> Option<LayoutParticles> {
+        let measured = l.particles_at(l.local_time(t), m.ctx, &self.parent_xform(l, t, m.ctx, 0))?;
+        let (w, h) = (self.width as f32, self.height as f32);
+        let on_screen = measured
+            .boxes
+            .iter()
+            .filter_map(|b| map.point([(b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0]))
+            .filter(|p| (0.0..=w).contains(&p[0]) && (0.0..=h).contains(&p[1]))
+            .count() as u32;
+        Some(LayoutParticles { live: measured.boxes.len() as u32, on_screen, max: measured.cap })
     }
 
     /// One layer's draw items at time `t` (for measuring what it really draws), empty when hidden.
@@ -600,6 +615,7 @@ impl Scene {
             .iter()
             .filter_map(|l| match &l.content {
                 LayerContent::Image { src, .. } => Some(src.clone()),
+                LayerContent::Particles { system } if system.look() == particles::Look::Image => system.src.clone(),
                 _ => None,
             })
             .collect();
@@ -801,6 +817,19 @@ pub struct LayoutRow {
     /// The tilted layer that projects it (its own id when it is the plane).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plane: Option<String>,
+    /// Particle layers: live particles (their extent is `screen`; the emitter box when none).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub particles: Option<LayoutParticles>,
+}
+
+/// A particle layer at one instant (`LayoutRow::particles`).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct LayoutParticles {
+    pub live: u32,
+    /// Live particles whose center is inside the frame.
+    pub on_screen: u32,
+    /// The cap in force: `live == max` means the oldest are being dropped.
+    pub max: u32,
 }
 
 #[cfg(test)]

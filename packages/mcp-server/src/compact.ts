@@ -24,6 +24,9 @@
  * Materials: inner=X,Y,BLUR,COLOR,OP · sheen=AT,ANGLE,WIDTH,OP · bevel=WIDTH,STRENGTH · backdrop=BLUR (frosted glass).
  * Gradients: grad=lin:… | rad:… | con:CX,CY:ANGLE:stops (conic) · sgrad= paints the stroke.
  * Text: "Just *ask.*" colors the marked words with accent= (default palette accent) · count=0>12480@0-2:eo dec=0 with {n} in the text · reveal=(t*16) caret=1 (typewriter).
+ * Particles (`particles` type, keys in the particles block below): emit= rate= burst= life= speed= dir= spread= grav= drag= wind=
+ *   wander= look= ic= "M…" src= size= alpha= colors= color_life= angle= spin= flip= align= trail= seed= max= — ranges `A..B`,
+ *   over-life keys `AGE:V,…`.
  */
 
 import { ICON_GRID, iconPath } from "./icons.js";
@@ -47,7 +50,8 @@ const EASE: Record<string, string> = {
 };
 const EASE_SHORT: Record<string, string> = Object.fromEntries(Object.entries(EASE).map(([k, v]) => [v, k]));
 const SHAPES = ["rect", "ellipse"];
-const TYPES = [...SHAPES, "text", "image", "path", "object", "text3d"];
+const PARTICLES = "particles";
+const TYPES = [...SHAPES, "text", "image", "path", "object", "text3d", PARTICLES];
 /** Short keys for animated numbers. */
 const NUM: Record<string, string> = {
   x: "x",
@@ -241,6 +245,153 @@ function isText3d(l: Layer): boolean {
 
 /** A text node field worth writing (not its default). */
 const textField = (node: Record<string, unknown>, k: string) => node[k] !== undefined && node[k] !== TEXT3D_DEFAULTS[k];
+// ---- particles: begin (compact keys of the `particles` layer type) ----
+const EMITS = ["point", "line", "rect", "circle", "path"];
+const LOOKS = ["circle", "rect", "streak", "path", "image"];
+const SPACES = ["world", "local"];
+/** Compact key -> JSON field. */
+const P_FLAG: Record<string, string> = { edge: "edge", out: "outward", follow: "follow", align: "align" };
+const P_VARY: Record<string, string> = { life: "life", speed: "speed", angle: "angle", spin: "spin", flip: "flip" };
+const P_NUM: Record<string, string> = { dir: "direction", spread: "spread", drag: "drag", prewarm: "prewarm", aspect: "aspect", size_var: "size_var", trail: "trail", seed: "seed", max: "max" };
+const P_VEC: Record<string, string> = { grav: "gravity", wind: "wind" };
+const P_LIFE: Record<string, string> = { size: "size", alpha: "alpha" };
+/** Engine defaults, left out when reading a layer back. */
+const P_DEFAULTS: Record<string, unknown> = { emit: "point", space: "world", direction: -90, spread: 30, life: 2, speed: 200, size: 12, trail: 0.04, max: 1000, aspect: 1, drag: 0, prewarm: 0, size_var: 0, seed: 0, angle: 0, spin: 0, flip: 0, rate: 0, edge: false, outward: false, follow: false, align: false, gravity: [0, 0], wind: [0, 0] };
+const P_ALPHA_DEFAULT = [[0, 0], [0.05, 1], [0.7, 1], [1, 0]];
+
+function flag(v: string): boolean {
+  return v !== "0" && v !== "false";
+}
+
+function oneOf(v: string, options: string[], key: string, line: string): string {
+  if (!options.includes(v)) throw new Error(`${key} is ${options.join("|")}, got '${v}': ${line}`);
+  return v;
+}
+
+/** `1.5` or a random range `1..2`. */
+function vary(v: string, line: string): number | [number, number] {
+  const [a, b, ...more] = v.split("..");
+  if (more.length) throw new Error(`a range is MIN..MAX, got '${v}': ${line}`);
+  return b === undefined ? num(a!, line) : [num(a!, line), num(b, line)];
+}
+
+/** `12` or over-life keys `AGE:V,AGE:V…` (age 0..1). */
+function overLife(v: string, line: string): number | [number, number][] {
+  if (!v.includes(":")) return num(v, line);
+  return v.split(",").map((k) => {
+    const [age, val, extra] = k.split(":");
+    if (val === undefined || extra !== undefined) throw new Error(`over-life keys are AGE:VALUE (age 0..1), got '${k}': ${line}`);
+    return [num(age!, line), num(val, line)];
+  });
+}
+
+function vec(v: string, line: string): [number, number] {
+  const p = v.split(",");
+  if (p.length !== 2) throw new Error(`expected X,Y in '${v}': ${line}`);
+  return [num(p[0]!, line), num(p[1]!, line)];
+}
+
+/** A particle key on a `particles` line; false when it is not one (the generic keys then apply). */
+function particleKey(layer: Layer, k: string, v: string, line: string): boolean {
+  if (k === "emit") {
+    if (v.startsWith('"')) {
+      layer.emit = "path";
+      layer.emit_d = quoted(v, line);
+    } else layer.emit = oneOf(v, EMITS, "emit", line);
+  } else if (P_FLAG[k]) layer[P_FLAG[k]] = flag(v);
+  else if (P_VARY[k]) layer[P_VARY[k]] = vary(v, line);
+  else if (P_NUM[k]) layer[P_NUM[k]] = num(v, line);
+  else if (P_VEC[k]) layer[P_VEC[k]] = vec(v, line);
+  else if (P_LIFE[k]) layer[P_LIFE[k]] = overLife(v, line);
+  else if (k === "rate") layer.rate = parseValue(v, line);
+  else if (k === "space") layer.space = oneOf(v, SPACES, "space", line);
+  else if (k === "look") layer.look = oneOf(v, LOOKS, "look", line);
+  else if (k === "burst")
+    layer.bursts = v.split(",").map((b) => {
+      const [at, count] = b.split(":");
+      if (count === undefined) throw new Error(`burst is AT:COUNT[,AT:COUNT…], got '${b}': ${line}`);
+      return { at: num(at!, line), count: num(count, line) };
+    });
+  else if (k === "wander") {
+    const [amount, size, speed] = v.split(",");
+    layer.wander = { amount: num(amount!, line), ...(size ? { size: num(size, line) } : {}), ...(speed ? { speed: num(speed, line) } : {}) };
+  } else if (k === "colors") layer.colors = v.split(",").map(color);
+  else if (k === "color_life")
+    layer.color_life = v.split(",").map((key) => {
+      const [age, c, extra] = key.split(":");
+      if (!c || extra !== undefined) throw new Error(`color_life keys are AGE:COLOR (age 0..1), got '${key}': ${line}`);
+      return [num(age!, line), color(c)];
+    });
+  else if (k === "ic") {
+    // Fitted to the particle size, so any icon size works: the 24 px grid is kept.
+    const name = v.split(":")[0]!;
+    layer.icon = name;
+    layer.d = iconPath(name, ICON_GRID);
+  } else return false;
+  return true;
+}
+
+/** What the emitter and the look need, checked once the whole line is read. */
+function checkParticles(layer: Layer, line: string) {
+  const emit = (layer.emit as string | undefined) ?? "point";
+  if ((emit === "line" || emit === "rect" || emit === "circle") && layer.w === undefined) throw new Error(`emit=${emit} needs w= (and h= for rect/circle): ${line}`);
+  if ((emit === "rect" || emit === "circle") && layer.h === undefined) throw new Error(`emit=${emit} needs h=: ${line}`);
+  if (emit === "path" && typeof layer.emit_d !== "string") throw new Error(`emit=path needs its path: emit="M0 0 L400 0": ${line}`);
+  if (layer.follow && emit !== "path") throw new Error(`follow=1 rides an emit="M…" path: ${line}`);
+  if (layer.look === "image" && typeof layer.src !== "string") throw new Error(`look=image needs src=: ${line}`);
+  if (layer.look === "path" && typeof layer.d !== "string") throw new Error(`look=path needs ic=NAME or "M… path data": ${line}`);
+  if (layer.rate === undefined && layer.bursts === undefined) throw new Error(`particles need rate= and/or burst=AT:COUNT: ${line}`);
+}
+
+const varyText = (v: unknown) => (Array.isArray(v) ? `${r3(Number(v[0]))}..${r3(Number(v[1]))}` : String(r3(Number(v))));
+const lifeText = (v: unknown) => (Array.isArray(v) ? (v as number[][]).map(([a, x]) => `${r3(a!)}:${r3(x!)}`).join(",") : String(r3(Number(v))));
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/** A particle layer's own keys in short form (marks them done; what has no short form stays for the JSON tail). */
+function formatParticles(l: Layer, done: Set<string>): string[] {
+  const out: string[] = [];
+  const put = (field: string, text: () => string | undefined) => {
+    if (l[field] === undefined || same(l[field], P_DEFAULTS[field])) {
+      done.add(field);
+      return;
+    }
+    try {
+      const t = text();
+      if (t !== undefined) out.push(t);
+      done.add(field);
+    } catch {
+      // No short form: left for the JSON tail.
+    }
+  };
+  put("emit", () => (l.emit === "path" && typeof l.emit_d === "string" ? `emit=${JSON.stringify(l.emit_d)}` : `emit=${l.emit}`));
+  if (l.emit === "path") done.add("emit_d");
+  for (const [short, long] of Object.entries(P_FLAG)) put(long, () => `${short}=1`);
+  put("space", () => `space=${l.space}`);
+  put("rate", () => `rate=${formatValue(l.rate as Animated)}`);
+  put("bursts", () => `burst=${(l.bursts as { at: number; count: number }[]).map((b) => `${r3(b.at)}:${b.count}`).join(",")}`);
+  for (const [short, long] of Object.entries(P_VARY)) put(long, () => `${short}=${varyText(l[long])}`);
+  for (const [short, long] of Object.entries(P_NUM)) put(long, () => `${short}=${r3(Number(l[long]))}`);
+  for (const [short, long] of Object.entries(P_VEC)) put(long, () => `${short}=${(l[long] as number[]).map(r3).join(",")}`);
+  put("wander", () => {
+    const w = l.wander as { amount: number; size?: number; speed?: number };
+    return `wander=${[w.amount, w.size ?? 200, w.speed ?? 1].map(r3).join(",")}`;
+  });
+  // The look is implied by ic=/"M…" (path) and src= (image).
+  const implied = l.d !== undefined ? "path" : l.src !== undefined ? "image" : "circle";
+  if (l.look === implied) done.add("look");
+  else put("look", () => `look=${l.look}`);
+  put("size", () => `size=${lifeText(l.size)}`);
+  if (same(l.alpha, P_ALPHA_DEFAULT)) done.add("alpha");
+  else put("alpha", () => `alpha=${lifeText(l.alpha)}`);
+  put("colors", () => {
+    const cs = l.colors as unknown[];
+    if (cs.some((c) => Array.isArray(c) && typeof c[0] === "object")) throw new Error("needs JSON");
+    return `colors=${cs.map(formatColor).join(",")}`;
+  });
+  put("color_life", () => `color_life=${(l.color_life as [number, unknown][]).map(([a, c]) => `${r3(a)}:${formatColor(c)}`).join(",")}`);
+  return out;
+}
+// ---- particles: end ----
 
 /** One line -> one layer JSON. */
 export function parseLine(line: string): Layer {
@@ -259,7 +410,7 @@ export function parseLine(line: string): Layer {
   for (const tok of rest) {
     if (tok.startsWith('"')) {
       const s = JSON.parse(tok) as string;
-      layer[type === "path" ? "d" : "text"] = s;
+      layer[type === "path" || type === PARTICLES ? "d" : "text"] = s;
       continue;
     }
     if (tok.startsWith("{")) {
@@ -273,6 +424,7 @@ export function parseLine(line: string): Layer {
     const eq = tok.indexOf("=");
     if (eq < 1) throw new Error(`expected key=value, got '${tok}': ${line}`);
     const [k, v] = [tok.slice(0, eq), tok.slice(eq + 1)];
+    if (type === PARTICLES && particleKey(layer, k, v, line)) continue;
     if (NUM[k]) layer[NUM[k]] = parseValue(v, line);
     else if (k === "fill") layer.fill = colorAnim(v, line);
     else if (k === "accent") layer.accent = colorAnim(v, line);
@@ -372,7 +524,8 @@ export function parseLine(line: string): Layer {
     if (typeof node.text !== "string" || !node.text) throw new Error(`text3d needs its "text" in quotes: ${line}`);
   }
   Object.assign(layer, merge);
-  if (type !== "path" && (layer.w === undefined || layer.h === undefined)) throw new Error(`w and h are required: ${line}`);
+  if (type === PARTICLES) checkParticles(layer, line);
+  else if (type !== "path" && (layer.w === undefined || layer.h === undefined)) throw new Error(`w and h are required: ${line}`);
   if (type === "path" && typeof layer.d !== "string") throw new Error(`path needs its "M… path data" in quotes (or ic=NAME:SIZE): ${line}`);
   if (layer.motion_path && typeof (layer.motion_path as { d?: unknown }).d !== "string") throw new Error(`mpp/orient need mp="M… path": ${line}`);
   if (layer.path && typeof (layer.path as { d?: unknown }).d !== "string") throw new Error(`tpo needs tp="M… path": ${line}`);
@@ -519,6 +672,8 @@ export function formatLayer(l: Layer): string {
     const v = l[long] as Animated | undefined;
     done.add(long);
     if (v === undefined || v === DEFAULTS[long]) continue;
+    // A point emitter has no size.
+    if (l.type === PARTICLES && (long === "w" || long === "h") && v === 0) continue;
     try {
       parts.push(`${short}=${formatValue(v)}`);
     } catch {
@@ -537,11 +692,14 @@ export function formatLayer(l: Layer): string {
     }
   }
   done.add("fill");
+  if (l.type === PARTICLES) parts.push(...formatParticles(l, done));
   for (const [short, long] of Object.entries(PLAIN_NUM)) {
+    if (done.has(long)) continue;
     if (l[long] !== undefined && l[long] !== 0) parts.push(`${short}=${l[long]}`);
     done.add(long);
   }
   for (const k of PLAIN_STR) {
+    if (done.has(k)) continue;
     if (l[k] !== undefined) parts.push(`${k}=${l[k]}`);
     done.add(k);
   }
@@ -584,10 +742,11 @@ export function formatLayer(l: Layer): string {
   if (l.filled === true) parts.push("filled=1");
   done.add("visible");
   done.add("filled");
+  // The icon name reads back as ic= (not again in the JSON tail).
+  done.add("icon");
   for (const [k, v] of Object.entries(l)) if (!done.has(k) && k !== "text" && k !== "d") extra[k] = v;
   if (typeof l.icon === "string") parts.push(`ic=${l.icon}`);
-  done.add("icon");
-  const quoted = type === "path" ? (l.icon ? undefined : l.d) : text3d ? (l.node as { text: string }).text : l.text;
+  const quoted = type === "path" || type === PARTICLES ? (l.icon ? undefined : l.d) : text3d ? (l.node as { text: string }).text : l.text;
   if (quoted !== undefined) parts.push(JSON.stringify(String(quoted)));
   if (Object.keys(extra).length) parts.push(JSON.stringify(extra));
   return parts.join(" ");

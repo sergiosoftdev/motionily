@@ -3,7 +3,7 @@
 ```
 id type start[-end] key=value… "text or path data" {optional JSON merged into the layer}
 ```
-- types: `rect | ellipse | text | image | path | object`. Scene pixels, origin top-left, y down, x/y = the layer's CENTER.
+- types: `rect | ellipse | text | image | path | object | particles`. Scene pixels, origin top-left, y down, x/y = the layer's CENTER.
   `w` and `h` are required (not for path). `end` defaults to the end of the video. Same id again = that layer is replaced.
 - frame size by format: 9:16 = 1080×1920 · 16:9 = 1920×1080 · 1:1 = 1080×1080 · 4:5 = 1080×1350.
 - value of any animatable key: number · tween `from>to@t0-t1[:ease]` · keys `t:v[:ease],t:v,…` · `(expression)`.
@@ -89,6 +89,44 @@ id type start[-end] key=value… "text or path data" {optional JSON merged into 
   - a `family` other than the video's loads on demand (drawn with a fallback font for a moment).
   - kerning: only the font's legacy `kern` table; pairs kerned via GPOS (most Google Fonts) are not applied.
 <!-- text3d:end -->
+
+<!-- particles:begin -->
+### Particles — `id particles START[-END] key=value…` (exact rules)
+A particle emitter. Particles are a pure function of time (any frame, any order, same picture). Units: px, s, degrees
+(0 = right, 90 = down, −90 = up). x/y = emitter center; `s`, `r`, `o`, `fill`, `blend`, effects, `z`, `parent` work as on
+any layer (`s` scales the WHOLE effect: emitter, speeds, gravity, sizes). w/h only for line/rect/circle emitters.
+| key | meaning (default) |
+| --- | --- |
+| `emit=point\|line\|rect\|circle` · `emit="M…"` | birth place (point): line = horizontal `w` long; rect = inside `w`×`h`; circle = inside the ellipse `w`×`h`; `"M…"` = uniformly along that path (relative to x,y) |
+| `edge=1` · `out=1` · `follow=1` | rect/circle: born on the outline · aim away from the center (line/path: along the normal, 90° counter-clockwise from the path direction; replaces dir) · path: each particle rides the path start→end over its life |
+| `rate=N` | particles/s, animatable (`rate=0:0,.2:300,.6:0`). Particle k is born when ∫rate reaches k (a constant rate = evenly spaced births from the layer start). Needs `rate` and/or `burst` |
+| `burst=AT:COUNT,…` | COUNT particles born together AT s after the layer start |
+| `prewarm=S` | the stream has been running S s at the layer start (snow already falling; use prewarm ≥ life) |
+| `life=S` or `MIN..MAX` | lifetime (2; ≥ 0.05). Ranges: each particle draws uniformly |
+| `speed=` `dir=` `spread=` | initial speed px/s (200, range ok) · direction (−90) · full cone width (30; 360 = all around) |
+| `grav=GX,GY` · `drag=K` · `wind=WX,WY` | px/s² · speed × e^(−K·age), terminal speed = g/K · constant drift px/s. Exact: p = p0 + (g/K)·τ + (v0 − g/K)(1 − e^(−Kτ))/K + wind·τ (K=0: p0 + v0τ + ½gτ²) |
+| `wander=AMT[,CELL,SPEED]` | turbulence: offset = AMT × (n(now) − n(birth)), n ∈ [−1,1] smooth noise shared by all particles (CELL px per swirl, 200; SPEED 1 = new pattern each second) → drift of ~±AMT px |
+| `look=circle\|rect\|streak` · `ic=NAME` · `"M…"` · `src=/media/…` | circle (default) · rect (`aspect=H/W`, `rad=`) · streak = capsule from where it was `trail=` s ago (0.04) to now, tail fading (sparks, rain, speed lines) · Lucide icon / path fitted to `size` (outlined at size/12, `filled=1` fills) · picture (contained) |
+| `size=PX` or `AGE:PX,…` · `size_var=F` | size over normalized age 0..1, linear between keys (12) · each particle × uniform [1−F, 1+F] |
+| `alpha=V` or `AGE:V,…` | opacity over life × layer `o` (default `0:0,.05:1,.7:1,1:0`) |
+| `colors=C1,C2,…` · `color_life=AGE:C,…` | each particle picks one at random (default: `fill`) · color over life (replaces the pick) |
+| `angle=` `spin=` `flip=` `align=1` | initial rotation ° · °/s · paper flip turns/s (width × \|cos\|, back 20% darker: confetti) · turn to the travel direction |
+| `space=local` | particles move with the layer (default world: born where the emitter was, a moving emitter leaves a trail; gravity/wind are screen directions) |
+| `seed=N` · `max=N` | random variation (0; same settings + seed = same particles) · cap of live particles (1000, hard max 2000): beyond it the OLDEST vanish early — keep rate × life < max |
+Measuring: `get_layout` gives a particle layer's box = extent of its live particles (emitter box when none) plus
+`particles N live, M on screen` and `CAPPED` when live = max; off-frame particles are not flagged (review checks counts).
+With a camera, layers draw far→near: a particle layer with z>0 is drawn BEHIND z=0 layers (give the background a bigger z).
+Cost: ≤ 2000 per layer stays smooth; circles/rects/streaks are one GPU draw; filled path particles cost more (≤ 300).
+Particles vanish when the layer ends: set END ≥ last birth + life, stop the stream with rate keys.
+```
+sparks particles 1.2-3.5 x=960 y=900 rate=0:0,.1:240,.8:0 life=.5..1.1 speed=500..900 spread=50 grav=0,900 drag=1 look=streak trail=.06 size=3 colors=#ffffff,#ffd27a,#ff8a3d blend=add glow=14,1.6
+confetti particles 4.4-8 x=960 y=640 burst=0:220 life=2.5..3.5 speed=700..1300 spread=80 grav=0,1100 drag=1.6 look=rect aspect=.55 size=16 size_var=.3 angle=0..360 spin=-300..300 flip=.8..2 colors=primary,accent,#3ddc97,#ffffff alpha=0:1,.85:1,1:0
+dust particles 0 emit=rect x=960 y=540 w=2200 h=1300 rate=12 prewarm=9 life=6..9 speed=4..16 spread=360 wander=40,260,.3 size=7 size_var=.5 soft=3 fill=#fff7e0 alpha=0:0,.2:.5,.8:.5,1:0
+flow particles 0 emit="M200 600 C600 200 1300 1000 1720 500" follow=1 rate=4 life=2.4 speed=0 size=12 fill=accent glow=10,1.2
+snow particles 0 emit=rect x=960 y=-40 w=2400 h=10 rate=40 prewarm=16 life=16 speed=0 grav=0,90 drag=1 wind=25,0 wander=30,200,.4 size=6 size_var=.5 fill=#ffffff alpha=0:.8,.9:.8,1:0
+```
+(snow: falls at g/K = 90 px/s, so life 16 s crosses 1080 px + margins; 40/s × 16 s = 640 < max.)
+<!-- particles:end -->
 
 ## World, camera and depth — exact rules
 Trust these formulas; `get_layout` prints the resulting screen boxes if you want numbers. Never render test shapes to find out.

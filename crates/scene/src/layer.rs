@@ -103,6 +103,11 @@ pub enum LayerContent {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         morph: Vec<PathKey>,
     },
+    /// Particle emitter (sparks, confetti, snow, dust, data flows): see `particles.rs`.
+    Particles {
+        #[serde(flatten)]
+        system: Box<crate::particles::Particles>,
+    },
 }
 
 /// `{"d":"M-600 0 C-200 -300 200 300 600 0","offset":[{"t":0,"v":-900},{"t":3,"v":0}]}` — animate
@@ -259,6 +264,7 @@ impl LayerContent {
                 crate::enum_name(&spec.action),
                 crate::enum_name(&spec.hair)
             ),
+            LayerContent::Particles { system } => system.describe(),
         }
     }
 }
@@ -577,7 +583,7 @@ impl Layer {
     }
 
     /// World center, size, rotation (rad) and total scale of the layer.
-    fn place(&self, lt: f32, ctx: &EvalCtx, xf: &Xform, animated: bool) -> ([f32; 2], [f32; 2], f32, f32) {
+    pub(crate) fn place(&self, lt: f32, ctx: &EvalCtx, xf: &Xform, animated: bool) -> ([f32; 2], [f32; 2], f32, f32) {
         let anim = if animated { self.anim_offsets(lt, ctx.library) } else { AnimOffsets { opacity: 1.0, scale: 1.0, dx: 0.0, dy: 0.0, rotation: 0.0 } };
         let scale = self.scale.sample(lt) * anim.scale * xf.grow;
         let origin = if xf.parented {
@@ -711,6 +717,18 @@ impl Layer {
                 };
                 Some(DrawItem::Object(Box::new(DrawObject { stage, center, size, rotation, opacity })))
             }
+            LayerContent::Particles { system } => {
+                let paint = crate::particles::Paint {
+                    fill: self.fill.resolve(lt, ctx.palette),
+                    opacity,
+                    gradient: self.gradient.as_ref().map(|g| g.resolve(lt, ctx.palette, 1.0)),
+                    stroke: self.stroke.as_ref().map(|s| (s.width.sample(lt), s.color.resolve(lt, ctx.palette))),
+                    soft: self.soft.sample(lt).max(0.0),
+                    radius: self.radius.sample(lt).max(0.0),
+                };
+                let items = system.draw(self, lt, ctx, xf, animated, &paint);
+                (!items.is_empty()).then_some(DrawItem::Group(items))
+            }
             LayerContent::Character { spec } => {
                 let feet = [center[0], center[1] + size[1] / 2.0];
                 Some(DrawItem::Group(draw_character(spec, feet, size[1], lt, color.0[3], ctx.palette)))
@@ -834,6 +852,10 @@ impl Layer {
     /// Where the layer is on screen at layer-local time `lt` (`None` if invisible).
     /// Box of the layer at rest at `lt`, inside its parent chain `xf`.
     pub fn bounds(&self, lt: f32, ctx: &EvalCtx, xf: &Xform) -> Option<Bounds> {
+        if let Some(m) = self.particles_at(lt, ctx, xf) {
+            // Live particles' extent, or the emitter when none is alive (still selectable).
+            return Some(m.bounds());
+        }
         match self.resolve(lt, ctx, false, xf)? {
             DrawItem::Shape(s) => Some(Bounds { center: s.center, size: s.size, rotation: s.rotation }),
             DrawItem::Image(i) => Some(Bounds { center: i.center, size: i.size, rotation: i.rotation }),
@@ -859,6 +881,16 @@ impl Layer {
                     rotation: 0.0,
                 })
             }
+        }
+    }
+}
+
+impl Layer {
+    /// A particle layer's live particles and emitter at `lt` (flat scene px); `None` for other layers.
+    pub(crate) fn particles_at(&self, lt: f32, ctx: &EvalCtx, xf: &Xform) -> Option<crate::particles::Measured> {
+        match &self.content {
+            LayerContent::Particles { system } => Some(system.measure(self, lt, ctx, xf)),
+            _ => None,
         }
     }
 }

@@ -137,16 +137,29 @@ impl PathPipeline {
 
     /// Draw paths `range` in order: each one's fill, then its stroke.
     pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, range: Range<u32>) {
-        for span in &self.spans[range.start as usize..range.end as usize] {
+        let spans = &self.spans[range.start as usize..range.end as usize];
+        let mut i = 0;
+        while i < spans.len() {
+            let span = &spans[i];
+            i += 1;
             if !span.mesh.is_empty() {
                 pass.set_pipeline(&self.mesh_pipeline);
                 pass.set_vertex_buffer(0, self.mesh.slice(..));
                 pass.draw(span.mesh.clone(), 0..1);
             }
-            if !span.segs.is_empty() {
+            let mut segs = span.segs.clone();
+            if span.mesh.is_empty() {
+                // Consecutive outline-only paths (icon particles, line art) are one instanced draw,
+                // in the same order.
+                while i < spans.len() && spans[i].mesh.is_empty() && spans[i].segs.start == segs.end {
+                    segs.end = spans[i].segs.end;
+                    i += 1;
+                }
+            }
+            if !segs.is_empty() {
                 pass.set_pipeline(&self.seg_pipeline);
                 pass.set_vertex_buffer(0, self.segs.slice(..));
-                pass.draw(0..6, span.segs.clone());
+                pass.draw(0..6, segs);
             }
         }
     }
