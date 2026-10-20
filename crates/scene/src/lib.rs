@@ -230,7 +230,7 @@ impl Scene {
             if is_3d {
                 let out = self.tilted_items(l, idx, &owners, t, z, &ctx, camera);
                 if !out.is_empty() {
-                    layered.push((z, out));
+                    layered.push((self.draw_depth(idx, z), out));
                 }
                 continue;
             }
@@ -284,7 +284,7 @@ impl Scene {
                 let shift = [lens.screen[0] - lens.look[0], lens.screen[1] - lens.look[1]];
                 out.iter_mut().for_each(|item| item.transform(lens.look, k, -lens.roll, shift));
             }
-            layered.push((z, out));
+            layered.push((self.draw_depth(idx, z), out));
         }
         if camera.is_some() {
             // Painter's order by depth (stable: equal depths keep the layer order).
@@ -402,6 +402,17 @@ impl Scene {
         Some((paint::View { look, dolly: cam.z.sample(lt), focal, screen, roll }, dof))
     }
 
+    /// Where layer `idx` (at depth `z`) sorts in the camera's painter order. Pinned (`fixed`) layers
+    /// leave the depth sort: listed before every world layer they are the backdrop (behind it all),
+    /// anywhere else they draw over the world (HUD, grain, grade) — never hidden by a farther card.
+    fn draw_depth(&self, idx: usize, z: f32) -> f32 {
+        if !self.layers[idx].fixed {
+            return z;
+        }
+        let first_world = self.layers.iter().position(|l| !l.fixed && l.camera.is_none()).unwrap_or(usize::MAX);
+        if idx < first_world { f32::INFINITY } else { f32::NEG_INFINITY }
+    }
+
     /// Depth of a layer: its `z` plus its parents'.
     fn depth(&self, l: &Layer, t: f32) -> f32 {
         let mut z = l.z.sample(l.local_time(t));
@@ -500,8 +511,8 @@ impl Scene {
                 if !b.contains([x, y]) || !self.instance_hit(l, t, m.ctx, &map, [x, y]) {
                     continue;
                 }
-                // Without a camera the top-most layer wins; with one, the nearest (depth order).
-                let z = if m.camera.is_some() { self.depth(l, t) } else { 0.0 };
+                // Without a camera the top-most layer wins; with one, the nearest (draw order).
+                let z = if m.camera.is_some() { self.draw_depth(idx, self.depth(l, t)) } else { 0.0 };
                 if best.is_none_or(|(bz, _)| z < bz) {
                     best = Some((z, l));
                 }
@@ -994,6 +1005,32 @@ mod tests {
         assert_eq!(fx.items.len(), 1);
         assert!(fx.perspective.is_some());
         assert!(matches!(items[1], DrawItem::Shape(_)));
+    }
+
+    #[test]
+    fn pinned_backdrops_stay_behind_far_cards_and_pinned_overlays_on_top() {
+        let mut scene = Scene::default();
+        scene.width = 1000;
+        scene.height = 1000;
+        for l in [
+            r#"{"id":"bg","type":"shape","shape":"rect","x":500,"y":500,"w":1000,"h":1000,"fixed":true}"#,
+            r#"{"id":"far","type":"shape","shape":"rect","x":500,"y":500,"w":100,"h":100,"z":1200}"#,
+            r#"{"id":"near","type":"shape","shape":"rect","x":500,"y":500,"w":100,"h":100,"z":-200}"#,
+            r#"{"id":"grain","type":"shape","shape":"rect","x":500,"y":500,"w":10,"h":10,"fixed":true}"#,
+            r#"{"id":"cam","type":"shape","shape":"rect","x":500,"y":500,"w":1,"h":1,"visible":false,"camera":{"focal":1800}}"#,
+        ] {
+            scene.layers.push(serde_json::from_str(l).unwrap());
+        }
+        let items = scene.frame(0.0);
+        let sizes: Vec<f32> = items.iter().filter_map(|i| if let DrawItem::Shape(s) = i { Some(s.size[0]) } else { None }).collect();
+        // Backdrop first, then far (shrunk) and near (grown) by depth, the pinned overlay last.
+        assert_eq!(sizes.len(), 4, "{sizes:?}");
+        assert_eq!(sizes[0], 1000.0);
+        assert!(sizes[1] < 100.0 && sizes[2] > 100.0, "{sizes:?}");
+        assert_eq!(sizes[3], 10.0);
+        assert_eq!(scene.pick(0.0, 500.0, 500.0).as_deref(), Some("grain"));
+        assert_eq!(scene.pick(0.0, 520.0, 500.0).as_deref(), Some("near"));
+        assert_eq!(scene.pick(0.0, 50.0, 50.0).as_deref(), Some("bg"));
     }
 
     #[test]

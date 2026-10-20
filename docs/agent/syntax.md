@@ -122,7 +122,8 @@ any layer (`s` scales the WHOLE effect: emitter, speeds, gravity, sizes). w/h on
 | `seed=N` · `max=N` | random variation (0; same settings + seed = same particles) · cap of live particles (1000, hard max 2000): beyond it the OLDEST vanish early — keep rate × life < max |
 Measuring: `get_layout` gives a particle layer's box = extent of its live particles (emitter box when none) plus
 `particles N live, M on screen` and `CAPPED` when live = max; off-frame particles are not flagged (review checks counts).
-With a camera, layers draw far→near: a particle layer with z>0 is drawn BEHIND z=0 layers (give the background a bigger z).
+With a camera, world layers draw far→near: a particle layer with z>0 is drawn behind non-fixed layers with smaller z
+(a `fixed=1` background listed first is always behind it).
 Cost: ≤ 2000 per layer stays smooth; circles/rects/streaks are one GPU draw; filled path particles cost more (≤ 300).
 Particles vanish when the layer ends: set END ≥ last birth + life, stop the stream with rate keys.
 ```
@@ -293,7 +294,10 @@ Trust these formulas; `get_layout` prints the resulting screen boxes if you want
   beat region at (X, Y, Z), key the camera to x=X y=Y z=Z. A layer twice as far (F + Z − D doubled) is half size and
   moves half as much when the camera pans (parallax). Example, F=1800 and the camera dollies z 0>2400: a card at z=2400
   goes from k=0.43 to k=1; a layer at z=0 is behind the camera once D ≥ 1800 (put intro layers that must vanish there).
-- Draw order with a camera: far to near (bigger Z first); equal Z keep list order. Without a camera: list order (first = back).
+- Draw order with a camera: world layers far to near (bigger Z first; equal Z keep list order). Pinned `fixed=1` layers
+  leave that sort: listed BEFORE every world layer they are the backdrop (drawn behind the whole world, whatever its z);
+  listed anywhere else they draw OVER the world (HUD, grain/grade adjustment layers). So: background first, grain last.
+  Without a camera: list order (first = back).
 - `fixed=1` ignores the camera (pan, dolly, zoom, roll) — full-frame backgrounds, grain/grade adjustment layers, HUD.
   A fixed layer with z≠0 is scaled around the frame center with F=1800, as without a camera; a fixed plane uses `persp`.
 - Without a camera layer nothing moves in depth, except layers with z≠0, scaled around the frame center with F=1800.
