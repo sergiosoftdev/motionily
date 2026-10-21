@@ -43,11 +43,11 @@ export function SimpleEditor({ ed }: { ed: EditorProps }) {
         <Viewer canvas={ed.canvas} error={ed.error} maxWidth={PREVIEW_MAX_WIDTH} canvasClass="rounded-2xl shadow-2xl shadow-black/50" />
         <div className="flex w-full max-w-3xl flex-col gap-3">
           <SceneStrip />
-          <AgentLine g={g} />
+          <AgentLine g={g} captioning={ed.captioning} />
           {project &&
             (hasScene || g.running ? (
               <AskBox g={g} hasScene={hasScene} projectId={ed.id} variant={AskVariant.Simple} />
-            ) : (
+            ) : ed.captioning ? null : (
               <div className="flex flex-col items-center gap-3 py-2 text-center">
                 <button type="button" onClick={() => void g.start()} className="rounded-xl bg-white px-6 py-3 text-sm font-semibold text-neutral-900 hover:bg-neutral-200">
                   Generate video

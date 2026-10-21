@@ -1,11 +1,22 @@
 import { useState } from "react";
 import { GenerateEventKind, GenerateStatus, TOOL_LABEL } from "../components/GeneratePanel";
 import type { Generation } from "../components/useGenerate";
+import type { CaptionProgress } from "../captions/voiceCaptions";
+
+/** "Reading the audio… 40%" */
+export const captioningLabel = (p: CaptionProgress) => `${p.label}${p.ratio !== null ? ` ${Math.round(p.ratio * 100)}%` : ""}`;
 
 /** One line of what the agent is doing or just did, above Simple mode's request box. */
-export function AgentLine({ g }: { g: Generation }) {
+export function AgentLine({ g, captioning }: { g: Generation; captioning: CaptionProgress | null }) {
   const { state, running } = g;
   const [open, setOpen] = useState(false);
+  if (captioning)
+    return (
+      <div className="flex items-center gap-3 px-1 text-sm">
+        <span className="size-2 shrink-0 animate-pulse rounded-full bg-emerald-400" />
+        <span className="min-w-0 flex-1 truncate text-neutral-300">{captioningLabel(captioning)}</span>
+      </div>
+    );
   if (!state) return null;
   const last = [...state.events].reverse().find((e) => e.kind === GenerateEventKind.Tool || e.kind === GenerateEventKind.Text || e.kind === GenerateEventKind.Phase);
 

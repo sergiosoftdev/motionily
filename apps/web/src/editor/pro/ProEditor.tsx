@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { mediaUrl } from "../../api/client";
 import { ActivityLog } from "../../components/ActivityLog";
 import { AgentBar } from "../../components/AgentBar";
+import { captioningLabel } from "../AgentLine";
 import { AskBox, AskVariant } from "../../components/AskBox";
 import { ConnectAgent } from "../../components/ConnectAgent";
 import { GenerateEventKind, TOOL_LABEL } from "../../components/GeneratePanel";
@@ -187,7 +188,10 @@ export function ProEditor({ ed }: { ed: EditorProps }) {
             >
               {right === RightTab.Agent ? (
                 <>
-                  <div className="min-h-0 flex-1 overflow-y-auto p-3">{project && <AgentBar g={g} hasScene={!!project.scene} runs={project.agentRuns ?? []} />}</div>
+                  <div className="min-h-0 flex-1 overflow-y-auto p-3">
+                    {ed.captioning && <p className="pb-3 text-[#8a8a8a]">{captioningLabel(ed.captioning)}</p>}
+                    {project && <AgentBar g={g} hasScene={!!project.scene} runs={project.agentRuns ?? []} />}
+                  </div>
                   {project && (
                     <div className="border-t border-[#151515] p-2">
                       <AskBox g={g} hasScene={!!project.scene} projectId={ed.id} variant={AskVariant.Pro} />

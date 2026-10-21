@@ -1,15 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { OpName, type Project, type Voice, type VoiceModel } from "@motionily/protocol";
 import { api, mediaUrl } from "../api/client";
 import { engineHost } from "../engine/host";
 import { agentBridge } from "../bridge";
 import { ActivitySource, logActivity } from "../store";
-import { decodeForWhisper, isKeyWord, snapToSpeech, transcribe, type CaptionWord } from "./transcribe";
+import { applyCaptions, voiceWords } from "./voiceCaptions";
 import { VoicePicker } from "../voice/ElevenLabs";
-import { startGenerate, takePipeline, VideoPipeline } from "../pipeline";
+import { startGenerate } from "../pipeline";
 import { VoiceSyncDialog } from "./VoiceSyncDialog";
-
-const ENGINE_POLL_MS = 300;
 
 const Status = { Idle: "idle", Working: "working", Done: "done", Error: "error" } as const;
 type Status = (typeof Status)[keyof typeof Status];
@@ -49,41 +47,15 @@ export function CaptionsPanel({ project, onProject, hasScene }: { project: Proje
     setStatus(Status.Working);
     setError(null);
     try {
-      let result: CaptionWord[];
-      if (a.words?.length) {
-        // Generated with ElevenLabs: the exact timing came with the audio.
-        result = a.words.map((w) => ({ ...w, emphasis: isKeyWord(w.text) }));
-      } else {
-        setProgress({ label: "Reading the audio…", ratio: null });
-        const samples = await decodeForWhisper(mediaUrl(a.url));
-        result = snapToSpeech(await transcribe(samples, (label, ratio) => setProgress({ label, ratio })), samples);
-      }
-      const duration = Math.max(engineHost.duration(), (result.at(-1)?.end ?? 0) + 0.5);
-      engineHost.applyOps([
-        { op: OpName.SetDuration, duration },
-        { op: OpName.SetCaptions, captions: { words: result } },
-      ]);
-      agentBridge.sceneChanged();
+      const result = await voiceWords(a, setProgress);
+      applyCaptions(result);
       setWords(result.length);
       setStatus(Status.Done);
-      logActivity(ActivitySource.User, `Captions: ${result.length} words transcribed`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setStatus(Status.Error);
     }
   };
-
-  // Fresh from the wizard with a voice: transcribe as soon as the engine is up, then hand over to the agent.
-  useEffect(() => {
-    if (!audio || !takePipeline(project.id, VideoPipeline.TranscribeThenGenerate)) return;
-    const wait = setInterval(() => {
-      if (!engineHost.ready) return;
-      clearInterval(wait);
-      void run().then(() => startGenerate(project.id));
-    }, ENGINE_POLL_MS);
-    return () => clearInterval(wait);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project.id]);
 
   /** Read the video's script with an ElevenLabs voice; captions follow at once from its timing. */
   const speak = async (voice: Voice, model: VoiceModel) => {

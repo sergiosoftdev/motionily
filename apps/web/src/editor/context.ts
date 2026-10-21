@@ -1,6 +1,7 @@
 import type { RefObject } from "react";
 import type { Project, VideoFormat } from "@motionily/protocol";
 import type { Generation } from "../components/useGenerate";
+import type { CaptionProgress } from "../captions/voiceCaptions";
 import type { EditorMode } from "./mode";
 
 /** What both editor modes get from the editor screen: the project, its engine canvas and actions. */
@@ -11,6 +12,8 @@ export type EditorProps = {
   /** The editor's one engine canvas (each mode's viewer adopts it). */
   canvas: RefObject<HTMLCanvasElement>;
   g: Generation;
+  /** The new video's voice being captioned before the agent starts (wizard pipeline). */
+  captioning: CaptionProgress | null;
   mode: EditorMode;
   setMode: (m: EditorMode) => void;
   rename: (name: string) => void;

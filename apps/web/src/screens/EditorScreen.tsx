@@ -5,6 +5,7 @@ import { engineHost } from "../engine/host";
 import { agentBridge } from "../bridge";
 import { ActivitySource, logActivity, useEditor } from "../store";
 import { useGenerate } from "../components/useGenerate";
+import { useVoicePipeline } from "../captions/voiceCaptions";
 import type { EditorProps } from "../editor/context";
 import { EditorMode, useEditorMode } from "../editor/mode";
 import { SimpleEditor } from "../editor/SimpleEditor";
@@ -45,6 +46,7 @@ export function EditorScreen({ id }: { id: string }) {
   const generation = useGenerate(id);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useEditorMode();
+  const captioning = useVoicePipeline(project);
 
   const byKey = useMemo(() => new Map(bricks.map((b) => [b.key, b])), [bricks]);
 
@@ -143,6 +145,7 @@ export function EditorScreen({ id }: { id: string }) {
     error,
     canvas,
     g: generation,
+    captioning,
     mode,
     setMode,
     rename: (name) => void rename(name),
