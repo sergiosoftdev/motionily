@@ -33,8 +33,8 @@ const typing = (el: EventTarget | null) => {
 
 /**
  * Edit mode, CapCut-style: a multitrack timeline of the video's clips, graphics blocks, captions and
- * sound, the clips library on the left and the selected piece's settings on the right. The box under
- * the preview asks Claude for anything at the playhead ("an animated map here, 5 seconds").
+ * sound, the clips library on the left, the preview in the middle and, on the right, the box that asks
+ * Claude for anything at the playhead ("an animated map here, 5 seconds") over the selected piece's settings.
  */
 export function EditEditor({ ed }: { ed: EditorProps }) {
   const { project, g } = ed;
@@ -104,20 +104,24 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
         {project && <ExportButton name={project.name} audioUrl={project.audio ? mediaUrl(project.audio.url) : null} />}
       </header>
 
-      <div className="flex min-h-0 flex-[3] gap-4 px-4">
+      {/* The preview gets the whole middle column (a vertical reel needs the height); asking Claude lives on the right. */}
+      <div className="flex min-h-0 flex-1 gap-4 px-4 pb-2">
         <MediaBin ed={ed} edits={edits} scene={scene} />
-        <main className="flex min-w-0 flex-1 flex-col items-center gap-3">
+        <main className="flex min-w-0 flex-1 flex-col items-center gap-2">
           <Viewer canvas={ed.canvas} error={ed.error} maxWidth={PREVIEW_MAX_WIDTH} canvasClass="rounded-xl shadow-2xl shadow-black/50" />
           <Transport duration={scene?.duration ?? 0} />
-          <div className="flex w-full max-w-2xl flex-col gap-2">
+        </main>
+        <aside className="flex w-80 shrink-0 flex-col gap-4 overflow-y-auto py-2">
+          <div className="flex flex-col gap-2">
             <AgentLine g={g} captioning={ed.captioning} />
             {project && <AskBox g={g} hasScene={!!project.scene} projectId={ed.id} variant={AskVariant.Simple} />}
           </div>
-        </main>
-        <Inspector selection={selection} scene={scene} ops={ops} edits={edits} />
+          <Inspector selection={selection} scene={scene} ops={ops} edits={edits} />
+        </aside>
       </div>
 
-      <div className="flex min-h-56 flex-[2] flex-col border-t border-neutral-900">
+      {/* As tall as its tracks, up to 40% of the screen: the preview keeps the rest. */}
+      <div className="flex max-h-[40vh] min-h-44 shrink-0 flex-col border-t border-neutral-900">
         <div className="flex items-center gap-1 px-3 py-1.5 text-xs">
           <ToolButton label="Split" hint="S" onClick={() => ops.split(selection?.kind === "clip" ? selection.clip : null)} />
           <ToolButton label="Delete" hint="⌫" disabled={!selection} onClick={() => selection && (ops.remove(selection), setCue(null), setMusicOn(false))} />
@@ -330,12 +334,12 @@ function MusicBin({ ed, edits, scene }: { ed: EditorProps; edits: EditActions; s
 /** Settings of what is selected in the timeline. */
 function Inspector({ selection, scene, ops, edits }: { selection: EditSelection; scene: SceneView | null; ops: ReturnType<typeof useEditOps>; edits: EditActions }) {
   return (
-    <aside className="flex w-64 shrink-0 flex-col gap-4 overflow-y-auto py-2 text-sm">
+    <div className="flex flex-col gap-4 text-sm">
       {!selection ? (
         <div className="flex flex-col gap-2 text-xs text-neutral-500">
           <span className="text-sm font-semibold text-neutral-200">Edit</span>
           <p>Click a clip, a graphics block or an effect to change it. S splits at the playhead; Delete removes (the main track closes the gap).</p>
-          <p>To add motion graphics anywhere, put the playhead there and ask Claude in the box under the preview.</p>
+          <p>To add motion graphics anywhere, put the playhead there and ask Claude in the box above.</p>
           {scene && <p>{scene.layers.length} layers · {scene.duration.toFixed(1)} s</p>}
         </div>
       ) : selection.kind === "clip" ? (
@@ -347,7 +351,7 @@ function Inspector({ selection, scene, ops, edits }: { selection: EditSelection;
       ) : (
         <MusicInspector music={selection.music} edits={edits} ops={ops} />
       )}
-    </aside>
+    </div>
   );
 }
 
@@ -436,7 +440,7 @@ function BlockInspector({ block, ops }: { block: GraphicsBlock; ops: ReturnType<
       >
         Ask Claude to change it
       </button>
-      <p className="text-xs text-neutral-500">The box under the preview now points at this block and its moment. Drag the block to move it in time.</p>
+      <p className="text-xs text-neutral-500">The box above now points at this block and its moment. Drag the block to move it in time.</p>
       <button type="button" onClick={() => ops.remove({ kind: "block", block })} className="self-start text-xs text-neutral-400 hover:text-red-400">
         Delete block
       </button>
