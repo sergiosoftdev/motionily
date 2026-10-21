@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { OpName, type Op } from "@motionily/protocol";
 import type { SfxCue } from "../../audio/sfxPlayer";
+import type { MusicTrack } from "../../audio/music";
 import { engineHost } from "../../engine/host";
 import { useEditor } from "../../store";
 import type { SceneView } from "../sceneView";
@@ -23,7 +24,7 @@ const PHRASE_GAP = 0.35;
 const PHRASE_WORDS = 6;
 
 /** What the user has picked in the timeline. Clips and blocks follow the editor's selection (canvas or timeline). */
-export type EditSelection = { kind: "clip"; clip: EditClip } | { kind: "block"; block: GraphicsBlock } | { kind: "cue"; cue: SfxCue } | null;
+export type EditSelection = { kind: "clip"; clip: EditClip } | { kind: "block"; block: GraphicsBlock } | { kind: "cue"; cue: SfxCue } | { kind: "music"; music: MusicTrack } | null;
 
 type Drag = { kind: "move" | "in" | "out"; x0: number; moved: boolean };
 
@@ -37,12 +38,14 @@ export function EditTimeline({
   tracks,
   selection,
   onSelectCue,
+  onSelectMusic,
   edits,
 }: {
   scene: SceneView;
   tracks: EditTracks;
   selection: EditSelection;
   onSelectCue: (cue: SfxCue | null) => void;
+  onSelectMusic: (on: boolean) => void;
   edits: EditActions;
 }) {
   const time = useEditor((s) => s.time);
@@ -136,10 +139,12 @@ export function EditTimeline({
   const clipPoints = (c: EditClip) => [0, time, ...tracks.clips.filter((x) => x.id !== c.id && x.lane === c.lane).flatMap((x) => [x.start, x.end])];
   const selectClip = (c: EditClip) => {
     onSelectCue(null);
+    onSelectMusic(false);
     useEditor.setState({ selectedLayerId: c.id, selectedGroup: null });
   };
   const selectBlock = (b: GraphicsBlock) => {
     onSelectCue(null);
+    onSelectMusic(false);
     useEditor.setState({ selectedLayerId: b.group ? null : b.ids[0]!, selectedGroup: b.group });
   };
 
@@ -249,6 +254,39 @@ export function EditTimeline({
       body: <div className="pointer-events-none absolute top-1 bottom-1 rounded bg-emerald-700/70 px-1.5 text-[10px] leading-5 text-emerald-50" style={{ left: px(a.start), right: 0 }}>Voice-over</div>,
     });
   }
+  if (scene.music) {
+    const m = scene.music;
+    const on = selection?.kind === "music";
+    const end = m.trim_out != null ? m.start + (m.trim_out - m.trim_in) : duration;
+    lanes.push({
+      key: "music",
+      label: "Music",
+      height: SMALL_LANE_H,
+      body: (
+        <div
+          title={`Music from ${m.start.toFixed(1)} s · level ${Math.round(m.gain * 100)}%`}
+          onPointerDown={(e) =>
+            drag(
+              e,
+              "move",
+              () => {
+                useEditor.setState({ selectedLayerId: null, selectedGroup: null });
+                onSelectCue(null);
+                onSelectMusic(true);
+              },
+              (dt) => [{ op: OpName.SetMusic, music: { ...m, start: Math.max(0, Math.round(snap(m.start + dt, [0, time]) * 1000) / 1000) } }],
+              () => "Moves the music",
+              false,
+            )
+          }
+          className={`absolute top-1 bottom-1 cursor-grab truncate rounded px-1.5 text-[10px] leading-5 ${on ? "bg-pink-400 text-neutral-900" : "bg-pink-700/70 text-pink-50 hover:bg-pink-600"}`}
+          style={{ left: px(m.start), width: Math.max(8, px(Math.min(duration, end) - m.start)) }}
+        >
+          ♪ {m.src.split("/").pop()}
+        </div>
+      ),
+    });
+  }
   if (scene.sfx?.length)
     lanes.push({
       key: "sfx",
@@ -266,6 +304,7 @@ export function EditTimeline({
                 "move",
                 () => {
                   useEditor.setState({ selectedLayerId: null, selectedGroup: null });
+                  onSelectMusic(false);
                   onSelectCue(cue);
                 },
                 (dt) => [{ op: OpName.PutSfx, cue: { ...cue, at: Math.max(0, Math.round(snap(cue.at + dt, [time]) * 1000) / 1000) } }],
@@ -318,7 +357,7 @@ export function EditTimeline({
               <div className="sticky left-0 z-10 flex shrink-0 items-center bg-neutral-950 px-3 text-[11px] text-neutral-500" style={{ width: HEADER_W }}>
                 {l.label}
               </div>
-              <div onPointerDown={(e) => (useEditor.setState({ selectedLayerId: null, selectedGroup: null }), onSelectCue(null), scrub(e))} className="relative flex-1 border-b border-neutral-900/80">
+              <div onPointerDown={(e) => (useEditor.setState({ selectedLayerId: null, selectedGroup: null }), onSelectCue(null), onSelectMusic(false), scrub(e))} className="relative flex-1 border-b border-neutral-900/80">
                 {l.body}
               </div>
             </div>

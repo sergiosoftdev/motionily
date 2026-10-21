@@ -183,6 +183,8 @@ export const OpName = {
   SetCaptions: "set_captions",
   SetDuration: "set_duration",
   SetAudio: "set_audio",
+  /** Background music: `{music: {src, start, trim_in, trim_out, gain, duck}}` or `{music: null}`. */
+  SetMusic: "set_music",
   SetRenderStyle: "set_render_style",
   SetScenario: "set_scenario",
   SetSize: "set_size",
@@ -355,6 +357,8 @@ export type Project = {
   scene: Record<string, unknown> | null;
   /** The voice-over; `words` is set when it was generated with ElevenLabs (exact timing, no transcription needed). */
   audio: { url: string; name: string; mime: string; words?: VoiceWord[] | null } | null;
+  /** Background music file the user uploaded (the scene's `music` places and levels it). */
+  music: { url: string; name: string } | null;
   /** The user's own clips to edit, in upload order (c1, c2…). */
   footage: FootageClip[];
   sceneRevision: number;

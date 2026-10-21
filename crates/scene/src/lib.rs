@@ -28,6 +28,7 @@ mod style;
 mod text;
 mod transition;
 pub mod video;
+pub mod music;
 pub mod reactive;
 
 pub use anim::{Animated, Easing, Keyframe};
@@ -89,6 +90,9 @@ pub struct Scene {
     /// Placement and trim of the project's audio file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio: Option<AudioTrack>,
+    /// Background music under the whole video (see [`music`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub music: Option<music::MusicTrack>,
     /// Timed words, drawn in `caption_style`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub captions: Option<Captions>,
@@ -155,6 +159,7 @@ impl Default for Scene {
             scenario: None,
             render_style: None,
             audio: None,
+            music: None,
             captions: None,
             transitions: Vec::new(),
             sfx: Vec::new(),
@@ -812,6 +817,10 @@ impl Scene {
         if let Some(a) = &self.audio {
             let out = a.trim_out.map(|o| format!("{o:.2}")).unwrap_or_else(|| "end".into());
             let _ = writeln!(s, "audio: plays from {:.2}s, file {:.2}-{}", a.start, a.trim_in, out);
+        }
+        if let Some(m) = &self.music {
+            let out = m.trim_out.map(|o| format!("{o:.2}")).unwrap_or_else(|| "end".into());
+            let _ = writeln!(s, "music: {} from {:.2}s, file {:.2}-{}, level {:.0}%, {:.0}% of that while the voice speaks", m.src, m.start, m.trim_in, out, m.gain * 100.0, m.duck * 100.0);
         }
         if let Some(line) = reactive::summary_line(self.audio) {
             let _ = writeln!(s, "{line}");

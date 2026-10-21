@@ -99,6 +99,8 @@ pub enum Op {
     SetRenderStyle { render_style: Option<RenderStyle> },
     /// Place/trim the project's audio on the timeline (`null` = not used).
     SetAudio { audio: Option<AudioTrack> },
+    /// Background music (`null` removes it): placement, trim, level and how much it ducks under the voice.
+    SetMusic { music: Option<crate::music::MusicTrack> },
     /// Place (or move, same id) a sound effect: `{"op":"put_sfx","cue":{"id":"sfx1","sound":"pop","src":"/media/…","at":1.2,"gain":0.7}}`.
     PutSfx { cue: crate::SfxCue },
     RemoveSfx { id: String },
@@ -465,6 +467,12 @@ impl Scene {
                     }
                 }
                 self.audio = *audio;
+            }
+            Op::SetMusic { music } => {
+                if let Some(m) = music {
+                    m.check().map_err(OpError::Invalid)?;
+                }
+                self.music = music.clone();
             }
             Op::SetCaptions { captions } => {
                 if let Some(c) = captions {

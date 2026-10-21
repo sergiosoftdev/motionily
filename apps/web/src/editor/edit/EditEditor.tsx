@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { OpName, type Project } from "@motionily/protocol";
 import { api, mediaUrl } from "../../api/client";
 import type { SfxCue } from "../../audio/sfxPlayer";
+import { DEFAULT_DUCK, DEFAULT_MUSIC_GAIN, type MusicTrack } from "../../audio/music";
 import { transcribeFootage, type CaptionProgress } from "../../captions/voiceCaptions";
 import { AskBox, AskVariant } from "../../components/AskBox";
 import { Logo } from "../../components/Logo";
@@ -43,12 +44,14 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
   const edits = useEditActions(footage);
   const tracks = useMemo(() => (scene ? editTracks(scene, footage) : null), [scene, footage]);
   const [cue, setCue] = useState<SfxCue | null>(null);
+  const [musicOn, setMusicOn] = useState(false);
   const selectedLayer = useEditor((s) => s.selectedLayerId);
   const selectedGroup = useEditor((s) => s.selectedGroup);
   useTransportKeys(fps, true);
 
   // The selection is the editor's (canvas clicks select here too); only sound effects are local.
   const selection: EditSelection = useMemo(() => {
+    if (musicOn && scene?.music) return { kind: "music", music: scene.music };
     if (cue) return { kind: "cue", cue };
     if (!tracks) return null;
     if (selectedGroup) {
@@ -60,7 +63,7 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
     if (clip) return { kind: "clip", clip };
     const block = tracks.blocks.find((b) => b.ids.includes(selectedLayer));
     return block ? { kind: "block", block } : null;
-  }, [cue, tracks, selectedGroup, selectedLayer]);
+  }, [musicOn, scene?.music, cue, tracks, selectedGroup, selectedLayer]);
 
   const ops = useEditOps(scene, tracks, edits);
 
@@ -117,13 +120,13 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
       <div className="flex min-h-56 flex-[2] flex-col border-t border-neutral-900">
         <div className="flex items-center gap-1 px-3 py-1.5 text-xs">
           <ToolButton label="Split" hint="S" onClick={() => ops.split(selection?.kind === "clip" ? selection.clip : null)} />
-          <ToolButton label="Delete" hint="⌫" disabled={!selection} onClick={() => selection && (ops.remove(selection), setCue(null))} />
+          <ToolButton label="Delete" hint="⌫" disabled={!selection} onClick={() => selection && (ops.remove(selection), setCue(null), setMusicOn(false))} />
           <ToolButton label="Undo" hint="⌘Z" disabled={!edits.canUndo} onClick={edits.undo} />
           <ToolButton label="Redo" hint="⇧⌘Z" disabled={!edits.canRedo} onClick={edits.redo} />
           <span className="ml-auto text-neutral-600">Drag clips and blocks to move them, their edges to trim · ⌘ + wheel zooms</span>
         </div>
         {scene && tracks ? (
-          <EditTimeline scene={scene} tracks={tracks} selection={selection} onSelectCue={setCue} edits={edits} />
+          <EditTimeline scene={scene} tracks={tracks} selection={selection} onSelectCue={setCue} onSelectMusic={setMusicOn} edits={edits} />
         ) : (
           <p className="px-4 text-sm text-neutral-500">Loading…</p>
         )}
@@ -155,7 +158,8 @@ function useEditOps(scene: SceneView | null, tracks: EditTracks | null, edits: E
     } else if (sel.kind === "block") {
       const b = sel.block;
       edits.apply(b.group ? [{ op: OpName.RemoveGroup, group: b.group }] : b.ids.map((id) => ({ op: OpName.RemoveLayer, id })), `Deletes ${b.label}`, false);
-    } else edits.apply([{ op: OpName.RemoveSfx, id: sel.cue.id }], `Deletes the ${sel.cue.sound} effect`, false);
+    } else if (sel.kind === "cue") edits.apply([{ op: OpName.RemoveSfx, id: sel.cue.id }], `Deletes the ${sel.cue.sound} effect`, false);
+    else edits.apply([{ op: OpName.SetMusic, music: null }], "Removes the music", false);
     useEditor.setState({ selectedLayerId: null, selectedGroup: null });
   };
   return { split, remove };
@@ -271,7 +275,55 @@ function MediaBin({ ed, edits, scene }: { ed: EditorProps; edits: EditActions; s
       )}
       {progress && <p className="text-xs text-neutral-400">{captioningLabel(progress)}</p>}
       {error && <p className="text-xs text-red-400">{error}</p>}
+      <MusicBin ed={ed} edits={edits} scene={scene} />
     </aside>
+  );
+}
+
+/** Background music: upload a song; it goes under the whole video, lower while the voice speaks. */
+function MusicBin({ ed, edits, scene }: { ed: EditorProps; edits: EditActions; scene: SceneView | null }) {
+  const project = ed.project;
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const place = (src: string) => edits.apply([{ op: OpName.SetMusic, music: { src, start: 0, trim_in: 0, gain: DEFAULT_MUSIC_GAIN, duck: DEFAULT_DUCK } }], "Adds music", false);
+  const upload = async (file: File | undefined) => {
+    if (!project || !file) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const p = await api.uploadMusic(project.id, file);
+      ed.setProject(p);
+      if (p.music) place(p.music.url);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="mt-4 flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-semibold">Music</span>
+        <button type="button" disabled={busy} onClick={() => input.current?.click()} className="rounded-md bg-neutral-800 px-2.5 py-1 text-xs font-semibold hover:bg-neutral-700 disabled:opacity-50">
+          {busy ? "Uploading…" : project?.music ? "Replace" : "Add"}
+        </button>
+        <input ref={input} type="file" accept="audio/*" className="hidden" onChange={(e) => void upload(e.target.files?.[0])} />
+      </div>
+      {project?.music ? (
+        <div className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-neutral-900">
+          <span className="min-w-0 flex-1 truncate text-neutral-200">♪ {project.music.name}</span>
+          {!scene?.music && (
+            <button type="button" onClick={() => place(project.music!.url)} className="rounded-md px-2 text-neutral-400 hover:bg-neutral-800 hover:text-white">
+              Use
+            </button>
+          )}
+        </div>
+      ) : (
+        <p className="text-xs text-neutral-500">A song under the whole video. It gets quieter by itself whenever someone speaks.</p>
+      )}
+      {error && <p className="text-xs text-red-400">{error}</p>}
+    </div>
   );
 }
 
@@ -290,8 +342,10 @@ function Inspector({ selection, scene, ops, edits }: { selection: EditSelection;
         <ClipInspector clip={selection.clip} ops={ops} edits={edits} />
       ) : selection.kind === "block" ? (
         <BlockInspector block={selection.block} ops={ops} />
-      ) : (
+      ) : selection.kind === "cue" ? (
         <CueInspector cue={selection.cue} edits={edits} ops={ops} />
+      ) : (
+        <MusicInspector music={selection.music} edits={edits} ops={ops} />
       )}
     </aside>
   );
@@ -401,6 +455,27 @@ function CueInspector({ cue, edits, ops }: { cue: SfxCue; edits: EditActions; op
       <Slider label="Level" value={gain} min={0.05} max={1} step={0.05} format={(v) => `${Math.round(v * 100)}%`} onChange={setGain} onDone={() => edits.apply([{ op: OpName.PutSfx, cue: { ...cue, gain } }], `Level of the ${cue.sound} effect`, false)} />
       <button type="button" onClick={() => ops.remove({ kind: "cue", cue })} className="self-start text-xs text-neutral-400 hover:text-red-400">
         Delete effect
+      </button>
+    </div>
+  );
+}
+
+/** Level of the music, how far it ducks while the voice speaks, and where in the song it starts. */
+function MusicInspector({ music, edits, ops }: { music: MusicTrack; edits: EditActions; ops: ReturnType<typeof useEditOps> }) {
+  const [draft, setDraft] = useState(music);
+  useEffect(() => setDraft(music), [music]);
+  const save = (what: string) => edits.apply([{ op: OpName.SetMusic, music: draft }], what, false);
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <p className="truncate text-sm font-semibold">♪ Music</p>
+        <p className="text-xs text-neutral-500 tabular-nums">From {music.start.toFixed(1)} s on the video · song from {music.trim_in.toFixed(1)} s</p>
+      </div>
+      <Slider label="Level" value={draft.gain} min={0} max={1} step={0.05} format={(v) => `${Math.round(v * 100)}%`} onChange={(gain) => setDraft({ ...draft, gain })} onDone={() => save("Music level")} />
+      <Slider label="While the voice speaks" value={draft.duck} min={0} max={1} step={0.05} format={(v) => `${Math.round(v * 100)}% of that`} onChange={(duck) => setDraft({ ...draft, duck })} onDone={() => save("Music ducking")} />
+      <Slider label="Start the song at" value={draft.trim_in} min={0} max={180} step={0.5} format={(v) => `${v.toFixed(1)} s`} onChange={(trim_in) => setDraft({ ...draft, trim_in })} onDone={() => save("Music start in the song")} />
+      <button type="button" onClick={() => ops.remove({ kind: "music", music })} className="self-start text-xs text-neutral-400 hover:text-red-400">
+        Remove music
       </button>
     </div>
   );

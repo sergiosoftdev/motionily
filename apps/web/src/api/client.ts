@@ -168,6 +168,8 @@ export const api = {
   generateStatus: (id: string) => call<GenerateState>(HttpMethod.Get, `/projects/${id}/generate`),
   stopGenerate: (id: string) => call<GenerateState>(HttpMethod.Delete, `/projects/${id}/generate`),
   uploadAudio: (id: string, file: File) => upload<Project>(`/projects/${id}/audio`, file),
+  /** Background music for the video (replaces the previous file). */
+  uploadMusic: (id: string, file: File) => upload<Project>(`/projects/${id}/music`, file),
   /** The user's own clip to edit; `language` is what is spoken in it (ISO 639-1). */
   uploadFootage: (id: string, file: File, language: string) => upload<Project>(`/projects/${id}/footage`, file, { language }),
   /** A clip's transcript, made here in the browser. */

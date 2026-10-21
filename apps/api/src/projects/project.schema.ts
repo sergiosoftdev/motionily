@@ -82,6 +82,8 @@ export class Project {
   /** Voice-over / music uploaded by the user. Served from /media/:file. */
   /** The voice-over. Generated with ElevenLabs it carries each word's timing (`words`), so captions need no transcription. */
   @Prop({ type: MongooseSchema.Types.Mixed, default: null }) audio: { file: string; name: string; mime: string; words?: { text: string; start: number; end: number }[]; voice?: { voiceId: string; model: string } } | null;
+  /** Background music the user uploaded (the scene's `music` places it). Served from /media/:file. */
+  @Prop({ type: MongooseSchema.Types.Mixed, default: null }) music: { file: string; name: string; mime: string } | null;
   /** The user's own clips to edit (usually someone talking to camera); `words` once the editor transcribed them. */
   @Prop({ type: [MongooseSchema.Types.Mixed], default: [] }) footage: FootageClip[];
   /** Bumped on every scene save; clients send it back to avoid overwriting newer edits. */

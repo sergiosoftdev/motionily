@@ -178,6 +178,28 @@ export class ProjectsController {
   }
 
   /** Voice-over or music for the video. Replaces the previous file. */
+  /** Background music for the video; the editor places it (scene `music`) and ducks it under the voice. */
+  @Post(":id/music")
+  @UseInterceptors(
+    FileInterceptor("file", {
+      storage: diskStorage({ destination: MEDIA_DIR, filename: (_req, f, cb) => cb(null, mediaName(f.originalname || "music.mp3")) }),
+      limits: { fileSize: MAX_AUDIO_BYTES },
+      fileFilter: (_req, f, cb) => cb(null, f.mimetype.startsWith("audio/")),
+    }),
+  )
+  async uploadMusic(@CurrentUser() user: AuthUser, @Param("id") id: string, @UploadedFile() file?: Express.Multer.File) {
+    userOnly(user);
+    if (!file) throw new BadRequestException("send an audio file (mp3, m4a, wav…) in 'file'");
+    try {
+      const { project, previous } = await this.projects.setMusic(user.id, id, { file: file.filename, name: file.originalname, mime: file.mimetype });
+      await removeMedia(previous);
+      return this.view(project);
+    } catch (e) {
+      await removeMedia(file.filename);
+      throw e;
+    }
+  }
+
   /** The user's own clip to edit: probed (length, size, contact sheet), then transcribed by the editor. */
   @Post(":id/footage")
   @UseInterceptors(
@@ -321,6 +343,7 @@ export class ProjectsController {
       misfits: await this.projects.misfits(p),
       scene: p.scene,
       audio: p.audio ? { url: `/media/${p.audio.file}`, name: p.audio.name, mime: p.audio.mime, words: p.audio.words ?? null } : null,
+      music: p.music ? { url: `/media/${p.music.file}`, name: p.music.name } : null,
       footage: (p.footage ?? []).map((c) => ({ id: c.id, name: c.name, url: `/media/${c.file}`, mime: c.mime, size: c.size, duration: c.duration, width: c.width, height: c.height, poster: c.poster, language: c.language, words: c.words })),
       sceneRevision: p.sceneRevision,
       agentRuns: p.agentRuns ?? [],

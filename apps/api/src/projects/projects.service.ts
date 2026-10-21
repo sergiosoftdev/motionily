@@ -134,6 +134,7 @@ export class ProjectsService {
     const files = [
       ...(project.imageCredits ?? []).flatMap((c) => [c.src, c.preview ?? ""]),
       ...(project.footage ?? []).flatMap((c) => [c.file, c.poster ?? ""]),
+      project.music?.file ?? "",
     ].filter(Boolean);
     await Promise.all(files.map((f) => removeMedia(f.replace(/^\/media\//, ""))));
   }
@@ -217,6 +218,16 @@ export class ProjectsService {
     const previous = project.audio?.file;
     project.audio = audio;
     project.markModified("audio");
+    await project.save();
+    return { project, previous };
+  }
+
+  /** Replaces the video's music file; returns the one it replaces, to delete. */
+  async setMusic(ownerId: Types.ObjectId, id: string, music: Project["music"]) {
+    const project = await this.get(ownerId, id);
+    const previous = project.music?.file;
+    project.music = music;
+    project.markModified("music");
     await project.save();
     return { project, previous };
   }

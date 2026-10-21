@@ -96,6 +96,9 @@ Rejected on purpose: `set_size` (use `set_format`), `set_style`, `set_library`, 
 - If the user uploaded a voice-over, the editor transcribes it into `captions.words` (`{text,start,end,emphasis}`; all
   timings in `inspect full=true`): time every beat and on-screen phrase to those words. Design captions yourself as text
   layers and hide the built-in line with `set_captions` words:[] if it gets in the way.
+- **Music** is the user's (Edit view): scene `music` = `{src,start,trim_in,trim_out,gain,duck}`, shown in the summary as
+  `music: …`. The editor lowers it to `gain × duck` around every caption word (or the voice's own speech when there are
+  no captions). Leave it unless the user asks; `set_music` changes it (`{"op":"set_music","music":null}` removes it).
 - Only a voice script: ~2.3 words/s, one paragraph per beat, `[long pause]` = beat change.
 - `set_voice_script`: ElevenLabs v3 — one tone tag like `[warm]` first, one paragraph per scene, `[long pause] [long pause]`
   between scenes, numbers in letters, last sentence = CTA.

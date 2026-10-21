@@ -78,8 +78,16 @@ describe("Footage: the user's own clips", () => {
     const three = await http.post(`/projects/${p.id}/footage`).set(auth).attach("file", CLIP, { filename: "take3.mp4", contentType: "video/mp4" }).expect(201);
     assert.deepEqual(three.body.footage.map((c: { id: string }) => c.id), ["c2", "c3"]);
 
-    // Deleting the video deletes its clips.
+    // Music: one file per video, a new one replaces (and deletes) the old.
+    const song = await http.post(`/projects/${p.id}/music`).set(auth).attach("file", Buffer.from("ID3 song"), { filename: "song.mp3", contentType: "audio/mpeg" }).expect(201);
+    assert.equal(song.body.music.name, "song.mp3");
+    const song2 = await http.post(`/projects/${p.id}/music`).set(auth).attach("file", Buffer.from("ID3 other"), { filename: "other.mp3", contentType: "audio/mpeg" }).expect(201);
+    await http.get(song.body.music.url).expect(404);
+    await http.post(`/projects/${p.id}/music`).set(auth).attach("file", CLIP, { filename: "clip.mp4", contentType: "video/mp4" }).expect(400);
+
+    // Deleting the video deletes its clips and its music.
     await http.delete(`/projects/${p.id}`).set(auth).expect(204);
     await http.get(three.body.footage[1].url).expect(404);
+    await http.get(song2.body.music.url).expect(404);
   });
 });
