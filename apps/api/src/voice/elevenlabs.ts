@@ -56,10 +56,15 @@ async function call(apiKey: string, path: string, init: RequestInit = {}) {
   return res;
 }
 
+/** ElevenLabs' status when the account has too few credits for the request (sent as a 401). */
+const QUOTA_EXCEEDED = "quota_exceeded";
+
 /** ElevenLabs' own explanation, never the key. */
 async function reason(res: Response) {
-  const body = (await res.json().catch(() => null)) as { detail?: { message?: string } | string } | null;
+  const body = (await res.json().catch(() => null)) as { detail?: { status?: string; message?: string } | string } | null;
   const detail = typeof body?.detail === "string" ? body.detail : body?.detail?.message;
+  if (typeof body?.detail === "object" && body.detail.status === QUOTA_EXCEEDED)
+    return `Your ElevenLabs account is out of credits${detail ? `: ${detail}` : ""}. Top it up in ElevenLabs or shorten the script.`;
   if (res.status === 401) return `ElevenLabs rejected the API key${detail ? `: ${detail}` : ""}. It needs Text to Speech and Voices access.`;
   return `ElevenLabs: ${detail ?? res.statusText} (${res.status})`;
 }
