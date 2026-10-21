@@ -17,6 +17,11 @@ const HOUR = 3_600_000;
 /** Stands in for `claude -p`: echoes the platforms it was asked for, with messy hashtags to clean. */
 const FAKE_CLAUDE = `#!/usr/bin/env node
 const prompt = process.argv[process.argv.indexOf("-p") + 1];
+if (prompt.includes("Timeline:")) {
+  const suno = { title: "Dead Man's Drop", style: "dark cinematic orchestral, tense strings, 90 bpm, instrumental, no vocals", structure: "[Intro: low drone]\\n[Drop: full orchestra hit]", drop_at: 3, notes: prompt.includes("Change: darker") ? "darker" : "Turn Instrumental on." };
+  process.stdout.write(JSON.stringify({ result: JSON.stringify(suno), total_cost_usd: 0 }));
+  process.exit(0);
+}
 const platforms = /Platforms: (.*)/.exec(prompt)[1].split(", ");
 const copy = platforms.map((platform) => ({ platform, caption: "A dead man fooled Hitler. " + platform, hashtags: ["#History", "history", "WW2!", ""] }));
 process.stdout.write(JSON.stringify({ result: "Here you go: " + JSON.stringify({ copy }), total_cost_usd: 0 }));
@@ -62,6 +67,29 @@ describe("Posting calendar", () => {
       { platform: "tiktok", caption: "A dead man fooled Hitler. tiktok", hashtags: ["history", "WW2"] },
     ]);
     await http.post("/posts/copy").set(auth).send({ projectId: p.id, platforms: ["myspace"] }).expect(400);
+    // The draft stays with the video, and the user's edits replace it.
+    const saved = await http.get(`/projects/${p.id}`).set(auth).expect(200);
+    assert.deepEqual(saved.body.postCopy.map((c: { platform: string }) => c.platform), ["instagram", "tiktok"]);
+    const edited = [{ platform: "instagram", caption: "My own words", hashtags: ["ww2"] }];
+    const after = await http.patch(`/projects/${p.id}`).set(auth).send({ postCopy: edited }).expect(200);
+    assert.deepEqual(after.body.postCopy, edited);
+  });
+
+  it("writes a Suno prompt for the video's music, keeps it, and fits the uploaded song to its drop", async () => {
+    const auth = await login("posts@example.com");
+    const { body: p } = await http.post("/projects").set(auth).send({ name: "Song", voiceScript: "A dead man fooled Hitler." }).expect(201);
+    await http.put(`/projects/${p.id}/scene`).set(auth).send({ scene: { version: 1, duration: 6, captions: { words: [{ text: "Hi", start: 0.5, end: 0.9 }] } }, baseRevision: 0 }).expect(200);
+    const res = await http.post(`/projects/${p.id}/suno-prompt`).set(auth).send({}).expect(200);
+    assert.equal(res.body.dropAt, 3);
+    assert.match(res.body.style, /instrumental, no vocals$/);
+    assert.equal((await http.get(`/projects/${p.id}`).set(auth).expect(200)).body.sunoPrompt.title, "Dead Man's Drop");
+    const darker = await http.post(`/projects/${p.id}/suno-prompt`).set(auth).send({ steer: "darker" }).expect(200);
+    assert.equal(darker.body.notes, "darker");
+
+    // A 20 s song: 8 s of near silence, then loud. Its loud part (8 s) should land on the drop (3 s): start the song at 5 s.
+    const song = await http.post(`/projects/${p.id}/music`).set(auth).attach("file", wav(20, 8), { filename: "song.wav", contentType: "audio/wav" }).expect(201);
+    assert.equal(song.body.music.trimIn, 5);
+    assert.match(song.body.music.summary, /quiet intro/);
   });
 
   it("schedules a video with its text and file, and spots edits made after rendering", async () => {
@@ -117,3 +145,24 @@ describe("Posting calendar", () => {
     assert.equal((await http.get("/posts").set(auth).expect(200)).body.length, 1);
   });
 });
+
+/** Mono 8 kHz WAV: `quiet` seconds of near silence, then a loud tone until `seconds`. */
+function wav(seconds: number, quiet: number) {
+  const rate = 8000;
+  const n = seconds * rate;
+  const buf = Buffer.alloc(44 + n * 2);
+  buf.write("RIFF", 0);
+  buf.writeUInt32LE(36 + n * 2, 4);
+  buf.write("WAVEfmt ", 8);
+  buf.writeUInt32LE(16, 16);
+  buf.writeUInt16LE(1, 20);
+  buf.writeUInt16LE(1, 22);
+  buf.writeUInt32LE(rate, 24);
+  buf.writeUInt32LE(rate * 2, 28);
+  buf.writeUInt16LE(2, 32);
+  buf.writeUInt16LE(16, 34);
+  buf.write("data", 36);
+  buf.writeUInt32LE(n * 2, 40);
+  for (let i = 0; i < n; i++) buf.writeInt16LE(Math.round((i < quiet * rate ? 30 : 20000) * Math.sin((2 * Math.PI * 220 * i) / rate)), 44 + i * 2);
+  return buf;
+}

@@ -21,9 +21,12 @@ import { Viewer } from "../Viewer";
 import { EditTimeline, type EditSelection } from "./EditTimeline";
 import { appendClipOps, editTracks, freshId, rippleDeleteOps, splitClipOps, type EditClip, type EditTracks, type GraphicsBlock } from "./tracks";
 import { useEditActions, type EditActions } from "./useEditActions";
+import { SunoDialog } from "./SunoDialog";
 
 const PREVIEW_MAX_WIDTH = 900;
 const UPLOAD_ACCEPT = "video/mp4,video/quicktime,video/webm";
+/** Suno's own icon, for the button that opens the Suno prompt. */
+const SUNO_LOGO = "/brand/suno.png";
 
 const mmss = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
 const typing = (el: EventTarget | null) => {
@@ -314,21 +317,28 @@ function MediaBin({ ed, edits, scene }: { ed: EditorProps; edits: EditActions; s
   );
 }
 
-/** Background music: upload a song; it goes under the whole video, lower while the voice speaks. */
+/** Background music: upload a song or make one in Suno from Claude's prompt; it starts where it fits the video and ducks under the voice. */
 function MusicBin({ ed, edits, scene }: { ed: EditorProps; edits: EditActions; scene: SceneView | null }) {
   const project = ed.project;
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  const [suno, setSuno] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const place = (src: string) => edits.apply([{ op: OpName.SetMusic, music: { src, start: 0, trim_in: 0, gain: DEFAULT_MUSIC_GAIN, duck: DEFAULT_DUCK } }], "Adds music", false);
+  /** Under the whole video, starting where the song fits it best (its loud part on the key moment). */
+  const place = (m: NonNullable<Project["music"]>) =>
+    edits.apply([{ op: OpName.SetMusic, music: { src: m.url, start: 0, trim_in: m.trimIn, gain: DEFAULT_MUSIC_GAIN, duck: DEFAULT_DUCK } }], "Adds music", false);
+  const song = async (file: File) => {
+    if (!project) return;
+    const p = await api.uploadMusic(project.id, file);
+    ed.setProject(p);
+    if (p.music) place(p.music);
+  };
   const upload = async (file: File | undefined) => {
-    if (!project || !file) return;
+    if (!file) return;
     setBusy(true);
     setError(null);
     try {
-      const p = await api.uploadMusic(project.id, file);
-      ed.setProject(p);
-      if (p.music) place(p.music.url);
+      await song(file);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -337,26 +347,40 @@ function MusicBin({ ed, edits, scene }: { ed: EditorProps; edits: EditActions; s
   };
   return (
     <div className="mt-4 flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Music</span>
+      <div className="flex items-center gap-1.5">
+        <span className="mr-auto text-sm font-semibold">Music</span>
+        <button
+          type="button"
+          disabled={busy || !project}
+          onClick={() => setSuno(true)}
+          title="Claude writes a Suno prompt for this video"
+          className="flex items-center gap-1.5 rounded-md bg-neutral-800 py-1 pr-2.5 pl-1.5 text-xs font-semibold hover:bg-neutral-700 disabled:opacity-50"
+        >
+          <img src={SUNO_LOGO} alt="" className="size-4 rounded-full" />
+          Suno
+        </button>
         <button type="button" disabled={busy} onClick={() => input.current?.click()} className="rounded-md bg-neutral-800 px-2.5 py-1 text-xs font-semibold hover:bg-neutral-700 disabled:opacity-50">
-          {busy ? "Uploading…" : project?.music ? "Replace" : "Add"}
+          {busy ? "Uploading…" : project?.music ? "Replace" : "Upload"}
         </button>
         <input ref={input} type="file" accept="audio/*" className="hidden" onChange={(e) => void upload(e.target.files?.[0])} />
       </div>
       {project?.music ? (
-        <div className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs hover:bg-neutral-900">
-          <span className="min-w-0 flex-1 truncate text-neutral-200">♪ {project.music.name}</span>
-          {!scene?.music && (
-            <button type="button" onClick={() => place(project.music!.url)} className="rounded-md px-2 text-neutral-400 hover:bg-neutral-800 hover:text-white">
-              Use
-            </button>
-          )}
+        <div className="flex flex-col gap-0.5 rounded-lg px-2 py-1.5 text-xs hover:bg-neutral-900">
+          <div className="flex items-center gap-2">
+            <span className="min-w-0 flex-1 truncate text-neutral-200">♪ {project.music.name}</span>
+            {!scene?.music && (
+              <button type="button" onClick={() => place(project.music!)} className="rounded-md px-2 text-neutral-400 hover:bg-neutral-800 hover:text-white">
+                Use
+              </button>
+            )}
+          </div>
+          {project.music.summary && <span className="text-[11px] text-neutral-500">{project.music.summary}</span>}
         </div>
       ) : (
-        <p className="text-xs text-neutral-500">A song under the whole video. It gets quieter by itself whenever someone speaks.</p>
+        <p className="text-xs text-neutral-500">A song under the whole video, quieter whenever someone speaks. With Suno, Claude writes the prompt for your video.</p>
       )}
       {error && <p className="text-xs text-red-400">{error}</p>}
+      {suno && project && <SunoDialog project={project} onProject={ed.setProject} onSong={song} onClose={() => setSuno(false)} />}
     </div>
   );
 }

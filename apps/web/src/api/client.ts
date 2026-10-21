@@ -1,4 +1,4 @@
-import type { AgentRunUsage, Brick, BrickSlot, Project, ProjectListItem, User, VideoFormat, Voice, VoiceModel } from "@motionily/protocol";
+import type { AgentRunUsage, Brick, BrickSlot, Project, ProjectListItem, SunoPrompt, User, VideoFormat, Voice, VoiceModel } from "@motionily/protocol";
 import { useSession } from "../session";
 import type { SoundRecipe } from "../audio/synth";
 import type { AgentPrefs, GenerateState } from "../components/GeneratePanel";
@@ -128,7 +128,7 @@ export const api = {
   editPrefab: (name: string, instruction: string, prefs?: AgentPrefs) =>
     call<GenerateState & { videoId: string }>(HttpMethod.Post, `/prefabs/${name}/edit`, { instruction, ...prefs }),
   deletePrefab: (name: string) => call<void>(HttpMethod.Delete, `/prefabs/${name}`),
-  updateProject: (id: string, patch: { name?: string; brief?: string; format?: VideoFormat; references?: string[] }) =>
+  updateProject: (id: string, patch: { name?: string; brief?: string; format?: VideoFormat; references?: string[]; postCopy?: PostCopy[] }) =>
     call<Project>(HttpMethod.Patch, `/projects/${id}`, patch),
   deleteProject: (id: string) => call<void>(HttpMethod.Delete, `/projects/${id}`),
   projectBricks: (id: string, slot?: BrickSlot) =>
@@ -168,6 +168,8 @@ export const api = {
   generateStatus: (id: string) => call<GenerateState>(HttpMethod.Get, `/projects/${id}/generate`),
   stopGenerate: (id: string) => call<GenerateState>(HttpMethod.Delete, `/projects/${id}/generate`),
   uploadAudio: (id: string, file: File) => upload<Project>(`/projects/${id}/audio`, file),
+  /** Claude writes the Suno prompt for the video's music (kept with the video); `steer` asks for changes. */
+  sunoPrompt: (id: string, steer?: string) => call<SunoPrompt>(HttpMethod.Post, `/projects/${id}/suno-prompt`, { steer: steer || undefined }),
   /** Background music for the video (replaces the previous file). */
   uploadMusic: (id: string, file: File) => upload<Project>(`/projects/${id}/music`, file),
   /** The user's own clip to edit; `language` is what is spoken in it (ISO 639-1). */

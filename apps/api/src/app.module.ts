@@ -31,6 +31,7 @@ import { Post, PostSchema } from "./posts/post.schema";
 import { PostsService } from "./posts/posts.service";
 import { PostsController } from "./posts/posts.controller";
 import { CopywriterService } from "./posts/copywriter";
+import { SunoService } from "./music/suno";
 
 @Module({
   imports: [
@@ -60,6 +61,6 @@ import { CopywriterService } from "./posts/copywriter";
     }),
   ],
   controllers: [AuthController, BricksController, ProjectsController, MediaController, ReferencesController, FontsController, BrandsController, PrefabsController, SoundsController, ImagesController, VoiceController, PostsController],
-  providers: [BricksService, ProjectsService, GenerateService, PrefabsService, BrandsService, ConceptsService, VoiceService, PostsService, CopywriterService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
+  providers: [BricksService, ProjectsService, GenerateService, PrefabsService, BrandsService, ConceptsService, VoiceService, PostsService, CopywriterService, SunoService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
 })
 export class AppModule {}

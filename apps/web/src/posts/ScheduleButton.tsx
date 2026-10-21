@@ -7,6 +7,8 @@ import { defaultSlot, formatWhen, fromLocalInput, hashtagsText, MAX_CAPTION, par
 
 const Stage = { Edit: "edit", Rendering: "rendering", Uploading: "uploading", Done: "done" } as const;
 type Stage = (typeof Stage)[keyof typeof Stage];
+/** Pause after the last edit before the draft is saved with the video. */
+const DRAFT_SAVE_MS = 800;
 /** Social videos go out at 1080 on the short side. */
 const POST_SHORT_SIDE = 1080;
 
@@ -61,14 +63,25 @@ function ScheduleDialog({ ed, onClose }: { ed: EditorProps; onClose: () => void 
     }
   };
 
-  // One video, one post: an upcoming post of this video opens for editing; otherwise Claude drafts the text.
+  // One video, one post: an upcoming post of this video opens for editing; otherwise the saved draft,
+  // and only a video without one asks Claude (text is never rewritten behind the user's back).
+  const started = useRef(false);
   useEffect(() => {
+    // React's dev double mount must not ask Claude twice.
+    if (started.current) return;
+    started.current = true;
     api
       .posts({ projectId: project.id })
       .then((list) => {
         const next = list.find((p) => p.status === PostStatus.Scheduled) ?? null;
         setExisting(next);
-        if (!next) return void write(PLATFORMS);
+        if (!next) {
+          const saved = project.postCopy.filter((c): c is PostCopy => (PLATFORMS as string[]).includes(c.platform));
+          if (!saved.length) return void write(PLATFORMS);
+          setCopy(saved);
+          setDraft((d) => d + 1);
+          return;
+        }
         setPlatforms(next.platforms);
         setWhen(toLocalInput(new Date(next.scheduledAt)));
         setCopy(next.copy);
@@ -80,6 +93,15 @@ function ScheduleDialog({ ed, onClose }: { ed: EditorProps; onClose: () => void 
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id]);
+
+  // The draft follows the user's edits (and Claude's rewrites), so it is there the next time.
+  const loaded = existing !== undefined;
+  useEffect(() => {
+    if (!loaded || existing || !copy.length) return;
+    const timer = setTimeout(() => void api.updateProject(project.id, { postCopy: copy }).then(ed.setProject).catch(() => undefined), DRAFT_SAVE_MS);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [copy, loaded, existing]);
 
   const toggle = (p: Platform) => {
     const next = PLATFORMS.filter((x) => (x === p ? !platforms.includes(p) : platforms.includes(x)));

@@ -357,8 +357,15 @@ export type Project = {
   scene: Record<string, unknown> | null;
   /** The voice-over; `words` is set when it was generated with ElevenLabs (exact timing, no transcription needed). */
   audio: { url: string; name: string; mime: string; words?: VoiceWord[] | null } | null;
-  /** Background music file the user uploaded (the scene's `music` places and levels it). */
-  music: { url: string; name: string } | null;
+  /**
+   * Background music file the user uploaded (the scene's `music` places and levels it). `trimIn` = where in the song
+   * the video should start (its loud part on the key moment), from the song's energy (`summary`).
+   */
+  music: { url: string; name: string; trimIn: number; summary: string | null } | null;
+  /** Claude's prompt for this video's music in Suno, kept until the user asks for another. */
+  sunoPrompt: SunoPrompt | null;
+  /** Claude's latest caption and hashtags per platform, as the user left them. */
+  postCopy: { platform: string; caption: string; hashtags: string[] }[];
   /** The user's own clips to edit, in upload order (c1, c2…). */
   footage: FootageClip[];
   sceneRevision: number;
@@ -373,6 +380,9 @@ export type ProjectListItem = { _id: string; name: string; build: Build; format?
 
 /** A spoken word and when it is said, in seconds. */
 export type VoiceWord = { text: string; start: number; end: number };
+
+/** Suno prompt for a video's music: style and structure fields to paste, and the video second the drop should hit. */
+export type SunoPrompt = { title: string; style: string; structure: string; dropAt: number | null; notes: string; createdAt: string };
 
 /** A clip uploaded to be edited. `words` (file seconds) once the editor transcribed it; `poster` = a 4×3 contact sheet. */
 export type FootageClip = {

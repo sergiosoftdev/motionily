@@ -33,6 +33,8 @@ import { ClonePrefabDto, PREFAB_NAME, SavePrefabDto } from "../prefabs/prefabs.d
 import { GenerateService } from "./generate.service";
 import { CreateFeedbackDto, CreateProjectDto, FOOTAGE_LANGUAGES, FootageWordsDto, UploadFootageDto, GenerateDto, GenerateVoiceDto, SaveSceneDto, SetSlotDto, UpdateProjectDto } from "./projects.dto";
 import { describeVideo, VIDEO_TYPES } from "../brands/video-asset";
+import { fitSong, songEnergy } from "../music/energy";
+import { SunoPromptDto, SunoService } from "../music/suno";
 import { VoiceService } from "../voice/voice.service";
 import { VoiceModel } from "../voice/elevenlabs";
 import type { ProjectDocument } from "./project.schema";
@@ -50,6 +52,7 @@ export class ProjectsController {
     private readonly prefabs: PrefabsService,
     private readonly brands: BrandsService,
     private readonly voice: VoiceService,
+    private readonly suno: SunoService,
   ) {}
 
   /** The brand kit of the project this video belongs to (agents read it to design on-brand). */
@@ -191,13 +194,26 @@ export class ProjectsController {
     userOnly(user);
     if (!file) throw new BadRequestException("send an audio file (mp3, m4a, wav…) in 'file'");
     try {
-      const { project, previous } = await this.projects.setMusic(user.id, id, { file: file.filename, name: file.originalname, mime: file.mimetype });
+      const current = await this.projects.get(user.id, id);
+      // Where the song should start: its loud part on the video's key moment (from the Suno prompt), or past a quiet intro.
+      const energy = await songEnergy(join(MEDIA_DIR, file.filename));
+      const length = (current.scene as { duration?: number } | null)?.duration ?? 0;
+      const fit = energy ? { trimIn: fitSong(energy, length, current.sunoPrompt?.dropAt ?? null), summary: energy.summary } : {};
+      const { project, previous } = await this.projects.setMusic(user.id, id, { file: file.filename, name: file.originalname, mime: file.mimetype, ...fit });
       await removeMedia(previous);
       return this.view(project);
     } catch (e) {
       await removeMedia(file.filename);
       throw e;
     }
+  }
+
+  /** Claude writes (and the video keeps) the Suno prompt for its background music. */
+  @Post(":id/suno-prompt")
+  @HttpCode(200)
+  async sunoPrompt(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: SunoPromptDto) {
+    userOnly(user);
+    return this.suno.write(user.id, id, dto.steer);
   }
 
   /** The user's own clip to edit: probed (length, size, contact sheet), then transcribed by the editor. */
@@ -343,7 +359,9 @@ export class ProjectsController {
       misfits: await this.projects.misfits(p),
       scene: p.scene,
       audio: p.audio ? { url: `/media/${p.audio.file}`, name: p.audio.name, mime: p.audio.mime, words: p.audio.words ?? null } : null,
-      music: p.music ? { url: `/media/${p.music.file}`, name: p.music.name } : null,
+      music: p.music ? { url: `/media/${p.music.file}`, name: p.music.name, trimIn: p.music.trimIn ?? 0, summary: p.music.summary ?? null } : null,
+      sunoPrompt: p.sunoPrompt ?? null,
+      postCopy: p.postCopy ?? [],
       footage: (p.footage ?? []).map((c) => ({ id: c.id, name: c.name, url: `/media/${c.file}`, mime: c.mime, size: c.size, duration: c.duration, width: c.width, height: c.height, poster: c.poster, language: c.language, words: c.words })),
       sceneRevision: p.sceneRevision,
       agentRuns: p.agentRuns ?? [],

@@ -3,7 +3,7 @@ import { InjectModel } from "@nestjs/mongoose";
 import { Model, Types } from "mongoose";
 import { BricksService } from "../bricks/bricks.service";
 import { BrickSlot, SLOT_CARDINALITY, SlotCardinality } from "../bricks/brick.enums";
-import { Build, Feedback, FeedbackKind, Project, ProjectDocument, type AgentRunUsage, type FootageClip } from "./project.schema";
+import { Build, Feedback, FeedbackKind, Project, ProjectDocument, type AgentRunUsage, type FootageClip, type PostCopyDraft, type SunoPrompt } from "./project.schema";
 import type { ImageCredit } from "../images/image-search";
 import { removeMedia } from "../media";
 import type { CreateFeedbackDto, CreateProjectDto, SaveSceneDto, SetSlotDto, UpdateProjectDto } from "./projects.dto";
@@ -124,6 +124,7 @@ export class ProjectsService {
     if (dto.voiceScript !== undefined) project.voiceScript = dto.voiceScript;
     if (dto.references !== undefined) project.references = dto.references;
     if (dto.format !== undefined) project.format = dto.format;
+    if (dto.postCopy !== undefined) project.postCopy = dto.postCopy;
     return project.save();
   }
 
@@ -230,6 +231,17 @@ export class ProjectsService {
     project.markModified("music");
     await project.save();
     return { project, previous };
+  }
+
+  async setSunoPrompt(id: string, suno: SunoPrompt) {
+    await this.projects.updateOne({ _id: id }, { $set: { sunoPrompt: suno } });
+  }
+
+  /** Keep a copy draft per platform: new drafts replace the platforms they cover. */
+  async savePostCopy(id: string, copy: PostCopyDraft[]) {
+    const project = await this.projects.findById(id, { postCopy: 1 }).lean();
+    const kept = (project?.postCopy ?? []).filter((c) => !copy.some((n) => n.platform === c.platform));
+    await this.projects.updateOne({ _id: id }, { $set: { postCopy: [...kept, ...copy] } });
   }
 
   /** Adds an uploaded clip as c1, c2… */

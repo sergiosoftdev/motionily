@@ -53,6 +53,8 @@ export class CopywriterService {
       return { platform, caption: typeof c?.caption === "string" ? c.caption.trim().slice(0, MAX_CAPTION) : "", hashtags: cleanHashtags(c?.hashtags) };
     });
     if (copy.every((c) => !c.caption)) throw new BadGatewayException("the copywriter did not return any caption; try again");
+    // The draft stays with the video: opening Schedule again starts from it instead of asking Claude again.
+    await this.projects.savePostCopy(project.id, copy);
     return copy;
   }
 }

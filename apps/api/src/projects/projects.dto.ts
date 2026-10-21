@@ -21,6 +21,7 @@ import {
 } from "class-validator";
 import { FeedbackKind, VideoFormat } from "./project.schema";
 import { VoiceModel } from "../voice/elevenlabs";
+import { PostCopyDto } from "../posts/posts.dto";
 
 /** Reference images per prompt. */
 export const MAX_REFERENCES = 8;
@@ -45,6 +46,8 @@ export class CreateProjectDto {
 
 export class UpdateProjectDto {
   @IsOptional() @IsEnum(VideoFormat) format?: VideoFormat;
+  /** The caption drafts as the user edited them (Schedule dialog). */
+  @IsOptional() @IsArray() @ArrayMaxSize(2) @ValidateNested({ each: true }) @Type(() => PostCopyDto) postCopy?: PostCopyDto[];
   @IsOptional() @IsString() @MinLength(1) @MaxLength(80) name?: string;
   @IsOptional() @IsString() @MaxLength(4000) brief?: string;
   @IsOptional() @IsBoolean() wantsScript?: boolean;
