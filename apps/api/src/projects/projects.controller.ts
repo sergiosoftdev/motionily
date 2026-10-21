@@ -198,7 +198,7 @@ export class ProjectsController {
       // Where the song should start: its loud part on the video's key moment (from the Suno prompt), or past a quiet intro.
       const energy = await songEnergy(join(MEDIA_DIR, file.filename));
       const length = (current.scene as { duration?: number } | null)?.duration ?? 0;
-      const fit = energy ? { trimIn: fitSong(energy, length, current.sunoPrompt?.dropAt ?? null), summary: energy.summary } : {};
+      const fit = energy ? { trimIn: fitSong(energy, length, current.sunoPrompt?.dropAt ?? null), summary: energy.summary, duration: energy.duration } : {};
       const { project, previous } = await this.projects.setMusic(user.id, id, { file: file.filename, name: file.originalname, mime: file.mimetype, ...fit });
       await removeMedia(previous);
       return this.view(project);
@@ -359,7 +359,7 @@ export class ProjectsController {
       misfits: await this.projects.misfits(p),
       scene: p.scene,
       audio: p.audio ? { url: `/media/${p.audio.file}`, name: p.audio.name, mime: p.audio.mime, words: p.audio.words ?? null } : null,
-      music: p.music ? { url: `/media/${p.music.file}`, name: p.music.name, trimIn: p.music.trimIn ?? 0, summary: p.music.summary ?? null } : null,
+      music: p.music ? { url: `/media/${p.music.file}`, name: p.music.name, trimIn: p.music.trimIn ?? 0, summary: p.music.summary ?? null, duration: p.music.duration ?? null } : null,
       sunoPrompt: p.sunoPrompt ?? null,
       postCopy: p.postCopy ?? [],
       footage: (p.footage ?? []).map((c) => ({ id: c.id, name: c.name, url: `/media/${c.file}`, mime: c.mime, size: c.size, duration: c.duration, width: c.width, height: c.height, poster: c.poster, language: c.language, words: c.words })),

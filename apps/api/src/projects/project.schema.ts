@@ -89,7 +89,7 @@ export class Project {
   /** The voice-over. Generated with ElevenLabs it carries each word's timing (`words`), so captions need no transcription. */
   @Prop({ type: MongooseSchema.Types.Mixed, default: null }) audio: { file: string; name: string; mime: string; words?: { text: string; start: number; end: number }[]; voice?: { voiceId: string; model: string } } | null;
   /** Background music the user uploaded (the scene's `music` places it). Served from /media/:file. */
-  @Prop({ type: MongooseSchema.Types.Mixed, default: null }) music: { file: string; name: string; mime: string; trimIn?: number; summary?: string } | null;
+  @Prop({ type: MongooseSchema.Types.Mixed, default: null }) music: { file: string; name: string; mime: string; trimIn?: number; summary?: string; duration?: number } | null;
   /** Claude's Suno prompt for this video's music. */
   @Prop({ type: MongooseSchema.Types.Mixed, default: null }) sunoPrompt: SunoPrompt | null;
   /** Claude's latest caption and hashtags per platform (the Schedule dialog starts from them). */

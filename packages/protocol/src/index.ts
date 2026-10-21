@@ -361,7 +361,7 @@ export type Project = {
    * Background music file the user uploaded (the scene's `music` places and levels it). `trimIn` = where in the song
    * the video should start (its loud part on the key moment), from the song's energy (`summary`).
    */
-  music: { url: string; name: string; trimIn: number; summary: string | null } | null;
+  music: { url: string; name: string; trimIn: number; summary: string | null; duration: number | null } | null;
   /** Claude's prompt for this video's music in Suno, kept until the user asks for another. */
   sunoPrompt: SunoPrompt | null;
   /** Claude's latest caption and hashtags per platform, as the user left them. */

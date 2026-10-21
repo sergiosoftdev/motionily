@@ -25,6 +25,8 @@ import { SunoDialog } from "./SunoDialog";
 
 const PREVIEW_MAX_WIDTH = 900;
 const UPLOAD_ACCEPT = "video/mp4,video/quicktime,video/webm";
+/** Range of the song-start slider when the song's length is unknown (s). */
+const DEFAULT_SONG_RANGE = 180;
 /** Suno's own icon, for the button that opens the Suno prompt. */
 const SUNO_LOGO = "/brand/suno.png";
 
@@ -110,7 +112,7 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
         <AgentLine g={g} captioning={ed.captioning} />
         {project && <AskBox g={g} hasScene={!!project.scene} projectId={ed.id} variant={AskVariant.Simple} />}
       </div>
-      <Inspector selection={selection} scene={scene} ops={ops} edits={edits} />
+      <Inspector selection={selection} scene={scene} ops={ops} edits={edits} songLength={project?.music?.duration ?? null} />
     </>
   );
   const timeline = (
@@ -325,8 +327,11 @@ function MusicBin({ ed, edits, scene }: { ed: EditorProps; edits: EditActions; s
   const [suno, setSuno] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** Under the whole video, starting where the song fits it best (its loud part on the key moment). */
-  const place = (m: NonNullable<Project["music"]>) =>
-    edits.apply([{ op: OpName.SetMusic, music: { src: m.url, start: 0, trim_in: m.trimIn, gain: DEFAULT_MUSIC_GAIN, duck: DEFAULT_DUCK } }], "Adds music", false);
+  const place = (m: NonNullable<Project["music"]>) => {
+    // Never start past the end of the song (it would play nothing).
+    const trimIn = m.duration ? Math.min(m.trimIn, Math.max(0, m.duration - 1)) : m.trimIn;
+    edits.apply([{ op: OpName.SetMusic, music: { src: m.url, start: 0, trim_in: trimIn, gain: DEFAULT_MUSIC_GAIN, duck: DEFAULT_DUCK } }], "Adds music", false);
+  };
   const song = async (file: File) => {
     if (!project) return;
     const p = await api.uploadMusic(project.id, file);
@@ -386,7 +391,7 @@ function MusicBin({ ed, edits, scene }: { ed: EditorProps; edits: EditActions; s
 }
 
 /** Settings of what is selected in the timeline. */
-function Inspector({ selection, scene, ops, edits }: { selection: EditSelection; scene: SceneView | null; ops: ReturnType<typeof useEditOps>; edits: EditActions }) {
+function Inspector({ selection, scene, ops, edits, songLength }: { selection: EditSelection; scene: SceneView | null; ops: ReturnType<typeof useEditOps>; edits: EditActions; songLength: number | null }) {
   return (
     <div className="flex flex-col gap-4 text-sm">
       {!selection ? (
@@ -403,7 +408,7 @@ function Inspector({ selection, scene, ops, edits }: { selection: EditSelection;
       ) : selection.kind === "cue" ? (
         <CueInspector cue={selection.cue} edits={edits} ops={ops} />
       ) : (
-        <MusicInspector music={selection.music} edits={edits} ops={ops} />
+        <MusicInspector music={selection.music} edits={edits} ops={ops} songLength={songLength} />
       )}
     </div>
   );
@@ -519,7 +524,9 @@ function CueInspector({ cue, edits, ops }: { cue: SfxCue; edits: EditActions; op
 }
 
 /** Level of the music, how far it ducks while the voice speaks, and where in the song it starts. */
-function MusicInspector({ music, edits, ops }: { music: MusicTrack; edits: EditActions; ops: ReturnType<typeof useEditOps> }) {
+function MusicInspector({ music, edits, ops, songLength }: { music: MusicTrack; edits: EditActions; ops: ReturnType<typeof useEditOps>; songLength: number | null }) {
+  /** Latest start that still leaves a second of song (an unknown length allows three minutes). */
+  const maxStart = Math.max(0, (songLength ?? DEFAULT_SONG_RANGE) - 1);
   const [draft, setDraft] = useState(music);
   useEffect(() => setDraft(music), [music]);
   const save = (what: string) => edits.apply([{ op: OpName.SetMusic, music: draft }], what, false);
@@ -531,7 +538,7 @@ function MusicInspector({ music, edits, ops }: { music: MusicTrack; edits: EditA
       </div>
       <Slider label="Level" value={draft.gain} min={0} max={1} step={0.05} format={(v) => `${Math.round(v * 100)}%`} onChange={(gain) => setDraft({ ...draft, gain })} onDone={() => save("Music level")} />
       <Slider label="While the voice speaks" value={draft.duck} min={0} max={1} step={0.05} format={(v) => `${Math.round(v * 100)}% of that`} onChange={(duck) => setDraft({ ...draft, duck })} onDone={() => save("Music ducking")} />
-      <Slider label="Start the song at" value={draft.trim_in} min={0} max={180} step={0.5} format={(v) => `${v.toFixed(1)} s`} onChange={(trim_in) => setDraft({ ...draft, trim_in })} onDone={() => save("Music start in the song")} />
+      <Slider label="Start the song at" value={Math.min(draft.trim_in, maxStart)} min={0} max={maxStart} step={0.5} format={(v) => `${v.toFixed(1)} s`} onChange={(trim_in) => setDraft({ ...draft, trim_in })} onDone={() => save("Music start in the song")} />
       <button type="button" onClick={() => ops.remove({ kind: "music", music })} className="self-start text-xs text-neutral-400 hover:text-red-400">
         Remove music
       </button>

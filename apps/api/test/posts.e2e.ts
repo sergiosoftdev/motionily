@@ -86,10 +86,12 @@ describe("Posting calendar", () => {
     const darker = await http.post(`/projects/${p.id}/suno-prompt`).set(auth).send({ steer: "darker" }).expect(200);
     assert.equal(darker.body.notes, "darker");
 
-    // A 20 s song: 8 s of near silence, then loud. Its loud part (8 s) should land on the drop (3 s): start the song at 5 s.
-    const song = await http.post(`/projects/${p.id}/music`).set(auth).attach("file", wav(20, 8), { filename: "song.wav", contentType: "audio/wav" }).expect(201);
+    // A 20 s song: 8 s of near silence, then loud. Its rise (8 s) is near the drop (3 s after the skipped intro): start at 5 s.
+    // At the rate songs really come in (44.1 kHz stereo), so the measuring windows stay half a second.
+    const song = await http.post(`/projects/${p.id}/music`).set(auth).attach("file", wav(20, 8, 44100, 2), { filename: "song.wav", contentType: "audio/wav" }).expect(201);
     assert.equal(song.body.music.trimIn, 5);
-    assert.match(song.body.music.summary, /quiet intro/);
+    assert.match(song.body.music.summary, /quiet intro to 8\.0 s.*20 s long/);
+    assert.equal(song.body.music.duration, 20);
   });
 
   it("schedules a video with its text and file, and spots edits made after rendering", async () => {
@@ -146,23 +148,26 @@ describe("Posting calendar", () => {
   });
 });
 
-/** Mono 8 kHz WAV: `quiet` seconds of near silence, then a loud tone until `seconds`. */
-function wav(seconds: number, quiet: number) {
-  const rate = 8000;
+/** 16-bit WAV: `quiet` seconds of near silence, then a loud tone until `seconds`. */
+function wav(seconds: number, quiet: number, rate = 8000, channels = 1) {
   const n = seconds * rate;
-  const buf = Buffer.alloc(44 + n * 2);
+  const bytes = n * channels * 2;
+  const buf = Buffer.alloc(44 + bytes);
   buf.write("RIFF", 0);
-  buf.writeUInt32LE(36 + n * 2, 4);
+  buf.writeUInt32LE(36 + bytes, 4);
   buf.write("WAVEfmt ", 8);
   buf.writeUInt32LE(16, 16);
   buf.writeUInt16LE(1, 20);
-  buf.writeUInt16LE(1, 22);
+  buf.writeUInt16LE(channels, 22);
   buf.writeUInt32LE(rate, 24);
-  buf.writeUInt32LE(rate * 2, 28);
-  buf.writeUInt16LE(2, 32);
+  buf.writeUInt32LE(rate * channels * 2, 28);
+  buf.writeUInt16LE(channels * 2, 32);
   buf.writeUInt16LE(16, 34);
   buf.write("data", 36);
-  buf.writeUInt32LE(n * 2, 40);
-  for (let i = 0; i < n; i++) buf.writeInt16LE(Math.round((i < quiet * rate ? 30 : 20000) * Math.sin((2 * Math.PI * 220 * i) / rate)), 44 + i * 2);
+  buf.writeUInt32LE(bytes, 40);
+  for (let i = 0; i < n; i++) {
+    const v = Math.round((i < quiet * rate ? 30 : 20000) * Math.sin((2 * Math.PI * 220 * i) / rate));
+    for (let c = 0; c < channels; c++) buf.writeInt16LE(v, 44 + (i * channels + c) * 2);
+  }
   return buf;
 }
