@@ -162,6 +162,9 @@ impl DrawItem {
                 }
                 for e in &mut fx.effects {
                     e.scale(s);
+                    if let crate::paint::DrawEffect::Glass { shape: Some(g), .. } = e {
+                        *g = g.transformed(origin, s, angle, shift);
+                    }
                     // Drop shadows fall the same way in the rolled picture.
                     if let crate::paint::DrawEffect::Shadow { offset, .. } = e {
                         *offset = turn(*offset);

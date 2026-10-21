@@ -9,6 +9,7 @@
 
 mod custom;
 mod fx;
+mod glass;
 mod image;
 mod paths;
 mod polys;
@@ -19,6 +20,7 @@ mod three;
 
 use bytemuck::{Pod, Zeroable};
 use custom::{CustomShaders, FrameInfo};
+use glass::{GlassParams, GlassPass};
 use image::ImagePipeline;
 use polys::PolyPipeline;
 use fx::{FxParams, FxPass, Tex};
@@ -241,6 +243,8 @@ pub struct Renderer {
     fx: FxPass,
     /// Agent-written shader layers and effects.
     custom: CustomShaders,
+    /// Liquid glass: refracts and blurs the backdrop inside a glass shape.
+    glass: GlassPass,
     /// One globals uniform (with its origin) per tilted plane drawn this frame, reused frame to frame.
     plane_globals: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
     /// Offscreen passes of the tilted planes, sized to their flat window. Built while a plane is on
@@ -380,6 +384,7 @@ impl Renderer {
         let post = PostPass::new(&device, config.format, internal[0], internal[1]);
         let fx = FxPass::new(&device, config.format, internal[0], internal[1]);
         let stage = StageRenderer::new(&device, &queue, config.format, internal);
+        let glass = GlassPass::new(&device, config.format);
 
         Renderer {
             shapes,
@@ -392,6 +397,7 @@ impl Renderer {
             post,
             fx,
             custom,
+            glass,
             plane_globals: Vec::new(),
             plane_fx: None,
             supersample: 1,
@@ -652,6 +658,7 @@ impl Renderer {
         let px_per_scene = internal_w as f32 / scene.width.max(1) as f32;
         let texel = [1.0 / internal_w.max(1) as f32, 1.0 / internal_h.max(1) as f32];
         self.fx.begin();
+        self.glass.begin();
         // Tilted planes draw into their own pass, sized to their flat window (see scene::paint::plane_window).
         let frame = [scene.width as f32, scene.height as f32];
         let window = scene::paint::plane_window(frame);
@@ -673,9 +680,9 @@ impl Renderer {
             .map(|r| match r {
                 Run::Fx(f) if f.perspective.is_some() && !f.adjust => {
                     let pf = plane_fx.as_mut().expect("a plane pass target");
-                    Some(plan_fx(pf, &mut self.custom, &shading, f, 1.0, [1.0 / window[0], 1.0 / window[1]], window, frame, linearize > 0.5))
+                    Some(plan_fx(pf, &mut self.custom, &mut self.glass, &shading, f, 1.0, [1.0 / window[0], 1.0 / window[1]], window, frame, linearize > 0.5))
                 }
-                Run::Fx(f) => Some(plan_fx(&mut self.fx, &mut self.custom, &shading, f, px_per_scene, texel, frame, frame, linearize > 0.5)),
+                Run::Fx(f) => Some(plan_fx(&mut self.fx, &mut self.custom, &mut self.glass, &shading, f, px_per_scene, texel, frame, frame, linearize > 0.5)),
                 Run::Items(..) | Run::Object(_) => None,
             })
             .collect();
@@ -702,6 +709,7 @@ impl Renderer {
             })
             .collect();
         self.fx.upload(&self.device, &self.queue);
+        self.glass.upload(&self.device, &self.queue);
         self.custom.upload(&self.device, &self.queue);
 
         let mut encoder = self.device.create_command_encoder(&Default::default());
@@ -873,6 +881,14 @@ impl Renderer {
                     fx.blur(encoder, Tex::Layer, &fx.temp, h);
                     fx.blur(encoder, Tex::Temp, &fx.layer, v);
                 }
+                LayerStep::Glass(h, v, slot) => {
+                    // The body shows the blurred backdrop (blurred into the half-size copy); the rim refracts the sharp one.
+                    fx.blur(encoder, Tex::Layer, &fx.temp, h);
+                    fx.blur(encoder, Tex::Temp, &fx.copy, v);
+                    self.glass.draw(&self.device, encoder, &fx.layer, &fx.copy, &fx.accum, slot);
+                    drop(FxPass::clear_pass(encoder, &fx.layer, "glass copy"));
+                    fx.composite(encoder, Tex::Accum, &fx.layer, scene::paint::BlendMode::Normal, plan.replace);
+                }
                 LayerStep::Shader(hash, offset) => {
                     // layer -> accum (free once motion blur is averaged), then copied back.
                     if self.custom.run_effect(&self.device, encoder, hash, offset, &fx.layer, &fx.accum) {
@@ -918,6 +934,8 @@ enum LayerStep {
     Blur(u32, u32),
     /// Custom shader effect: code hash, uniform offset in `CustomShaders`.
     Shader(u64, u32),
+    /// Liquid glass: (h, v) blur offsets for the body, and the glass uniform offset.
+    Glass(u32, u32, u32),
 }
 
 /// Uniform offsets for every pass of one offscreen layer.
@@ -942,7 +960,7 @@ struct FxPlan {
 #[allow(clippy::too_many_arguments)]
 /// Plan one offscreen run. `norm` is the flat size the layer's offsets and waves are measured in (the
 /// scene, or a tilted plane's window); `screen` the size of the target the run composites onto.
-fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, shading: &FrameInfo, f: &FxRun, px_per_scene: f32, texel: [f32; 2], norm: [f32; 2], screen: [f32; 2], linear: bool) -> FxPlan {
+fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, glass: &mut GlassPass, shading: &FrameInfo, f: &FxRun, px_per_scene: f32, texel: [f32; 2], norm: [f32; 2], screen: [f32; 2], linear: bool) -> FxPlan {
     let (scene_w, scene_h) = (norm[0], norm[1]);
     let matte = fx::matte_code(f.matte.as_ref().map(|(_, m)| *m));
     let blur_pair = |fx: &mut FxPass, radius_scene: f32| {
@@ -981,6 +999,22 @@ fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, shading: &FrameInfo, f: 
             DrawEffect::Shader { hash, params, time, scene_time, zoom } => {
                 plan.steps.push(LayerStep::Shader(hash, custom.push_effect(&params, time, scene_time, zoom, shading)));
             }
+            DrawEffect::Glass { thickness, bevel, blur, ior, dispersion, specular, tint, shape: Some(g) } => {
+                let (h, v) = blur_pair(fx, blur);
+                let tint = tint.map_or([0.0; 4], |c| {
+                    let [r, gr, b, _] = c.0;
+                    [r, gr, b, 0.14]
+                });
+                let slot = glass.push(GlassParams {
+                    shape: [g.center[0], g.center[1], g.half[0], g.half[1]],
+                    optics: [g.radius, g.rotation, thickness, bevel],
+                    look: [ior, dispersion, specular, 0.0],
+                    tint,
+                    scene: [screen[0], screen[1], 0.0, 0.0],
+                });
+                plan.steps.push(LayerStep::Glass(h, v, slot));
+            }
+            DrawEffect::Glass { shape: None, .. } => {}
             DrawEffect::Shadow { offset, blur, color } => {
                 let (h, v) = blur_pair(fx, blur);
                 let comp = fx.push(FxParams {

@@ -52,6 +52,7 @@ id type start[-end] key=value… "text or path data" {optional JSON merged into 
 | `sheen=AT,ANGLE,WIDTH,OP` | light sweep across the shape (animate AT 0>1) |
 | `bevel=WIDTH,STRENGTH` | embossed plastic edge |
 | `backdrop=BLUR` | frosted glass: blurs what is behind the shape (pair with a light translucent fill + thin stroke) |
+| `adj=1 glass=THICKNESS,BEVEL,BLUR[,IOR,DISPERSION,SPECULAR,TINT]` | liquid glass over what is below, in the shape of the layer (rect or ellipse; see Liquid glass) |
 | `rep=COUNT:DX,DY[:cols=N][:rot=DEG][:sc=K][:op=K][:delay=S]` | copies in a row/grid/radial burst; vary copies with `i` in expressions |
 | `mp="M…" mpp=0>1@0-1.2:eio orient=1` | move along an SVG path (scene px; x/y add an offset; orient turns with it) |
 | `time=(EXPR)` | time remap of the layer clock: `(mod(t,1.2))` loops, `(t*0.5)` slow motion, keys freeze/reverse |
@@ -142,6 +143,13 @@ snow particles 0 emit=rect x=960 y=-40 w=2400 h=10 rate=40 prewarm=16 life=16 sp
 <!-- particles:end -->
 
 <!-- custom-shaders:start -->
+### Liquid glass — `glass=` on an adjustment layer
+A glass shape refracts and blurs what is behind it like a thick convex slab. The engine does it: the rim bends the backdrop by Snell's law (index `ior`, default 1.5) along a quarter-circle bevel, the body shows a blurred copy of the backdrop, and a Fresnel rim and a specular highlight catch the light from the top left.
+- `glass=THICKNESS,BEVEL,BLUR` (px): how far light travels through the glass, how wide the rounded rim is, how blurred the body is. Optional: `IOR` (1.5 = glass), `DISPERSION` (spread between red, green and blue indices; 0 = none, 0.01 = a faint fringe), `SPECULAR` (highlight strength, default 1), `TINT` (a color laid over the body at 14%).
+- The layer is an adjustment layer (`adj=1` is implied) and its own box is the glass: a rect or ellipse, with `rad=` for its corners (a circle when `rad` is half the short side, a pill between). Put the glass after what it covers and the text it should carry after the glass.
+- Typical values for a card of 400–800 px: `glass=60,120,8`. The bevel is kept inside the corner radius and half the short side; the bend is kept to the bevel's width. Thicker glass = a stronger bend at the rim.
+- Limits: one shape per layer (no merging of blobs yet); the body blur is a half-resolution copy, so very large blurs are coarser; inside a tilted plane (`rx/ry`) glass is not supported; sharp corners (`rad=0`) show a crease where the bend meets the corner.
+
 ### Custom shaders (WGSL) — when nothing built in gives the look
 You write ONE WGSL function; the engine runs it on the GPU for every pixel of every frame. Use it for procedural
 backgrounds (aurora, mesh gradients, noise fields, light leaks), patterns, and your own distortions, glitches, grades and

@@ -655,6 +655,21 @@ export function parseLine(line: string, partial = false): Layer {
     } else if (k === "shadow") {
       const [x, y, blur, c, op] = list(v, line, 3);
       effects.push({ fx: "shadow", x: parseValue(x!, line), y: parseValue(y!, line), blur: parseValue(blur!, line), ...(c ? { color: color(c) } : {}), ...(op ? { opacity: parseValue(op, line) } : {}) });
+    } else if (k === "glass") {
+      // glass=THICKNESS,BEVEL,BLUR[,IOR[,DISPERSION[,SPECULAR[,TINT]]]]: liquid glass; the layer is an adjustment layer.
+      const [thickness, bevel, blur, ior, dispersion, specular, tint] = v.split(",");
+      if (!thickness || !bevel || !blur) throw new Error(`glass=THICKNESS,BEVEL,BLUR[,IOR,DISPERSION,SPECULAR,TINT] (e.g. glass=60,120,8): ${line}`);
+      layer.adjustment = true;
+      effects.push({
+        fx: "glass",
+        thickness: parseValue(thickness, line),
+        bevel: parseValue(bevel, line),
+        blur: parseValue(blur, line),
+        ...(ior ? { ior: num(ior, line) } : {}),
+        ...(dispersion ? { dispersion: num(dispersion, line) } : {}),
+        ...(specular ? { specular: num(specular, line) } : {}),
+        ...(tint ? { tint: color(tint) } : {}),
+      });
     } else if (k === "glow") {
       const [radius, strength, c, th] = v.split(",");
       effects.push({
@@ -837,6 +852,10 @@ function formatEffects(list: Record<string, unknown>[]): string[] {
     if (e.fx === "wave") return `wave=${[inner(e.amplitude), inner(e.wavelength ?? 200), inner(e.speed ?? 1)].join(",")}`;
     if (e.fx === "turbulence") return `turb=${[inner(e.amount), inner(e.size ?? 320), inner(e.speed ?? 1)].join(",")}`;
     if (e.fx === "motion_blur") return `mblur=${r3(Number(e.shutter ?? 180))},${Number(e.samples ?? 8)}`;
+    if (e.fx === "glass") {
+      const vals = [inner(e.thickness ?? 40), inner(e.bevel ?? 60), inner(e.blur ?? 12), inner(e.ior ?? 1.5), inner(e.dispersion ?? 0), inner(e.specular ?? 1), ...(e.tint ? [String(e.tint)] : [])];
+      return `glass=${vals.join(",")}`;
+    }
     if (e.fx === "glow") {
       // Threshold is the 4th value; an empty color slot keeps its place.
       const vals = [inner(e.radius), inner(e.strength ?? 1), e.color ? formatColor(e.color) : "", ...(e.threshold ? [inner(e.threshold)] : [])];

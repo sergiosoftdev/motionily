@@ -387,6 +387,27 @@ pub enum Effect {
         #[serde(default = "blur_samples")]
         samples: u32,
     },
+    /// Liquid glass on an adjustment layer over a rect or ellipse: the rim bends what is behind it by
+    /// Snell's law (a convex bevel), the body is blurred and tinted, and a Fresnel rim and a specular
+    /// highlight catch the light. `thickness` is how far light travels through the glass (px), `bevel`
+    /// how wide the rounded rim is (px), `blur` how much the body is blurred (px), `ior` the refractive
+    /// index (glass 1.5), `dispersion` the IOR spread between red, green and blue (0.02 = a faint fringe).
+    Glass {
+        #[serde(default = "glass_thickness")]
+        thickness: f32,
+        #[serde(default = "glass_bevel")]
+        bevel: f32,
+        #[serde(default = "glass_blur")]
+        blur: f32,
+        #[serde(default = "glass_ior")]
+        ior: f32,
+        #[serde(default)]
+        dispersion: f32,
+        #[serde(default = "glass_specular")]
+        specular: f32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tint: Option<ColorRef>,
+    },
     /// Custom GPU effect: the agent's WGSL `fn shade(uv, px) -> vec4f` rewrites every pixel,
     /// reading the layer's own pixels with `src(uv)` (on an adjustment layer: everything below).
     Shader {
@@ -430,6 +451,8 @@ fn shadow_opacity() -> Animated {
 pub enum DrawEffect {
     Blur { radius: f32 },
     Glow { radius: f32, strength: f32, color: Option<Rgba>, threshold: f32 },
+    /// Liquid glass (see `Effect::Glass`); `shape` is the layer's own box, filled in when its pass is built.
+    Glass { thickness: f32, bevel: f32, blur: f32, ior: f32, dispersion: f32, specular: f32, tint: Option<Rgba>, shape: Option<GlassShape> },
     Shadow { offset: [f32; 2], blur: f32, color: Rgba },
     Color { hue: f32, saturation: f32, brightness: f32, contrast: f32 },
     Chromatic { amount: f32 },
@@ -449,6 +472,11 @@ impl DrawEffect {
     pub fn scale(&mut self, s: f32) {
         match self {
             DrawEffect::Blur { radius } | DrawEffect::Glow { radius, .. } => *radius *= s,
+            DrawEffect::Glass { thickness, bevel, blur, .. } => {
+                *thickness *= s;
+                *bevel *= s;
+                *blur *= s;
+            }
             DrawEffect::Shadow { offset, blur, .. } => {
                 *offset = [offset[0] * s, offset[1] * s];
                 *blur *= s;
@@ -473,6 +501,16 @@ impl Effect {
     pub fn resolve(&self, t: f32, palette: &Palette) -> Option<DrawEffect> {
         Some(match self {
             Effect::Blur { radius } => DrawEffect::Blur { radius: radius.sample(t).max(0.0) },
+            Effect::Glass { thickness, bevel, blur, ior, dispersion, specular, tint } => DrawEffect::Glass {
+                thickness: *thickness,
+                bevel: *bevel,
+                blur: *blur,
+                ior: *ior,
+                dispersion: *dispersion,
+                specular: *specular,
+                tint: tint.as_ref().map(|c| c.resolve(palette)),
+                shape: None,
+            },
             Effect::Glow { radius, strength, color, threshold } => DrawEffect::Glow {
                 radius: radius.sample(t).max(0.0),
                 strength: strength.sample(t).max(0.0),
@@ -651,6 +689,47 @@ impl TextAnimator {
 }
 
 /// A layer that needs its own offscreen pass (effects, blend mode, matte).
+/// The rounded box a glass effect covers: a rect with corner `radius` (a circle when `radius` is half
+/// the short side, a pill between). Ellipses are drawn as such boxes too.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GlassShape {
+    pub center: [f32; 2],
+    pub half: [f32; 2],
+    pub radius: f32,
+    pub rotation: f32,
+}
+
+impl GlassShape {
+    /// The box after a transition moves and scales its layer (same map as the layer's own items).
+    pub fn transformed(self, origin: [f32; 2], s: f32, angle: f32, shift: [f32; 2]) -> GlassShape {
+        let (sin, cos) = angle.sin_cos();
+        let q = [self.center[0] - origin[0], self.center[1] - origin[1]];
+        let turned = [q[0] * cos - q[1] * sin, q[0] * sin + q[1] * cos];
+        GlassShape {
+            center: [origin[0] + turned[0] * s + shift[0], origin[1] + turned[1] * s + shift[1]],
+            half: [self.half[0] * s, self.half[1] * s],
+            radius: self.radius * s,
+            rotation: self.rotation + angle,
+        }
+    }
+}
+
+fn glass_thickness() -> f32 {
+    40.0
+}
+fn glass_bevel() -> f32 {
+    60.0
+}
+fn glass_blur() -> f32 {
+    12.0
+}
+fn glass_ior() -> f32 {
+    1.5
+}
+fn glass_specular() -> f32 {
+    1.0
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DrawFx {
     pub items: Vec<crate::DrawItem>,

@@ -288,6 +288,16 @@ impl Scene {
                     effects.insert(0, paint::DrawEffect::Blur { radius: radius / flat_scale.unwrap_or(1.0) });
                 }
                 let fx = if l.adjustment {
+                    // Liquid glass takes the layer's own box as its shape.
+                    let geom = drawn.iter().find_map(|d| match d {
+                        DrawItem::Shape(s) => Some(paint::GlassShape { center: s.center, half: [s.size[0] / 2.0, s.size[1] / 2.0], radius: s.radius, rotation: s.rotation }),
+                        _ => None,
+                    });
+                    for e in effects.iter_mut() {
+                        if let paint::DrawEffect::Glass { shape, .. } = e {
+                            *shape = geom;
+                        }
+                    }
                     // The layer's own shape bounds the adjustment.
                     paint::DrawFx { items: Vec::new(), effects, blend: l.blend, matte: Some((std::mem::take(&mut drawn), paint::MatteMode::Alpha)), samples: Vec::new(), adjust: true, perspective: None, plane_origin: [0.0; 2] }
                 } else {
@@ -1260,5 +1270,26 @@ mod tests {
         let plane = plane.expect("tilted plane pass");
         // The flat window is twice the 1920x1080 frame, centered on the plane: origin = center − half of it.
         assert_eq!(plane.plane_origin, [2400.0 - 1920.0, 700.0 - 1080.0]);
+    }
+
+    #[test]
+    fn glass_on_an_adjustment_layer_takes_the_layers_own_box() {
+        let scene = Scene::from_json(r##"{"width":1080,"height":1920,"fps":30,"duration":1,"layers":[
+            {"id":"lens","type":"shape","shape":"rect","adjustment":true,"x":540,"y":960,"w":760,"h":440,"radius":120,
+             "effects":[{"fx":"glass","thickness":60,"bevel":120,"blur":8,"tint":"#cfe9ff"}]}]}"##).unwrap();
+        let items = scene.frame(0.0);
+        let glass = items.iter().find_map(|i| match i {
+            DrawItem::Fx(fx) if fx.adjust => fx.effects.iter().find_map(|e| match e {
+                paint::DrawEffect::Glass { shape, thickness, blur, .. } => Some((*shape, *thickness, *blur)),
+                _ => None,
+            }),
+            _ => None,
+        });
+        let (shape, thickness, blur) = glass.expect("a glass pass");
+        assert_eq!((thickness, blur), (60.0, 8.0));
+        let shape = shape.expect("the layer's box is the glass shape");
+        assert_eq!(shape.center, [540.0, 960.0]);
+        assert_eq!(shape.half, [380.0, 220.0]);
+        assert_eq!(shape.radius, 120.0);
     }
 }

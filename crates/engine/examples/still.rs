@@ -38,6 +38,10 @@ fn main() {
             let bytes = std::fs::read(fonts_dir.join(file)).expect("read font");
             renderer.add_font(family, *weight, &bytes).expect("register font");
         }
+        load_media(&mut renderer, &json, &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/api/uploads"));
+        for (id, why) in renderer.shader_failures(&scene) {
+            eprintln!("shader on '{id}' draws nothing: {why}");
+        }
         renderer.render_rgba(&scene, t)
     });
 
@@ -46,4 +50,29 @@ fn main() {
     encoder.set_depth(png::BitDepth::Eight);
     encoder.write_header().expect("png header").write_image_data(&pixels).expect("png data");
     println!("{} ({}x{}, t={t}s)", args[3], scene.width, scene.height);
+}
+
+/// Image layers name their file as `/media/<name>`; the web host decodes those from the API's upload folder
+/// and registers them under that key. The still renderer does the same, so logos show up in a headless frame.
+fn load_media(renderer: &mut engine::Renderer, json: &str, uploads: &Path) {
+    let mut rest = json;
+    while let Some(at) = rest.find("\"/media/") {
+        let tail = &rest[at + 1..];
+        let end = tail.find('"').expect("closing quote of media src");
+        let src = &tail[..end];
+        rest = &tail[end..];
+        if renderer.has_image(src) {
+            continue;
+        }
+        let file = uploads.join(src.trim_start_matches("/media/"));
+        let mut reader = png::Decoder::new(File::open(&file).expect("open media")).read_info().expect("png header");
+        let mut buf = vec![0; reader.output_buffer_size()];
+        let info = reader.next_frame(&mut buf).expect("png frame");
+        let rgba: Vec<u8> = match info.color_type {
+            png::ColorType::Rgba => buf[..info.buffer_size()].to_vec(),
+            png::ColorType::Rgb => buf[..info.buffer_size()].chunks(3).flat_map(|p| [p[0], p[1], p[2], 255]).collect(),
+            other => panic!("media {src}: unsupported PNG color {other:?}"),
+        };
+        renderer.add_image(src, &rgba, info.width, info.height);
+    }
 }

@@ -450,3 +450,12 @@ test("place= and @reference times parse; bad ones name the fix", () => {
   assert.throws(() => parseLine("a rect 0-2 w=10 h=10 place=under:card"), /above\|below\|left\|right\|inside/);
   assert.throws(() => parseLine("a rect @phrase:x w=10 h=10"), /bad time reference/);
 });
+
+test("glass= parses into a liquid glass effect on an adjustment layer and reads back", () => {
+  const l = parseLine("lens rect 0-6 x=540 y=960 w=760 h=440 rad=120 glass=60,120,8,1.5,0.01,1,#cfe9ff");
+  assert.equal(l.adjustment, true);
+  assert.deepEqual(l.effects, [{ fx: "glass", thickness: 60, bevel: 120, blur: 8, ior: 1.5, dispersion: 0.01, specular: 1, tint: "#cfe9ff" }]);
+  const back = formatLayer(l);
+  assert.match(back, /glass=60,120,8,1\.5,0\.01,1,#cfe9ff/);
+  assert.throws(() => parseLine("lens rect 0-6 w=10 h=10 glass=60"), /glass=THICKNESS,BEVEL,BLUR/);
+});
