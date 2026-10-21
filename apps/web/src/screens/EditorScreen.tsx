@@ -47,7 +47,7 @@ export function EditorScreen({ id }: { id: string }) {
   const generation = useGenerate(id);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useEditorMode();
-  const captioning = useVoicePipeline(project);
+  const captioning = useVoicePipeline(project, setProject);
 
   const byKey = useMemo(() => new Map(bricks.map((b) => [b.key, b])), [bricks]);
 

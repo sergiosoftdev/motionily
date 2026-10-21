@@ -34,6 +34,7 @@ import { Checkpoints, diffScenes } from "./checkpoints.js";
 import { describeExample, examplesDir, loadExamples, rankExamples, saveExample } from "./examples.js";
 import { nextSteps, type ProjectState } from "./nextstep.js";
 import { frameStats } from "./review.js";
+import { buildEdit, DEFAULT_EDIT, FOOTAGE_GROUP, footageLines, parseSegments, transcriptLines } from "./footage.js";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const doc = (name: string) => readFileSync(resolve(here, "../../../docs/agent", name), "utf8").trim();
@@ -358,6 +359,84 @@ server.registerTool(
       return fail((e as Error).message);
     }
   },
+);
+
+// ── footage: the user's own clips, cut by their transcript ──
+server.registerTool(
+  "get_footage",
+  {
+    description:
+      "The user's own clips to edit (usually someone talking to camera): each clip's id, length, size and contact sheet, and its transcript in numbered lines (`#from-to start-end s \"text\"`, words numbered from 0 within each clip, long pauses noted). With `clip` (+ `from`/`to`): every word of that range with its number and file second, to cut in the middle of a line. Cut with edit_footage.",
+    inputSchema: { clip: z.string().optional(), from: z.number().int().min(0).optional(), to: z.number().int().min(0).optional() },
+  },
+  async ({ clip, from, to }) => {
+    try {
+      const footage = (await api.project()).footage ?? [];
+      if (!footage.length) return text("This video has no footage: the user did not upload any clips.");
+      if (clip) {
+        const c = footage.find((x) => x.id === clip);
+        if (!c) return fail(`No clip '${clip}' (clips: ${footage.map((x) => x.id).join(", ")}).`);
+        if (!c.words) return fail(`Clip ${c.id} is not transcribed yet: the editor transcribes it when the video opens.`);
+        const a = Math.min(from ?? 0, Math.max(0, c.words.length - 1));
+        const b = Math.min(to ?? c.words.length - 1, c.words.length - 1);
+        return text(c.words.slice(a, b + 1).map((w, i) => `#${a + i} ${w.start.toFixed(2)} ${w.text}`).join("\n"));
+      }
+      const content: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[] = [];
+      for (const c of footage) {
+        const head = `clip ${c.id} "${c.name}": ${c.duration?.toFixed(1) ?? "?"}s, ${c.width ?? "?"}x${c.height ?? "?"}, src=${c.url}`;
+        const body = !c.words ? "not transcribed yet (the editor transcribes it when the video opens)" : c.words.length ? `${c.words.length} words:\n${transcriptLines(c.words).join("\n")}` : "no speech found";
+        content.push({ type: "text", text: `${head}\n${body}` });
+        if (c.poster && c.duration) {
+          const sheet = await api.media(c.poster);
+          content.push({ type: "text", text: `${c.id} contact sheet, 4×3 frames left→right, top→bottom at ${posterTimes(c.duration).map((t) => `${t}s`).join(", ")}: see where the face and the free space are.` });
+          content.push({ type: "image", data: sheet.bytes.toString("base64"), mimeType: sheet.mime });
+        }
+      }
+      return { content };
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+  },
+);
+
+server.registerTool(
+  "edit_footage",
+  {
+    description:
+      "Cut the user's footage by its transcript. `cut` = word ranges in the order they play: `c1:0-45, c1:52-130, c2:3-60` (clip:from-to, numbers from get_footage); a later take may come first (the hook). Inside each range, silences longer than max_pause (default 0.35 s) and filler sounds (um, uh, erm) are cut out. Replaces the whole edit: layer group `footage` (ft1, ft2… full-frame video layers with their own sound, kept under everything else), the kept words become the captions on the new timeline, and the video length becomes the edit's. punch_in (e.g. 1.1) scales every other cut, which hides jump cuts. Call it again to change the cut; never move or trim footage layers by hand. Time overlays afterwards with @word/@phrase refs: they follow the new timeline.",
+    inputSchema: {
+      cut: z.string().min(3),
+      max_pause: z.number().min(0.1).max(3).optional(),
+      pad: z.number().min(0).max(0.5).optional(),
+      fillers: z.boolean().optional().describe("drop um/uh/erm (default true)"),
+      punch_in: z.number().min(1).max(1.5).optional(),
+    },
+  },
+  guard(async ({ cut, max_pause, pad, fillers, punch_in }) => {
+    const footage = (await api.project()).footage ?? [];
+    const o = { maxPause: max_pause ?? DEFAULT_EDIT.maxPause, pad: pad ?? DEFAULT_EDIT.pad, dropFillers: fillers ?? DEFAULT_EDIT.dropFillers, punchIn: punch_in ?? DEFAULT_EDIT.punchIn };
+    let edit: ReturnType<typeof buildEdit>;
+    try {
+      edit = buildEdit(footage, parseSegments(cut), o);
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+    const scene = await currentScene();
+    const layers = parseLines(footageLines(edit.pieces, Number(scene?.width ?? 1080), Number(scene?.height ?? 1920), o.punchIn));
+    const ops = [
+      { op: "remove_group", group: FOOTAGE_GROUP },
+      ...layers.map((layer) => ({ op: "add_layer", layer })),
+      // The footage is the backdrop: everything the agent adds draws on top of it.
+      ...layers.map((layer, i) => ({ op: "reorder", id: layer.id, index: i })),
+      { op: "set_captions", captions: { words: edit.captions } },
+      { op: "set_duration", duration: edit.duration },
+    ];
+    const res = await bridge.applyOps(ops as Op[]);
+    if (!res.ok) return fail(res.error ?? "rejected");
+    session.editsSinceReview = true;
+    const rows = edit.pieces.map((p, i) => `ft${i + 1} ${p.start.toFixed(2)}-${(p.start + p.out - p.in).toFixed(2)}s ${p.clip}#${p.from}-${p.to} ${JSON.stringify(p.text)}`);
+    return text([`${edit.pieces.length} cuts, ${edit.duration.toFixed(1)} s, ${edit.captions.length} words on the new timeline:`, ...rows].join("\n"));
+  }),
 );
 
 server.registerTool(
@@ -1001,7 +1080,11 @@ function describeProject(p: Project): string {
   if (p.voiceScript.trim()) lines.push(`Voice script (ElevenLabs; the video is built on it):\n${p.voiceScript.trim()}`);
   if (p.references?.length) lines.push(`Reference images from the user (look with view_image): ${p.references.join(", ")}`);
   if (p.imageCredits?.length) lines.push(`Imported photos (src for image layers): ${p.imageCredits.map((c) => `${c.src} "${c.title}"`).join(", ")}`);
-  lines.push(p.audio ? `Voice uploaded: ${p.audio.name}. inspect's summary has its voice timeline (phrases, pauses, LONG pauses = scene changes) and captions carry word timings: time the beats to them.` : "Voice: not uploaded yet.");
+  if (p.audio || !p.footage?.length) lines.push(p.audio ? `Voice uploaded: ${p.audio.name}. inspect's summary has its voice timeline (phrases, pauses, LONG pauses = scene changes) and captions carry word timings: time the beats to them.` : "Voice: not uploaded yet.");
+  if (p.footage?.length) {
+    const clips = p.footage.map((c) => `${c.id} "${c.name}" ${c.duration?.toFixed(0) ?? "?"}s${c.words ? "" : " (not transcribed yet)"}`).join(", ");
+    lines.push(`Footage (the user's own clips, this video is an EDIT of them): ${clips}. Read get_footage, cut with edit_footage, then add graphics on top.`);
+  }
   lines.push("No presets exist: you design and animate everything yourself (palette, font, keyframes, cuts, 3D).");
   lines.push(p.scene ? `Scene: exists (rev ${p.sceneRevision}); see inspect.` : "Scene: empty. Build the first cut with load_scene.");
   lines.push(bridge.connected ? "Editor: open (your edits render live)." : "Editor: NOT open on this project — ask the user to open it before editing.");

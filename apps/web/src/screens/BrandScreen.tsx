@@ -4,6 +4,7 @@ import { api, AssetKind, mediaUrl, type BrandKit, type BrandPalette } from "../a
 import { BrandTab, href, navigate, RouteName } from "../router";
 import { MotionilyLayout } from "../shell/MotionilyLayout";
 import { Thumb } from "../components/style/Thumb";
+import { EditFootageButton } from "../footage/EditFootageButton";
 
 /** Images and the clip formats video layers decode (mp4, webm, mov). */
 const ASSET_ACCEPT = "image/*,video/mp4,video/webm,video/quicktime";
@@ -13,7 +14,7 @@ const KIND_LABEL: Record<AssetKind, string> = {
   [AssetKind.Screenshot]: "Screenshot",
   [AssetKind.Photo]: "Photo",
   [AssetKind.Video]: "Video",
-  [AssetKind.Other]: "Otro",
+  [AssetKind.Other]: "Other",
 };
 
 const TAB_LABEL: Record<BrandTab, string> = { [BrandTab.Videos]: "Videos", [BrandTab.Kit]: "Brand kit" };
@@ -46,9 +47,12 @@ export function BrandScreen({ id, tab }: { id: string; tab: BrandTab }) {
       actions={
         kit &&
         tab === BrandTab.Videos && (
-          <a href={href({ name: RouteName.NewVideo, brandId: id })} className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-200">
-            New video
-          </a>
+          <>
+            <EditFootageButton brandId={id} />
+            <a href={href({ name: RouteName.NewVideo, brandId: id })} className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-200">
+              New video
+            </a>
+          </>
         )
       }
       tabs={kit ? Object.values(BrandTab).map((t) => ({ label: TAB_LABEL[t], href: href({ name: RouteName.Brand, id, tab: t }), active: tab === t })) : undefined}

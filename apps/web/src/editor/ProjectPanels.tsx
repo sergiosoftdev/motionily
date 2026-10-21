@@ -33,6 +33,7 @@ export function ProjectPanel({
   if (tab === ProjectTab.Voice)
     return (
       <div className="flex flex-col gap-6">
+        {project.footage.length > 0 && <FootageList project={project} />}
         {project.voiceScript.trim() && <VoiceScript script={project.voiceScript} hasVoice={!!project.audio} />}
         <CaptionsPanel project={project} onProject={onProject} hasScene={!!project.scene} />
       </div>
@@ -88,5 +89,24 @@ function BriefBox({ project, onBrief, onReferences }: { project: Project; onBrie
         </div>
       )}
     </div>
+  );
+}
+
+/** The user's own clips this video is cut from, and whether each one is transcribed yet. */
+function FootageList({ project }: { project: Project }) {
+  const minutes = (s: number | null) => (s === null ? "?" : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`);
+  return (
+    <section className="flex flex-col gap-2">
+      <span className="text-sm font-semibold">Footage</span>
+      {project.footage.map((c) => (
+        <div key={c.id} className="flex items-center gap-3 text-xs">
+          <span className="w-6 text-neutral-500">{c.id}</span>
+          <span className="min-w-0 flex-1 truncate text-neutral-200">{c.name}</span>
+          <span className="text-neutral-500">{minutes(c.duration)}</span>
+          <span className={c.words ? "text-neutral-400" : "text-amber-200/90"}>{c.words ? `${c.words.length} words` : "not transcribed"}</span>
+        </div>
+      ))}
+      <span className="text-xs text-neutral-500">Claude cuts these clips by their transcript. Ask in the box below to change the cut.</span>
+    </section>
   );
 }

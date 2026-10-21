@@ -41,6 +41,24 @@ export enum VideoFormat {
   Portrait = "portrait_4_5",
 }
 
+/** A clip uploaded to be edited. `id` is short (c1, c2…) so agents can name it in a cut. */
+export type FootageClip = {
+  id: string;
+  file: string;
+  name: string;
+  mime: string;
+  size: number;
+  duration: number | null;
+  width: number | null;
+  height: number | null;
+  /** Contact sheet (/media path), 4×3 frames. */
+  poster: string | null;
+  /** Language spoken (ISO 639-1), for the transcription. */
+  language: string;
+  /** Transcript in file seconds; null until the editor transcribed the clip. */
+  words: { text: string; start: number; end: number }[] | null;
+};
+
 @Schema({ timestamps: true })
 export class Project {
   @Prop({ type: Types.ObjectId, ref: "User", required: true, index: true }) ownerId: Types.ObjectId;
@@ -64,6 +82,8 @@ export class Project {
   /** Voice-over / music uploaded by the user. Served from /media/:file. */
   /** The voice-over. Generated with ElevenLabs it carries each word's timing (`words`), so captions need no transcription. */
   @Prop({ type: MongooseSchema.Types.Mixed, default: null }) audio: { file: string; name: string; mime: string; words?: { text: string; start: number; end: number }[]; voice?: { voiceId: string; model: string } } | null;
+  /** The user's own clips to edit (usually someone talking to camera); `words` once the editor transcribed them. */
+  @Prop({ type: [MongooseSchema.Types.Mixed], default: [] }) footage: FootageClip[];
   /** Bumped on every scene save; clients send it back to avoid overwriting newer edits. */
   @Prop({ default: 0 }) sceneRevision: number;
   /** What each agent run cost (newest last), to see where tokens go. */

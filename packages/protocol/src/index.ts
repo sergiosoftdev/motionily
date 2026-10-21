@@ -352,6 +352,8 @@ export type Project = {
   scene: Record<string, unknown> | null;
   /** The voice-over; `words` is set when it was generated with ElevenLabs (exact timing, no transcription needed). */
   audio: { url: string; name: string; mime: string; words?: VoiceWord[] | null } | null;
+  /** The user's own clips to edit, in upload order (c1, c2…). */
+  footage: FootageClip[];
   sceneRevision: number;
   /** Tokens and cost of each agent run on this video (newest last). */
   agentRuns: AgentRunUsage[];
@@ -364,6 +366,22 @@ export type ProjectListItem = { _id: string; name: string; build: Build; format?
 
 /** A spoken word and when it is said, in seconds. */
 export type VoiceWord = { text: string; start: number; end: number };
+
+/** A clip uploaded to be edited. `words` (file seconds) once the editor transcribed it; `poster` = a 4×3 contact sheet. */
+export type FootageClip = {
+  id: string;
+  name: string;
+  url: string;
+  mime: string;
+  size: number;
+  duration: number | null;
+  width: number | null;
+  height: number | null;
+  poster: string | null;
+  /** Language spoken (ISO 639-1). */
+  language: string;
+  words: VoiceWord[] | null;
+};
 
 /** ElevenLabs text-to-speech models the user can pick. */
 export const VoiceModel = { V4: "eleven_v4", V3: "eleven_v3", MultilingualV2: "eleven_multilingual_v2", FlashV25: "eleven_flash_v2_5" } as const;

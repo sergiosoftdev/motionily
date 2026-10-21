@@ -168,6 +168,11 @@ export const api = {
   generateStatus: (id: string) => call<GenerateState>(HttpMethod.Get, `/projects/${id}/generate`),
   stopGenerate: (id: string) => call<GenerateState>(HttpMethod.Delete, `/projects/${id}/generate`),
   uploadAudio: (id: string, file: File) => upload<Project>(`/projects/${id}/audio`, file),
+  /** The user's own clip to edit; `language` is what is spoken in it (ISO 639-1). */
+  uploadFootage: (id: string, file: File, language: string) => upload<Project>(`/projects/${id}/footage`, file, { language }),
+  /** A clip's transcript, made here in the browser. */
+  saveFootageWords: (id: string, clipId: string, words: { text: string; start: number; end: number }[]) =>
+    call<Project>(HttpMethod.Put, `/projects/${id}/footage/${clipId}/words`, { words }),
   /** The user's ElevenLabs connection (their own key, kept encrypted by the API). */
   elevenLabs: () => call<ElevenLabsStatus>(HttpMethod.Get, "/voice/elevenlabs"),
   connectElevenLabs: (apiKey: string) => call<ElevenLabsStatus>(HttpMethod.Put, "/voice/elevenlabs", { apiKey }),

@@ -157,6 +157,9 @@ type MomentKind = (typeof MomentKind)[keyof typeof MomentKind];
 /** A moment of the cut where a sound can land: a layer enters or leaves, an animation starts, a phrase or an emphasis word. */
 type Moment = { at: number; kind: MomentKind; what: string };
 
+/** Layer `type` of video clips (the user's footage) in the scene JSON. */
+const VIDEO_LAYER = "video";
+
 /** A cue the team already placed covers the moments this close to it. */
 const CUE_COVERS_S = 0.4;
 
@@ -167,13 +170,15 @@ const CUE_COVERS_S = 0.4;
 function sceneMoments(scene: Record<string, unknown> | null): { moments: Moment[]; placed: number } {
   const s = scene as {
     duration?: number;
-    layers?: { id: string; start?: number; end?: number | null; anims?: { use: string; at?: number }[] }[];
+    layers?: { id: string; type?: string; start?: number; end?: number | null; anims?: { use: string; at?: number }[] }[];
     captions?: { words?: { text: string; start: number; end: number; emphasis?: boolean }[] };
     sfx?: { at: number }[];
   } | null;
   const duration = s?.duration ?? 0;
   const moments: Moment[] = [];
   for (const l of s?.layers ?? []) {
+    // The user's footage: each cut is a layer, and a sound on every jump cut would be noise.
+    if (l.type === VIDEO_LAYER) continue;
     const start = l.start ?? 0;
     if (start > 0.05) moments.push({ at: start, kind: MomentKind.Enter, what: l.id });
     if (l.end != null && l.end < duration - 0.1) moments.push({ at: l.end, kind: MomentKind.Exit, what: l.id });
@@ -210,6 +215,25 @@ moment and place it there.
 4. Cues the team already placed stay: never remove or move them. Your ids start with "snd_" so they never replace one.
 5. ONE add_sfx with one line per cue: "id sound_name at [gain]", at = the moment's time. Change nothing else.
 Reply with one short sentence: how many cues and why you skipped the rest.`;
+
+/** A video made from the user's own clips: cut them by their transcript, then add graphics on top. */
+const FOOTAGE_GUIDE = `You are Motionily's video editor. The user uploaded their own footage (usually someone talking to camera)
+and wants a tight, engaging short video from it, with motion graphics on top. You edit through the motionily MCP tools.
+1. get_project (the brief says what the user wants: length, tone, audience) and get_footage (each clip's transcript in
+   numbered lines, and its contact sheet: where the face is and what space is free).
+2. Decide the cut from the transcript like a top short-form editor: open on the strongest line (a hook in the first
+   1.5 s, even if it is said later), keep one good take of each idea (drop false starts, repeated takes, tangents and dead
+   air), end on a clear payoff or call to action. Length: what the brief asks; otherwise 30-60 s for a vertical video.
+3. ONE edit_footage call with the ranges in order, punch_in 1.08-1.12 to hide the jump cuts. Read what it returns: the new
+   timeline. Change the cut only with another edit_footage call; never move or trim footage layers by hand.
+4. The footage is the backdrop: no background layers and nothing over the face (check the contact sheet and render_frames).
+   The built-in captions show every kept word low in the frame and carry the word timing: never hide them.
+5. Graphics on top, few and precise, timed with @word/@phrase refs: a hook title in the first seconds, kinetic key words
+   or numbers when they are said, a lower third with the speaker's name only if the brief or the footage gives it, icons,
+   UI or simple diagrams when an idea needs showing. Keep them in the top third or at the sides, clear of the captions.
+   set_font for your text; design every animation yourself.
+6. render_frames at a few cuts, review_video, fix what it shows. Finish with 2-3 lines: what you kept and dropped, and the
+   graphics you added.`;
 
 /** Plans the video and sets the look; builders do the heavy writing in parallel. */
 const PLANNER_GUIDE = `You are Motionily's art director. There are NO presets: everything is designed by the team.
@@ -495,6 +519,8 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
         : this.single(run, CONTINUE_PROMPT + refs, { ...opts, ...team.build })
       : instruction?.trim()
       ? this.single(run, `The user asks: "${instruction.trim()}". Apply it to the current video (read get_project and inspect first; finish with review_video and fix what it shows).${refs}`, { ...opts, ...team.build })
+      : project.footage?.length
+      ? this.editFootage(run, refs, { ...opts, ...team.build })
       : this.team(run, refs, opts, team, mode);
     // Sound-only: just the sound pass on the video that is already on screen.
     const work = build
@@ -561,6 +587,13 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
       if (!run.summary) run.summary = `Sound: ${(e as Error).message}`;
     }
     return sumUsage(results, t0, { ...o, model: "sound", effort: undefined });
+  }
+
+  /** One editor cuts the user's clips and adds the graphics: the cut needs a single view of the whole transcript. */
+  private async editFootage(run: Run, refs: string, o: AgentOpts): Promise<AgentRunUsage> {
+    const r = await this.agent(run, `Edit this video from the user's footage.${refs}`, FOOTAGE_GUIDE, o, "edit", undefined);
+    run.summary = r.text;
+    return usageFrom(r.result, "edit", o.model ?? null, o.effort ?? null);
   }
 
   private async single(run: Run, prompt: string, o: AgentOpts): Promise<AgentRunUsage> {

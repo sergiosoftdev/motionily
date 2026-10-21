@@ -31,10 +31,14 @@ import { BrandsService } from "../brands/brands.service";
 import { brandView } from "../brands/brands.controller";
 import { ClonePrefabDto, PREFAB_NAME, SavePrefabDto } from "../prefabs/prefabs.dto";
 import { GenerateService } from "./generate.service";
-import { CreateFeedbackDto, CreateProjectDto, GenerateDto, GenerateVoiceDto, SaveSceneDto, SetSlotDto, UpdateProjectDto } from "./projects.dto";
+import { CreateFeedbackDto, CreateProjectDto, FOOTAGE_LANGUAGES, FootageWordsDto, UploadFootageDto, GenerateDto, GenerateVoiceDto, SaveSceneDto, SetSlotDto, UpdateProjectDto } from "./projects.dto";
+import { describeVideo, VIDEO_TYPES } from "../brands/video-asset";
 import { VoiceService } from "../voice/voice.service";
 import { VoiceModel } from "../voice/elevenlabs";
 import type { ProjectDocument } from "./project.schema";
+
+/** A few minutes of phone video (4K HEVC runs about 100 MB a minute). */
+const MAX_FOOTAGE_BYTES = 2 * 1024 * 1024 * 1024;
 
 @Controller("projects")
 export class ProjectsController {
@@ -174,6 +178,54 @@ export class ProjectsController {
   }
 
   /** Voice-over or music for the video. Replaces the previous file. */
+  /** The user's own clip to edit: probed (length, size, contact sheet), then transcribed by the editor. */
+  @Post(":id/footage")
+  @UseInterceptors(
+    FileInterceptor("file", {
+      storage: diskStorage({ destination: MEDIA_DIR, filename: (_req, f, cb) => cb(null, mediaName(f.originalname || "clip.mp4")) }),
+      limits: { fileSize: MAX_FOOTAGE_BYTES },
+      fileFilter: (_req, f, cb) => cb(null, VIDEO_TYPES.includes(f.mimetype)),
+    }),
+  )
+  async uploadFootage(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UploadFootageDto, @UploadedFile() file?: Express.Multer.File) {
+    userOnly(user);
+    if (!file) throw new BadRequestException("send a video (mp4, mov or webm) in 'file'");
+    try {
+      await this.projects.get(user.id, id);
+      const facts = await describeVideo(join(MEDIA_DIR, file.filename));
+      const project = await this.projects.addFootage(user.id, id, {
+        file: file.filename,
+        name: file.originalname,
+        mime: file.mimetype,
+        size: file.size,
+        duration: facts?.duration ?? null,
+        width: facts?.width ?? null,
+        height: facts?.height ?? null,
+        poster: facts?.poster ?? null,
+        language: dto.language ?? FOOTAGE_LANGUAGES[0],
+        words: null,
+      });
+      return this.view(project);
+    } catch (e) {
+      await removeMedia(file.filename);
+      throw e;
+    }
+  }
+
+  @Put(":id/footage/:clipId/words")
+  async setFootageWords(@CurrentUser() user: AuthUser, @Param("id") id: string, @Param("clipId") clipId: string, @Body() dto: FootageWordsDto) {
+    userOnly(user);
+    return this.view(await this.projects.setFootageWords(user.id, id, clipId, dto.words));
+  }
+
+  @Delete(":id/footage/:clipId")
+  async removeFootage(@CurrentUser() user: AuthUser, @Param("id") id: string, @Param("clipId") clipId: string) {
+    userOnly(user);
+    const { project, clip } = await this.projects.removeFootage(user.id, id, clipId);
+    await Promise.all([removeMedia(clip.file), removeMedia(clip.poster?.replace(/^\/media\//, ""))]);
+    return this.view(project);
+  }
+
   @Post(":id/audio")
   @UseInterceptors(
     FileInterceptor("file", {
@@ -269,6 +321,7 @@ export class ProjectsController {
       misfits: await this.projects.misfits(p),
       scene: p.scene,
       audio: p.audio ? { url: `/media/${p.audio.file}`, name: p.audio.name, mime: p.audio.mime, words: p.audio.words ?? null } : null,
+      footage: (p.footage ?? []).map((c) => ({ id: c.id, name: c.name, url: `/media/${c.file}`, mime: c.mime, size: c.size, duration: c.duration, width: c.width, height: c.height, poster: c.poster, language: c.language, words: c.words })),
       sceneRevision: p.sceneRevision,
       agentRuns: p.agentRuns ?? [],
       imageCredits: p.imageCredits ?? [],
