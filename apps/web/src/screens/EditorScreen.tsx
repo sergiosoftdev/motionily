@@ -95,26 +95,43 @@ export function EditorScreen({ id }: { id: string }) {
   }, [id]);
 
   // Persist every scene change (agent or user), debounced, with optimistic revisions.
+  /** Saves the waiting change right away (null when nothing waits). */
+  const flush = useRef<(() => Promise<void>) | null>(null);
+  /** The save in flight; saves run one after another so each sends the latest revision. */
+  const saving = useRef<Promise<void>>(Promise.resolve());
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const save = async () => {
+      try {
+        const res = await api.saveScene(id, JSON.parse(engineHost.sceneJson()), revision.current);
+        revision.current = res.sceneRevision;
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 409) {
+          logActivity(ActivitySource.System, "The scene changed somewhere else; reload to see the latest");
+        }
+      }
+    };
     const off = engineHost.onSceneChange(() => {
       clearTimeout(timer);
-      timer = setTimeout(async () => {
-        try {
-          const res = await api.saveScene(id, JSON.parse(engineHost.sceneJson()), revision.current);
-          revision.current = res.sceneRevision;
-        } catch (e) {
-          if (e instanceof ApiError && e.status === 409) {
-            logActivity(ActivitySource.System, "The scene changed somewhere else; reload to see the latest");
-          }
-        }
-      }, SAVE_DEBOUNCE_MS);
+      flush.current = () => {
+        clearTimeout(timer);
+        flush.current = null;
+        return (saving.current = saving.current.then(save));
+      };
+      timer = setTimeout(() => void flush.current?.(), SAVE_DEBOUNCE_MS);
     });
     return () => {
       off();
       clearTimeout(timer);
+      flush.current = null;
     };
   }, [id]);
+
+  /** Save now if a change is waiting, then report the revision the server holds (what a render shows). */
+  const flushScene = async () => {
+    await (flush.current?.() ?? saving.current);
+    return revision.current;
+  };
 
   const rename = async (name: string) => {
     if (!project || name === project.name) return;
@@ -147,6 +164,7 @@ export function EditorScreen({ id }: { id: string }) {
     canvas,
     g: generation,
     captioning,
+    flushScene,
     mode,
     setMode,
     rename: (name) => void rename(name),

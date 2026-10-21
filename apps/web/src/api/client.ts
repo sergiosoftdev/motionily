@@ -32,6 +32,26 @@ export type PrefabSummary = { name: string; kind: PrefabKind; description: strin
 export type ConceptBeat = { at: string; what: string };
 export type Concept = { title: string; hook: string; direction: string; beats: ConceptBeat[]; voiceover: string; prompt: string };
 export type ConceptsRequest = { idea: string; format: VideoFormat; count: number; steer?: string; avoid?: string[]; model?: string; effort?: string; references?: string[]; angle?: number };
+export const Platform = { Instagram: "instagram", TikTok: "tiktok" } as const;
+export type Platform = (typeof Platform)[keyof typeof Platform];
+export const PostStatus = { Scheduled: "scheduled", Posted: "posted" } as const;
+export type PostStatus = (typeof PostStatus)[keyof typeof PostStatus];
+/** The text that goes with the video on one platform; hashtags without "#". */
+export type PostCopy = { platform: Platform; caption: string; hashtags: string[] };
+/** A video on the posting calendar. `outdated`: the video was edited after this file was rendered. */
+export type ScheduledPost = {
+  id: string;
+  projectId: string;
+  projectName: string | null;
+  format: VideoFormat | null;
+  scheduledAt: string;
+  platforms: Platform[];
+  copy: PostCopy[];
+  video: { url: string; mime: string; size: number; outdated: boolean } | null;
+  status: PostStatus;
+  postedAt: string | null;
+  due: boolean;
+};
 export type SoundRow = { name: string; category: string; description: string; duration: number; url: string; recipe: SoundRecipe };
 export type GoogleFont = { family: string; category: string; weights: number[]; popularity: number };
 
@@ -155,4 +175,17 @@ export const api = {
   voices: () => call<Voice[]>(HttpMethod.Get, "/voice/voices"),
   /** Read the script aloud with an ElevenLabs voice; the project comes back with the audio and its words. */
   generateVoice: (id: string, body: { voiceId: string; voiceName?: string; modelId?: VoiceModel; text?: string }) => call<Project>(HttpMethod.Post, `/projects/${id}/voice`, body),
+  /** Caption and hashtags per platform, written by Claude from the video (nothing is saved). */
+  writeCopy: (projectId: string, platforms: Platform[], steer?: string) => call<{ copy: PostCopy[] }>(HttpMethod.Post, "/posts/copy", { projectId, platforms, steer: steer || undefined }),
+  posts: (q: { from?: string; to?: string; due?: boolean; projectId?: string } = {}) =>
+    call<ScheduledPost[]>(
+      HttpMethod.Get,
+      `/posts?${new URLSearchParams({ ...(q.from ? { from: q.from } : {}), ...(q.to ? { to: q.to } : {}), ...(q.due ? { due: "1" } : {}), ...(q.projectId ? { projectId: q.projectId } : {}) })}`,
+    ),
+  createPost: (body: { projectId: string; scheduledAt: string; platforms: Platform[]; copy: PostCopy[] }) => call<ScheduledPost>(HttpMethod.Post, "/posts", body),
+  updatePost: (id: string, patch: { scheduledAt?: string; platforms?: Platform[]; copy?: PostCopy[]; status?: PostStatus }) => call<ScheduledPost>(HttpMethod.Patch, `/posts/${id}`, patch),
+  deletePost: (id: string) => call<void>(HttpMethod.Delete, `/posts/${id}`),
+  /** The rendered file, tagged with the scene revision it shows. */
+  uploadPostVideo: (id: string, video: Blob, filename: string, sceneRevision: number) =>
+    upload<ScheduledPost>(`/posts/${id}/video`, new File([video], filename, { type: video.type }), { sceneRevision: String(sceneRevision) }),
 };

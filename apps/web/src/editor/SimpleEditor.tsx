@@ -6,6 +6,7 @@ import { AgentBar } from "../components/AgentBar";
 import { ActivityLog } from "../components/ActivityLog";
 import { ConnectAgent } from "../components/ConnectAgent";
 import { ExportButton } from "../export/ExportButton";
+import { ScheduleButton } from "../posts/ScheduleButton";
 import { href, RouteName } from "../router";
 import { useEditor } from "../store";
 import { AgentLine } from "./AgentLine";
@@ -36,6 +37,7 @@ export function SimpleEditor({ ed }: { ed: EditorProps }) {
         <button type="button" onClick={() => setSettings(true)} className="rounded-lg px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-900 hover:text-white">
           Video settings
         </button>
+        {project && <ScheduleButton ed={ed} />}
         {project && <ExportButton name={project.name} audioUrl={project.audio ? mediaUrl(project.audio.url) : null} />}
       </header>
 

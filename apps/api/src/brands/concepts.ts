@@ -1,6 +1,3 @@
-import { spawn } from "node:child_process";
-import { copyFileSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 import { BadGatewayException, Injectable } from "@nestjs/common";
 import { Type } from "class-transformer";
@@ -9,6 +6,7 @@ import { AgentEffort, AgentModel, MAX_REFERENCES } from "../projects/projects.dt
 import { MEDIA_DIR, MEDIA_PATH } from "../media";
 import { VideoFormat, type AgentRunUsage } from "../projects/project.schema";
 import { usageFrom } from "../projects/generate.service";
+import { askClaude } from "../common/claude-once";
 
 export const MAX_CONCEPTS = 6;
 const CONCEPT_TIMEOUT_MS = 180_000;
@@ -125,33 +123,9 @@ export class ConceptsService {
     }
   }
 
-  private run(prompt: string, model: AgentModel, effort: AgentEffort, references: string[]): Promise<{ text: string; usage: Parameters<typeof usageFrom>[0] | null }> {
-    // Empty folder: no repo CLAUDE.md or tools leak into the pitch.
-    const cwd = mkdtempSync(join(tmpdir(), "motionily-pitch-"));
+  private run(prompt: string, model: AgentModel, effort: AgentEffort, references: string[]) {
     // Reference images go next to it so Claude can Read (see) them; nothing else is allowed.
-    references.forEach((ref, i) => copyFileSync(join(MEDIA_DIR, basename(ref)), join(cwd, `ref-${i + 1}${extname(ref)}`)));
-    return new Promise((resolve, reject) => {
-      const child = spawn(
-        process.env.CLAUDE_BIN ?? "claude",
-        // Own lean system prompt: Claude Code's default one is ~20k tokens of coding instructions.
-        ["-p", prompt, "--system-prompt", SYSTEM, "--tools", references.length ? "Read" : "", "--strict-mcp-config", "--allowedTools", references.length ? "Read" : "", "--output-format", "json", "--model", model, "--effort", effort],
-        { cwd, stdio: ["ignore", "pipe", "pipe"], env: process.env },
-      );
-      let out = "";
-      let err = "";
-      const timer = setTimeout(() => child.kill(), CONCEPT_TIMEOUT_MS);
-      child.stdout.on("data", (d: Buffer) => (out += d.toString()));
-      child.stderr.on("data", (d: Buffer) => (err += d.toString()));
-      child.on("close", (code) => {
-        clearTimeout(timer);
-        if (code !== 0) return reject(new BadGatewayException(`claude failed: ${err.trim().slice(0, 300) || `exit ${code}`}`));
-        try {
-          const r = JSON.parse(out) as Parameters<typeof usageFrom>[0] & { result: string };
-          resolve({ text: r.result, usage: r });
-        } catch {
-          resolve({ text: out, usage: null });
-        }
-      });
-    });
+    const files = references.map((ref, i) => ({ from: join(MEDIA_DIR, basename(ref)), as: `ref-${i + 1}${extname(ref)}` }));
+    return askClaude({ prompt, system: SYSTEM, model, effort, timeoutMs: CONCEPT_TIMEOUT_MS, files });
   }
 }

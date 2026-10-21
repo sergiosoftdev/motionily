@@ -1,6 +1,5 @@
 import { useRef, useState } from "react";
-import { engineHost } from "../engine/host";
-import { exportVideo } from "./exportVideo";
+import { renderCurrentScene } from "./renderScene";
 
 const Stage = { Idle: "idle", Rendering: "rendering", Done: "done", Error: "error" } as const;
 type Stage = (typeof Stage)[keyof typeof Stage];
@@ -21,25 +20,12 @@ export function ExportButton({ name, audioUrl }: { name: string; audioUrl: strin
   const abort = useRef<AbortController | null>(null);
 
   const start = async () => {
-    engineHost.pause();
     setStage(Stage.Rendering);
     setProgress(0);
     setError(null);
     abort.current = new AbortController();
     try {
-      // Audio-reactive curves and video files must be ready before the first frame.
-      await engineHost.mediaReady();
-      const res = await exportVideo({
-        sceneJson: engineHost.sceneJson(),
-        shortSide,
-        fonts: await engineHost.loadedFontFiles(),
-        stage: await engineHost.stageAssets(),
-        images: await engineHost.imageAssets(),
-        audioUrl,
-        videos: engineHost.videoLibrary(),
-        onProgress: setProgress,
-        signal: abort.current.signal,
-      });
+      const res = await renderCurrentScene({ shortSide, audioUrl, onProgress: setProgress, signal: abort.current.signal });
       if (file) URL.revokeObjectURL(file.url);
       setFile({ url: URL.createObjectURL(res.blob), filename: `${name || "motionily"}.${res.extension}`, size: res.blob.size });
       setStage(Stage.Done);
@@ -81,7 +67,7 @@ export function ExportButton({ name, audioUrl }: { name: string; audioUrl: strin
                   <div className="h-full bg-white transition-[width]" style={{ width: `${Math.round(progress * 100)}%` }} />
                 </div>
                 <div className="flex justify-between text-xs text-neutral-400">
-                  <span>Renderizando… {Math.round(progress * 100)}%</span>
+                  <span>Rendering… {Math.round(progress * 100)}%</span>
                   <button type="button" onClick={() => abort.current?.abort()} className="hover:text-white">
                     Cancel
                   </button>
@@ -90,7 +76,7 @@ export function ExportButton({ name, audioUrl }: { name: string; audioUrl: strin
             )}
             {stage === Stage.Done && file && (
               <a href={file.url} download={file.filename} className="rounded-lg bg-white px-4 py-2.5 text-center text-sm font-semibold text-neutral-900 hover:bg-neutral-200">
-                Descargar {file.filename} · {(file.size / 1e6).toFixed(1)} MB
+                Download {file.filename} · {(file.size / 1e6).toFixed(1)} MB
               </a>
             )}
             {stage === Stage.Error && <p className="text-xs text-red-400">{error}</p>}

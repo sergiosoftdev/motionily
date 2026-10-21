@@ -8,6 +8,7 @@ import { ConnectAgent } from "../../components/ConnectAgent";
 import { GenerateEventKind, TOOL_LABEL } from "../../components/GeneratePanel";
 import { Logo } from "../../components/Logo";
 import { ExportButton } from "../../export/ExportButton";
+import { ScheduleButton } from "../../posts/ScheduleButton";
 import { href, RouteName } from "../../router";
 import { useEditor } from "../../store";
 import type { EditorProps } from "../context";
@@ -119,6 +120,7 @@ export function ProEditor({ ed }: { ed: EditorProps }) {
           ))}
         </nav>
         <ConnectAgent projectId={ed.id} />
+        {project && <ScheduleButton ed={ed} />}
         {project && <ExportButton name={project.name} audioUrl={project.audio ? mediaUrl(project.audio.url) : null} />}
       </header>
 
