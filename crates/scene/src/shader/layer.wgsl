@@ -3,6 +3,8 @@ struct MlyGlobals {
     scene_size: vec2f,
     linearize: f32,
     time: f32,
+    // Flat-space origin of the pass (a tilted plane's window; 0 on the scene).
+    origin: vec2f,
 };
 
 @group(0) @binding(0) var<uniform> mly_g: MlyGlobals;
@@ -25,7 +27,7 @@ fn mly_vs(@builtin(vertex_index) vi: u32) -> MlyVsOut {
     let s = sin(mly_u.misc.x);
     let q = mly_u.box.xy + vec2f(local.x * c - local.y * s, local.x * s + local.y * c);
     var o: MlyVsOut;
-    o.pos = vec4f(q.x / mly_g.scene_size.x * 2.0 - 1.0, 1.0 - q.y / mly_g.scene_size.y * 2.0, 0.0, 1.0);
+    o.pos = vec4f((q.x - mly_g.origin.x) / mly_g.scene_size.x * 2.0 - 1.0, 1.0 - (q.y - mly_g.origin.y) / mly_g.scene_size.y * 2.0, 0.0, 1.0);
     o.local = local;
     return o;
 }

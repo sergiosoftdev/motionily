@@ -124,7 +124,8 @@ fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
             return vec4(0.0);
         }
         // Flat space is shifted by the plane's origin (see DrawFx::plane_origin).
-        base = (s.xy / s.z - p.origin.xy) / size;
+        // origin.xy: where the flat window starts; origin.zw: its size. The screen uses h1/h2 as before.
+        base = (s.xy / s.z - p.origin.xy) / p.origin.zw;
     }
     // Adjustment passes read the screen as it is (only their matte is projected).
     var uv = select(base, in.uv, p.b.w > 0.5) - p.b.xy;

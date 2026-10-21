@@ -343,7 +343,8 @@ impl Scene {
         let camera = camera.filter(|_| !l.fixed);
         let lens = camera.map_or(paint::View::still(c, l.lens(lt)), |cam| cam.0);
         let Some(perspective) = paint::perspective_inverse(c, l.rotate_x.sample(lt), l.rotate_y.sample(lt), z, &lens) else { return Vec::new() };
-        let plane_origin = [c[0] - self.width as f32 / 2.0, c[1] - self.height as f32 / 2.0];
+        let window = paint::plane_window([self.width as f32, self.height as f32]);
+        let plane_origin = [c[0] - window[0] / 2.0, c[1] - window[1] / 2.0];
         let defocus = camera.and_then(|cam| cam.1).map(|(focus, aperture)| aperture * (z - focus).abs() / 1000.0).filter(|b| *b > 0.5);
         let base_effects = || defocus.map(|radius| vec![paint::DrawEffect::Blur { radius }]).unwrap_or_default();
         let pass = |items: Vec<DrawItem>, effects: Vec<paint::DrawEffect>, blend: paint::BlendMode, matte| {
@@ -1254,6 +1255,7 @@ mod tests {
             _ => None,
         });
         let plane = plane.expect("tilted plane pass");
-        assert_eq!(plane.plane_origin, [2400.0 - 960.0, 700.0 - 540.0]);
+        // The flat window is twice the 1920x1080 frame, centered on the plane: origin = center − half of it.
+        assert_eq!(plane.plane_origin, [2400.0 - 1920.0, 700.0 - 1080.0]);
     }
 }

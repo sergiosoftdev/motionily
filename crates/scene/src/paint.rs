@@ -673,6 +673,15 @@ pub struct DrawFx {
 /// Camera distance (px) for 3D layers when none is given: a natural, slightly wide lens.
 pub const DEFAULT_PERSPECTIVE: f32 = 1800.0;
 
+/// Largest side (px) of a tilted plane's flat window: the texture limit most GPUs share.
+pub const PLANE_WINDOW_MAX: f32 = 4096.0;
+
+/// Flat window (px) of a tilted plane's offscreen pass: twice the frame in each direction, capped,
+/// centered on the plane. Content inside it paints at any camera position.
+pub fn plane_window(frame: [f32; 2]) -> [f32; 2] {
+    [(frame[0] * 2.0).min(PLANE_WINDOW_MAX), (frame[1] * 2.0).min(PLANE_WINDOW_MAX)]
+}
+
 /// The 2.5D camera for one frame: it looks at `look` (scene px) from `focal` px in front of the
 /// depth-0 plane, moved forward by `dolly`; `screen` is where `look` lands (the frame center).
 #[derive(Debug, Clone, Copy, PartialEq)]

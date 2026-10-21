@@ -243,6 +243,9 @@ pub struct Renderer {
     custom: CustomShaders,
     /// One globals uniform (with its origin) per tilted plane drawn this frame, reused frame to frame.
     plane_globals: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
+    /// Offscreen passes of the tilted planes, sized to their flat window. Built while a plane is on
+    /// screen and dropped after.
+    plane_fx: Option<FxPass>,
     /// Internal resolution as a multiple of the output size (1 or 2). At 2 the scene is drawn at
     /// double size and the post pass averages it down: every edge (shapes, text, strokes, 3D) is
     /// supersampled, whatever the layer type.
@@ -390,6 +393,7 @@ impl Renderer {
             fx,
             custom,
             plane_globals: Vec::new(),
+            plane_fx: None,
             supersample: 1,
             device,
             queue,
@@ -648,16 +652,46 @@ impl Renderer {
         let px_per_scene = internal_w as f32 / scene.width.max(1) as f32;
         let texel = [1.0 / internal_w.max(1) as f32, 1.0 / internal_h.max(1) as f32];
         self.fx.begin();
+        // Tilted planes draw into their own pass, sized to their flat window (see scene::paint::plane_window).
+        let frame = [scene.width as f32, scene.height as f32];
+        let window = scene::paint::plane_window(frame);
+        let planes = batches.runs.iter().any(|r| matches!(r, Run::Fx(f) if f.perspective.is_some() && !f.adjust));
+        if !planes {
+            self.plane_fx = None;
+        } else if self.plane_fx.as_ref().is_none_or(|p| p.size() != [window[0] as u32, window[1] as u32]) {
+            self.plane_fx = Some(FxPass::new(&self.device, self.config.format, window[0] as u32, window[1] as u32));
+        }
+        let mut plane_fx = self.plane_fx.take();
+        if let Some(p) = plane_fx.as_mut() {
+            p.begin();
+        }
         // Tilted planes draw with their own globals (their origin); the scene's stays as it is.
         let plane_slots = self.prepare_plane_globals(&batches.runs, scene, linearize, t);
         let plans: Vec<Option<FxPlan>> = batches
             .runs
             .iter()
             .map(|r| match r {
-                Run::Fx(f) => Some(plan_fx(&mut self.fx, &mut self.custom, &shading, f, px_per_scene, texel, scene.width as f32, scene.height as f32, linearize > 0.5)),
+                Run::Fx(f) if f.perspective.is_some() && !f.adjust => {
+                    let pf = plane_fx.as_mut().expect("a plane pass target");
+                    Some(plan_fx(pf, &mut self.custom, &shading, f, 1.0, [1.0 / window[0], 1.0 / window[1]], window, frame, linearize > 0.5))
+                }
+                Run::Fx(f) => Some(plan_fx(&mut self.fx, &mut self.custom, &shading, f, px_per_scene, texel, frame, frame, linearize > 0.5)),
                 Run::Items(..) | Run::Object(_) => None,
             })
             .collect();
+        if let Some(p) = plane_fx.as_mut() {
+            p.upload(&self.device, &self.queue);
+        }
+        self.plane_fx = plane_fx;
+        // Backdrop blends read the scene: their mode lives in the scene's pass, whichever pass the layer drew in.
+        let mut plans = plans;
+        for (run, plan) in batches.runs.iter().zip(plans.iter_mut()) {
+            if let (Run::Fx(f), Some(plan)) = (run, plan) {
+                if f.blend.reads_backdrop() {
+                    plan.blend = self.fx.push(FxParams { a: [f.blend.shader_id(), 0.0, 0.0, 0.0], ..Default::default() });
+                }
+            }
+        }
         // Top-level objects composite at their opacity.
         let object_params: Vec<Option<u32>> = batches
             .runs
@@ -696,8 +730,11 @@ impl Renderer {
             }
             if j < batches.runs.len() {
                 if let (Run::Fx(f), Some(plan)) = (&batches.runs[j], &plans[j]) {
-                    let globals = plane_slots[j].map_or(&self.bind_group, |s| &self.plane_globals[s].1);
-                    self.render_fx(&mut encoder, f, plan, globals);
+                    let (fx, globals) = match plane_slots[j] {
+                        Some(s) => (self.plane_fx.as_ref().expect("a plane pass target"), &self.plane_globals[s].1),
+                        None => (&self.fx, &self.bind_group),
+                    };
+                    self.render_fx(&mut encoder, f, plan, fx, globals);
                 }
                 if let (Run::Object(k), Some(param)) = (&batches.runs[j], object_params[j]) {
                     if self.objects[*k as usize].render_onto(&mut encoder, &self.fx.layer, true) {
@@ -750,11 +787,13 @@ impl Renderer {
     /// Globals for each tilted plane drawn this frame: the scene's uniform, with the plane's origin.
     /// Returns the slot per run (`None` for runs that are not planes).
     fn prepare_plane_globals(&mut self, runs: &[Run], scene: &Scene, linearize: f32, t: f32) -> Vec<Option<usize>> {
+        let window = scene::paint::plane_window([scene.width as f32, scene.height as f32]);
         let mut slots = vec![None; runs.len()];
         let mut next = 0;
         for (i, run) in runs.iter().enumerate() {
             let Run::Fx(f) = run else { continue };
-            if f.perspective.is_none() {
+            // Adjustment passes (backdrop glass) stay on the scene's pass and globals.
+            if f.perspective.is_none() || f.adjust {
                 continue;
             }
             if next == self.plane_globals.len() {
@@ -771,7 +810,7 @@ impl Renderer {
                 });
                 self.plane_globals.push((buffer, group));
             }
-            let globals = Globals { scene_size: [scene.width as f32, scene.height as f32], linearize, time: t, origin: f.plane_origin };
+            let globals = Globals { scene_size: window, linearize, time: t, origin: f.plane_origin };
             self.queue.write_buffer(&self.plane_globals[next].0, 0, bytemuck::bytes_of(&globals));
             slots[i] = Some(next);
             next += 1;
@@ -806,66 +845,69 @@ impl Renderer {
         }
     }
 
-    fn render_fx(&self, encoder: &mut wgpu::CommandEncoder, f: &FxRun, plan: &FxPlan, globals: &wgpu::BindGroup) {
+    /// Draw one offscreen run and composite it onto the scene. `fx` is the pass it draws into: the
+    /// scene's, or a tilted plane's own.
+    fn render_fx(&self, encoder: &mut wgpu::CommandEncoder, f: &FxRun, plan: &FxPlan, fx: &FxPass, globals: &wgpu::BindGroup) {
         if f.adjust {
             // The scene so far becomes the layer; compositing it back replaces what is below.
-            drop(FxPass::clear_pass(encoder, &self.fx.layer, "fx adjust"));
-            let scene = self.fx.group_for(&self.device, self.post.target());
-            self.fx.composite_group(encoder, &scene, &self.fx.layer, scene::paint::BlendMode::Normal, plan.copy);
+            drop(FxPass::clear_pass(encoder, &fx.layer, "fx adjust"));
+            let scene = fx.group_for(&self.device, self.post.target());
+            fx.composite_group(encoder, &scene, &fx.layer, scene::paint::BlendMode::Normal, plan.copy);
         } else if f.samples.is_empty() {
-            self.draw_offscreen(encoder, &self.fx.layer, &f.runs, globals);
+            self.draw_offscreen(encoder, &fx.layer, &f.runs, globals);
         } else {
             // Motion blur: every sample drawn alone, then added in at 1/n.
-            drop(FxPass::clear_pass(encoder, &self.fx.layer, "fx motion blur"));
+            drop(FxPass::clear_pass(encoder, &fx.layer, "fx motion blur"));
             for runs in std::iter::once(&f.runs).chain(&f.samples) {
-                self.draw_offscreen(encoder, &self.fx.accum, runs, globals);
-                self.fx.composite(encoder, Tex::Accum, &self.fx.layer, scene::paint::BlendMode::Add, plan.average);
+                self.draw_offscreen(encoder, &fx.accum, runs, globals);
+                fx.composite(encoder, Tex::Accum, &fx.layer, scene::paint::BlendMode::Add, plan.average);
             }
         }
         if let Some((m, _)) = &f.matte {
-            self.draw_offscreen(encoder, &self.fx.matte, m, globals);
+            self.draw_offscreen(encoder, &fx.matte, m, globals);
         }
         // Blurs and custom shader effects change the layer itself, in stack order.
         for step in &plan.steps {
             match *step {
                 LayerStep::Blur(h, v) => {
-                    self.fx.blur(encoder, Tex::Layer, &self.fx.temp, h);
-                    self.fx.blur(encoder, Tex::Temp, &self.fx.layer, v);
+                    fx.blur(encoder, Tex::Layer, &fx.temp, h);
+                    fx.blur(encoder, Tex::Temp, &fx.layer, v);
                 }
                 LayerStep::Shader(hash, offset) => {
                     // layer -> accum (free once motion blur is averaged), then copied back.
-                    if self.custom.run_effect(&self.device, encoder, hash, offset, &self.fx.layer, &self.fx.accum) {
-                        drop(FxPass::clear_pass(encoder, &self.fx.layer, "custom shader copy"));
-                        self.fx.composite(encoder, Tex::Accum, &self.fx.layer, scene::paint::BlendMode::Normal, plan.replace);
+                    if self.custom.run_effect(&self.device, encoder, hash, offset, &fx.layer, &fx.accum) {
+                        drop(FxPass::clear_pass(encoder, &fx.layer, "custom shader copy"));
+                        fx.composite(encoder, Tex::Accum, &fx.layer, scene::paint::BlendMode::Normal, plan.replace);
                     }
                 }
             }
         }
         let target = self.post.target();
         for (h, v, comp) in &plan.shadows {
-            self.fx.blur(encoder, Tex::Layer, &self.fx.temp, *h);
-            self.fx.blur(encoder, Tex::Temp, &self.fx.copy, *v);
-            self.fx.composite(encoder, Tex::Copy, target, scene::paint::BlendMode::Normal, *comp);
+            fx.blur(encoder, Tex::Layer, &fx.temp, *h);
+            fx.blur(encoder, Tex::Temp, &fx.copy, *v);
+            fx.composite(encoder, Tex::Copy, target, scene::paint::BlendMode::Normal, *comp);
         }
         if f.blend.reads_backdrop() {
             // The layer alone, then blended over a copy of the scene so far.
+            // The layer draws from its own pass into the scene's scratch, then blends over the scene's copy.
             drop(FxPass::clear_pass(encoder, &self.fx.scratch, "fx blend source"));
-            self.fx.composite(encoder, Tex::Layer, &self.fx.scratch, scene::paint::BlendMode::Normal, plan.layer);
+            fx.composite(encoder, Tex::Layer, &self.fx.scratch, scene::paint::BlendMode::Normal, plan.layer);
             self.fx.blend_over(&self.device, encoder, self.post.texture(), target, plan.blend);
         } else {
-            self.fx.composite(encoder, Tex::Layer, target, f.blend, plan.layer);
+            fx.composite(encoder, Tex::Layer, target, f.blend, plan.layer);
         }
         for (h, v, comp, thresh) in &plan.glows {
             match thresh {
                 Some(thresh) => {
-                    drop(FxPass::clear_pass(encoder, &self.fx.accum, "fx glow threshold"));
-                    self.fx.composite(encoder, Tex::Layer, &self.fx.accum, scene::paint::BlendMode::Normal, *thresh);
-                    self.fx.blur(encoder, Tex::Accum, &self.fx.temp, *h);
+                    drop(FxPass::clear_pass(encoder, &fx.accum, "fx glow threshold"));
+                    fx.composite(encoder, Tex::Layer, &fx.accum, scene::paint::BlendMode::Normal, *thresh);
+                    fx.blur(encoder, Tex::Accum, &fx.temp, *h);
                 }
-                None => self.fx.blur(encoder, Tex::Layer, &self.fx.temp, *h),
+                None => fx.blur(encoder, Tex::Layer, &fx.temp, *h),
             }
-            self.fx.blur(encoder, Tex::Temp, &self.fx.copy, *v);
-            self.fx.composite(encoder, Tex::Copy, target, scene::paint::BlendMode::Add, *comp);
+            fx.blur(encoder, Tex::Temp, &fx.copy, *v);
+            fx.composite(encoder, Tex::Copy, target, scene::paint::BlendMode::Add, *comp);
         }
     }
 }
@@ -898,7 +940,10 @@ struct FxPlan {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, shading: &FrameInfo, f: &FxRun, px_per_scene: f32, texel: [f32; 2], scene_w: f32, scene_h: f32, linear: bool) -> FxPlan {
+/// Plan one offscreen run. `norm` is the flat size the layer's offsets and waves are measured in (the
+/// scene, or a tilted plane's window); `screen` the size of the target the run composites onto.
+fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, shading: &FrameInfo, f: &FxRun, px_per_scene: f32, texel: [f32; 2], norm: [f32; 2], screen: [f32; 2], linear: bool) -> FxPlan {
+    let (scene_w, scene_h) = (norm[0], norm[1]);
     let matte = fx::matte_code(f.matte.as_ref().map(|(_, m)| *m));
     let blur_pair = |fx: &mut FxPass, radius_scene: f32| {
         // Radius ~ 2 sigma, in texels of the offscreen target.
@@ -918,9 +963,15 @@ fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, shading: &FrameInfo, f: 
     let mut grain = [0.0f32; 4];
     let mut turb = [0.0f32; 4];
     let (h0, h1, h2) = f.perspective.map_or(([0.0; 4], [0.0; 4], [0.0; 4]), |m| {
-        ([m[0], m[1], m[2], 1.0], [m[3], m[4], m[5], scene_w], [m[6], m[7], m[8], scene_h])
+        ([m[0], m[1], m[2], 1.0], [m[3], m[4], m[5], screen[0]], [m[6], m[7], m[8], screen[1]])
     });
-    let origin = [f.plane_origin[0], f.plane_origin[1], 0.0, 0.0];
+    // Projected layers read their flat texture through this window (fx.wgsl): a tilted plane's own,
+    // a screen-sized adjustment (backdrop glass) is projected over the screen as before.
+    let origin = match (f.perspective.is_some(), f.adjust) {
+        (true, false) => [f.plane_origin[0], f.plane_origin[1], norm[0], norm[1]],
+        (true, true) => [0.0, 0.0, screen[0], screen[1]],
+        (false, _) => [0.0; 4],
+    };
     for e in &f.effects {
         match *e {
             DrawEffect::Blur { radius } if radius > 0.0 => {
@@ -975,9 +1026,6 @@ fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, shading: &FrameInfo, f: 
     // Warps pull pixels from around them: at the frame edge, repeat the edge instead of emptiness.
     let clamp_edges = if f.adjust || turb[0] != 0.0 { 1.0 } else { 0.0 };
     plan.layer = fx.push(FxParams { a: [0.0, matte, 1.0, 0.0], b: [0.0, 0.0, clamp_edges, if f.adjust { 1.0 } else { 0.0 }], adj: [hue, sat - 1.0, bright, contrast - 1.0], warp, grain, turb, h0, h1, h2, origin, ..Default::default() });
-    if f.blend.reads_backdrop() {
-        plan.blend = fx.push(FxParams { a: [f.blend.shader_id(), 0.0, 0.0, 0.0], ..Default::default() });
-    }
     if f.adjust {
         plan.copy = fx.push(FxParams::default());
     }

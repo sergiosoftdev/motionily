@@ -317,10 +317,10 @@ turn a layer into a plane, usually an invisible null (`vis=0 w=1 h=1`):
 - with a camera the plane uses the camera's lens and roll (`persp` is ignored); without one (or `fixed=1`), `persp=PX`
   (default 1800, animatable: `persp=600>2400@0-2:eo` is a lens zoom on the page) is its lens.
 - planes do not nest: rx/ry on a layer inside another plane is ignored.
-- the plane's flat space is a window one frame wide and one frame high around the plane's center: children up to half a
-  frame from it paint at any camera position; anything farther out is cut. Keep a plane's content within that window (for a
-  full-width floor, center the plane at the frame's middle). Layers of custom WGSL shaders inside a plane are not moved
-  with that window yet.
+- the plane's flat space is a window twice the frame in each direction (capped at 4096 px), centered on the plane: its
+  children paint at any camera position as long as they lie within one frame of the plane's center. Shapes, text, paths,
+  images, shadows, glows, mattes, blend modes and custom WGSL layers all work inside a plane. Frosted glass (backdrop) is
+  projected over the screen, as before.
 
 **Camera nulls without a camera layer.** `cam rect 0 vis=0 x=0 y=0 w=1 h=1 pivot=CX,CY s=1>1.06@0-6:io` with
 `parent=cam` on the other layers keeps their absolute x/y and gives a slow push-in around the frame center (animate the

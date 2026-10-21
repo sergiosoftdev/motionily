@@ -212,6 +212,11 @@ impl FxPass {
                 })
     }
 
+    /// Texture size this pass was built for.
+    pub fn size(&self) -> [u32; 2] {
+        self.size
+    }
+
     pub fn resize(&mut self, device: &wgpu::Device, width: u32, height: u32) {
         if self.size == [width, height] {
             return;
