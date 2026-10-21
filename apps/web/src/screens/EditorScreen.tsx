@@ -10,6 +10,7 @@ import type { EditorProps } from "../editor/context";
 import { EditorMode, useEditorMode } from "../editor/mode";
 import { SimpleEditor } from "../editor/SimpleEditor";
 import { ProEditor } from "../editor/pro/ProEditor";
+import { EditEditor } from "../editor/edit/EditEditor";
 import { OpenElsewhere } from "../editor/OpenElsewhere";
 
 const SAVE_DEBOUNCE_MS = 800;
@@ -175,7 +176,7 @@ export function EditorScreen({ id }: { id: string }) {
   };
   return (
     <>
-      {mode === EditorMode.Pro ? <ProEditor ed={ed} /> : <SimpleEditor ed={ed} />}
+      {mode === EditorMode.Pro ? <ProEditor ed={ed} /> : mode === EditorMode.Edit ? <EditEditor ed={ed} /> : <SimpleEditor ed={ed} />}
       <OpenElsewhere />
     </>
   );

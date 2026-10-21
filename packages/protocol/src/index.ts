@@ -196,7 +196,10 @@ export const OpName = {
   ReplaceColor: "replace_color",
   SetTiming: "set_timing",
   SetText: "set_text",
+  AddLayer: "add_layer",
   RemoveLayer: "remove_layer",
+  /** Move a layer in the stack: `{id, index}` (0 = back). */
+  Reorder: "reorder",
   RemoveGroup: "remove_group",
   SetGroup: "set_group",
   PutSfx: "put_sfx",

@@ -71,7 +71,7 @@ export function useVoicePipeline(project: Project | null, onProject: (p: Project
 }
 
 /** Each clip without a transcript, transcribed in its language and saved, so the agent can cut it by its words. */
-async function transcribeFootage(project: Project, onProgress: (p: CaptionProgress) => void, onProject: (p: Project) => void) {
+export async function transcribeFootage(project: Project, onProgress: (p: CaptionProgress) => void, onProject: (p: Project) => void) {
   const pending = project.footage.filter((c) => !c.words);
   for (const [i, clip] of pending.entries()) {
     const which = pending.length > 1 ? ` ${i + 1} of ${pending.length}` : "";

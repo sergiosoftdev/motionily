@@ -1,14 +1,15 @@
 import { useState } from "react";
 
-/** The two editors: Simple (watch, click, ask) and Pro (After Effects-like panels and keyframes). */
-export const EditorMode = { Simple: "simple", Pro: "pro" } as const;
+/** The editors: Simple (watch, click, ask), Pro (After Effects-like panels and keyframes) and Edit (CapCut-like tracks). */
+export const EditorMode = { Simple: "simple", Pro: "pro", Edit: "edit" } as const;
 export type EditorMode = (typeof EditorMode)[keyof typeof EditorMode];
 
 const MODE_KEY = "motionily.editorMode";
 
 function load(): EditorMode {
   try {
-    return localStorage.getItem(MODE_KEY) === EditorMode.Pro ? EditorMode.Pro : EditorMode.Simple;
+    const saved = localStorage.getItem(MODE_KEY);
+    return (Object.values(EditorMode) as string[]).includes(saved ?? "") ? (saved as EditorMode) : EditorMode.Simple;
   } catch {
     return EditorMode.Simple;
   }
@@ -30,13 +31,14 @@ export function useEditorMode(): [EditorMode, (m: EditorMode) => void] {
   ];
 }
 
-/** Simple / Pro switch. */
+/** Simple / Pro / Edit switch. */
 export function ModeSwitch({ mode, onChange, className = "" }: { mode: EditorMode; onChange: (m: EditorMode) => void; className?: string }) {
   return (
     <div className={`flex rounded-lg p-0.5 text-xs ${className}`} role="tablist" aria-label="Editor mode">
       {[
         [EditorMode.Simple, "Simple"],
         [EditorMode.Pro, "Pro"],
+        [EditorMode.Edit, "Edit"],
       ].map(([value, label]) => (
         <button
           key={value}
