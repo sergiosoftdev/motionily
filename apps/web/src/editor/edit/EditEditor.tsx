@@ -47,6 +47,9 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
   const [musicOn, setMusicOn] = useState(false);
   const selectedLayer = useEditor((s) => s.selectedLayerId);
   const selectedGroup = useEditor((s) => s.selectedGroup);
+  const [sceneW, sceneH] = useEditor((s) => s.sceneSize);
+  /** Taller than wide (9:16, 4:5): the preview takes a full-height column of its own. */
+  const tall = sceneH > sceneW;
   useTransportKeys(fps, true);
 
   // The selection is the editor's (canvas clicks select here too); only sound effects are local.
@@ -92,6 +95,38 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
     return () => window.removeEventListener("keydown", onKey, { capture: true });
   }, []);
 
+  const preview = (
+    <>
+      <Viewer canvas={ed.canvas} error={ed.error} maxWidth={PREVIEW_MAX_WIDTH} canvasClass="rounded-xl shadow-2xl shadow-black/50" />
+      <Transport duration={scene?.duration ?? 0} />
+    </>
+  );
+  const askAndInspector = (
+    <>
+      <div className="flex flex-col gap-2">
+        <AgentLine g={g} captioning={ed.captioning} />
+        {project && <AskBox g={g} hasScene={!!project.scene} projectId={ed.id} variant={AskVariant.Simple} />}
+      </div>
+      <Inspector selection={selection} scene={scene} ops={ops} edits={edits} />
+    </>
+  );
+  const timeline = (
+    <>
+      <div className="flex items-center gap-1 px-3 py-1.5 text-xs">
+        <ToolButton label="Split" hint="S" onClick={() => ops.split(selection?.kind === "clip" ? selection.clip : null)} />
+        <ToolButton label="Delete" hint="⌫" disabled={!selection} onClick={() => selection && (ops.remove(selection), setCue(null), setMusicOn(false))} />
+        <ToolButton label="Undo" hint="⌘Z" disabled={!edits.canUndo} onClick={edits.undo} />
+        <ToolButton label="Redo" hint="⇧⌘Z" disabled={!edits.canRedo} onClick={edits.redo} />
+        <span className="ml-auto truncate pl-3 text-neutral-600">Drag clips and blocks to move them, their edges to trim · ⌘ + wheel zooms</span>
+      </div>
+      {scene && tracks ? (
+        <EditTimeline scene={scene} tracks={tracks} selection={selection} onSelectCue={setCue} onSelectMusic={setMusicOn} edits={edits} />
+      ) : (
+        <p className="px-4 text-sm text-neutral-500">Loading…</p>
+      )}
+    </>
+  );
+
   return (
     <div className="flex h-dvh flex-col bg-neutral-950">
       <header className="flex items-center gap-4 px-5 py-2.5">
@@ -104,37 +139,32 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
         {project && <ExportButton name={project.name} audioUrl={project.audio ? mediaUrl(project.audio.url) : null} />}
       </header>
 
-      {/* The preview gets the whole middle column (a vertical reel needs the height); asking Claude lives on the right. */}
-      <div className="flex min-h-0 flex-1 gap-4 px-4 pb-2">
-        <MediaBin ed={ed} edits={edits} scene={scene} />
-        <main className="flex min-w-0 flex-1 flex-col items-center gap-2">
-          <Viewer canvas={ed.canvas} error={ed.error} maxWidth={PREVIEW_MAX_WIDTH} canvasClass="rounded-xl shadow-2xl shadow-black/50" />
-          <Transport duration={scene?.duration ?? 0} />
-        </main>
-        <aside className="flex w-80 shrink-0 flex-col gap-4 overflow-y-auto py-2">
-          <div className="flex flex-col gap-2">
-            <AgentLine g={g} captioning={ed.captioning} />
-            {project && <AskBox g={g} hasScene={!!project.scene} projectId={ed.id} variant={AskVariant.Simple} />}
+      {tall ? (
+        // Vertical video: the preview is a full-height column on the right; tools and timeline share the left.
+        <div className="flex min-h-0 flex-1 gap-5 px-4 pb-3">
+          <div className="flex min-w-0 flex-1 flex-col gap-3">
+            {/* Tools take what they need (up to half), the timeline the rest. */}
+            <div className="flex max-h-[50%] min-h-0 shrink-0 gap-4">
+              <MediaBin ed={ed} edits={edits} scene={scene} />
+              <aside className="flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto py-2">{askAndInspector}</aside>
+            </div>
+            <div className="flex min-h-44 flex-1 flex-col rounded-xl border border-neutral-900">{timeline}</div>
           </div>
-          <Inspector selection={selection} scene={scene} ops={ops} edits={edits} />
-        </aside>
-      </div>
-
-      {/* As tall as its tracks, up to 40% of the screen: the preview keeps the rest. */}
-      <div className="flex max-h-[40vh] min-h-44 shrink-0 flex-col border-t border-neutral-900">
-        <div className="flex items-center gap-1 px-3 py-1.5 text-xs">
-          <ToolButton label="Split" hint="S" onClick={() => ops.split(selection?.kind === "clip" ? selection.clip : null)} />
-          <ToolButton label="Delete" hint="⌫" disabled={!selection} onClick={() => selection && (ops.remove(selection), setCue(null), setMusicOn(false))} />
-          <ToolButton label="Undo" hint="⌘Z" disabled={!edits.canUndo} onClick={edits.undo} />
-          <ToolButton label="Redo" hint="⇧⌘Z" disabled={!edits.canRedo} onClick={edits.redo} />
-          <span className="ml-auto text-neutral-600">Drag clips and blocks to move them, their edges to trim · ⌘ + wheel zooms</span>
+          <main className="flex shrink-0 flex-col items-center gap-2" style={{ width: `min(45vw, calc((100dvh - 7rem) * ${sceneW / sceneH}))` }}>
+            {preview}
+          </main>
         </div>
-        {scene && tracks ? (
-          <EditTimeline scene={scene} tracks={tracks} selection={selection} onSelectCue={setCue} onSelectMusic={setMusicOn} edits={edits} />
-        ) : (
-          <p className="px-4 text-sm text-neutral-500">Loading…</p>
-        )}
-      </div>
+      ) : (
+        <>
+          <div className="flex min-h-0 flex-1 gap-4 px-4 pb-2">
+            <MediaBin ed={ed} edits={edits} scene={scene} />
+            <main className="flex min-w-0 flex-1 flex-col items-center gap-2">{preview}</main>
+            <aside className="flex w-80 shrink-0 flex-col gap-4 overflow-y-auto py-2">{askAndInspector}</aside>
+          </div>
+          {/* As tall as its tracks, up to 40% of the screen: the preview keeps the rest. */}
+          <div className="flex max-h-[40vh] min-h-44 shrink-0 flex-col border-t border-neutral-900">{timeline}</div>
+        </>
+      )}
     </div>
   );
 }
