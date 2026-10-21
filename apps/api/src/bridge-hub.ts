@@ -27,6 +27,17 @@ const MsgType = {
 export const BRIDGE_PATH = "/bridge";
 /** Mirrors HEADLESS_PARAM in @motionily/protocol. */
 const HEADLESS_PARAM = "headless";
+/** WebSocket close codes; they mirror BridgeClose in packages/protocol. */
+const BridgeClose = {
+  BadRole: 4400,
+  InvalidToken: 4401,
+  WrongProject: 4403,
+  NotFound: 4404,
+  /** The agent's invisible editor: a real one is open, or just replaced it. */
+  RealEditorOpen: 4409,
+  /** Another tab or window opened the same video and took over. */
+  OpenedElsewhere: 4410,
+} as const;
 
 /**
  * Routes live messages between the editor that shows a project and the agents
@@ -58,7 +69,7 @@ export class BridgeHub {
     try {
       payload = await this.jwt.verifyAsync<JwtPayload>(url.searchParams.get("token") ?? "");
     } catch {
-      return ws.close(4401, "invalid token");
+      return ws.close(BridgeClose.InvalidToken, "invalid token");
     }
     if (role === BridgeRole.Agent && payload.scope === TokenScope.Agent && payload.projectId) {
       return this.addAgent(ws, payload.projectId);
@@ -66,22 +77,24 @@ export class BridgeHub {
     const scope = payload.scope ?? TokenScope.User;
     if (role === BridgeRole.Editor && (scope === TokenScope.User || scope === TokenScope.Editor)) {
       const projectId = url.searchParams.get("project") ?? "";
-      if (scope === TokenScope.Editor && payload.projectId !== projectId) return ws.close(4403, "editor token is for another project");
+      if (scope === TokenScope.Editor && payload.projectId !== projectId) return ws.close(BridgeClose.WrongProject, "editor token is for another project");
       const headless = url.searchParams.has(HEADLESS_PARAM);
-      if (headless && this.editors.has(projectId)) return ws.close(4409, "a real editor is open");
+      if (headless && this.editors.has(projectId)) return ws.close(BridgeClose.RealEditorOpen, "a real editor is open");
       const owns = await this.projects.get(new Types.ObjectId(payload.sub), projectId).then(() => true, () => false);
-      if (!owns) return ws.close(4404, "project not found");
+      if (!owns) return ws.close(BridgeClose.NotFound, "project not found");
       return this.addEditor(ws, projectId, headless);
     }
-    ws.close(4400, "bad role");
+    ws.close(BridgeClose.BadRole, "bad role");
   }
 
   private headless = new Set<WebSocket>();
 
   private addEditor(ws: WebSocket, projectId: string, headless: boolean) {
     const previous = this.editors.get(projectId);
-    // A real editor replaces the agent's invisible one quietly; agents keep working.
-    previous?.close(4409, previous && this.headless.has(previous) ? "replaced by the user's editor" : "editor opened elsewhere");
+    // A real editor replaces the agent's invisible one quietly; agents keep working. Another real one (a second
+    // tab) is told it was opened elsewhere, so the two never take turns stealing the agent from each other.
+    if (previous && this.headless.has(previous)) previous.close(BridgeClose.RealEditorOpen, "replaced by the user's editor");
+    else previous?.close(BridgeClose.OpenedElsewhere, "editor opened elsewhere");
     if (headless) this.headless.add(ws);
     ws.on("close", () => this.headless.delete(ws));
     this.editors.set(projectId, ws);

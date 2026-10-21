@@ -4,6 +4,7 @@ import type { HeadlessEditor } from "./headless.js";
 import { NO_PROJECT } from "./api.js";
 import {
   BRIDGE_PATH,
+  BridgeClose,
   BridgeRole,
   EditorMessageType,
   HubMessageType,
@@ -125,7 +126,7 @@ export class EditorBridge {
       if (this.socket === ws) this.socket = null;
       this.editorOpen = false;
       if (this.closed) return;
-      if (code === 4401) {
+      if (code === BridgeClose.InvalidToken) {
         console.error("[motionily] the agent token was rejected; get a new one with 'Conectar agente'.");
         return;
       }

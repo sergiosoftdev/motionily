@@ -1,5 +1,6 @@
 import {
   BRIDGE_PATH,
+  BridgeClose,
   BridgeRole,
   HEADLESS_PARAM,
   EditorMessageType,
@@ -39,7 +40,7 @@ class AgentBridge {
     clearTimeout(this.retry);
     this.ws?.close();
     this.ws = null;
-    useEditor.setState({ agentConnected: false });
+    useEditor.setState({ agentConnected: false, openElsewhere: false });
     if (id) this.connect();
   }
 
@@ -55,11 +56,13 @@ class AgentBridge {
     this.ws = ws;
     ws.onopen = () => this.hello();
     ws.onmessage = (e) => this.handle(JSON.parse(e.data) as ServerMessage);
-    ws.onclose = () => {
+    ws.onclose = (e) => {
       if (this.ws !== ws) return;
       if (useEditor.getState().agentConnected) logActivity(ActivitySource.System, "Agent disconnected");
-      useEditor.setState({ agentConnected: false });
       this.ws = null;
+      // Another tab took the video: reconnecting would steal it back, and the two would take turns forever.
+      if (e.code === BridgeClose.OpenedElsewhere) return useEditor.setState({ agentConnected: false, openElsewhere: true });
+      useEditor.setState({ agentConnected: false });
       this.retry = setTimeout(() => this.connect(), RECONNECT_MS);
     };
   }

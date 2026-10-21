@@ -54,6 +54,19 @@ export type Feedback = {
 /** Query param marking the agent's headless editor (web page and bridge URL). */
 export const HEADLESS_PARAM = "headless";
 
+/** Why the hub closed a bridge socket (WebSocket close codes). */
+export const BridgeClose = {
+  BadRole: 4400,
+  InvalidToken: 4401,
+  WrongProject: 4403,
+  NotFound: 4404,
+  /** The agent's invisible editor: a real one is open, or just replaced it. It keeps retrying as a fallback. */
+  RealEditorOpen: 4409,
+  /** Another tab or window opened the same video and took over: this editor stops reconnecting. */
+  OpenedElsewhere: 4410,
+} as const;
+export type BridgeClose = (typeof BridgeClose)[keyof typeof BridgeClose];
+
 export const ServerMessageType = {
   ApplyOps: "apply_ops",
   LoadScene: "load_scene",

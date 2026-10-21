@@ -23,6 +23,8 @@ type EditorState = {
   engineError: string | null;
   adapter: string;
   agentConnected: boolean;
+  /** Another tab or window took this video over: this one stopped talking to the agent. */
+  openElsewhere: boolean;
   time: number;
   duration: number;
   playing: boolean;
@@ -48,6 +50,7 @@ export const useEditor = create<EditorState>(() => ({
   engineError: null,
   adapter: "",
   agentConnected: false,
+  openElsewhere: false,
   time: 0,
   duration: 0,
   playing: false,
