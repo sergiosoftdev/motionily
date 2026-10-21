@@ -150,40 +150,65 @@ function voiceFor(run: Run, beat: Beat): string {
 const CONTINUE_PROMPT = `The previous run of this video was interrupted. Continue it: read get_project and inspect, see which beats are
 already on screen, build only the missing ones (never clear what exists), then finish with review_video and fix what it shows.`;
 
-/** A moment of the cut where a sound can land: a layer enters or leaves, an animation starts, a phrase or an emphasis word. */
-type Moment = { at: number; kind: string; what: string };
+/** What happens at a moment of the cut. */
+const MomentKind = { Enter: "enter", Exit: "exit", Animation: "animation", Voice: "voice", Emphasis: "emphasis" } as const;
+type MomentKind = (typeof MomentKind)[keyof typeof MomentKind];
 
-/** The moments the sound pass places sounds on, read from the scene (the agent can't infer them from the brief). */
-function sceneMoments(scene: Record<string, unknown> | null): Moment[] {
-  const s = scene as { duration?: number; layers?: { id: string; start?: number; end?: number | null; anims?: { use: string; at?: number }[] }[]; captions?: { words?: { text: string; start: number; end: number; emphasis?: boolean }[] } } | null;
+/** A moment of the cut where a sound can land: a layer enters or leaves, an animation starts, a phrase or an emphasis word. */
+type Moment = { at: number; kind: MomentKind; what: string };
+
+/** A cue the team already placed covers the moments this close to it. */
+const CUE_COVERS_S = 0.4;
+
+/**
+ * The moments the sound pass places sounds on, read from the scene (the agent can't infer them from the brief).
+ * Moments next to a cue the team already placed are left out, so the pass fills gaps instead of doubling sounds.
+ */
+function sceneMoments(scene: Record<string, unknown> | null): { moments: Moment[]; placed: number } {
+  const s = scene as {
+    duration?: number;
+    layers?: { id: string; start?: number; end?: number | null; anims?: { use: string; at?: number }[] }[];
+    captions?: { words?: { text: string; start: number; end: number; emphasis?: boolean }[] };
+    sfx?: { at: number }[];
+  } | null;
   const duration = s?.duration ?? 0;
   const moments: Moment[] = [];
   for (const l of s?.layers ?? []) {
     const start = l.start ?? 0;
-    if (start > 0.05) moments.push({ at: start, kind: "entrada", what: l.id });
-    if (l.end != null && l.end < duration - 0.1) moments.push({ at: l.end, kind: "salida", what: l.id });
-    for (const a of l.anims ?? []) moments.push({ at: start + (a.at ?? 0), kind: "animation", what: `${l.id} ${a.use}` });
+    if (start > 0.05) moments.push({ at: start, kind: MomentKind.Enter, what: l.id });
+    if (l.end != null && l.end < duration - 0.1) moments.push({ at: l.end, kind: MomentKind.Exit, what: l.id });
+    for (const a of l.anims ?? []) moments.push({ at: start + (a.at ?? 0), kind: MomentKind.Animation, what: `${l.id} ${a.use}` });
   }
   const words = s?.captions?.words ?? [];
   words.forEach((w, i) => {
-    if (i === 0 || w.start - (words[i - 1]?.end ?? 0) > 0.6) moments.push({ at: w.start, kind: "voice", what: w.text });
-    if (w.emphasis) moments.push({ at: w.start, kind: "emphasis", what: w.text });
+    if (i === 0 || w.start - (words[i - 1]?.end ?? 0) > 0.6) moments.push({ at: w.start, kind: MomentKind.Voice, what: w.text });
+    if (w.emphasis) moments.push({ at: w.start, kind: MomentKind.Emphasis, what: w.text });
   });
+  const cues = (s?.sfx ?? []).map((c) => c.at);
   // Sorted, and never two moments closer than 0.25 s: one sound per beat of the picture, not a stream.
   moments.sort((a, b) => a.at - b.at);
   const kept: Moment[] = [];
-  for (const m of moments) if (!kept.length || m.at - kept[kept.length - 1]!.at >= 0.25) kept.push(m);
-  return kept.slice(0, 60);
+  for (const m of moments) {
+    if (cues.some((at) => Math.abs(at - m.at) < CUE_COVERS_S)) continue;
+    if (!kept.length || m.at - kept[kept.length - 1]!.at >= 0.25) kept.push(m);
+  }
+  return { moments: kept.slice(0, 60), placed: cues.length };
 }
 
 /** Last pass after the cut is built: sound effects always land on the timeline, whatever the builders did. */
-const SOUND_GUIDE = `You are Motionily's sound designer. The video is already built. You get its moments: exact times
-where something happens on screen or in the voice. Your only job is to choose one sound per moment and place it there.
+const SOUND_GUIDE = `You are Motionily's sound designer. The video is already built. You get its moments (exact times
+where something happens on screen or in the voice) and its brief, which sets the tone. Choose at most one sound per
+moment and place it there.
 1. list_sounds for the user's library. Use only sounds from it.
-2. Sound by kind: entrada → pop or whoosh_rapido · animación → whoosh (start it ~0.1 s before the moment) ·
-   salida → click or tick · voz → tick, very quiet · énfasis → impacto or golpe_seco, a little louder.
-3. Skip moments that do not need sound. Keep gains between 0.5 and 0.8. Never place two cues in the same 0.25 s.
-4. ONE add_sfx with one line per cue: "id sound_name at [gain]", at = the moment's time. Change nothing else.
+2. Match the tone of the brief first.
+   - Upbeat, product or playful videos: enter → pop or whoosh_fast · animation → whoosh (start it ~0.1 s before the
+     moment) · exit → click or tick · voice → tick, very quiet · emphasis → impact or hit_dry, a little louder.
+   - Serious, documentary, historical or emotional videos: never pops, dings or other cheerful sounds. Soft whooshes
+     on moves, ticks and dry hits on entrances, low booms only on the heaviest moments; leaving a moment silent is fine.
+3. Skip moments that do not need sound. Gains 0.3-0.6 under a voice, up to 0.8 without one. Never two cues in the
+   same 0.25 s.
+4. Cues the team already placed stay: never remove or move them. Your ids start with "snd_" so they never replace one.
+5. ONE add_sfx with one line per cue: "id sound_name at [gain]", at = the moment's time. Change nothing else.
 Reply with one short sentence: how many cues and why you skipped the rest.`;
 
 /** Plans the video and sets the look; builders do the heavy writing in parallel. */
@@ -259,7 +284,7 @@ const SOLO_STEPS = `Build it STEP BY STEP, as ONE continuous world the camera tr
 2. Write ONE short line of plain text in English: the art direction. Then apply_ops (palette, duration), set_font and
    ONE add_layers with ONLY the world: the background and the camera "cam" keyed for the whole film, visiting one
    region per beat.
-3. Then each beat IN ORDER: first a plain-text line "Escena N: <what it shows>" (the user sees it), then ONE add_layers
+3. Then each beat IN ORDER: first a plain-text line "Scene N: <what it shows>" (the user sees it), then ONE add_layers
    with only that beat's layers (its own group), then get_layout at its key instants and fix what is off. Never put
    two beats in one add_layers, and do not design the next beat until this one is on screen.
 4. When every beat is in: review_video, fix, review again until clean (max 3 rounds).`;
@@ -513,21 +538,29 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
     const results: ResultLine[] = [];
     this.push(run, GenerateEventKind.Phase, GeneratePhase.Sound);
     try {
-      const moments = sceneMoments(await this.projects.sceneOf(run.projectId!));
+      const { scene, brief } = await this.projects.soundInputOf(run.projectId!);
+      const { moments, placed } = sceneMoments(scene);
+      if (placed && !moments.length) {
+        this.push(run, GenerateEventKind.Text, `Sound: the team already placed ${placed} cues, so nothing was added.`);
+        return sumUsage(results, t0, { ...o, model: "sound", effort: undefined });
+      }
       const list = moments.map((m) => `${m.at.toFixed(2)} ${m.kind} ${m.what}`).join("\n");
+      const tone = brief.trim() ? `Brief (sets the tone):\n${brief.trim().slice(0, 1200)}\n\n` : "";
+      const team = placed ? `The team already placed ${placed} cues; keep them and add only on these free moments.\n` : "";
       const prompt = moments.length
-        ? `Place sounds on these moments of the cut (seconds, kind, what). Use the time exactly as written, one add_sfx call:\n${list}`
-        : "Add the sound effects to this video.";
+        ? `${tone}${team}Place sounds on these moments of the cut (seconds, kind, what). Use the time exactly as written, one add_sfx call:\n${list}`
+        : `${tone}Add the sound effects to this video.`;
       const r = await this.agent(run, prompt, SOUND_GUIDE, { ...o, effort: AgentEffort.Low }, "sound", ROLE_TOOLS.sound);
       results.push(r.result);
       // What the sound agent says it did, so an empty result is visible in the log instead of silent.
-      this.push(run, GenerateEventKind.Text, `Sonido: ${r.text}`);
-      run.summary = r.text;
+      this.push(run, GenerateEventKind.Text, `Sound: ${r.text}`);
+      // The builders' summary describes the video; the sound line only stands in when there is none.
+      if (!run.summary) run.summary = r.text;
     } catch (e) {
-      this.push(run, GenerateEventKind.Error, `sonido: ${(e as Error).message}`);
-      run.summary = `Sonido: ${(e as Error).message}`;
+      this.push(run, GenerateEventKind.Error, `sound: ${(e as Error).message}`);
+      if (!run.summary) run.summary = `Sound: ${(e as Error).message}`;
     }
-    return sumUsage(results, t0, { ...o, model: "sonido", effort: undefined });
+    return sumUsage(results, t0, { ...o, model: "sound", effort: undefined });
   }
 
   private async single(run: Run, prompt: string, o: AgentOpts): Promise<AgentRunUsage> {

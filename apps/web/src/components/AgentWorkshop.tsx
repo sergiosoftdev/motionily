@@ -16,8 +16,8 @@ const SOLO_PHASES: { id: Phase; label: string }[] = [
 ];
 /** Role tag of the premium designer's events. */
 const DESIGN_ROLE = "design";
-/** The premium designer announces each beat as "Escena N: …" before building it. */
-const SCENE_LINE = /^Escena \d+\s*[:.·-]\s*(.*)$/i;
+/** The premium designer announces each beat as "Scene N: …" before building it (older runs: "Escena N: …"). */
+const SCENE_LINE = /^(?:Scene|Escena) \d+\s*[:.·-]\s*(.*)$/i;
 /** After this long without a tool call, say when the last step was (the agent is writing or thinking). */
 const QUIET_MS = 20_000;
 
@@ -65,7 +65,7 @@ export function readState(state: GenerateState) {
       const l = lanes.find((x) => x.group === e.text);
       if (l) l.done = true;
     } else if (e.kind === GenerateEventKind.Text && TAG.exec(e.text)?.[1] === DESIGN_ROLE) {
-      // A message may hold more prose around its "Escena N:" line.
+      // A message may hold more prose around its "Scene N:" line.
       const lines = TAG.exec(e.text)![2]!.split("\n").map((l) => l.trim()).filter(Boolean);
       const scenes = lines.flatMap((l) => SCENE_LINE.exec(l)?.[1] ?? []);
       if (scenes.length) design.scenes.push(...scenes);
@@ -148,7 +148,7 @@ export function AgentWorkshop({ state }: { state: GenerateState }) {
             <ul className="flex flex-col gap-0.5 pl-10 text-[10px] text-neutral-500">
               {design.scenes.slice(0, -1).map((sc, i) => (
                 <li key={i} className="truncate">
-                  <span className="text-emerald-400">✓</span> Escena {i + 1} · {sc}
+                  <span className="text-emerald-400">✓</span> Scene {i + 1} · {sc}
                 </li>
               ))}
             </ul>

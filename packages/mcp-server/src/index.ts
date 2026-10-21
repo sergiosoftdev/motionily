@@ -589,7 +589,7 @@ server.registerTool(
   },
   guard(async () => {
     const rows = await api.sounds();
-    return text(rows.map((s) => `${s.name} | ${s.category} | ${s.duration}s | ${s.description}`).join("\n") || "No sounds yet: the user can create them in Sonidos.");
+    return text(rows.map((s) => `${s.name} | ${s.category} | ${s.duration}s | ${s.description}`).join("\n") || "No sounds yet: the user can create them in Sounds.");
   }),
 );
 

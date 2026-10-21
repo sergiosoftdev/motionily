@@ -40,8 +40,10 @@ export class ProjectsService {
   }
 
   /** The scene as it is saved now (the build may have changed it since the run started). */
-  async sceneOf(id: string) {
-    return (await this.projects.findById(id, { scene: 1 }).lean())?.scene ?? null;
+  /** What the sound pass reads: the cut and the brief that sets its tone. */
+  async soundInputOf(id: string) {
+    const p = await this.projects.findById(id, { scene: 1, brief: 1 }).lean();
+    return { scene: (p?.scene ?? null) as Record<string, unknown> | null, brief: p?.brief ?? "" };
   }
 
   async buildPlanOf(id: string) {
