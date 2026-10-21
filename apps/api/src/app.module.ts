@@ -25,6 +25,8 @@ import { PrefabsService } from "./prefabs/prefabs.service";
 import { PrefabsController } from "./prefabs/prefabs.controller";
 import { FontsController } from "./fonts";
 import { ImagesController } from "./images/images.controller";
+import { VoiceController } from "./voice/voice.controller";
+import { VoiceService } from "./voice/voice.service";
 
 @Module({
   imports: [
@@ -52,7 +54,7 @@ import { ImagesController } from "./images/images.controller";
       }),
     }),
   ],
-  controllers: [AuthController, BricksController, ProjectsController, MediaController, ReferencesController, FontsController, BrandsController, PrefabsController, SoundsController, ImagesController],
-  providers: [BricksService, ProjectsService, GenerateService, PrefabsService, BrandsService, ConceptsService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
+  controllers: [AuthController, BricksController, ProjectsController, MediaController, ReferencesController, FontsController, BrandsController, PrefabsController, SoundsController, ImagesController, VoiceController],
+  providers: [BricksService, ProjectsService, GenerateService, PrefabsService, BrandsService, ConceptsService, VoiceService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
 })
 export class AppModule {}

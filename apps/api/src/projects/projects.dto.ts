@@ -7,6 +7,7 @@ import {
   IsMongoId,
   IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
   IsNumber,
   IsObject,
@@ -17,6 +18,7 @@ import {
   MinLength,
 } from "class-validator";
 import { FeedbackKind, VideoFormat } from "./project.schema";
+import { VoiceModel } from "../voice/elevenlabs";
 
 /** Reference images per prompt. */
 export const MAX_REFERENCES = 8;
@@ -101,4 +103,14 @@ export class GenerateDto {
   @IsOptional() @IsBoolean() sfxOnly?: boolean;
   /** Images pasted with the request. */
   @IsOptional() @IsArray() @ArrayMaxSize(MAX_REFERENCES) @Matches(MEDIA_PATH, { each: true }) references?: string[];
+}
+
+/** Read the video's script aloud with one of the user's ElevenLabs voices. */
+export class GenerateVoiceDto {
+  @IsString() @Matches(/^[A-Za-z0-9]{8,40}$/) voiceId: string;
+  /** Shown as the audio's name. */
+  @IsOptional() @IsString() @MaxLength(80) voiceName?: string;
+  @IsOptional() @IsIn(Object.values(VoiceModel)) modelId?: VoiceModel;
+  /** The script to read; it also becomes the video's script. Defaults to the saved one. */
+  @IsOptional() @IsString() @MaxLength(40_000) text?: string;
 }

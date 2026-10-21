@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { VideoFormat } from "@motionily/protocol";
+import { VideoFormat, type Voice, type VoiceModel } from "@motionily/protocol";
 import { FORMAT_OPTIONS } from "../components/FormatPicker";
 import { Logo } from "../components/Logo";
 import { api, type Concept } from "../api/client";
@@ -7,6 +7,7 @@ import { href, navigate, BrandTab, RouteName } from "../router";
 import { requestPipeline, VideoPipeline } from "../pipeline";
 import { ReferenceStrip, useReferences } from "../components/References";
 import { ModePicker } from "../components/ModePicker";
+import { VoicePicker } from "../voice/ElevenLabs";
 import { AgentEffort, AgentModel, loadPrefs, savePrefs, type AgentPrefs } from "../components/GeneratePanel";
 
 const Step = {
@@ -24,8 +25,8 @@ type Step = (typeof Step)[keyof typeof Step];
 const VISIBLE: { step: Step; label: string }[] = [
   { step: Step.Idea, label: "Idea" },
   { step: Step.Format, label: "Format" },
-  { step: Step.Count, label: "Propuestas" },
-  { step: Step.Pick, label: "Enfoque" },
+  { step: Step.Count, label: "Ideas" },
+  { step: Step.Pick, label: "Angle" },
   { step: Step.Script, label: "Script" },
   { step: Step.Voice, label: "Voice" },
 ];
@@ -105,20 +106,30 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
     if (failed === count) setStep(Step.Count);
   };
 
-  const finish = async (voice: File | null) => {
+  /** The video, once created: a failed voice is retried on it instead of creating another. */
+  const created = useRef<string | null>(null);
+  const create = async (c: Concept) => (created.current ??= (await api.createProject(c.title.slice(0, 80), c.prompt, format, brandId, c.voiceover, refs.refs)).id);
+
+  /** Open the editor on the new video; with a voice, it captions it first and then builds. */
+  const open = async (addVoice: (id: string) => Promise<unknown> | null) => {
     if (!chosen) return;
     setBusy(true);
     setError(null);
     try {
-      const p = await api.createProject(chosen.title.slice(0, 80), chosen.prompt, format, brandId, chosen.voiceover, refs.refs);
-      if (voice) await api.uploadAudio(p.id, voice);
-      requestPipeline(p.id, voice ? VideoPipeline.TranscribeThenGenerate : VideoPipeline.Generate);
-      navigate({ name: RouteName.Editor, id: p.id });
+      const id = await create(chosen);
+      const voiced = addVoice(id);
+      if (voiced) await voiced;
+      requestPipeline(id, voiced ? VideoPipeline.TranscribeThenGenerate : VideoPipeline.Generate);
+      navigate({ name: RouteName.Editor, id });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setBusy(false);
     }
   };
+  const finish = (voice: File | null) => open((id) => (voice ? api.uploadAudio(id, voice) : null));
+  /** ElevenLabs reads the script with the user's voice: every word comes timed. */
+  const finishWithVoice = (voice: Voice, model: VoiceModel) =>
+    open((id) => api.generateVoice(id, { voiceId: voice.id, voiceName: voice.name, modelId: model, text: chosen?.voiceover }));
 
   const current = step === Step.Thinking ? Step.Pick : step;
   const index = VISIBLE.findIndex((v) => v.step === current);
@@ -267,7 +278,7 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
                 <span className="text-base font-semibold text-white">{chosen.title}</span>
                 <span>{chosen.direction}</span>
                 <span className="text-xs text-neutral-500">
-                  {wordCount(chosen.voiceover)} palabras · ~{Math.round(wordCount(chosen.voiceover) / WORDS_PER_SECOND)} s de voz
+                  {wordCount(chosen.voiceover)} words · ~{Math.round(wordCount(chosen.voiceover) / WORDS_PER_SECOND)} s of voice
                 </span>
                 <CopyButton text={chosen.voiceover} />
               </aside>
@@ -277,8 +288,14 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
         )}
 
         {step === Step.Voice && chosen && (
-          <Panel key={step} kicker="Step 6" title="Add the voice" hint="Paste the script into ElevenLabs, generate and download the mp3. Upload it here and Claude will tie every shot to your words.">
-            <VoiceDrop busy={busy} onFile={(f) => void finish(f)} />
+          <Panel key={step} kicker="Step 6" title="Add the voice" hint="Pick one of your ElevenLabs voices and Motionily reads the script for you, every word timed. Or drop a recording you already have.">
+            <div className="grid gap-4 lg:grid-cols-[3fr_2fr]">
+              <div className="flex flex-col gap-4 rounded-3xl bg-white/[0.03] p-6 ring-1 ring-white/10">
+                <span className="text-xl font-semibold">Generate it with ElevenLabs</span>
+                <VoicePicker cta="Generate the voice and build" busy={busy} onGenerate={(v, m) => void finishWithVoice(v, m)} />
+              </div>
+              <VoiceDrop busy={busy} onFile={(f) => void finish(f)} />
+            </div>
             <div className="flex max-w-xl flex-col gap-2">
               <span className="text-sm text-neutral-400">How should we build it?</span>
               <ModePicker prefs={prefs} onChange={updatePrefs} />
@@ -500,8 +517,8 @@ function VoiceDrop({ busy, onFile }: { busy: boolean; onFile: (f: File) => void 
       }`}
     >
       <input ref={input} type="file" accept="audio/*,video/*" className="hidden" onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
-      <span className="text-2xl font-semibold">{busy ? "Preparing your video…" : "Drop your ElevenLabs mp3 here"}</span>
-      <span className="text-sm text-neutral-500">{busy ? "Uploading the voice and opening the editor" : "or click to choose it"}</span>
+      <span className="text-2xl font-semibold">{busy ? "Preparing your video…" : "Drop your recording here"}</span>
+      <span className="text-sm text-neutral-500">{busy ? "Adding the voice and opening the editor" : "mp3, wav or a video · or click to choose it"}</span>
     </div>
   );
 }

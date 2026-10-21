@@ -57,7 +57,7 @@ function VoiceScript({ script, hasVoice }: { script: string; hasVoice: boolean }
       </div>
       <p className="max-h-40 overflow-y-auto whitespace-pre-wrap text-xs leading-relaxed text-neutral-300">{script}</p>
       <span className="text-xs text-neutral-500">
-        {hasVoice ? "Voice uploaded: the agent ties the video to its words." : "Paste it into ElevenLabs, download the mp3 and upload it below. Then hit Generate."}
+        {hasVoice ? "The voice is in: the agent ties the video to its words." : "Generate it below with one of your ElevenLabs voices, or upload your own recording."}
       </span>
     </section>
   );

@@ -334,7 +334,8 @@ export type Project = {
   brandId: string | null;
   misfits: string[];
   scene: Record<string, unknown> | null;
-  audio: { url: string; name: string; mime: string } | null;
+  /** The voice-over; `words` is set when it was generated with ElevenLabs (exact timing, no transcription needed). */
+  audio: { url: string; name: string; mime: string; words?: VoiceWord[] | null } | null;
   sceneRevision: number;
   /** Tokens and cost of each agent run on this video (newest last). */
   agentRuns: AgentRunUsage[];
@@ -344,5 +345,15 @@ export type Project = {
 };
 
 export type ProjectListItem = { _id: string; name: string; build: Build; format?: VideoFormat; brandId?: string; updatedAt: string; generating?: boolean };
+
+/** A spoken word and when it is said, in seconds. */
+export type VoiceWord = { text: string; start: number; end: number };
+
+/** ElevenLabs text-to-speech models the user can pick. */
+export const VoiceModel = { V4: "eleven_v4", V3: "eleven_v3", MultilingualV2: "eleven_multilingual_v2", FlashV25: "eleven_flash_v2_5" } as const;
+export type VoiceModel = (typeof VoiceModel)[keyof typeof VoiceModel];
+
+/** A voice in the user's ElevenLabs account. */
+export type Voice = { id: string; name: string; category: string | null; description: string | null; labels: Record<string, string>; previewUrl: string | null };
 
 export type User = { id: string; email: string; name: string; avatarUrl: string | null; provider: string };

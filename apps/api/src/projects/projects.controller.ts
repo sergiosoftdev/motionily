@@ -14,6 +14,8 @@ import {
   UploadedFile,
   UseInterceptors,
 } from "@nestjs/common";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { diskStorage } from "multer";
 import { MAX_AUDIO_BYTES, MEDIA_DIR, mediaName, removeMedia } from "../media";
@@ -29,7 +31,9 @@ import { BrandsService } from "../brands/brands.service";
 import { brandView } from "../brands/brands.controller";
 import { ClonePrefabDto, PREFAB_NAME, SavePrefabDto } from "../prefabs/prefabs.dto";
 import { GenerateService } from "./generate.service";
-import { CreateFeedbackDto, CreateProjectDto, GenerateDto, SaveSceneDto, SetSlotDto, UpdateProjectDto } from "./projects.dto";
+import { CreateFeedbackDto, CreateProjectDto, GenerateDto, GenerateVoiceDto, SaveSceneDto, SetSlotDto, UpdateProjectDto } from "./projects.dto";
+import { VoiceService } from "../voice/voice.service";
+import { VoiceModel } from "../voice/elevenlabs";
 import type { ProjectDocument } from "./project.schema";
 
 @Controller("projects")
@@ -41,6 +45,7 @@ export class ProjectsController {
     private readonly generator: GenerateService,
     private readonly prefabs: PrefabsService,
     private readonly brands: BrandsService,
+    private readonly voice: VoiceService,
   ) {}
 
   /** The brand kit of the project this video belongs to (agents read it to design on-brand). */
@@ -185,6 +190,27 @@ export class ProjectsController {
     return this.view(project);
   }
 
+  /**
+   * The voice-over generated with the user's ElevenLabs key, stored like an uploaded file plus
+   * when each word is said (captions and timing need no transcription). Replaces the previous one.
+   */
+  @Post(":id/voice")
+  async generateVoice(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: GenerateVoiceDto) {
+    userOnly(user);
+    const project = await this.projects.get(user.id, id);
+    const text = (dto.text ?? project.voiceScript).trim();
+    if (!text) throw new BadRequestException("there is no script to read yet: write it first");
+    const model = dto.modelId ?? VoiceModel.V4;
+    const { audio, words } = await this.voice.speak(user.id, dto.voiceId, text, model);
+    const file = mediaName("voice.mp3");
+    await writeFile(join(MEDIA_DIR, file), audio);
+    if (dto.text !== undefined && dto.text !== project.voiceScript) await this.projects.update(user.id, id, { voiceScript: dto.text });
+    const name = `${dto.voiceName ?? "Voice"} · ElevenLabs.mp3`;
+    const { project: saved, previous } = await this.projects.setAudio(user.id, id, { file, name, mime: "audio/mpeg", words, voice: { voiceId: dto.voiceId, model } });
+    await removeMedia(previous);
+    return this.view(saved);
+  }
+
   @Delete(":id/audio")
   async deleteAudio(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     userOnly(user);
@@ -242,7 +268,7 @@ export class ProjectsController {
       brandId: p.brandId?.toString() ?? null,
       misfits: await this.projects.misfits(p),
       scene: p.scene,
-      audio: p.audio ? { url: `/media/${p.audio.file}`, name: p.audio.name, mime: p.audio.mime } : null,
+      audio: p.audio ? { url: `/media/${p.audio.file}`, name: p.audio.name, mime: p.audio.mime, words: p.audio.words ?? null } : null,
       sceneRevision: p.sceneRevision,
       agentRuns: p.agentRuns ?? [],
       imageCredits: p.imageCredits ?? [],

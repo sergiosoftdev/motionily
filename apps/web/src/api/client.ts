@@ -1,4 +1,4 @@
-import type { AgentRunUsage, Brick, BrickSlot, Project, ProjectListItem, User, VideoFormat } from "@motionily/protocol";
+import type { AgentRunUsage, Brick, BrickSlot, Project, ProjectListItem, User, VideoFormat, Voice, VoiceModel } from "@motionily/protocol";
 import { useSession } from "../session";
 import type { SoundRecipe } from "../audio/synth";
 import type { AgentPrefs, GenerateState } from "../components/GeneratePanel";
@@ -7,6 +7,8 @@ export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3100";
 
 export const AssetKind = { Logo: "logo", Screenshot: "screenshot", Photo: "photo", Video: "video", Other: "other" } as const;
 export type AssetKind = (typeof AssetKind)[keyof typeof AssetKind];
+/** Whether the user connected their ElevenLabs key, and its last characters. */
+export type ElevenLabsStatus = { connected: boolean; hint: string | null };
 export type BrandPalette = { name: string; background: string; surface: string; primary: string; accent: string; text: string };
 export type BrandAsset = {
   id: string;
@@ -146,4 +148,11 @@ export const api = {
   generateStatus: (id: string) => call<GenerateState>(HttpMethod.Get, `/projects/${id}/generate`),
   stopGenerate: (id: string) => call<GenerateState>(HttpMethod.Delete, `/projects/${id}/generate`),
   uploadAudio: (id: string, file: File) => upload<Project>(`/projects/${id}/audio`, file),
+  /** The user's ElevenLabs connection (their own key, kept encrypted by the API). */
+  elevenLabs: () => call<ElevenLabsStatus>(HttpMethod.Get, "/voice/elevenlabs"),
+  connectElevenLabs: (apiKey: string) => call<ElevenLabsStatus>(HttpMethod.Put, "/voice/elevenlabs", { apiKey }),
+  disconnectElevenLabs: () => call<ElevenLabsStatus>(HttpMethod.Delete, "/voice/elevenlabs"),
+  voices: () => call<Voice[]>(HttpMethod.Get, "/voice/voices"),
+  /** Read the script aloud with an ElevenLabs voice; the project comes back with the audio and its words. */
+  generateVoice: (id: string, body: { voiceId: string; voiceName?: string; modelId?: VoiceModel; text?: string }) => call<Project>(HttpMethod.Post, `/projects/${id}/voice`, body),
 };

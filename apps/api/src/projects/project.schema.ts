@@ -62,7 +62,8 @@ export class Project {
   /** Engine scene (see crates/scene). Null until the agent builds the first cut. */
   @Prop({ type: MongooseSchema.Types.Mixed, default: null }) scene: Record<string, unknown> | null;
   /** Voice-over / music uploaded by the user. Served from /media/:file. */
-  @Prop({ type: MongooseSchema.Types.Mixed, default: null }) audio: { file: string; name: string; mime: string } | null;
+  /** The voice-over. Generated with ElevenLabs it carries each word's timing (`words`), so captions need no transcription. */
+  @Prop({ type: MongooseSchema.Types.Mixed, default: null }) audio: { file: string; name: string; mime: string; words?: { text: string; start: number; end: number }[]; voice?: { voiceId: string; model: string } } | null;
   /** Bumped on every scene save; clients send it back to avoid overwriting newer edits. */
   @Prop({ default: 0 }) sceneRevision: number;
   /** What each agent run cost (newest last), to see where tokens go. */
