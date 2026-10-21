@@ -1,5 +1,6 @@
 import { mediaUrl } from "../api/client";
 import type { SfxCue } from "../audio/sfxPlayer";
+import { DEFAULT_SFX_VOLUME } from "@motionily/protocol";
 import {
   AudioBufferSource,
   BufferTarget,
@@ -100,7 +101,7 @@ export async function exportVideo(opts: {
   const mp4 = await canEncodeVideo("avc", { width, height });
   const videoCodec = mp4 ? "avc" : "vp9";
   const audioCodec = mp4 ? "aac" : "opus";
-  const cues = (scene.sfx ?? []).map((c) => ({ ...c, gain: (c.gain ?? 1) * (scene.sfx_volume ?? 1) }));
+  const cues = (scene.sfx ?? []).map((c) => ({ ...c, gain: (c.gain ?? 1) * (scene.sfx_volume ?? DEFAULT_SFX_VOLUME) }));
   const hasClipSound = (scene.layers ?? []).some((l) => l.type === VIDEO_LAYER && (l.volume ?? 0) > 0);
   const withAudio = (!!opts.audioUrl || cues.length > 0 || hasClipSound) && (await canEncodeAudio(audioCodec));
 

@@ -54,6 +54,9 @@ export type Feedback = {
 /** Query param marking the agent's headless editor (web page and bridge URL). */
 export const HEADLESS_PARAM = "headless";
 
+/** Effects master volume of a new scene (cue gain × this): 10 %, so effects never drown the voice. Mirrors the engine. */
+export const DEFAULT_SFX_VOLUME = 0.1;
+
 /** Why the hub closed a bridge socket (WebSocket close codes). */
 export const BridgeClose = {
   BadRole: 4400,

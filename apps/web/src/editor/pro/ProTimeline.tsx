@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { OpName, type Op } from "@motionily/protocol";
+import { DEFAULT_SFX_VOLUME, OpName, type Op } from "@motionily/protocol";
 import { sfxPlayer, type SfxCue } from "../../audio/sfxPlayer";
 import { apply, commit, preview } from "../../editing/direct";
 import { retimeGroupOps } from "../../editing/groups";
@@ -378,7 +378,7 @@ export function ProTimeline({ scene, audioUrl }: { scene: SceneView | null; audi
 
   const words = scene?.captions?.words ?? [];
   const sfx = scene?.sfx ?? [];
-  const sfxVolume = scene?.sfx_volume ?? 1;
+  const sfxVolume = scene?.sfx_volume ?? DEFAULT_SFX_VOLUME;
   const audioLeft = (color: string, name: string, extra?: ReactNode) => (
     <>
       <span className="flex w-6 shrink-0 justify-center text-[#8a8a8a]">

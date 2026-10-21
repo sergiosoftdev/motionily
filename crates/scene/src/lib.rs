@@ -99,16 +99,19 @@ pub struct Scene {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sfx: Vec<SfxCue>,
     /// Master level of every sound effect (cue gain × this), set by the user in the editor.
-    #[serde(default = "unit_volume", skip_serializing_if = "is_unit_volume")]
+    #[serde(default = "default_sfx_volume", skip_serializing_if = "is_default_sfx_volume")]
     pub sfx_volume: f32,
 }
 
-fn unit_volume() -> f32 {
-    1.0
+/// Effects start at 10 %: under a voice-over, cues at full level drown it. Mirrors DEFAULT_SFX_VOLUME in packages/protocol.
+pub const DEFAULT_SFX_VOLUME: f32 = 0.1;
+
+fn default_sfx_volume() -> f32 {
+    DEFAULT_SFX_VOLUME
 }
 
-fn is_unit_volume(v: &f32) -> bool {
-    *v == 1.0
+fn is_default_sfx_volume(v: &f32) -> bool {
+    *v == DEFAULT_SFX_VOLUME
 }
 
 fn scene_version() -> u32 {
@@ -155,7 +158,7 @@ impl Default for Scene {
             captions: None,
             transitions: Vec::new(),
             sfx: Vec::new(),
-            sfx_volume: 1.0,
+            sfx_volume: DEFAULT_SFX_VOLUME,
         }
     }
 }
@@ -737,7 +740,7 @@ impl Scene {
             self.sfx.iter().map(|c| format!("{}@{:.2}", c.sound, c.at)).collect::<Vec<_>>().join(",")
         );
         // The user turned effects down (or up) by hand: keep new cues in proportion, never undo it.
-        if self.sfx_volume != 1.0 {
+        if self.sfx_volume != DEFAULT_SFX_VOLUME {
             let _ = writeln!(s, "sfx volume: {:.0}% (set by the user; leave it)", self.sfx_volume * 100.0);
         }
         for l in &self.layers {

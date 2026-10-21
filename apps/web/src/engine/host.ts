@@ -1,6 +1,6 @@
 import init, { Engine, analyzeAudio, captionStyles, checkSceneShaders, clearAudioAnalysis, stylePalettes, stylePresets } from "./pkg/engine_wasm.js";
 import { sfxPlayer, type SfxCue } from "../audio/sfxPlayer";
-import type { CaptionStyle, FrameLayout, Op, ReviewReport, StylePreset } from "@motionily/protocol";
+import { DEFAULT_SFX_VOLUME, type CaptionStyle, type FrameLayout, type Op, type ReviewReport, type StylePreset } from "@motionily/protocol";
 import { DEFAULT_FONT_FAMILY, fontFilesFor, text3dFonts } from "./fonts";
 import { decodeBytes, decodePng, modelFileUrl, modelUrl, packOf, packTextureUrl, type Pixels } from "./models";
 import { mediaUrl } from "../api/client";
@@ -464,7 +464,7 @@ class EngineHost {
     if (!this.engine) return [];
     const scene = JSON.parse(this.sceneJson()) as { sfx?: SfxCue[]; sfx_volume?: number };
     // The user's effects slider scales every cue.
-    return (scene.sfx ?? []).map((c) => ({ ...c, gain: (c.gain ?? 1) * (scene.sfx_volume ?? 1) }));
+    return (scene.sfx ?? []).map((c) => ({ ...c, gain: (c.gain ?? 1) * (scene.sfx_volume ?? DEFAULT_SFX_VOLUME) }));
   }
 
   private tick = (now: number) => {
