@@ -4,6 +4,8 @@ struct Globals {
     scene_size: vec2<f32>,
     linearize: f32,
     time: f32,
+    // Flat-space origin of the pass: 0 for the scene, the plane origin inside a tilted plane.
+    origin: vec2<f32>,
 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
@@ -40,7 +42,7 @@ fn vs(@builtin(vertex_index) vi: u32, q: Quad) -> VsOut {
     let s = sin(q.params.y);
     let p = q.center + vec2(local.x * c - local.y * s, local.x * s + local.y * c);
     var out: VsOut;
-    out.pos = vec4(p.x / g.scene_size.x * 2.0 - 1.0, 1.0 - p.y / g.scene_size.y * 2.0, 0.0, 1.0);
+    out.pos = vec4((p.x - g.origin.x) / g.scene_size.x * 2.0 - 1.0, 1.0 - (p.y - g.origin.y) / g.scene_size.y * 2.0, 0.0, 1.0);
     out.local = local;
     out.half = half;
     out.uv = mix(q.uv.xy, q.uv.zw, corner * 0.5 + 0.5);

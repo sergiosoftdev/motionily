@@ -7,6 +7,8 @@ struct Globals {
     linearize: f32,
     // Seconds into the scene.
     time: f32,
+    // Flat-space origin of the pass: 0 for the scene, the plane origin inside a tilted plane.
+    origin: vec2<f32>,
 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
@@ -69,7 +71,7 @@ fn vs(@builtin(vertex_index) vi: u32, inst: Instance) -> VsOut {
     let c = cos(inst.params.y);
     let s = sin(inst.params.y);
     let p = inst.box.xy + vec2(local.x * c - local.y * s, local.x * s + local.y * c);
-    let ndc = vec2(p.x / g.scene_size.x * 2.0 - 1.0, 1.0 - p.y / g.scene_size.y * 2.0);
+    let ndc = vec2((p.x - g.origin.x) / g.scene_size.x * 2.0 - 1.0, 1.0 - (p.y - g.origin.y) / g.scene_size.y * 2.0);
 
     var out: VsOut;
     out.pos = vec4(ndc, 0.0, 1.0);

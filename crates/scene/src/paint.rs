@@ -664,6 +664,10 @@ pub struct DrawFx {
     /// 3D layer: the flat result is projected through this inverse homography (row-major, scene
     /// px of the screen -> scene px of the flat layer).
     pub perspective: Option<[f32; 9]>,
+    /// Tilted plane: the flat space its offscreen pass covers starts here (scene px). The plane
+    /// is drawn shifted by −origin, so content up to half a frame from the plane's center is never
+    /// cut at the scene edges. `[0, 0]` for everything else.
+    pub plane_origin: [f32; 2],
 }
 
 /// Camera distance (px) for 3D layers when none is given: a natural, slightly wide lens.

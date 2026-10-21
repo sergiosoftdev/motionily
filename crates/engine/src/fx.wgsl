@@ -21,6 +21,8 @@ struct Params {
     h0: vec4<f32>,
     h1: vec4<f32>,
     h2: vec4<f32>,
+    // Projected (tilted plane) passes: flat-space origin of the pass (xy).
+    origin: vec4<f32>,
 };
 
 @group(0) @binding(0) var src: texture_2d<f32>;
@@ -121,7 +123,8 @@ fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
         if (s.z <= 0.0) {
             return vec4(0.0);
         }
-        base = s.xy / s.z / size;
+        // Flat space is shifted by the plane's origin (see DrawFx::plane_origin).
+        base = (s.xy / s.z - p.origin.xy) / size;
     }
     // Adjustment passes read the screen as it is (only their matte is projected).
     var uv = select(base, in.uv, p.b.w > 0.5) - p.b.xy;

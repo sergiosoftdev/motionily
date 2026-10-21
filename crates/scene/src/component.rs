@@ -643,7 +643,7 @@ impl Scene {
         if drawn.is_empty() {
             return drawn;
         }
-        let mut out: Vec<DrawItem> = self.backdrop_pass(child, inside.ct, &drawn, None).into_iter().collect();
+        let mut out: Vec<DrawItem> = self.backdrop_pass(child, inside.ct, &drawn, None, [0.0; 2]).into_iter().collect();
         let needs_fx = !child.effects.is_empty() || child.blend != paint::BlendMode::Normal || child.matte.is_some() || child.adjustment;
         if !needs_fx {
             out.append(&mut drawn);
@@ -652,14 +652,14 @@ impl Scene {
         let lt = child.local_time(inside.ct);
         let effects: Vec<paint::DrawEffect> = child.effects.iter().filter_map(|e| e.resolve(lt, ctx.palette)).collect();
         let fx = if child.adjustment {
-            paint::DrawFx { items: Vec::new(), effects, blend: child.blend, matte: Some((drawn, paint::MatteMode::Alpha)), samples: Vec::new(), adjust: true, perspective: None }
+            paint::DrawFx { items: Vec::new(), effects, blend: child.blend, matte: Some((drawn, paint::MatteMode::Alpha)), samples: Vec::new(), adjust: true, perspective: None, plane_origin: [0.0; 2] }
         } else {
             let matte = child.matte.as_ref().and_then(|m| {
                 let src = inside.sibling(&m.layer)?;
                 Some((if inside.active(src) { self.plain_child(src, inside, ctx) } else { Vec::new() }, m.mode))
             });
             let samples = self.child_samples(child, inside, ctx);
-            paint::DrawFx { items: drawn, effects, blend: child.blend, matte, samples, adjust: false, perspective: None }
+            paint::DrawFx { items: drawn, effects, blend: child.blend, matte, samples, adjust: false, perspective: None, plane_origin: [0.0; 2] }
         };
         out.push(DrawItem::Fx(Box::new(fx)));
         out

@@ -41,6 +41,8 @@ struct Globals {
     linearize: f32,
     /// Seconds into the scene, for time-based effects.
     time: f32,
+    /// Flat-space origin of the pass: [0, 0] for the scene, the plane origin inside a tilted plane.
+    origin: [f32; 2],
 }
 
 /// What every pipeline needs to build and upload. Group 0 is always the globals uniform.
@@ -109,6 +111,8 @@ struct FxRun {
     /// Adjustment layer: the effects run on the scene drawn so far.
     adjust: bool,
     perspective: Option<[f32; 9]>,
+    /// Flat-space origin of a tilted plane's pass (see DrawFx::plane_origin).
+    plane_origin: [f32; 2],
     matte: Option<(Vec<Run>, scene::paint::MatteMode)>,
     effects: Vec<DrawEffect>,
     blend: scene::paint::BlendMode,
@@ -150,7 +154,7 @@ impl Batches {
                     continue;
                 }
                 DrawItem::Fx(fx) => {
-                    let DrawFx { items, effects, blend, matte, samples, adjust, perspective } = *fx;
+                    let DrawFx { items, effects, blend, matte, samples, adjust, perspective, plane_origin } = *fx;
                     if top {
                         let mut inner = Vec::new();
                         self.push_all(items, &mut inner, false);
@@ -167,7 +171,7 @@ impl Batches {
                             self.push_all(m, &mut mr, false);
                             (mr, mode)
                         });
-                        runs.push(Run::Fx(FxRun { runs: inner, samples, adjust, perspective, matte, effects, blend }));
+                        runs.push(Run::Fx(FxRun { runs: inner, samples, adjust, perspective, plane_origin, matte, effects, blend }));
                     } else {
                         self.push_all(items, runs, false);
                     }
@@ -237,6 +241,8 @@ pub struct Renderer {
     fx: FxPass,
     /// Agent-written shader layers and effects.
     custom: CustomShaders,
+    /// One globals uniform (with its origin) per tilted plane drawn this frame, reused frame to frame.
+    plane_globals: Vec<(wgpu::Buffer, wgpu::BindGroup)>,
     /// Internal resolution as a multiple of the output size (1 or 2). At 2 the scene is drawn at
     /// double size and the post pass averages it down: every edge (shapes, text, strokes, 3D) is
     /// supersampled, whatever the layer type.
@@ -383,6 +389,7 @@ impl Renderer {
             post,
             fx,
             custom,
+            plane_globals: Vec::new(),
             supersample: 1,
             device,
             queue,
@@ -594,7 +601,7 @@ impl Renderer {
         self.queue.write_buffer(
             &self.globals,
             0,
-            bytemuck::bytes_of(&Globals { scene_size: [scene.width as f32, scene.height as f32], linearize, time: t }),
+            bytemuck::bytes_of(&Globals { scene_size: [scene.width as f32, scene.height as f32], linearize, time: t, origin: [0.0; 2] }),
         );
         // Built from fields (not `self.ctx()`) so pipelines can be borrowed mutably alongside it.
         let ctx = Ctx {
@@ -641,6 +648,8 @@ impl Renderer {
         let px_per_scene = internal_w as f32 / scene.width.max(1) as f32;
         let texel = [1.0 / internal_w.max(1) as f32, 1.0 / internal_h.max(1) as f32];
         self.fx.begin();
+        // Tilted planes draw with their own globals (their origin); the scene's stays as it is.
+        let plane_slots = self.prepare_plane_globals(&batches.runs, scene, linearize, t);
         let plans: Vec<Option<FxPlan>> = batches
             .runs
             .iter()
@@ -687,7 +696,8 @@ impl Renderer {
             }
             if j < batches.runs.len() {
                 if let (Run::Fx(f), Some(plan)) = (&batches.runs[j], &plans[j]) {
-                    self.render_fx(&mut encoder, f, plan);
+                    let globals = plane_slots[j].map_or(&self.bind_group, |s| &self.plane_globals[s].1);
+                    self.render_fx(&mut encoder, f, plan, globals);
                 }
                 if let (Run::Object(k), Some(param)) = (&batches.runs[j], object_params[j]) {
                     if self.objects[*k as usize].render_onto(&mut encoder, &self.fx.layer, true) {
@@ -737,8 +747,40 @@ impl Renderer {
         }
     }
 
+    /// Globals for each tilted plane drawn this frame: the scene's uniform, with the plane's origin.
+    /// Returns the slot per run (`None` for runs that are not planes).
+    fn prepare_plane_globals(&mut self, runs: &[Run], scene: &Scene, linearize: f32, t: f32) -> Vec<Option<usize>> {
+        let mut slots = vec![None; runs.len()];
+        let mut next = 0;
+        for (i, run) in runs.iter().enumerate() {
+            let Run::Fx(f) = run else { continue };
+            if f.perspective.is_none() {
+                continue;
+            }
+            if next == self.plane_globals.len() {
+                let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("plane globals"),
+                    size: std::mem::size_of::<Globals>() as u64,
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+                let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("plane globals"),
+                    layout: &self.globals_layout,
+                    entries: &[wgpu::BindGroupEntry { binding: 0, resource: buffer.as_entire_binding() }],
+                });
+                self.plane_globals.push((buffer, group));
+            }
+            let globals = Globals { scene_size: [scene.width as f32, scene.height as f32], linearize, time: t, origin: f.plane_origin };
+            self.queue.write_buffer(&self.plane_globals[next].0, 0, bytemuck::bytes_of(&globals));
+            slots[i] = Some(next);
+            next += 1;
+        }
+        slots
+    }
+
     /// Draw `runs` into an offscreen texture (cleared first).
-    fn draw_offscreen(&self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView, runs: &[Run]) {
+    fn draw_offscreen(&self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView, runs: &[Run], globals: &wgpu::BindGroup) {
         drop(FxPass::clear_pass(encoder, view, "fx layer"));
         let mut i = 0;
         while i < runs.len() {
@@ -758,30 +800,30 @@ impl Renderer {
                 })],
                 ..Default::default()
             });
-            pass.set_bind_group(0, &self.bind_group, &[]);
+            pass.set_bind_group(0, globals, &[]);
             self.draw_runs(&mut pass, &runs[i..j]);
             i = j;
         }
     }
 
-    fn render_fx(&self, encoder: &mut wgpu::CommandEncoder, f: &FxRun, plan: &FxPlan) {
+    fn render_fx(&self, encoder: &mut wgpu::CommandEncoder, f: &FxRun, plan: &FxPlan, globals: &wgpu::BindGroup) {
         if f.adjust {
             // The scene so far becomes the layer; compositing it back replaces what is below.
             drop(FxPass::clear_pass(encoder, &self.fx.layer, "fx adjust"));
             let scene = self.fx.group_for(&self.device, self.post.target());
             self.fx.composite_group(encoder, &scene, &self.fx.layer, scene::paint::BlendMode::Normal, plan.copy);
         } else if f.samples.is_empty() {
-            self.draw_offscreen(encoder, &self.fx.layer, &f.runs);
+            self.draw_offscreen(encoder, &self.fx.layer, &f.runs, globals);
         } else {
             // Motion blur: every sample drawn alone, then added in at 1/n.
             drop(FxPass::clear_pass(encoder, &self.fx.layer, "fx motion blur"));
             for runs in std::iter::once(&f.runs).chain(&f.samples) {
-                self.draw_offscreen(encoder, &self.fx.accum, runs);
+                self.draw_offscreen(encoder, &self.fx.accum, runs, globals);
                 self.fx.composite(encoder, Tex::Accum, &self.fx.layer, scene::paint::BlendMode::Add, plan.average);
             }
         }
         if let Some((m, _)) = &f.matte {
-            self.draw_offscreen(encoder, &self.fx.matte, m);
+            self.draw_offscreen(encoder, &self.fx.matte, m, globals);
         }
         // Blurs and custom shader effects change the layer itself, in stack order.
         for step in &plan.steps {
@@ -878,6 +920,7 @@ fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, shading: &FrameInfo, f: 
     let (h0, h1, h2) = f.perspective.map_or(([0.0; 4], [0.0; 4], [0.0; 4]), |m| {
         ([m[0], m[1], m[2], 1.0], [m[3], m[4], m[5], scene_w], [m[6], m[7], m[8], scene_h])
     });
+    let origin = [f.plane_origin[0], f.plane_origin[1], 0.0, 0.0];
     for e in &f.effects {
         match *e {
             DrawEffect::Blur { radius } if radius > 0.0 => {
@@ -896,6 +939,7 @@ fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, shading: &FrameInfo, f: 
                     h0,
                     h1,
                     h2,
+                    origin,
                     ..Default::default()
                 });
                 plan.shadows.push((h, v, comp));
@@ -908,6 +952,7 @@ fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, shading: &FrameInfo, f: 
                     h0,
                     h1,
                     h2,
+                    origin,
                     ..Default::default()
                 });
                 // Threshold: a pass that keeps only the bright pixels, blurred instead of the whole layer.
@@ -929,7 +974,7 @@ fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, shading: &FrameInfo, f: 
     }
     // Warps pull pixels from around them: at the frame edge, repeat the edge instead of emptiness.
     let clamp_edges = if f.adjust || turb[0] != 0.0 { 1.0 } else { 0.0 };
-    plan.layer = fx.push(FxParams { a: [0.0, matte, 1.0, 0.0], b: [0.0, 0.0, clamp_edges, if f.adjust { 1.0 } else { 0.0 }], adj: [hue, sat - 1.0, bright, contrast - 1.0], warp, grain, turb, h0, h1, h2, ..Default::default() });
+    plan.layer = fx.push(FxParams { a: [0.0, matte, 1.0, 0.0], b: [0.0, 0.0, clamp_edges, if f.adjust { 1.0 } else { 0.0 }], adj: [hue, sat - 1.0, bright, contrast - 1.0], warp, grain, turb, h0, h1, h2, origin, ..Default::default() });
     if f.blend.reads_backdrop() {
         plan.blend = fx.push(FxParams { a: [f.blend.shader_id(), 0.0, 0.0, 0.0], ..Default::default() });
     }

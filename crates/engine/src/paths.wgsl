@@ -5,12 +5,14 @@ struct Globals {
     scene_size: vec2<f32>,
     linearize: f32,
     time: f32,
+    // Flat-space origin of the pass: 0 for the scene, the plane origin inside a tilted plane.
+    origin: vec2<f32>,
 };
 
 @group(0) @binding(0) var<uniform> g: Globals;
 
 fn to_ndc(p: vec2<f32>) -> vec4<f32> {
-    return vec4(p.x / g.scene_size.x * 2.0 - 1.0, 1.0 - p.y / g.scene_size.y * 2.0, 0.0, 1.0);
+    return vec4((p.x - g.origin.x) / g.scene_size.x * 2.0 - 1.0, 1.0 - (p.y - g.origin.y) / g.scene_size.y * 2.0, 0.0, 1.0);
 }
 
 fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {

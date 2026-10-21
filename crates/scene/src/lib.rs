@@ -270,7 +270,7 @@ impl Scene {
                 .filter(|b| *b > 0.5);
             let needs_fx = !l.effects.is_empty() || l.blend != paint::BlendMode::Normal || l.matte.is_some() || l.adjustment || defocus.is_some();
             let mut out = Vec::new();
-            if let Some(glass) = self.backdrop_pass(l, t, &drawn, None) {
+            if let Some(glass) = self.backdrop_pass(l, t, &drawn, None, [0.0; 2]) {
                 out.push(glass);
             }
             if needs_fx {
@@ -286,9 +286,9 @@ impl Scene {
                 }
                 let fx = if l.adjustment {
                     // The layer's own shape bounds the adjustment.
-                    paint::DrawFx { items: Vec::new(), effects, blend: l.blend, matte: Some((std::mem::take(&mut drawn), paint::MatteMode::Alpha)), samples: Vec::new(), adjust: true, perspective: None }
+                    paint::DrawFx { items: Vec::new(), effects, blend: l.blend, matte: Some((std::mem::take(&mut drawn), paint::MatteMode::Alpha)), samples: Vec::new(), adjust: true, perspective: None, plane_origin: [0.0; 2] }
                 } else {
-                    paint::DrawFx { items: std::mem::take(&mut drawn), effects, blend: l.blend, matte, samples, adjust: false, perspective: None }
+                    paint::DrawFx { items: std::mem::take(&mut drawn), effects, blend: l.blend, matte, samples, adjust: false, perspective: None, plane_origin: [0.0; 2] }
                 };
                 out.push(DrawItem::Fx(Box::new(fx)));
             } else {
@@ -343,10 +343,11 @@ impl Scene {
         let camera = camera.filter(|_| !l.fixed);
         let lens = camera.map_or(paint::View::still(c, l.lens(lt)), |cam| cam.0);
         let Some(perspective) = paint::perspective_inverse(c, l.rotate_x.sample(lt), l.rotate_y.sample(lt), z, &lens) else { return Vec::new() };
+        let plane_origin = [c[0] - self.width as f32 / 2.0, c[1] - self.height as f32 / 2.0];
         let defocus = camera.and_then(|cam| cam.1).map(|(focus, aperture)| aperture * (z - focus).abs() / 1000.0).filter(|b| *b > 0.5);
         let base_effects = || defocus.map(|radius| vec![paint::DrawEffect::Blur { radius }]).unwrap_or_default();
         let pass = |items: Vec<DrawItem>, effects: Vec<paint::DrawEffect>, blend: paint::BlendMode, matte| {
-            DrawItem::Fx(Box::new(paint::DrawFx { items, effects, blend, matte, samples: Vec::new(), adjust: false, perspective: Some(perspective) }))
+            DrawItem::Fx(Box::new(paint::DrawFx { items, effects, blend, matte, samples: Vec::new(), adjust: false, perspective: Some(perspective), plane_origin }))
         };
         let mut out = Vec::new();
         let mut batch: Vec<DrawItem> = Vec::new();
@@ -360,7 +361,7 @@ impl Scene {
             if drawn.is_empty() {
                 continue;
             }
-            let glass = self.backdrop_pass(m, t, &drawn, Some(perspective));
+            let glass = self.backdrop_pass(m, t, &drawn, Some(perspective), plane_origin);
             let own_pass = !m.effects.is_empty() || m.blend != paint::BlendMode::Normal || m.matte.is_some() || glass.is_some();
             if !own_pass {
                 batch.extend(drawn);
@@ -386,7 +387,7 @@ impl Scene {
     }
 
     /// Frosted glass: an adjustment pass blurring what is already drawn, inside the layer's shape.
-    fn backdrop_pass(&self, l: &Layer, t: f32, drawn: &[DrawItem], perspective: Option<[f32; 9]>) -> Option<DrawItem> {
+    fn backdrop_pass(&self, l: &Layer, t: f32, drawn: &[DrawItem], perspective: Option<[f32; 9]>, plane_origin: [f32; 2]) -> Option<DrawItem> {
         let radius = l.backdrop.sample(l.local_time(t));
         (radius > 0.5 && !drawn.is_empty()).then(|| {
             DrawItem::Fx(Box::new(paint::DrawFx {
@@ -397,6 +398,7 @@ impl Scene {
                 samples: Vec::new(),
                 adjust: true,
                 perspective,
+                plane_origin,
             }))
         })
     }
@@ -1237,5 +1239,21 @@ mod tests {
         assert_eq!(l.palette.background, "#fbf7fb");
         assert_eq!(l.palette.primary, "#ff4d6d");
         assert_eq!(l.palette.text, "#0f1733");
+    }
+
+    #[test]
+    fn a_tilted_plane_is_flat_around_its_own_center_not_the_scene_origin() {
+        // Camera and plane far right of a 1920x1080 frame: the plane's flat space must follow it.
+        let scene = Scene::from_json(r##"{"width":1920,"height":1080,"fps":30,"duration":1,"layers":[
+            {"id":"cam","type":"shape","shape":"rect","x":2400,"y":540,"w":1,"h":1,"visible":false,"camera":{"focal":1800}},
+            {"id":"floor","type":"shape","shape":"rect","x":2400,"y":700,"w":1,"h":1,"visible":false,"rotate_x":55},
+            {"id":"card","type":"shape","shape":"rect","parent":"floor","x":0,"y":0,"w":600,"h":300,"fill":"#ff4d6d"}]}"##).unwrap();
+        let items = scene.frame(0.0);
+        let plane = items.iter().find_map(|i| match i {
+            DrawItem::Fx(fx) if fx.perspective.is_some() => Some(fx),
+            _ => None,
+        });
+        let plane = plane.expect("tilted plane pass");
+        assert_eq!(plane.plane_origin, [2400.0 - 960.0, 700.0 - 540.0]);
     }
 }

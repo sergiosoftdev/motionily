@@ -1033,8 +1033,13 @@ impl Layer {
 /// Margin kept between text and the frame edge, as a fraction of the width.
 const TEXT_SAFE_MARGIN: f32 = 0.05;
 
-/// Wrap width that keeps a text block centered at `cx` inside the frame.
+/// Wrap width that keeps a text block centered at `cx` inside the frame. `cx` is the layer's
+/// world x: outside the frame it says nothing about where the camera shows the text, so the
+/// author's width stands and the camera places it.
 fn fit_width(wanted: f32, cx: f32, frame_w: f32) -> f32 {
+    if cx < 0.0 || cx > frame_w {
+        return wanted;
+    }
     let room = 2.0 * (cx.min(frame_w - cx) - frame_w * TEXT_SAFE_MARGIN);
     wanted.min(room).max(frame_w * 0.2)
 }
@@ -1067,3 +1072,16 @@ mod place_tests {
     }
 }
 
+#[cfg(test)]
+mod fit_width_tests {
+    use super::fit_width;
+
+    #[test]
+    fn text_centered_off_frame_keeps_its_width() {
+        // A camera can show text whose world x is past the frame: it must not wrap at 20 % of the width.
+        assert_eq!(fit_width(900.0, 2200.0, 1920.0), 900.0);
+        assert_eq!(fit_width(900.0, -300.0, 1920.0), 900.0);
+        // On the frame the old rule still applies: a block wider than the room shrinks to it.
+        assert!(fit_width(1800.0, 100.0, 1920.0) < 1800.0);
+    }
+}

@@ -22,6 +22,9 @@ pub struct FxParams {
     pub h0: [f32; 4],
     pub h1: [f32; 4],
     pub h2: [f32; 4],
+    /// Tilted planes: the flat-space origin of the plane's pass (xy), so projected texels line up with
+    /// the offset content.
+    pub origin: [f32; 4],
 }
 
 /// Uniform slot stride (WebGPU's minimum dynamic-offset alignment).
