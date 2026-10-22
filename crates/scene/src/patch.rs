@@ -147,7 +147,8 @@ fn looks_default(v: &Value) -> bool {
         Value::Bool(_) => true,
         Value::Number(n) => n.as_f64().is_some_and(|x| x == 0.0 || x == 1.0),
         Value::String(s) => s.is_empty() || s == "normal",
-        Value::Array(a) => a.is_empty(),
+        // Point fields (`pivot` [0, 0]) leave out their origin like numbers leave out 0.
+        Value::Array(a) => a.is_empty() || a.iter().all(|x| x.as_f64() == Some(0.0)),
         Value::Object(o) => o.is_empty(),
     }
 }
@@ -222,6 +223,15 @@ mod tests {
         assert!(err.1.to_string().contains("no field 'gradiant'"), "{}", err.1);
         let err = s.apply(&Op::parse_list(r#"[{"op":"patch","group":"nope","fields":{"radius":1}}]"#).unwrap()).unwrap_err();
         assert!(err.1.to_string().contains("no layer is in group 'nope'"));
+    }
+
+    #[test]
+    fn resetting_a_point_field_to_its_origin_is_accepted() {
+        let mut s = scene();
+        s.apply(&Op::parse_list(r#"[{"op":"patch","id":"card","fields":{"pivot":[0,40]}}]"#).unwrap()).unwrap();
+        assert_eq!(s.layer("card").unwrap().pivot, [0.0, 40.0]);
+        s.apply(&Op::parse_list(r#"[{"op":"patch","id":"card","fields":{"pivot":[0,0]}}]"#).unwrap()).unwrap();
+        assert_eq!(s.layer("card").unwrap().pivot, [0.0, 0.0]);
     }
 
     #[test]
