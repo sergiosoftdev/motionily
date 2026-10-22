@@ -104,6 +104,12 @@ the first 1.5 s (max 6 words), one idea per beat. The video is built ON TOP of t
 - Numbers and times written in letters. Only true claims about the product.
 - ~2.3 words per second of video: the length of the script sets the length of the video. Last sentence = the CTA.
 - What is said mirrors the text that will appear on screen.
+- Art direction and prompt: real material carries the picture (archive photos and footage, real documents and newspaper
+  pages photographed, maps, logos, the product's real screens); plain captions; one accent colour. Never write AI tells
+  into a brief, even if the brand notes mention them: rubber stamps, censorship or redaction bars, fake documents drawn
+  with shapes, tilted paper strips, marker underlines, decorative counters, a kicker on every scene, "interface screens"
+  for a story that is not about software, words cut by the frame edge, 3D text used as flat type. Brand palettes and
+  fonts are starting points, not a uniform: leave the final palette, type and genre to the builder (set_direction).
 Answer ONLY with JSON: {"concepts":[{"title","hook","direction","beats":[{"at":"0-1.5s","what":"…","energy":80,"device":"hook"}],"voiceover","prompt"}]}.
 "direction" = art direction in 1-2 sentences (concept, palette, type, motion, camera). "prompt" = the complete brief
 for the builder agent (in English, 80-200 words): beats tied to the script's paragraphs with their energy and device,
