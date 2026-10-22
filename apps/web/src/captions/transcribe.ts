@@ -16,8 +16,8 @@ export async function decodeForWhisper(source: Blob | string): Promise<Float32Ar
 
 let worker: Worker | null = null;
 
-/** Transcribe in a worker; `onProgress` gets human-readable steps. */
-export function transcribe(audio: Float32Array, onProgress: (label: string, ratio: number | null) => void): Promise<CaptionWord[]> {
+/** Transcribe in a worker; `language` = what is spoken (Whisper's name or ISO code: it never guesses, English by default). */
+export function transcribe(audio: Float32Array, onProgress: (label: string, ratio: number | null) => void, language = "english"): Promise<CaptionWord[]> {
   worker ??= new Worker(new URL("./whisper.worker.ts", import.meta.url), { type: "module" });
   const w = worker;
   return new Promise((resolve, reject) => {
@@ -37,7 +37,7 @@ export function transcribe(audio: Float32Array, onProgress: (label: string, rati
     };
     // Copy before transferring: the caller keeps its samples to align the words with.
     const copy = audio.slice();
-    w.postMessage({ type: WhisperMsg.Transcribe, audio: copy, language: "english" }, [copy.buffer]);
+    w.postMessage({ type: WhisperMsg.Transcribe, audio: copy, language }, [copy.buffer]);
   });
 }
 

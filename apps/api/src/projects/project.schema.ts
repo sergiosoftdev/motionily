@@ -41,6 +41,30 @@ export enum VideoFormat {
   Portrait = "portrait_4_5",
 }
 
+/** The prompt Claude wrote for the video's background music in Suno, kept until the user asks for another. */
+export type SunoPrompt = { title: string; style: string; structure: string; dropAt: number | null; notes: string; createdAt: string };
+
+/** Caption and hashtags drafted for one platform, kept until the user asks for another draft. */
+export type PostCopyDraft = { platform: string; caption: string; hashtags: string[] };
+
+/** A clip uploaded to be edited. `id` is short (c1, c2…) so agents can name it in a cut. */
+export type FootageClip = {
+  id: string;
+  file: string;
+  name: string;
+  mime: string;
+  size: number;
+  duration: number | null;
+  width: number | null;
+  height: number | null;
+  /** Contact sheet (/media path), 4×3 frames. */
+  poster: string | null;
+  /** Language spoken (ISO 639-1), for the transcription. */
+  language: string;
+  /** Transcript in file seconds; null until the editor transcribed the clip. */
+  words: { text: string; start: number; end: number }[] | null;
+};
+
 @Schema({ timestamps: true })
 export class Project {
   @Prop({ type: Types.ObjectId, ref: "User", required: true, index: true }) ownerId: Types.ObjectId;
@@ -64,6 +88,14 @@ export class Project {
   /** Voice-over / music uploaded by the user. Served from /media/:file. */
   /** The voice-over. Generated with ElevenLabs it carries each word's timing (`words`), so captions need no transcription. */
   @Prop({ type: MongooseSchema.Types.Mixed, default: null }) audio: { file: string; name: string; mime: string; words?: { text: string; start: number; end: number }[]; voice?: { voiceId: string; model: string } } | null;
+  /** Background music the user uploaded (the scene's `music` places it). Served from /media/:file. */
+  @Prop({ type: MongooseSchema.Types.Mixed, default: null }) music: { file: string; name: string; mime: string; trimIn?: number; summary?: string; duration?: number } | null;
+  /** Claude's Suno prompt for this video's music. */
+  @Prop({ type: MongooseSchema.Types.Mixed, default: null }) sunoPrompt: SunoPrompt | null;
+  /** Claude's latest caption and hashtags per platform (the Schedule dialog starts from them). */
+  @Prop({ type: [MongooseSchema.Types.Mixed], default: [] }) postCopy: PostCopyDraft[];
+  /** The user's own clips to edit (usually someone talking to camera); `words` once the editor transcribed them. */
+  @Prop({ type: [MongooseSchema.Types.Mixed], default: [] }) footage: FootageClip[];
   /** Bumped on every scene save; clients send it back to avoid overwriting newer edits. */
   @Prop({ default: 0 }) sceneRevision: number;
   /** What each agent run cost (newest last), to see where tokens go. */

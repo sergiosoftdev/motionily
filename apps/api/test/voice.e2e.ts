@@ -15,6 +15,8 @@ const GOOD_KEY = "sk_test_good_key_0123456789abcd";
 const VOICE_ID = "Voice123ABCdef";
 const SCRIPT = "[excited] Hi there.";
 const MP3 = Buffer.from("ID3 fake mp3 bytes");
+/** A script the fake account has no credits left for. */
+const BROKE = "A script too long for the credits left.";
 
 /** Character timings ElevenLabs would send for `text`: 0.1 s per character. */
 function alignmentOf(text: string) {
@@ -48,6 +50,8 @@ before(async () => {
       req.on("data", (c: Buffer) => (raw += c.toString()));
       req.on("end", () => {
         const body = JSON.parse(raw) as { text: string; model_id: string };
+        if (body.text.includes(BROKE))
+          return reply(401, { detail: { status: "quota_exceeded", message: `This request exceeds your quota. ${body.text.length} credits are required.` } });
         spoken.push(body);
         reply(200, { audio_base64: MP3.toString("base64"), alignment: alignmentOf(body.text) });
       });
@@ -119,6 +123,8 @@ describe("ElevenLabs voices with the user's own key", () => {
     assert.equal(spoken.at(-1)?.model_id, "eleven_v3");
     await http.get(res.body.audio.url).expect(404);
 
+    const broke = await http.post(`/projects/${p.id}/voice`).set(auth).send({ voiceId: VOICE_ID, text: BROKE }).expect(400);
+    assert.match(broke.body.message, /out of credits/);
     await http.post(`/projects/${p.id}/voice`).set(auth).send({ voiceId: "bad id!" }).expect(400);
     const other = await login("other@example.com");
     await http.post(`/projects/${p.id}/voice`).set(other).send({ voiceId: VOICE_ID }).expect(404);

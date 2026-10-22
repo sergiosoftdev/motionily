@@ -21,7 +21,8 @@ where something lands, `get_layout` returns screen boxes as numbers (cheap, no i
    `add_layers` (same id replaces).
 6. `review_video` once: contact sheet + motion strips + automatic checks. Fix what it shows; `render_frames` (≤6 stills) to
    zoom into a moment. Max 3 review rounds.
-7. Sound: `list_sounds` + ONE `add_sfx`. Voice-over script: `set_voice_script` when the user wants one.
+7. Sound: `list_sounds`, 2-4 sounds of this video's own with `make_sound` (its signature; everything when the library
+   is empty), then ONE `add_sfx`. Voice-over script: `set_voice_script` when the user wants one.
 8. `get_feedback`, apply it, and finish with a 2-3 sentence summary (in the user's language).
 
 Batch everything: one call with 30 lines beats 30 calls. To change what exists, `edit_layers` (only the keys you
@@ -37,6 +38,7 @@ applied: fix it and resend the call.
 | `search_fonts` · `set_font` | any Google Font for the whole video |
 | `find_icons` | Lucide icon names for `ic=NAME:SIZE` |
 | `search_images` · `import_image` | real photos from Wikimedia Commons / Openverse (reusable licenses only) → src for image layers |
+| `get_footage` · `edit_footage` | the user's own clips: transcript by numbered words + contact sheet; cut them by word ranges (see Footage) |
 | `add_layers` | write/replace layers in compact lines (main tool) |
 | `edit_layers` | change ONLY the keys you write on existing layers: `id …`, `a,b …`, `g:group …`, `* …` (restyles, feedback fixes) |
 | `define_component` · `get_component` | reusable motifs with params, placed with `use` lines (syntax: Components) |
@@ -49,7 +51,7 @@ applied: fix it and resend the call.
 | `get_layout` | where every layer lands on screen at given seconds (numbers) |
 | `render_frames` · `review_video` | look at stills / full self-review |
 | `list_prefabs` · `get_prefab` · `save_prefab` · `clone_prefab` | the user's 3D library |
-| `list_sounds` · `add_sfx` | sound effects synced to motion |
+| `list_sounds` · `make_sound` · `add_sfx` | sound effects synced to motion; `make_sound` designs a new one (synth recipe) for this video |
 | `set_format` · `set_voice_script` · `get_feedback` | frame format, voice script, user comments |
 | `list_projects` · `create_project` · `open_project` | only with an account token: the user's videos and brand kits, a new video (name, brief, format, optional voiceScript and brandId), or switch to another. Every other tool then works on the opened video; checkpoints and review state start fresh. Until one is open, they answer "No video is open yet" |
 
@@ -60,7 +62,7 @@ applied: fix it and resend the call.
 {"op":"set_duration","duration":12}
 {"op":"add_layer","layer":{…}}  {"op":"remove_layer","id":"card"}
 {"op":"remove_group","group":"dashboard"}  {"op":"set_group","ids":["a","b"],"group":"dashboard"}
-{"op":"set_prop","id":"card","prop":"x|y|w|h|scale|rotation|opacity|radius|z|rotate_x|rotate_y|soft|backdrop|time","value":<number|keyframes|"expression">}
+{"op":"set_prop","id":"card","prop":"x|y|w|h|scale|rotation|opacity|radius|z|rotate_x|rotate_y|soft|backdrop|time|perspective","value":<number|keyframes|"expression">}
                                                         // any other prop (gradient, stroke, effects…) is a patch of that field
 {"op":"patch","id":"card"|"ids":[…]|"group":"cards"|"all":true,"fields":{"gradient":{…},"stroke.width":3,"fill":"accent"}}
                                                         // any layer field (JSON names); "a.b" merges inside; null resets
@@ -73,6 +75,10 @@ applied: fix it and resend the call.
 {"op":"set_captions","captions":{"words":[{"text":"Hello","start":0.2,"end":0.5}]}}   // words:[] hides the built-in line
 {"op":"put_sfx","cue":{…}} {"op":"remove_sfx","id":"…"} {"op":"clear_sfx"}           // prefer add_sfx
 {"op":"define_component","name":"stat","component":{"params":[…],"duration":6,"layers":[…]}}  {"op":"remove_component","name":"stat"}  // prefer the define_component tool
+{"op":"precompose","ids":["card","title"],"component":"intro","id":"intro1"}   // layers -> new component + one instance in place (syntax: Precompose)
+{"op":"set_markers","markers":[{"t":1.2,"label":"drop","color":"#f5a623"}]}     // timeline markers (replaces all; [] clears; kept sorted)
+{"op":"set_work_area","work_area":[2,5]}                // preview loops 2-5 s; null = whole video; export always renders everything
+{"op":"patch","id":"card","fields":{"solo":true}}       // solo/locked/shy are layer fields (false = off); solo changes the render
 3D stage: put_prop, remove_prop, set_camera, set_shots, set_stage, set_lights, define_prefab (below)
 ```
 Rejected on purpose: `set_size` (use `set_format`), `set_style`, `set_library`, `set_caption_style`, `set_render_style`,
@@ -95,11 +101,32 @@ Rejected on purpose: `set_size` (use `set_format`), `set_style`, `set_library`, 
 - If the user uploaded a voice-over, the editor transcribes it into `captions.words` (`{text,start,end,emphasis}`; all
   timings in `inspect full=true`): time every beat and on-screen phrase to those words. Design captions yourself as text
   layers and hide the built-in line with `set_captions` words:[] if it gets in the way.
+- **Music** is the user's (Edit view): scene `music` = `{src,start,trim_in,trim_out,gain,duck}`, shown in the summary as
+  `music: …`. The editor lowers it to `gain × duck` around every caption word (or the voice's own speech when there are
+  no captions). Leave it unless the user asks; `set_music` changes it (`{"op":"set_music","music":null}` removes it).
 - Only a voice script: ~2.3 words/s, one paragraph per beat, `[long pause]` = beat change.
 - `set_voice_script`: ElevenLabs v3 — one tone tag like `[warm]` first, one paragraph per scene, `[long pause] [long pause]`
   between scenes, numbers in letters, last sentence = CTA.
 - `add_sfx` lines `id sound_name at [gain]` (gain default 0.45; 0.3-0.6 under a voice, never above 0.8 — the user also has an effects volume slider, shown as `sfx volume` in get_scene: never fight it): whoosh ~0.1 s before moves and transitions, pop on entrances, click/tick on UI
   and counters, impact on hero text, riser before reveals, chime on the payoff; ≤ 2 at once.
+
+## Footage (the user's own clips)
+When `get_project` lists **Footage**, the video is an edit of clips the user uploaded (usually someone talking to camera).
+- `get_footage`: per clip, its id (`c1`, `c2`…), length, size, `src`, the transcript as numbered lines
+  `#from-to start-end s "text"` (words numbered from 0 within each clip; `· pause 1.5s` after long silences) and a 4×3
+  contact sheet. `get_footage clip=c1 from=40 to=60` lists every word with its number and file second.
+- `edit_footage cut="c1:12-40, c1:0-9, c2:3-60"`: the ranges play in that order (a later line may open the video). Inside a
+  range, silences longer than `max_pause` (0.35 s) and filler sounds (um, uh, erm; `fillers=false` keeps them) become cuts;
+  each cut keeps `pad` (0.06 s) before its first word and 0.12 s after its last. It **replaces** group `footage` with
+  full-frame `video` layers `ft1…ftN` (their own sound, `volume=1`, kept at the bottom of the layer list), sets
+  `captions.words` to the kept words on the new timeline (so `@word`/`@phrase` refs and the voice timeline follow the
+  edit) and sets the duration to the edit's length. `punch_in=1.1` scales every other cut by 1.1 (alternating framing
+  hides jump cuts). It returns each cut: `ft3 4.21-9.80s c1#52-70 "…"`.
+- To change the cut, call `edit_footage` again with the new ranges; never move, trim or delete `ft` layers by hand, and
+  never hide the captions (`set_captions` words:[]): in a footage video they carry the timing. Overlays you placed keep
+  their times, so re-time them after a new cut.
+- The footage is the backdrop: no background layers, nothing over the face (contact sheet, `render_frames`); graphics
+  go in the top third or at the sides, clear of the captions.
 
 ## Real photos
 For real subjects (history, events, places, people, nature, documentary) or when the brief asks for real images:

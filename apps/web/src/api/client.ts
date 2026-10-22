@@ -1,4 +1,4 @@
-import type { AgentRunUsage, Brick, BrickSlot, Project, ProjectListItem, User, VideoFormat, Voice, VoiceModel } from "@motionily/protocol";
+import type { AgentRunUsage, AttentionDevice, Brick, BrickSlot, Project, ProjectListItem, SunoPrompt, User, VideoFormat, Voice, VoiceModel } from "@motionily/protocol";
 import { useSession } from "../session";
 import type { SoundRecipe } from "../audio/synth";
 import type { AgentPrefs, GenerateState } from "../components/GeneratePanel";
@@ -29,9 +29,30 @@ export const PrefabKind = { Object: "object", Character: "character", Space: "sp
 export type PrefabKind = (typeof PrefabKind)[keyof typeof PrefabKind];
 export type PrefabSummary = { name: string; kind: PrefabKind; description: string; parent?: string; version: number; updatedAt: string };
 
-export type ConceptBeat = { at: string; what: string };
+/** A beat of a pitched concept; `energy` (0-100) and `device` trace its attention curve. */
+export type ConceptBeat = { at: string; what: string; energy?: number; device?: AttentionDevice };
 export type Concept = { title: string; hook: string; direction: string; beats: ConceptBeat[]; voiceover: string; prompt: string };
 export type ConceptsRequest = { idea: string; format: VideoFormat; count: number; steer?: string; avoid?: string[]; model?: string; effort?: string; references?: string[]; angle?: number };
+export const Platform = { Instagram: "instagram", TikTok: "tiktok", YouTube: "youtube" } as const;
+export type Platform = (typeof Platform)[keyof typeof Platform];
+export const PostStatus = { Scheduled: "scheduled", Posted: "posted" } as const;
+export type PostStatus = (typeof PostStatus)[keyof typeof PostStatus];
+/** The text that goes with the video on one platform; hashtags without "#". */
+export type PostCopy = { platform: Platform; caption: string; hashtags: string[] };
+/** A video on the posting calendar. `outdated`: the video was edited after this file was rendered. */
+export type ScheduledPost = {
+  id: string;
+  projectId: string;
+  projectName: string | null;
+  format: VideoFormat | null;
+  scheduledAt: string;
+  platforms: Platform[];
+  copy: PostCopy[];
+  video: { url: string; mime: string; size: number; outdated: boolean } | null;
+  status: PostStatus;
+  postedAt: string | null;
+  due: boolean;
+};
 export type SoundRow = { name: string; category: string; description: string; duration: number; url: string; recipe: SoundRecipe };
 export type GoogleFont = { family: string; category: string; weights: number[]; popularity: number };
 
@@ -85,7 +106,7 @@ export const api = {
     call<Brick[]>(HttpMethod.Get, `/bricks?${new URLSearchParams(q as Record<string, string>)}`),
   projects: () => call<ProjectListItem[]>(HttpMethod.Get, "/projects"),
   project: (id: string) => call<Project>(HttpMethod.Get, `/projects/${id}`),
-  createProject: (name: string, brief: string, format: VideoFormat, brandId: string, voiceScript = "", references: string[] = []) =>
+  createProject: (name: string, brief: string, format: VideoFormat, brandId: string | undefined, voiceScript = "", references: string[] = []) =>
     call<Project>(HttpMethod.Post, "/projects", { name, brief, format, brandId, voiceScript, wantsScript: !!voiceScript, references }),
   concepts: (brandId: string, req: ConceptsRequest) => call<{ concepts: Concept[]; usage: AgentRunUsage | null }>(HttpMethod.Post, `/brands/${brandId}/concepts`, req),
   brands: () => call<BrandSummary[]>(HttpMethod.Get, "/brands"),
@@ -108,7 +129,7 @@ export const api = {
   editPrefab: (name: string, instruction: string, prefs?: AgentPrefs) =>
     call<GenerateState & { videoId: string }>(HttpMethod.Post, `/prefabs/${name}/edit`, { instruction, ...prefs }),
   deletePrefab: (name: string) => call<void>(HttpMethod.Delete, `/prefabs/${name}`),
-  updateProject: (id: string, patch: { name?: string; brief?: string; format?: VideoFormat; references?: string[] }) =>
+  updateProject: (id: string, patch: { name?: string; brief?: string; format?: VideoFormat; references?: string[]; postCopy?: PostCopy[] }) =>
     call<Project>(HttpMethod.Patch, `/projects/${id}`, patch),
   deleteProject: (id: string) => call<void>(HttpMethod.Delete, `/projects/${id}`),
   projectBricks: (id: string, slot?: BrickSlot) =>
@@ -148,6 +169,15 @@ export const api = {
   generateStatus: (id: string) => call<GenerateState>(HttpMethod.Get, `/projects/${id}/generate`),
   stopGenerate: (id: string) => call<GenerateState>(HttpMethod.Delete, `/projects/${id}/generate`),
   uploadAudio: (id: string, file: File) => upload<Project>(`/projects/${id}/audio`, file),
+  /** Claude writes the Suno prompt for the video's music (kept with the video); `steer` asks for changes. */
+  sunoPrompt: (id: string, steer?: string) => call<SunoPrompt>(HttpMethod.Post, `/projects/${id}/suno-prompt`, { steer: steer || undefined }),
+  /** Background music for the video (replaces the previous file). */
+  uploadMusic: (id: string, file: File) => upload<Project>(`/projects/${id}/music`, file),
+  /** The user's own clip to edit; `language` is what is spoken in it (ISO 639-1). */
+  uploadFootage: (id: string, file: File, language: string) => upload<Project>(`/projects/${id}/footage`, file, { language }),
+  /** A clip's transcript, made here in the browser. */
+  saveFootageWords: (id: string, clipId: string, words: { text: string; start: number; end: number }[]) =>
+    call<Project>(HttpMethod.Put, `/projects/${id}/footage/${clipId}/words`, { words }),
   /** The user's ElevenLabs connection (their own key, kept encrypted by the API). */
   elevenLabs: () => call<ElevenLabsStatus>(HttpMethod.Get, "/voice/elevenlabs"),
   connectElevenLabs: (apiKey: string) => call<ElevenLabsStatus>(HttpMethod.Put, "/voice/elevenlabs", { apiKey }),
@@ -155,4 +185,17 @@ export const api = {
   voices: () => call<Voice[]>(HttpMethod.Get, "/voice/voices"),
   /** Read the script aloud with an ElevenLabs voice; the project comes back with the audio and its words. */
   generateVoice: (id: string, body: { voiceId: string; voiceName?: string; modelId?: VoiceModel; text?: string }) => call<Project>(HttpMethod.Post, `/projects/${id}/voice`, body),
+  /** Caption and hashtags per platform, written by Claude from the video (nothing is saved). */
+  writeCopy: (projectId: string, platforms: Platform[], steer?: string) => call<{ copy: PostCopy[] }>(HttpMethod.Post, "/posts/copy", { projectId, platforms, steer: steer || undefined }),
+  posts: (q: { from?: string; to?: string; due?: boolean; projectId?: string } = {}) =>
+    call<ScheduledPost[]>(
+      HttpMethod.Get,
+      `/posts?${new URLSearchParams({ ...(q.from ? { from: q.from } : {}), ...(q.to ? { to: q.to } : {}), ...(q.due ? { due: "1" } : {}), ...(q.projectId ? { projectId: q.projectId } : {}) })}`,
+    ),
+  createPost: (body: { projectId: string; scheduledAt: string; platforms: Platform[]; copy: PostCopy[] }) => call<ScheduledPost>(HttpMethod.Post, "/posts", body),
+  updatePost: (id: string, patch: { scheduledAt?: string; platforms?: Platform[]; copy?: PostCopy[]; status?: PostStatus }) => call<ScheduledPost>(HttpMethod.Patch, `/posts/${id}`, patch),
+  deletePost: (id: string) => call<void>(HttpMethod.Delete, `/posts/${id}`),
+  /** The rendered file, tagged with the scene revision it shows. */
+  uploadPostVideo: (id: string, video: Blob, filename: string, sceneRevision: number) =>
+    upload<ScheduledPost>(`/posts/${id}/video`, new File([video], filename, { type: video.type }), { sceneRevision: String(sceneRevision) }),
 };

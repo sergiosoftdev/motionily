@@ -27,6 +27,11 @@ import { FontsController } from "./fonts";
 import { ImagesController } from "./images/images.controller";
 import { VoiceController } from "./voice/voice.controller";
 import { VoiceService } from "./voice/voice.service";
+import { Post, PostSchema } from "./posts/post.schema";
+import { PostsService } from "./posts/posts.service";
+import { PostsController } from "./posts/posts.controller";
+import { CopywriterService } from "./posts/copywriter";
+import { SunoService } from "./music/suno";
 
 @Module({
   imports: [
@@ -44,6 +49,7 @@ import { VoiceService } from "./voice/voice.service";
       { name: Sound.name, schema: SoundSchema },
       { name: Brand.name, schema: BrandSchema },
       { name: BrandAsset.name, schema: BrandAssetSchema },
+      { name: Post.name, schema: PostSchema },
     ]),
     JwtModule.registerAsync({
       global: true,
@@ -54,7 +60,7 @@ import { VoiceService } from "./voice/voice.service";
       }),
     }),
   ],
-  controllers: [AuthController, BricksController, ProjectsController, MediaController, ReferencesController, FontsController, BrandsController, PrefabsController, SoundsController, ImagesController, VoiceController],
-  providers: [BricksService, ProjectsService, GenerateService, PrefabsService, BrandsService, ConceptsService, VoiceService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
+  controllers: [AuthController, BricksController, ProjectsController, MediaController, ReferencesController, FontsController, BrandsController, PrefabsController, SoundsController, ImagesController, VoiceController, PostsController],
+  providers: [BricksService, ProjectsService, GenerateService, PrefabsService, BrandsService, ConceptsService, VoiceService, PostsService, CopywriterService, SunoService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
 })
 export class AppModule {}

@@ -11,7 +11,8 @@ id type start[-end] key=value… "text or path data" {optional JSON merged into 
 - value of any animatable key: number · tween `from>to@t0-t1[:ease]` · keys `t:v[:ease],t:v,…` · `(expression)`.
   Times in tweens/keys are seconds from the layer's own start.
 - eases: `l` linear · `i o io` ease in/out/in-out · `b` back (overshoot) · `h` hold · `eo ei eio` expo (eo = premium UI) ·
-  `el` elastic · `bo` bounce · `sp` spring (real damped spring released at rest: ~23% overshoot, settles inside the segment; use for physical pops and drops). An ease sits on the key it leaves; default `io`. JSON keys also take `"bezier":[x1,y1,x2,y2]`.
+  `el` elastic · `bo` bounce · `sp` spring (real damped spring released at rest: ~23% overshoot, settles inside the segment; use for physical pops and drops). An ease sits on the key it leaves; default `io`. `h` holds the value until the next key (a jump). JSON keys
+  `{"t":0,"v":0,"ease":"hold"}`; `"bezier":[x1,y1,x2,y2]` on a key = CSS cubic-bezier to the next key, overriding its ease.
 - expressions: `(540 + 40*sin(t*2))` `(wiggle(2,8))` `(spring(t,2.2,7))` `(lerp(0,1,ease(t/0.6)))`.
   vars: `t` layer seconds, `T` scene seconds, `i`/`n` repeater copy index/count, `pi`, `$name` a component's number
   param (inside components; elsewhere it reads 0).
@@ -32,6 +33,8 @@ id type start[-end] key=value… "text or path data" {optional JSON merged into 
 | `parent=ID` | inherits that layer's position/rotation/scale; x/y become relative to the parent's center |
 | `g=NAME` | group (always set it: one group per visual unit, the user edits groups) |
 | `vis=0` | not drawn itself (nulls, camera, matte sources) |
+| `solo=1` | while any layer is solo, ONLY solo layers render (preview and export); their parents, matte sources, the camera and `adj=1` layers above them keep working. The user's switch: leave it unless asked (the summary says when solo is on) |
+| `lock=1` `shy=1` | the user's editor switches (locked = not selectable; shy = hidden in the timeline). No render effect; leave them |
 | `fill=` | palette slot `background|surface|primary|accent|text`, or `on_background|on_surface|on_primary|on_accent` (white, near-black or the palette text, whichever reads best on that slot: WCAG), or `#rrggbb[aa]`; color keys `fill=0:#ffffff,0.6:#ff3d5a:eo` |
 | `place=SIDE:ID[,gap=PX][,align=start\|center\|end]` | sit against layer ID: SIDE is above, below, left, right or inside; gap in px; align sets the cross-axis edge (start/end). The tools resolve it into x and y (centers) and redo it after each write that moves ID. Not with `parent=` |
 | `grad=` | `lin:ANGLE:color@pos,…` · `rad:CX,CY:R:color@pos,…` · `con:CX,CY:ANGLE:color@pos,…` (conic; CX,CY 0..1 of the box; ≤ 4 stops; ANGLE may be `(t*90)`) |
@@ -39,7 +42,7 @@ id type start[-end] key=value… "text or path data" {optional JSON merged into 
 | `soft=PX` | feathered edge: big soft ellipses = mesh-gradient backgrounds, glows |
 | `shadow=X,Y,BLUR,COLOR[,OP]` | drop shadow (use a tinted color, low opacity, big blur) |
 | `glow=RADIUS[,STRENGTH[,COLOR[,THRESHOLD]]]` | glow. THRESHOLD (0-1 luma) makes a bloom: only pixels brighter than it glow, so light reads as light instead of a haze over the whole layer (`glow=60,1,,0.7` on a white dot) |
-| `blur=PX` | gaussian blur |
+| `blur=PX` | gaussian blur. Effects (`shadow glow blur mblur color rgb wave grain turb fx`) run in the order written, like AE's effect stack |
 | `mblur=SHUTTER°,SAMPLES` | motion blur on fast movers (`mblur=180,8`) |
 | `color=HUE°,SAT,BRIGHT,CONTRAST` | color correction |
 | `rgb=PX` | RGB split · `wave=AMP,WAVELENGTH,SPEED` warp · `grain=AMOUNT` |
@@ -221,7 +224,8 @@ measured. `review_video` lists any custom shader that cannot draw.
 
 **Order on a layer**: `fx=` and `blur=` run first, in the order written; then `shadow=` (under), `color= rgb= wave=
 grain= turb=` (at composite), `glow=` (over). Adjustment layers act on what is listed BEFORE them (with a camera: drawn
-before them — keep them `fixed=1` and last).
+before them — keep them `fixed=1` and last). In JSON an effect with `"enabled": false` stays in the stack but is not
+drawn (AE's fx switch): `{"fx":"blur","radius":8,"enabled":false}`; patch it back to `true` to turn it on.
 
 Recipes (copy, then change colors and numbers; frame 1920×1080):
 ```
@@ -256,6 +260,22 @@ badge shader .5 x=1500 y=300 w=320 h=320 s=0>1@0-.6:b fill=accent "fn shade(uv: 
   or `VIDEO failed to load: …`. `review_video` flags clips that fail to load, start past the file end, or run out and
   freeze while the layer is still on (fix: end the layer at `start + (out − in)/speed`, `loop=1`, or a lower speed).
 - Everything else works as on any layer: `rad`, effects, mattes (`matte=` a device screen), blend, camera, 3D planes.
+
+### Clip volume keyframes
+A video layer's `volume` also takes keyframes (seconds from the layer start, values 0..1, in time order), followed in the
+preview and the export mix: `{"op":"patch","id":"ft2","fields":{"volume":[{"t":0,"v":1,"ease":"linear"},{"t":3,"v":0.2,"ease":"linear"},{"t":4,"v":1}]}}`
+dips the clip's sound from 3 s to 4 s. The line syntax's `volume=V` is a flat level only (write keys with a patch).
+Music: `set_music` takes `envelope: [{"t":0,"v":0},{"t":2,"v":1}]` — levels 0..1 multiplying `gain`, `t` from the music's
+`start`, straight between keys (fade the song in, dip it under a moment, fade it out).
+
+### Transitions between clips
+A cut between two main-track clips (A then B) becomes a transition by overlapping them: B starts `D` s before A ends
+(move B and everything after it back by D), B is drawn above A, and B carries the keys (`D` 0.1–2 s):
+- dissolve: B `opacity: [{"t":0,"v":0,"ease":"linear"},{"t":D,"v":1}]`.
+- dip to black / white: B `opacity: [{"t":0,"v":0,"ease":"linear"},{"t":D/2,"v":1}]` plus the effect
+  `{"fx":"color","brightness":[{"t":0,"v":-1,"ease":"linear"},{"t":D/2,"v":-1,"ease":"linear"},{"t":D,"v":0}]}` (`1` for white).
+The Edit view reads exactly these keys as the transition (and writes them when the user adds one at a cut); both clips'
+sound plays during the overlap.
 
 ### Audio-reactive expressions
 The project voice-over/music is analysed in the editor (mono, 24 kHz, 100 frames/s; recomputed whenever the audio loads,
@@ -427,6 +447,15 @@ Ops: `{"op":"define_component","name":"stat","component":{"params":[{"name":"tit
 "duration":6,"layers":[…layer JSON…]}}` · `{"op":"remove_component","name":"stat"}` (refused while a layer or another
 component uses it; remove those first, same batch is fine). Redefining is refused if it breaks an existing instance
 (e.g. a param it passes no longer exists) and names it.
+
+### Precompose — layers you already placed become a component
+`{"op":"precompose","ids":["card","title"],"component":"intro","id":"intro1"}`: those layers move into the new component
+`intro` and ONE instance `intro1` takes the topmost one's place in the stack, from their earliest start to their latest
+end (open-ended if one is), with their shared parent, group and `fixed`. It renders identically: times re-base to the
+earliest start, anchors bake into x/y, formulas reading `T` are rewritten for the component clock. Refused, with the
+reason, for the camera, layers with z/rx/ry, videos, mixed `fixed`, roots under different outside parents, and parent/
+matte/formula links between a moved layer and one that stays (move both). Layers stacked between the selected ones end
+up below the instance.
 
 ### Component recipes (16:9)
 Stat card — defined once, three instances with staggered starts:

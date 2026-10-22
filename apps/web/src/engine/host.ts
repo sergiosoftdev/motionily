@@ -1,6 +1,7 @@
 import init, { Engine, analyzeAudio, captionStyles, checkSceneShaders, clearAudioAnalysis, stylePalettes, stylePresets } from "./pkg/engine_wasm.js";
+import { MusicPlayer, speechInFile, speechSpans, voiceOnTimeline, type MusicTrack, type SpeechSpan } from "../audio/music";
 import { sfxPlayer, type SfxCue } from "../audio/sfxPlayer";
-import { DEFAULT_SFX_VOLUME, type CaptionStyle, type FrameLayout, type Op, type ReviewReport, type StylePreset } from "@motionily/protocol";
+import { DEFAULT_SFX_VOLUME, type CaptionStyle, type FrameLayout, type Marker, type Op, type ReviewReport, type StylePreset, type WorkArea } from "@motionily/protocol";
 import { DEFAULT_FONT_FAMILY, fontFilesFor, text3dFonts } from "./fonts";
 import { decodeBytes, decodePng, modelFileUrl, modelUrl, packOf, packTextureUrl, type Pixels } from "./models";
 import { mediaUrl } from "../api/client";
@@ -67,7 +68,18 @@ const STILL_DIFF = 0.004;
 /** Consecutive unchanged samples that count as dead air. */
 const STILL_RUN = 3;
 
-type SceneMeta = { style: StylePreset; caption_style: CaptionStyle; duration: number; width: number; height: number; audio?: AudioTrack | null };
+type SceneMeta = {
+  style: StylePreset;
+  caption_style: CaptionStyle;
+  duration: number;
+  width: number;
+  height: number;
+  audio?: AudioTrack | null;
+  music?: MusicTrack | null;
+  captions?: { words?: { start: number; end: number }[] } | null;
+  markers?: Marker[];
+  work_area?: WorkArea;
+};
 
 /** Audio drift (s) tolerated before re-syncing it to the video clock. */
 const AUDIO_DRIFT = 0.15;
@@ -105,10 +117,19 @@ class EngineHost {
   private frames: FrameCache = new Map();
   private sounds = new ClipSounds(mediaSrc);
   private audioTrack: AudioTrack = { start: 0, trim_in: 0, trim_out: null };
+  /** Background music, and where the voice speaks (it ducks there). */
+  private music = new MusicPlayer();
+  private speech: SpeechSpan[] = [];
+  /** Caption words, and the voice file's own speech (file seconds) for videos without captions. */
+  private captionWords: { start: number; end: number }[] = [];
+  private voiceSpeech: SpeechSpan[] = [];
   private size: [number, number] = [1080, 1920];
 
   /** Restart at the end instead of stopping (turntable previews). */
   loop = false;
+  /** The scene's work area and markers, as of the last change. */
+  private range: WorkArea = null;
+  private marks: Marker[] = [];
 
   styles: StylePreset[] = [];
   captionStyles: CaptionStyle[] = [];
@@ -159,6 +180,7 @@ class EngineHost {
     this.pause();
     this.loop = false;
     void this.setAudio(null);
+    this.music.setTrack(null);
     this.videos.dispose();
     this.videos = new VideoLibrary(mediaSrc, () => this.draw());
     this.sounds.dispose();
@@ -402,7 +424,13 @@ class EngineHost {
     return this.audioAnalysis;
   }
 
+  /** Where the music ducks: the caption words, or the voice's own speech when there are none. */
+  private updateSpeech() {
+    this.speech = this.captionWords.length ? speechSpans(this.captionWords) : voiceOnTimeline(this.voiceSpeech, this.audioTrack);
+  }
+
   private async analyzeAudio(url: string | null) {
+    this.voiceSpeech = [];
     if (!this.wasmReady) return;
     await this.wasmReady;
     if (!url) {
@@ -414,6 +442,8 @@ class EngineHost {
       const { samples, rate } = await decodeMono(url);
       // A newer file replaced this one while it decoded.
       if (url !== this.audioUrl) return;
+      this.voiceSpeech = speechInFile(samples, rate);
+      this.updateSpeech();
       this.audioInfo = JSON.parse(analyzeAudio(samples, rate)) as AudioAnalysisInfo;
     } catch {
       if (url === this.audioUrl) clearAudioAnalysis();
@@ -432,12 +462,31 @@ class EngineHost {
     return this.videos;
   }
 
+  /** Scene `work_area` `[in, out]` (null = the whole video): playback loops inside it. */
+  workArea(): WorkArea {
+    return this.range;
+  }
+
+  /** Scene timeline markers, sorted by time. */
+  markers(): Marker[] {
+    return this.marks;
+  }
+
+  /** Where playback runs: the work area clipped to the video, or the whole video. */
+  private playRange(): [number, number] {
+    const { duration } = useEditor.getState();
+    const [a, b] = this.range ?? [0, duration];
+    return a < duration ? [a, Math.min(b, duration)] : [0, duration];
+  }
+
   play() {
     if (useEditor.getState().playing) return;
-    const { time, duration } = useEditor.getState();
-    if (time >= duration) useEditor.setState({ time: 0 });
+    const { time } = useEditor.getState();
+    const [from, to] = this.playRange();
+    if (time >= to || (this.range && time < from)) useEditor.setState({ time: from });
     useEditor.setState({ playing: true });
     this.syncAudio(true);
+    this.music.sync(useEditor.getState().time, true, this.speech);
     void sfxPlayer.start(useEditor.getState().time, this.sfxCues());
     this.lastTick = performance.now();
     this.raf = requestAnimationFrame(this.tick);
@@ -446,6 +495,7 @@ class EngineHost {
   pause() {
     cancelAnimationFrame(this.raf);
     this.audio?.pause();
+    this.music.pause();
     this.sounds.stop();
     sfxPlayer.stop();
     useEditor.setState({ playing: false });
@@ -454,6 +504,7 @@ class EngineHost {
   seek(t: number) {
     useEditor.setState({ time: Math.max(0, Math.min(t, useEditor.getState().duration)) });
     this.syncAudio(false);
+    this.music.sync(useEditor.getState().time, useEditor.getState().playing, this.speech);
     this.syncClipSounds(useEditor.getState().playing);
     if (useEditor.getState().playing) void sfxPlayer.start(useEditor.getState().time, this.sfxCues());
     this.draw();
@@ -468,24 +519,29 @@ class EngineHost {
   }
 
   private tick = (now: number) => {
-    const { time, duration } = useEditor.getState();
+    const { time } = useEditor.getState();
     const next = time + (now - this.lastTick) / 1000;
     this.lastTick = now;
-    if (next >= duration && this.loop) {
-      useEditor.setState({ time: 0 });
-      void sfxPlayer.start(0, this.sfxCues());
+    const [from, to] = this.playRange();
+    // A work area always loops; the whole video only when `loop` is on.
+    if (next >= to && (this.loop || this.range)) {
+      useEditor.setState({ time: from });
+      this.syncAudio(true);
+      this.music.sync(from, true, this.speech);
+      void sfxPlayer.start(from, this.sfxCues());
       this.draw();
       this.raf = requestAnimationFrame(this.tick);
       return;
     }
-    if (next >= duration) {
-      useEditor.setState({ time: duration });
+    if (next >= to) {
+      useEditor.setState({ time: to });
       this.draw();
       this.pause();
       return;
     }
     useEditor.setState({ time: next });
     this.syncAudio(true);
+    this.music.sync(next, true, this.speech);
     this.draw();
     this.syncClipSounds(true);
     this.raf = requestAnimationFrame(this.tick);
@@ -882,6 +938,12 @@ class EngineHost {
     return json ? (JSON.parse(json) as Record<string, number>) : undefined;
   }
 
+  /** Exact engine values of a layer prop (`set_prop` name) at scene `times`: keys, bezier, formulas, time remap; no parents. [] for an unknown layer or prop. */
+  sampleProp(layerId: string, prop: string, times: number[]): number[] {
+    const v = this.engine?.sampleProp(layerId, prop, Float32Array.from(times));
+    return v ? Array.from(v) : [];
+  }
+
   layerBounds(id: string): number[] | undefined {
     const b = this.engine?.layerBounds(id, useEditor.getState().time);
     return b ? Array.from(b) : undefined;
@@ -911,6 +973,11 @@ class EngineHost {
     const meta = JSON.parse(this.require().sceneJson()) as SceneMeta;
     this.size = [meta.width, meta.height];
     this.audioTrack = meta.audio ?? { start: 0, trim_in: 0, trim_out: null };
+    this.music.setTrack(meta.music ?? null);
+    this.captionWords = meta.captions?.words ?? [];
+    this.range = meta.work_area ?? null;
+    this.marks = meta.markers ?? [];
+    this.updateSpeech();
     useEditor.setState((s) => ({
       sceneSize: [meta.width, meta.height],
       style: meta.style,

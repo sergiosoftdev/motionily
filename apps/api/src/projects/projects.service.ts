@@ -3,7 +3,7 @@ import { InjectModel } from "@nestjs/mongoose";
 import { Model, Types } from "mongoose";
 import { BricksService } from "../bricks/bricks.service";
 import { BrickSlot, SLOT_CARDINALITY, SlotCardinality } from "../bricks/brick.enums";
-import { Build, Feedback, FeedbackKind, Project, ProjectDocument, type AgentRunUsage } from "./project.schema";
+import { Build, Feedback, FeedbackKind, Project, ProjectDocument, type AgentRunUsage, type FootageClip, type PostCopyDraft, type SunoPrompt } from "./project.schema";
 import type { ImageCredit } from "../images/image-search";
 import { removeMedia } from "../media";
 import type { CreateFeedbackDto, CreateProjectDto, SaveSceneDto, SetSlotDto, UpdateProjectDto } from "./projects.dto";
@@ -124,6 +124,7 @@ export class ProjectsService {
     if (dto.voiceScript !== undefined) project.voiceScript = dto.voiceScript;
     if (dto.references !== undefined) project.references = dto.references;
     if (dto.format !== undefined) project.format = dto.format;
+    if (dto.postCopy !== undefined) project.postCopy = dto.postCopy;
     return project.save();
   }
 
@@ -131,7 +132,11 @@ export class ProjectsService {
     const project = await this.get(ownerId, id);
     await Promise.all([project.deleteOne(), this.feedback.deleteMany({ projectId: project._id })]);
     // Imported photos belong to this video only.
-    const files = (project.imageCredits ?? []).flatMap((c) => [c.src, c.preview ?? ""]).filter(Boolean);
+    const files = [
+      ...(project.imageCredits ?? []).flatMap((c) => [c.src, c.preview ?? ""]),
+      ...(project.footage ?? []).flatMap((c) => [c.file, c.poster ?? ""]),
+      project.music?.file ?? "",
+    ].filter(Boolean);
     await Promise.all(files.map((f) => removeMedia(f.replace(/^\/media\//, ""))));
   }
 
@@ -216,6 +221,58 @@ export class ProjectsService {
     project.markModified("audio");
     await project.save();
     return { project, previous };
+  }
+
+  /** Replaces the video's music file; returns the one it replaces, to delete. */
+  async setMusic(ownerId: Types.ObjectId, id: string, music: Project["music"]) {
+    const project = await this.get(ownerId, id);
+    const previous = project.music?.file;
+    project.music = music;
+    project.markModified("music");
+    await project.save();
+    return { project, previous };
+  }
+
+  async setSunoPrompt(id: string, suno: SunoPrompt) {
+    await this.projects.updateOne({ _id: id }, { $set: { sunoPrompt: suno } });
+  }
+
+  /** Keep a copy draft per platform: new drafts replace the platforms they cover. */
+  async savePostCopy(id: string, copy: PostCopyDraft[]) {
+    const project = await this.projects.findById(id, { postCopy: 1 }).lean();
+    const kept = (project?.postCopy ?? []).filter((c) => !copy.some((n) => n.platform === c.platform));
+    await this.projects.updateOne({ _id: id }, { $set: { postCopy: [...kept, ...copy] } });
+  }
+
+  /** Adds an uploaded clip as c1, c2… */
+  async addFootage(ownerId: Types.ObjectId, id: string, clip: Omit<FootageClip, "id">) {
+    const project = await this.get(ownerId, id);
+    const taken = (project.footage ?? []).map((c) => Number(c.id.slice(1)) || 0);
+    project.footage = [...(project.footage ?? []), { id: `c${Math.max(0, ...taken) + 1}`, ...clip }];
+    project.markModified("footage");
+    await project.save();
+    return project;
+  }
+
+  async setFootageWords(ownerId: Types.ObjectId, id: string, clipId: string, words: FootageClip["words"]) {
+    const project = await this.get(ownerId, id);
+    const clip = (project.footage ?? []).find((c) => c.id === clipId);
+    if (!clip) throw new NotFoundException(`no clip '${clipId}' in this video`);
+    clip.words = words;
+    project.markModified("footage");
+    await project.save();
+    return project;
+  }
+
+  /** Drops a clip; returns it so its files can be deleted. */
+  async removeFootage(ownerId: Types.ObjectId, id: string, clipId: string) {
+    const project = await this.get(ownerId, id);
+    const clip = (project.footage ?? []).find((c) => c.id === clipId);
+    if (!clip) throw new NotFoundException(`no clip '${clipId}' in this video`);
+    project.footage = project.footage.filter((c) => c.id !== clipId);
+    project.markModified("footage");
+    await project.save();
+    return { project, clip };
   }
 
   private buildFromKit(kitKey: string, payload: KitPayload): Build {

@@ -20,3 +20,22 @@ MOTION DESIGN CRAFT (non-negotiable) — the engine is an After Effects: use it,
   grade adjustment layer to glue the look, luma/alpha matte reveals.
 - Save tokens with expressions, repeaters, loops (time=(mod(t,P))) and layer references instead of many
   hand-made keyframes/layers.
+
+SHORT-FORM ATTENTION CURVE — always for 9:16, 4:5 and 1:1 (Reels, TikTok, Shorts); 16:9 keeps a classic arc.
+Attention is a sawtooth, not an arc: start high, dip a little, re-hook, repeat, end on the highest peak.
+- Start at 70%: frame 0 already moving, in medias res on the most surprising result, conflict or image. No setup,
+  no logo intro; context arrives later in small doses, only when the viewer needs it.
+- Re-hook every 4-7 s: open a question → pay part of it with a concrete fact or visual → open the next question
+  before closing the last. Never leave the viewer with nothing open.
+- Peaks escalate (stakes, numbers, reveals), each bigger than the one before; the biggest reveal in the last 20%.
+- Pattern interrupt at ~30% (where viewers drop most): a twist ("but…") with a hard change of color, layout or
+  camera and a sound hit.
+- Valleys breathe but are never dead: they still carry a fact and something moves every 0.5-1.5 s.
+- End on the peak: last reveal + CTA in the final 2-3 s, no outro, no fade to black. The last line or image hands
+  back to the first so the replay loops seamlessly.
+- Devices: open loop, stakes up, twist, countdown, visual reveal, proof (real number or screen), direct question
+  to the viewer, callback to the hook.
+- The voice tells ONE continuous story (connected sentences, cause and consequence, real names and stakes), never
+  choppy teaser lines: the re-hooks are turns of that story, and it makes sense heard without the picture.
+- In motion terms: a peak = beat change + camera move or whip + scale punch or color flip + impact sound; a valley =
+  calmer drift and smaller type, never still. review_video measures this curve and flags flat stretches.

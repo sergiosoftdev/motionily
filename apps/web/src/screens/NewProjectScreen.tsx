@@ -9,6 +9,7 @@ import { ReferenceStrip, useReferences } from "../components/References";
 import { ModePicker } from "../components/ModePicker";
 import { VoicePicker } from "../voice/ElevenLabs";
 import { AgentEffort, AgentModel, loadPrefs, savePrefs, type AgentPrefs } from "../components/GeneratePanel";
+import { AttentionCurve } from "../components/AttentionCurve";
 
 const Step = {
   Idea: "idea",
@@ -236,21 +237,23 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
                   <span className="text-2xl font-semibold leading-tight">{c.title}</span>
                   <span className="text-lg text-white/90">“{c.hook}”</span>
                   <span className="text-sm leading-relaxed text-neutral-400">{c.direction}</span>
+                  <PlannedCurve beats={c.beats} />
                   <span className="mt-1 flex flex-col gap-1.5 border-t border-white/10 pt-4 text-xs text-neutral-500">
                     {c.beats.map((b, j) => (
                       <span key={j}>
                         <span className="font-mono text-neutral-400">{b.at}</span> · {b.what}
+                        {b.device && <span className="ml-1.5 rounded-full bg-white/5 px-1.5 py-px font-mono text-[10px] text-neutral-400">{b.device.replace(/_/g, " ")}</span>}
                       </span>
                     ))}
+                  </span>
+                  <span className="mt-auto pt-2 text-sm font-semibold text-white opacity-60 transition group-hover:opacity-100">Pick this one →</span>
+                </button>
+              ))}
               {Array.from({ length: pending }, (_, i) => (
                 <ComposingCard key={`pending-${i}`} index={concepts.length + i} />
               ))}
-                  </span>
-                  <span className="mt-auto pt-2 text-sm font-semibold text-white opacity-60 transition group-hover:opacity-100">Elegir esta →</span>
-                </button>
-              ))}
             </div>
-            {pitchCost && <p className="text-xs text-neutral-600">Estas propuestas: {pitchCost}</p>}
+            {pitchCost && <p className="text-xs text-neutral-600">These pitches: {pitchCost}</p>}
             <div className="flex flex-col gap-3 sm:flex-row">
               <input
                 value={steer}
@@ -259,7 +262,7 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
                 className="flex-1 rounded-xl bg-white/5 px-5 py-3 text-sm ring-1 ring-white/10 placeholder:text-neutral-600 focus:outline-none focus:ring-white/30"
               />
               <button type="button" onClick={() => void pitch(true)} className="rounded-xl bg-white/10 px-5 py-3 text-sm font-semibold transition hover:bg-white/20">
-                Otras {count}
+                {count} more
               </button>
             </div>
           </Panel>
@@ -312,6 +315,23 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
 }
 
 const WORDS_PER_SECOND = 2.3;
+
+/** First number of a beat's "at" ("0-1.5s" → 0). */
+const beatStart = (at: string) => Number.parseFloat(at.replace(",", "."));
+
+/** The concept's planned attention curve, from its beats' energy (the sawtooth Reels and TikTok need). */
+function PlannedCurve({ beats }: { beats: Concept["beats"] }) {
+  const tagged = beats.filter((b) => b.energy !== undefined);
+  if (tagged.length < 2) return null;
+  const starts = tagged.map((b) => beatStart(b.at));
+  const at = starts.every(Number.isFinite) ? starts : undefined;
+  return (
+    <span className="flex flex-col gap-1">
+      <span className="font-mono text-[10px] text-neutral-500">Attention curve</span>
+      <AttentionCurve values={tagged.map((b) => b.energy! / 100)} at={at} floor={0.3} dots className="h-12 w-full text-emerald-300" />
+    </span>
+  );
+}
 
 function wordCount(script: string) {
   return script.replace(/\[[^\]]*\]/g, " ").split(/\s+/).filter(Boolean).length;
@@ -409,7 +429,7 @@ function Thinking({ count }: { count: number }) {
   return (
     <section className="flex flex-col gap-10">
       <div className="wiz-in flex flex-col gap-3">
-        <span className="font-mono text-xs text-neutral-500">Paso 4</span>
+        <span className="font-mono text-xs text-neutral-500">Step 4</span>
         <h1 className="text-5xl font-semibold leading-[1.05] sm:text-6xl">Composing {count === 1 ? "one idea" : `${count} ideas`}</h1>
         <p className="font-mono text-base text-neutral-400">
           {THINKING_LINES[line]!.slice(0, typed)}

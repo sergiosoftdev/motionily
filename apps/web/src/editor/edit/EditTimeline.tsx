@@ -1,0 +1,620 @@
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { OpName, type Op } from "@motionily/protocol";
+import { mediaUrl } from "../../api/client";
+import type { SfxCue } from "../../audio/sfxPlayer";
+import type { MusicTrack } from "../../audio/music";
+import { engineHost } from "../../engine/host";
+import { useEditor } from "../../store";
+import type { SceneView } from "../sceneView";
+import { Filmstrip, SoundWave, usePeaks, Waveform } from "./TimelineMedia";
+import { MIN_CLIP, moveBlockOps, moveClipOps, shownSpan, trimWithTransitionsOps, type EditClip, type EditTracks, type GraphicsBlock } from "./tracks";
+import { CUT_EPS } from "./transitions";
+import { TransitionChip } from "./TransitionChip";
+import type { EditActions } from "./useEditActions";
+import { VolumeLine } from "./VolumeLine";
+import type { VolumeKey } from "./volume";
+
+const HEADER_W = 104;
+const RULER_H = 26;
+const LANE_H = 44;
+const SMALL_LANE_H = 28;
+/** Video lanes are taller: frames on top, the clip's sound along the bottom. */
+const VIDEO_LANE_H = 64;
+const CLIP_H = VIDEO_LANE_H - 12;
+const WAVE_H = 16;
+/** Voice and music lanes, tall enough for a waveform and the music's volume line. */
+const AUDIO_LANE_H = 40;
+const AUDIO_H = AUDIO_LANE_H - 8;
+const MIN_LABEL_GAP = 70;
+const TICK_STEPS = [0.5, 1, 2, 5, 10, 15, 30, 60, 120];
+/** Edges snap to the playhead and to other clips within this many pixels. */
+const SNAP_PX = 7;
+const HANDLE_PX = 7;
+const DRAG_THRESHOLD = 3;
+const MAX_ZOOM = 30;
+/** Words further apart than this start a new caption chip, and a chip holds at most this many words. */
+const PHRASE_GAP = 0.35;
+const PHRASE_WORDS = 6;
+/** Frame shape of footage whose size is unknown. */
+const DEFAULT_ASPECT = 16 / 9;
+const CLIP_WAVE = "rgba(186,230,253,0.9)";
+const MUTED_WAVE = "rgba(186,230,253,0.35)";
+const VOICE_WAVE = "rgba(209,250,229,0.85)";
+const MUSIC_WAVE = "rgba(252,231,243,0.8)";
+
+/** What the user has picked in the timeline. Clips and blocks follow the editor's selection (canvas or timeline). */
+export type EditSelection =
+  | { kind: "clip"; clip: EditClip }
+  | { kind: "block"; block: GraphicsBlock }
+  | { kind: "cue"; cue: SfxCue }
+  | { kind: "music"; music: MusicTrack }
+  | { kind: "many"; clips: EditClip[]; blocks: GraphicsBlock[]; cues: SfxCue[] }
+  | null;
+
+/** What a marquee or Shift-click can pick, as `data-pick="kind:id"` on each piece. */
+export const PickKind = { Clip: "clip", Block: "block", Cue: "cue" } as const;
+export type PickKind = (typeof PickKind)[keyof typeof PickKind];
+/** Several pieces picked at once, by id (clip ids, block keys, cue ids), resolved against the live scene. */
+export type Picks = Record<PickKind, string[]>;
+export const NO_PICKS: Picks = { clip: [], block: [], cue: [] };
+export const pickCount = (p: Picks) => p.clip.length + p.block.length + p.cue.length;
+
+/** The single selection as picks, so Shift-click and a Shift-marquee add to it. */
+function picksOf(selection: EditSelection): Picks {
+  if (!selection) return NO_PICKS;
+  switch (selection.kind) {
+    case "clip":
+      return { ...NO_PICKS, clip: [selection.clip.id] };
+    case "block":
+      return { ...NO_PICKS, block: [selection.block.key] };
+    case "cue":
+      return { ...NO_PICKS, cue: [selection.cue.id] };
+    case "many":
+      return { clip: selection.clips.map((c) => c.id), block: selection.blocks.map((b) => b.key), cue: selection.cues.map((c) => c.id) };
+    default:
+      return NO_PICKS;
+  }
+}
+const union = (a: Picks, b: Picks): Picks => ({ clip: [...new Set([...a.clip, ...b.clip])], block: [...new Set([...a.block, ...b.block])], cue: [...new Set([...a.cue, ...b.cue])] });
+
+type Drag = { kind: "move" | "in" | "out"; x0: number; moved: boolean };
+
+/** Music fields for its volume line: keys without eases (the envelope is linear), a flat level as one key, 100% as none. */
+const envelopeOf = (v: VolumeKey[] | number) => (typeof v === "number" ? (v >= 1 ? [] : [{ t: 0, v }]) : v.map(({ t, v: level }) => ({ t, v: level })));
+
+/**
+ * CapCut-style multitrack timeline: graphics blocks on top, video lanes (the main track at the
+ * bottom of them) with each clip's frames and sound, captions, voice, music and sound effects. Drag to
+ * move, drag an edge to trim; a cut on the main track takes a transition; a selected clip or the music
+ * shows its volume line for keyframes. The parent decides what Delete and S do.
+ */
+export function EditTimeline({
+  scene,
+  tracks,
+  selection,
+  audioUrl,
+  onSelectCue,
+  onSelectMusic,
+  onPick,
+  edits,
+}: {
+  scene: SceneView;
+  tracks: EditTracks;
+  selection: EditSelection;
+  /** The voice-over file, for its waveform. */
+  audioUrl: string | null;
+  onSelectCue: (cue: SfxCue | null) => void;
+  onSelectMusic: (on: boolean) => void;
+  /** Several pieces at once (marquee, Shift-click, "select all effects"); null clears them. */
+  onPick: (picks: Picks | null) => void;
+  edits: EditActions;
+}) {
+  const time = useEditor((s) => s.time);
+  const duration = Math.max(scene.duration, 0.1);
+  const fps = scene.fps ?? 30;
+  const [zoom, setZoom] = useState(1);
+  const [viewW, setViewW] = useState(800);
+  /** Track px on screen (left, right): blocks draw frames and waveforms only there. */
+  const [view, setView] = useState({ l: 0, r: 1600 });
+  const scroller = useRef<HTMLDivElement>(null);
+  /** The marquee being dragged, in the track content's px. */
+  const [band, setBand] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  const picked = picksOf(selection);
+  const voicePeaks = usePeaks(audioUrl);
+  const musicPeaks = usePeaks(scene.music ? mediaUrl(scene.music.src) : null);
+
+  const readView = () => {
+    const el = scroller.current;
+    if (el) setView({ l: el.scrollLeft, r: el.scrollLeft + el.clientWidth - HEADER_W });
+  };
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      setViewW(el.clientWidth - HEADER_W);
+      readView();
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const trackW = Math.max(200, viewW * zoom);
+  const pps = trackW / duration;
+  const px = (t: number) => t * pps;
+  /** Block-local px range on screen of a block starting at track px `left`, `width` wide. */
+  const visible = (left: number, width: number) => ({ visL: Math.max(0, view.l - left), visR: Math.min(width, view.r - left) });
+  const step = TICK_STEPS.find((s) => s * pps >= MIN_LABEL_GAP) ?? TICK_STEPS.at(-1)!;
+  const ticks = useMemo(() => Array.from({ length: Math.floor(duration / step) + 1 }, (_, i) => i * step), [duration, step]);
+  const phrases = useMemo(() => {
+    const words = scene.captions?.words ?? [];
+    const out: { start: number; end: number; text: string; words: number }[] = [];
+    for (const w of words) {
+      const last = out.at(-1);
+      if (last && w.start - last.end < PHRASE_GAP && last.words < PHRASE_WORDS) {
+        last.end = w.end;
+        last.text += ` ${w.text}`;
+        last.words += 1;
+      } else out.push({ start: w.start, end: w.end, text: w.text, words: 1 });
+    }
+    return out;
+  }, [scene.captions]);
+
+  const timeAt = (clientX: number) => {
+    const el = scroller.current!;
+    const x = clientX - el.getBoundingClientRect().left + el.scrollLeft - HEADER_W;
+    return Math.max(0, Math.min(duration, x / pps));
+  };
+  const seekTo = (clientX: number) => engineHost.seek(timeAt(clientX));
+
+  /** Scrub along the ruler (or an empty lane). */
+  const scrub = (e: ReactPointerEvent) => {
+    e.preventDefault();
+    engineHost.pause();
+    seekTo(e.clientX);
+    const move = (ev: PointerEvent) => seekTo(ev.clientX);
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  /** Snap a time to the playhead or a neighbour's edge when close enough. */
+  const snap = (t: number, points: number[]) => {
+    let best = t;
+    let dist = SNAP_PX / pps;
+    for (const p of points) {
+      if (Math.abs(p - t) < dist) {
+        dist = Math.abs(p - t);
+        best = p;
+      }
+    }
+    return best;
+  };
+
+  /** Drag helper: a click selects, a drag past the threshold edits live and commits on release. */
+  const drag = (e: ReactPointerEvent, kind: Drag["kind"], onSelect: () => void, onDrag: (dt: number, clientX: number) => Op[], what: () => string, recaption: boolean) => {
+    e.stopPropagation();
+    e.preventDefault();
+    onSelect();
+    const d: Drag = { kind, x0: e.clientX, moved: false };
+    const move = (ev: PointerEvent) => {
+      if (!d.moved && Math.abs(ev.clientX - d.x0) < DRAG_THRESHOLD) return;
+      if (!d.moved) edits.begin();
+      d.moved = true;
+      edits.preview(onDrag((ev.clientX - d.x0) / pps, ev.clientX));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      if (d.moved) edits.end(what(), recaption);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  const clipPoints = (c: EditClip) => [0, time, ...tracks.clips.filter((x) => x.id !== c.id && x.lane === c.lane).flatMap((x) => [x.start, x.end])];
+  /** Shift-click: add the piece to the selection, or take it out. */
+  const togglePick = (kind: PickKind, id: string) => {
+    const has = picked[kind].includes(id);
+    onPick({ ...picked, [kind]: has ? picked[kind].filter((x) => x !== id) : [...picked[kind], id] });
+  };
+  /**
+   * Drag on an empty stretch of a lane: a selection box that picks every clip, graphics block and
+   * effect it touches (Shift adds to what is selected). A click without a drag deselects and seeks.
+   */
+  const marquee = (e: ReactPointerEvent) => {
+    e.preventDefault();
+    const el = scroller.current!;
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    const base = e.shiftKey ? picked : NO_PICKS;
+    let moved = false;
+    const move = (ev: PointerEvent) => {
+      if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) < DRAG_THRESHOLD) return;
+      moved = true;
+      const r = { l: Math.min(x0, ev.clientX), r: Math.max(x0, ev.clientX), t: Math.min(y0, ev.clientY), b: Math.max(y0, ev.clientY) };
+      const box = el.getBoundingClientRect();
+      setBand({ left: r.l - box.left + el.scrollLeft, top: r.t - box.top + el.scrollTop, width: r.r - r.l, height: r.b - r.t });
+      const hit: Picks = { clip: [], block: [], cue: [] };
+      el.querySelectorAll<HTMLElement>("[data-pick]").forEach((node) => {
+        const b = node.getBoundingClientRect();
+        if (b.right < r.l || b.left > r.r || b.bottom < r.t || b.top > r.b) return;
+        const [kind, ...rest] = node.dataset.pick!.split(":");
+        hit[kind as PickKind].push(rest.join(":"));
+      });
+      onPick(union(base, hit));
+    };
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      setBand(null);
+      if (moved) return;
+      useEditor.setState({ selectedLayerId: null, selectedGroup: null });
+      onSelectCue(null);
+      onSelectMusic(false);
+      onPick(null);
+      engineHost.pause();
+      seekTo(ev.clientX);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  const selectClip = (c: EditClip) => {
+    onPick(null);
+    onSelectCue(null);
+    onSelectMusic(false);
+    useEditor.setState({ selectedLayerId: c.id, selectedGroup: null });
+  };
+  const selectBlock = (b: GraphicsBlock) => {
+    onPick(null);
+    onSelectCue(null);
+    onSelectMusic(false);
+    useEditor.setState({ selectedLayerId: b.group ? null : b.ids[0]!, selectedGroup: b.group });
+  };
+
+  /** One clip: frames, its sound, its name, the volume line when selected (or keyed), trim handles. */
+  const clipBlock = (c: EditClip) => {
+    const on = picked.clip.includes(c.id);
+    // Main-track clips show from the middle of each transition, like a cut there.
+    const [from, to] = c.lane === 0 ? shownSpan(c) : [c.start, c.end];
+    const left = px(from);
+    const width = Math.max(4, px(to - from));
+    const vis = visible(left, width);
+    const fc = c.footage;
+    const edge = (kind: "in" | "out") => (e: ReactPointerEvent) =>
+      drag(
+        e,
+        kind,
+        () => selectClip(c),
+        (dt) => trimWithTransitionsOps(c, kind, snap((kind === "in" ? c.start : c.end) + dt, clipPoints(c)), scene, tracks),
+        () => `Trims ${c.id}`,
+        true,
+      );
+    return (
+      <div
+        key={c.id}
+        data-clip={c.id}
+        data-pick={`${PickKind.Clip}:${c.id}`}
+        title={`${c.name} · ${c.start.toFixed(2)}–${c.end.toFixed(2)} s · file ${c.in.toFixed(2)}–${(c.out ?? c.in + (c.end - c.start) * c.speed).toFixed(2)} s`}
+        onPointerDown={(e) =>
+          e.shiftKey
+            ? (e.stopPropagation(), togglePick(PickKind.Clip, c.id))
+            : drag(
+            e,
+            "move",
+            () => selectClip(c),
+            (dt) => {
+              const pts = clipPoints(c);
+              let start = snap(c.start + dt, pts);
+              if (start === c.start + dt) start = snap(c.end + dt, pts) - (c.end - c.start);
+              return moveClipOps(c, start, scene, tracks);
+            },
+            () => `Moves ${c.id}`,
+            true,
+          )
+        }
+        className={`group absolute top-1.5 bottom-1.5 cursor-grab overflow-hidden rounded-md text-[11px] whitespace-nowrap text-sky-50 active:cursor-grabbing ${on ? "bg-sky-800 ring-2 ring-white" : "bg-sky-900 hover:brightness-110"}`}
+        style={{ left, width }}
+      >
+        {vis.visR > vis.visL && (
+          <>
+            <Filmstrip
+              src={c.src}
+              poster={fc?.poster ?? null}
+              fileDuration={fc?.duration ?? null}
+              aspect={fc?.width && fc.height ? fc.width / fc.height : DEFAULT_ASPECT}
+              clipStart={c.start}
+              clipIn={c.in}
+              speed={c.speed}
+              from={from}
+              pps={pps}
+              visL={vis.visL}
+              visR={vis.visR}
+              height={CLIP_H}
+            />
+            <SoundWave url={mediaUrl(c.src)} fileAt0={c.in + (from - c.start) * c.speed} rate={c.speed / pps} visL={vis.visL} visR={vis.visR} top={CLIP_H - WAVE_H} height={WAVE_H} color={c.volume > 0 ? CLIP_WAVE : MUTED_WAVE} />
+          </>
+        )}
+        <span className="pointer-events-none absolute top-1 left-1 max-w-[calc(100%-8px)] truncate rounded bg-black/55 px-1.5 text-[10px] leading-4">
+          {c.name}
+          {c.scale > 1 ? ` · ${Math.round((c.scale - 1) * 100)}% zoom` : ""}
+          {c.volume <= 0 ? " · muted" : ""}
+        </span>
+        {(on || c.volumeKeys) && (
+          <VolumeLine
+            keys={c.volumeKeys}
+            level={c.volume}
+            keyZero={c.start}
+            from={from}
+            width={width}
+            height={CLIP_H}
+            pps={pps}
+            fps={fps}
+            active={on}
+            toOps={(volume) => [{ op: OpName.Patch, id: c.id, fields: { volume } }]}
+            what={`Volume of ${c.id}`}
+            recaption
+            edits={edits}
+          />
+        )}
+        <span onPointerDown={edge("in")} className="absolute inset-y-0 left-0 cursor-ew-resize bg-white/0 group-hover:bg-white/25" style={{ width: HANDLE_PX }} />
+        <span onPointerDown={edge("out")} className="absolute inset-y-0 right-0 cursor-ew-resize bg-white/0 group-hover:bg-white/25" style={{ width: HANDLE_PX }} />
+      </div>
+    );
+  };
+
+  /** Each cut of the main track (touching clips, or a transition between them) gets its chip. */
+  const cuts = () => {
+    const main = tracks.clips.filter((c) => c.lane === 0);
+    return main.slice(1).flatMap((b, i) => {
+      const a = main[i]!;
+      if (b.transition?.from !== a.id && Math.abs(b.start - a.end) > CUT_EPS) return [];
+      return [<TransitionChip key={`cut-${b.id}`} a={a} b={b} scene={scene} pps={pps} edits={edits} />];
+    });
+  };
+
+  /** `pickAll` turns the lane's label into "select everything on this lane". */
+  const lanes: { key: string; label: string; height: number; body: ReactNode; pickAll?: () => void }[] = [];
+  for (let row = tracks.blockLanes - 1; row >= 0; row--) {
+    lanes.push({
+      key: `graphics-${row}`,
+      label: row === 0 ? "Graphics" : "",
+      height: LANE_H,
+      body: tracks.blocks.filter((b) => b.lane === row).map((b) => {
+        const on = picked.block.includes(b.key);
+        return (
+          <div
+            key={b.key}
+            title={`${b.label} · ${b.start.toFixed(1)}–${b.end.toFixed(1)} s · ${b.ids.length} layers`}
+            data-pick={`${PickKind.Block}:${b.key}`}
+            onPointerDown={(e) =>
+              e.shiftKey
+                ? (e.stopPropagation(), togglePick(PickKind.Block, b.key))
+                : drag(
+                e,
+                "move",
+                () => selectBlock(b),
+                (dt) => {
+                  const start = snap(b.start + dt, [0, time, ...tracks.clips.map((c) => c.start)]);
+                  return moveBlockOps(b, start - b.start, scene);
+                },
+                () => `Moves ${b.label}`,
+                false,
+              )
+            }
+            className={`absolute top-1.5 bottom-1.5 cursor-grab overflow-hidden rounded-md px-2 text-[11px] leading-[30px] whitespace-nowrap text-violet-50 active:cursor-grabbing ${on ? "bg-violet-500 ring-2 ring-white" : "bg-violet-600/80 hover:bg-violet-500/90"}`}
+            style={{ left: px(b.start), width: Math.max(4, px(b.end - b.start)) }}
+          >
+            {b.label}
+          </div>
+        );
+      }),
+    });
+  }
+  // Overlay lanes above, the main track (lane 0) at the bottom, as in CapCut.
+  for (let lane = tracks.lanes - 1; lane >= 0; lane--) {
+    lanes.push({
+      key: `video-${lane}`,
+      label: lane === 0 ? "Video" : `Overlay ${lane}`,
+      height: VIDEO_LANE_H,
+      body: (
+        <>
+          {tracks.clips.filter((c) => c.lane === lane).map(clipBlock)}
+          {lane === 0 && cuts()}
+        </>
+      ),
+    });
+  }
+  if (phrases.length)
+    lanes.push({
+      key: "captions",
+      label: "Captions",
+      height: SMALL_LANE_H,
+      body: phrases.map((p, i) => (
+        <div key={i} title={p.text} className="pointer-events-none absolute top-1 bottom-1 truncate rounded bg-neutral-700/70 px-1.5 text-[10px] leading-5 text-neutral-200" style={{ left: px(p.start), width: Math.max(2, px(p.end - p.start)) }}>
+          {p.text}
+        </div>
+      )),
+    });
+  if (scene.audio) {
+    const a = scene.audio;
+    const fileOut = a.trim_out ?? voicePeaks?.duration ?? null;
+    const end = Math.min(duration, fileOut != null ? a.start + fileOut - a.trim_in : duration);
+    const left = px(a.start);
+    const width = Math.max(8, px(end - a.start));
+    const vis = visible(left, width);
+    lanes.push({
+      key: "voice",
+      label: "Voice",
+      height: AUDIO_LANE_H,
+      body: (
+        <div className="pointer-events-none absolute top-1 bottom-1 overflow-hidden rounded bg-emerald-800/70 text-[10px] leading-5 text-emerald-50" style={{ left, width }}>
+          {voicePeaks && vis.visR > vis.visL && <Waveform peaks={voicePeaks} fileAt0={a.trim_in} rate={1 / pps} visL={vis.visL} visR={vis.visR} top={0} height={AUDIO_H} color={VOICE_WAVE} />}
+          <span className="absolute top-0 left-1.5">Voice-over</span>
+        </div>
+      ),
+    });
+  }
+  if (scene.music) {
+    const m = scene.music;
+    const on = selection?.kind === "music";
+    const fileOut = m.trim_out ?? musicPeaks?.duration ?? null;
+    const end = Math.min(duration, fileOut != null ? m.start + (fileOut - m.trim_in) : duration);
+    const left = px(m.start);
+    const width = Math.max(8, px(end - m.start));
+    const vis = visible(left, width);
+    const envelope = m.envelope?.length ? m.envelope : null;
+    lanes.push({
+      key: "music",
+      label: "Music",
+      height: AUDIO_LANE_H,
+      body: (
+        <div
+          data-music
+          title={`Music from ${m.start.toFixed(1)} s · level ${Math.round(m.gain * 100)}%`}
+          onPointerDown={(e) =>
+            drag(
+              e,
+              "move",
+              () => {
+                useEditor.setState({ selectedLayerId: null, selectedGroup: null });
+                onPick(null);
+                onSelectCue(null);
+                onSelectMusic(true);
+              },
+              (dt) => [{ op: OpName.SetMusic, music: { ...m, start: Math.max(0, Math.round(snap(m.start + dt, [0, time]) * 1000) / 1000) } }],
+              () => "Moves the music",
+              false,
+            )
+          }
+          className={`absolute top-1 bottom-1 cursor-grab overflow-hidden rounded text-[10px] leading-5 ${on ? "bg-pink-600 ring-2 ring-white" : "bg-pink-800/70 hover:bg-pink-700/80"}`}
+          style={{ left, width }}
+        >
+          {musicPeaks && vis.visR > vis.visL && <Waveform peaks={musicPeaks} fileAt0={m.trim_in} rate={1 / pps} visL={vis.visL} visR={vis.visR} top={0} height={AUDIO_H} color={MUSIC_WAVE} />}
+          <span className="pointer-events-none absolute top-0 left-1.5 truncate text-pink-50">♪ {m.src.split("/").pop()}</span>
+          {(on || envelope) && (
+            <VolumeLine
+              keys={envelope}
+              level={1}
+              keyZero={m.start}
+              from={m.start}
+              width={width}
+              height={AUDIO_H}
+              pps={pps}
+              fps={fps}
+              active={on}
+              toOps={(v) => [{ op: OpName.SetMusic, music: { ...m, envelope: envelopeOf(v) } }]}
+              what="Music volume"
+              recaption={false}
+              edits={edits}
+            />
+          )}
+        </div>
+      ),
+    });
+  }
+  if (scene.sfx?.length)
+    lanes.push({
+      key: "sfx",
+      label: "Effects",
+      height: SMALL_LANE_H,
+      pickAll: () => {
+        useEditor.setState({ selectedLayerId: null, selectedGroup: null });
+        onSelectCue(null);
+        onSelectMusic(false);
+        onPick({ ...NO_PICKS, cue: scene.sfx!.map((c) => c.id) });
+      },
+      body: scene.sfx.map((cue) => {
+        const on = picked.cue.includes(cue.id);
+        return (
+          <div
+            key={cue.id}
+            title={`${cue.sound} · ${cue.at.toFixed(2)} s · level ${Math.round((cue.gain ?? 1) * 100)}%`}
+            data-pick={`${PickKind.Cue}:${cue.id}`}
+            onPointerDown={(e) =>
+              e.shiftKey
+                ? (e.stopPropagation(), togglePick(PickKind.Cue, cue.id))
+                : drag(
+                e,
+                "move",
+                () => {
+                  useEditor.setState({ selectedLayerId: null, selectedGroup: null });
+                  onPick(null);
+                  onSelectMusic(false);
+                  onSelectCue(cue);
+                },
+                (dt) => [{ op: OpName.PutSfx, cue: { ...cue, at: Math.max(0, Math.round(snap(cue.at + dt, [time]) * 1000) / 1000) } }],
+                () => `Moves the ${cue.sound} effect`,
+                false,
+              )
+            }
+            className={`absolute top-1 bottom-1 cursor-grab truncate rounded px-1 text-[10px] leading-5 ${on ? "bg-amber-400 text-neutral-900" : "bg-amber-600/70 text-amber-50 hover:bg-amber-500"}`}
+            style={{ left: px(cue.at), width: Math.max(36, MIN_CLIP * pps) }}
+          >
+            {cue.sound}
+          </div>
+        );
+      }),
+    });
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div
+        ref={scroller}
+        onScroll={() => requestAnimationFrame(readView)}
+        onWheel={(e) => {
+          if (!(e.ctrlKey || e.metaKey)) return;
+          e.preventDefault();
+          setZoom((z) => Math.min(MAX_ZOOM, Math.max(1, z * (e.deltaY < 0 ? 1.15 : 1 / 1.15))));
+        }}
+        className="relative min-h-0 flex-1 overflow-auto"
+      >
+        <div className="relative" style={{ width: HEADER_W + trackW }}>
+          {/* Ruler */}
+          <div className="sticky top-0 z-20 flex bg-neutral-950" style={{ height: RULER_H }}>
+            <div className="sticky left-0 z-30 flex shrink-0 items-center gap-1 bg-neutral-950 px-2" style={{ width: HEADER_W }}>
+              <button type="button" onClick={() => setZoom((z) => Math.max(1, z / 1.5))} className="rounded px-1.5 text-neutral-400 hover:text-white" aria-label="Zoom out">
+                −
+              </button>
+              <button type="button" onClick={() => setZoom((z) => Math.min(MAX_ZOOM, z * 1.5))} className="rounded px-1.5 text-neutral-400 hover:text-white" aria-label="Zoom in">
+                +
+              </button>
+            </div>
+            <div onPointerDown={scrub} className="relative flex-1 cursor-col-resize border-b border-neutral-800">
+              {ticks.map((t) => (
+                <span key={t} className={`absolute top-1 text-[10px] text-neutral-500 tabular-nums ${t > 0 ? "-translate-x-1/2" : "pl-1"}`} style={{ left: px(t) }}>
+                  {t >= 60 ? `${Math.floor(t / 60)}:${String(Math.round(t % 60)).padStart(2, "0")}` : `${t}s`}
+                </span>
+              ))}
+            </div>
+          </div>
+          {/* Lanes */}
+          {lanes.map((l) => (
+            <div key={l.key} className="flex" style={{ height: l.height }}>
+              <div className="sticky left-0 z-10 flex shrink-0 items-center bg-neutral-950 px-3 text-[11px] text-neutral-500" style={{ width: HEADER_W }}>
+                {l.pickAll ? (
+                  <button type="button" onClick={l.pickAll} title={`Select every item on ${l.label}`} className="hover:text-white">
+                    {l.label}
+                  </button>
+                ) : (
+                  l.label
+                )}
+              </div>
+              <div onPointerDown={marquee} className="relative flex-1 border-b border-neutral-900/80">
+                {l.body}
+              </div>
+            </div>
+          ))}
+          {band && <div className="pointer-events-none absolute z-30 rounded-sm border border-white/60 bg-white/10" style={band} />}
+          {/* Playhead */}
+          <div className="pointer-events-none absolute top-0 bottom-0 z-20 w-px bg-red-400" style={{ left: HEADER_W + px(time) }}>
+            <span className="absolute -top-0 -left-1.5 size-3 rotate-45 bg-red-400" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

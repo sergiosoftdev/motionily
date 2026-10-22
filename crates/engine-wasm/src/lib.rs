@@ -118,6 +118,14 @@ impl Engine {
         self.scene.prop_values(id, t).map(|v| serde_json::to_string(&v).expect("numbers always serialize"))
     }
 
+    /// A layer prop (`set_prop` name) sampled by the engine at each scene time (keys, bezier,
+    /// formulas, time remap; no parents), or undefined for an unknown layer or prop.
+    #[wasm_bindgen(js_name = sampleProp)]
+    pub fn sample_prop(&self, id: &str, prop: &str, times: &[f32]) -> Option<Vec<f32>> {
+        let prop: scene::Prop = serde_json::from_value(serde_json::Value::String(prop.to_owned())).ok()?;
+        self.scene.sample_prop(id, prop, times)
+    }
+
     #[wasm_bindgen(js_name = layerJson)]
     pub fn layer_json(&self, id: &str) -> Option<String> {
         self.scene.layer_json(id)

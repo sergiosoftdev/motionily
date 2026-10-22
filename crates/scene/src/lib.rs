@@ -22,12 +22,16 @@ mod library;
 mod light;
 mod node3d;
 mod ops;
+mod precompose;
+#[cfg(test)]
+mod pro_tests;
 pub mod particles;
 pub mod shader;
 mod style;
 mod text;
 mod transition;
 pub mod video;
+pub mod music;
 pub mod reactive;
 
 pub use anim::{Animated, Easing, Keyframe};
@@ -89,6 +93,9 @@ pub struct Scene {
     /// Placement and trim of the project's audio file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio: Option<AudioTrack>,
+    /// Background music under the whole video (see [`music`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub music: Option<music::MusicTrack>,
     /// Timed words, drawn in `caption_style`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub captions: Option<Captions>,
@@ -101,6 +108,23 @@ pub struct Scene {
     /// Master level of every sound effect (cue gain × this), set by the user in the editor.
     #[serde(default = "default_sfx_volume", skip_serializing_if = "is_default_sfx_volume")]
     pub sfx_volume: f32,
+    /// Timeline markers (beats, cues, notes), sorted by time. Only the editor and agents read them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub markers: Vec<Marker>,
+    /// Preview range `[in, out]` (seconds): playback loops inside it. Export ignores it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_area: Option<[f32; 2]>,
+}
+
+/// A named instant on the timeline: `{"t":1.2,"label":"drop","color":"#f5a623"}`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Marker {
+    /// Scene seconds.
+    pub t: f32,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<HexColor>,
 }
 
 /// Effects start at 10 %: under a voice-over, cues at full level drown it. Mirrors DEFAULT_SFX_VOLUME in packages/protocol.
@@ -155,10 +179,13 @@ impl Default for Scene {
             scenario: None,
             render_style: None,
             audio: None,
+            music: None,
             captions: None,
             transitions: Vec::new(),
             sfx: Vec::new(),
             sfx_volume: DEFAULT_SFX_VOLUME,
+            markers: Vec::new(),
+            work_area: None,
         }
     }
 }
@@ -232,6 +259,8 @@ impl Scene {
         // Fixed layers (and every layer without a camera) see the still lens: no pan, dolly or roll.
         let still = paint::View::still(center, paint::DEFAULT_PERSPECTIVE);
         let view = camera.map_or(still, |c| c.0);
+        let solo = self.solo_mask();
+        let shown = |i: usize| solo.as_ref().is_none_or(|m| m[i]);
         // Each top-level layer's items with its depth (sorted far to near when there is a camera).
         let mut layered: Vec<(f32, Vec<DrawItem>)> = Vec::new();
         for (idx, l) in self.layers.iter().enumerate() {
@@ -243,10 +272,14 @@ impl Scene {
             if !l.visible && !is_3d {
                 continue;
             }
+            // Soloing a layer inside a tilted plane keeps the plane's projection (not its own drawing).
+            if !shown(idx) && !(is_3d && (0..self.layers.len()).any(|j| owners[j] == Some(idx) && shown(j))) {
+                continue;
+            }
             let lt = l.local_time(t);
             let z = self.depth(l, t);
             if is_3d {
-                let out = self.tilted_items(l, idx, &owners, t, z, &ctx, camera);
+                let out = self.tilted_items(l, idx, &owners, t, z, &ctx, camera, solo.as_deref());
                 if !out.is_empty() {
                     layered.push((self.draw_depth(idx, z), out));
                 }
@@ -271,7 +304,7 @@ impl Scene {
                 .and_then(|c| c.1)
                 .map(|(focus, aperture)| aperture * (z - focus).abs() / 1000.0 * flat_scale.unwrap_or(1.0))
                 .filter(|b| *b > 0.5);
-            let needs_fx = !l.effects.is_empty() || l.blend != paint::BlendMode::Normal || l.matte.is_some() || l.adjustment || defocus.is_some();
+            let needs_fx = l.live_effects().next().is_some() || l.blend != paint::BlendMode::Normal || l.matte.is_some() || l.adjustment || defocus.is_some();
             let mut out = Vec::new();
             if let Some(glass) = self.backdrop_pass(l, t, &drawn, None, [0.0; 2]) {
                 out.push(glass);
@@ -282,7 +315,7 @@ impl Scene {
                     Some((if self.active(src, t) { self.layer_items(src, t, &ctx) } else { Vec::new() }, m.mode))
                 });
                 let samples = self.motion_samples(l, t, &ctx);
-                let mut effects: Vec<paint::DrawEffect> = l.effects.iter().filter_map(|e| e.resolve(lt, &palette)).collect();
+                let mut effects: Vec<paint::DrawEffect> = l.live_effects().filter_map(|e| e.resolve(lt, &palette)).collect();
                 if let Some(radius) = defocus {
                     // Depth of field: blur in flat space, so undo the zoom the affine applies after.
                     effects.insert(0, paint::DrawEffect::Blur { radius: radius / flat_scale.unwrap_or(1.0) });
@@ -326,7 +359,7 @@ impl Scene {
 
     /// The layer at the other instants of its motion-blur shutter (none without the effect).
     fn motion_samples(&self, l: &Layer, t: f32, ctx: &EvalCtx) -> Vec<Vec<DrawItem>> {
-        let Some((shutter, samples)) = l.effects.iter().find_map(|e| match e {
+        let Some((shutter, samples)) = l.live_effects().find_map(|e| match e {
             paint::Effect::MotionBlur { shutter, samples } => Some((*shutter, *samples)),
             _ => None,
         }) else {
@@ -348,9 +381,10 @@ impl Scene {
 
     /// A tilted layer and the layers parented to it, projected in perspective. Runs of plain
     /// layers share one offscreen pass; a layer with effects, a blend mode or a matte gets its
-    /// own (same projection), so card shadows and glows survive on a tilted page.
+    /// own (same projection), so card shadows and glows survive on a tilted page. `solo`: the
+    /// layers that draw while some layer is solo.
     #[allow(clippy::too_many_arguments)]
-    fn tilted_items(&self, l: &Layer, idx: usize, owners: &[Option<usize>], t: f32, z: f32, ctx: &EvalCtx, camera: Option<(paint::View, Option<(f32, f32)>)>) -> Vec<DrawItem> {
+    fn tilted_items(&self, l: &Layer, idx: usize, owners: &[Option<usize>], t: f32, z: f32, ctx: &EvalCtx, camera: Option<(paint::View, Option<(f32, f32)>)>, solo: Option<&[bool]>) -> Vec<DrawItem> {
         let lt = l.local_time(t);
         let c = l.world(lt, ctx, &self.parent_xform(l, t, ctx, 0)).origin;
         let camera = camera.filter(|_| !l.fixed);
@@ -368,7 +402,7 @@ impl Scene {
         let members = std::iter::once(idx).chain((0..self.layers.len()).filter(|j| owners[*j] == Some(idx)));
         for j in members {
             let m = &self.layers[j];
-            if !m.visible || !self.active(m, t) {
+            if !m.visible || !self.active(m, t) || solo.is_some_and(|s| !s[j]) {
                 continue;
             }
             let drawn = self.layer_items(m, t, ctx);
@@ -376,7 +410,7 @@ impl Scene {
                 continue;
             }
             let glass = self.backdrop_pass(m, t, &drawn, Some(perspective), plane_origin);
-            let own_pass = !m.effects.is_empty() || m.blend != paint::BlendMode::Normal || m.matte.is_some() || glass.is_some();
+            let own_pass = m.live_effects().next().is_some() || m.blend != paint::BlendMode::Normal || m.matte.is_some() || glass.is_some();
             if !own_pass {
                 batch.extend(drawn);
                 continue;
@@ -387,7 +421,7 @@ impl Scene {
             out.extend(glass);
             let mlt = m.local_time(t);
             let mut effects = base_effects();
-            effects.extend(m.effects.iter().filter_map(|e| e.resolve(mlt, ctx.palette)));
+            effects.extend(m.live_effects().filter_map(|e| e.resolve(mlt, ctx.palette)));
             let matte = m.matte.as_ref().and_then(|mt| {
                 let src = self.layers.iter().find(|x| x.id == mt.layer)?;
                 Some((if self.active(src, t) { self.layer_items(src, t, ctx) } else { Vec::new() }, mt.mode))
@@ -485,6 +519,14 @@ impl Scene {
         t >= l.start && t < l.end.unwrap_or(self.duration)
     }
 
+    /// Which layers draw while some layer is solo (`None`: none is, every layer draws). Solo layers
+    /// and the adjustment layers above the lowest of them draw; parents, matte sources and the
+    /// camera keep working without drawing (they are read, not drawn).
+    pub fn solo_mask(&self) -> Option<Vec<bool>> {
+        let lowest = self.layers.iter().position(|l| l.solo)?;
+        Some(self.layers.iter().enumerate().map(|(i, l)| l.solo || (l.adjustment && i > lowest)).collect())
+    }
+
     /// World transform a layer's `parent` chain gives it at scene time `t`.
     fn parent_xform(&self, l: &Layer, t: f32, ctx: &EvalCtx, depth: u8) -> Xform {
         let Some(pid) = &l.parent else { return Xform::default() };
@@ -534,9 +576,11 @@ impl Scene {
     }
 
     fn pick_at(&self, t: f32, x: f32, y: f32) -> Option<String> {
+        let solo = self.solo_mask();
         self.measuring(t, |m| {
             let mut best: Option<(f32, &Layer)> = None;
-            for (idx, l) in self.layers.iter().enumerate().rev().filter(|(_, l)| l.camera.is_none()) {
+            // Layers a solo hides can't be clicked.
+            for (idx, l) in self.layers.iter().enumerate().rev().filter(|(i, l)| l.camera.is_none() && solo.as_ref().is_none_or(|s| s[*i])) {
                 let Some((b, map)) = self.screen_bounds(idx, t, m) else { continue };
                 // An instance is hit on its layers, not on the gaps of its union box.
                 if !b.contains([x, y]) || !self.shape_hit(l, t, m.ctx, &map, [x, y]) {
@@ -717,7 +761,6 @@ impl Scene {
     /// name: what the editor's property rows show next to each stopwatch.
     pub fn prop_values(&self, id: &str, t: f32) -> Option<std::collections::BTreeMap<&'static str, f32>> {
         let l = self.layer(id)?;
-        let lt = t - l.start;
         let props: [(&'static str, &Animated); 13] = [
             ("x", &l.x),
             ("y", &l.y),
@@ -733,7 +776,24 @@ impl Scene {
             ("soft", &l.soft),
             ("backdrop", &l.backdrop),
         ];
-        Some(props.into_iter().map(|(k, a)| (k, a.sample(lt))).collect())
+        // Sampled like the frame does: on the layer's (remapped) clock, formulas seeing `T` and other layers.
+        Some(self.with_refs(|| expr::with_vars(t, 0.0, 1.0, || {
+            let lt = l.local_time(t);
+            props.into_iter().map(|(k, a)| (k, a.sample(lt))).collect()
+        })))
+    }
+
+    /// A layer prop's own value at each scene time of `times`, exactly as the frame samples it
+    /// (keys with their eases or bezier, formulas, time remap), without parents or animation
+    /// bricks. `time` gives the remapped layer clock, `perspective` the lens. `None`: no such layer.
+    pub fn sample_prop(&self, id: &str, prop: Prop, times: &[f32]) -> Option<Vec<f32>> {
+        let l = self.layer(id)?;
+        let value = |t: f32| match (prop, l.prop(prop)) {
+            (Prop::Time, a) => a.map_or(t - l.start, |a| a.sample(t - l.start)),
+            (_, Some(a)) => a.sample(l.local_time(t)),
+            (_, None) => paint::DEFAULT_PERSPECTIVE,
+        };
+        Some(self.with_refs(|| times.iter().map(|&t| expr::with_vars(t, 0.0, 1.0, || value(t))).collect()))
     }
 
     /// Compact, token-cheap description for agents. One line per layer.
@@ -772,9 +832,11 @@ impl Scene {
             let uses: Vec<String> = l.anims.iter().map(|a| format!("{}@{}", a.key.trim_start_matches("animation/"), a.at)).collect();
             let anchor = l.anchor.as_ref().map(|a| format!(" anchor={a}")).unwrap_or_default()
                 + &l.group.as_ref().map(|g| format!(" group={g}")).unwrap_or_default();
+            // The user's switches in the editor: solo changes what renders; locked/shy are theirs to keep.
+            let switches: String = [(l.solo, " solo"), (l.locked, " locked"), (l.shy, " shy")].into_iter().filter(|(on, _)| *on).map(|(_, n)| n).collect();
             let _ = writeln!(
                 s,
-                "- {} {} {:.2}-{:.2}s at ({:.0},{:.0}){} {:.0}x{:.0} fill={} keys=[{}] uses=[{}]",
+                "- {} {} {:.2}-{:.2}s at ({:.0},{:.0}){} {:.0}x{:.0} fill={} keys=[{}] uses=[{}]{}",
                 l.id,
                 l.content.kind_name(),
                 l.start,
@@ -786,8 +848,19 @@ impl Scene {
                 l.h.sample(0.0),
                 serde_json::to_string(&l.fill).unwrap_or_default().trim_matches('"'),
                 animated.join(","),
-                uses.join(",")
+                uses.join(","),
+                switches
             );
+        }
+        if self.layers.iter().any(|l| l.solo) {
+            let _ = writeln!(s, "solo is on: only the solo layers render (preview and export); clear it with patch solo=false");
+        }
+        if !self.markers.is_empty() {
+            let marks: Vec<String> = self.markers.iter().map(|m| format!("{:.2}{}", m.t, if m.label.is_empty() { String::new() } else { format!(" \"{}\"", m.label) })).collect();
+            let _ = writeln!(s, "markers: {}", marks.join(", "));
+        }
+        if let Some([a, b]) = self.work_area {
+            let _ = writeln!(s, "work area: {a:.2}-{b:.2}s (preview loops here; export renders everything)");
         }
         if let Some(st) = &self.stage {
             let props: Vec<String> = st
@@ -812,6 +885,10 @@ impl Scene {
         if let Some(a) = &self.audio {
             let out = a.trim_out.map(|o| format!("{o:.2}")).unwrap_or_else(|| "end".into());
             let _ = writeln!(s, "audio: plays from {:.2}s, file {:.2}-{}", a.start, a.trim_in, out);
+        }
+        if let Some(m) = &self.music {
+            let out = m.trim_out.map(|o| format!("{o:.2}")).unwrap_or_else(|| "end".into());
+            let _ = writeln!(s, "music: {} from {:.2}s, file {:.2}-{}, level {:.0}%, {:.0}% of that while the voice speaks", m.src, m.start, m.trim_in, out, m.gain * 100.0, m.duck * 100.0);
         }
         if let Some(line) = reactive::summary_line(self.audio) {
             let _ = writeln!(s, "{line}");

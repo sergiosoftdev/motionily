@@ -14,6 +14,8 @@ export type EditorProps = {
   g: Generation;
   /** The new video's voice being captioned before the agent starts (wizard pipeline). */
   captioning: CaptionProgress | null;
+  /** Saves any waiting scene change and returns the saved revision (to tag a rendered file with). */
+  flushScene: () => Promise<number>;
   mode: EditorMode;
   setMode: (m: EditorMode) => void;
   rename: (name: string) => void;

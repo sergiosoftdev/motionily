@@ -4,7 +4,7 @@ import { api, type GoogleFont } from "../../api/client";
 
 const Category = { All: "", Sans: "Sans Serif", Serif: "Serif", Display: "Display", Handwriting: "Handwriting", Mono: "Monospace" } as const;
 type Category = (typeof Category)[keyof typeof Category];
-const CATEGORY_LABEL: Record<Category, string> = { "": "Todas", "Sans Serif": "Sans", Serif: "Serif", Display: "Display", Handwriting: "Manuscrita", Monospace: "Mono" };
+const CATEGORY_LABEL: Record<Category, string> = { "": "All", "Sans Serif": "Sans", Serif: "Serif", Display: "Display", Handwriting: "Handwriting", Monospace: "Mono" };
 
 const SEARCH_DEBOUNCE_MS = 250;
 const previewed = new Set<string>();

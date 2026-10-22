@@ -1,21 +1,25 @@
-import { spawn } from "node:child_process";
-import { copyFileSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { basename, extname, join } from "node:path";
 import { BadGatewayException, Injectable } from "@nestjs/common";
 import { Type } from "class-transformer";
-import { ArrayMaxSize, IsArray, IsEnum, Matches, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from "class-validator";
+import { ArrayMaxSize, IsArray, IsEnum, IsIn, Matches, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from "class-validator";
 import { AgentEffort, AgentModel, MAX_REFERENCES } from "../projects/projects.dto";
 import { MEDIA_DIR, MEDIA_PATH } from "../media";
 import { VideoFormat, type AgentRunUsage } from "../projects/project.schema";
 import { usageFrom } from "../projects/generate.service";
+import { askClaude } from "../common/claude-once";
 
 export const MAX_CONCEPTS = 6;
 const CONCEPT_TIMEOUT_MS = 180_000;
 
+/** What a beat does for attention. Mirrors AttentionDevice in @motionily/protocol. */
+const DEVICES = ["hook", "open_loop", "payoff", "twist", "stakes_up", "reveal", "proof", "pattern_interrupt", "countdown", "question", "callback", "cta"] as const;
+
 export class ConceptBeatDto {
   @IsString() at: string;
   @IsString() what: string;
+  /** How hard the beat grabs attention, 0-100: the beats trace the video's attention curve. */
+  @IsOptional() @IsInt() @Min(0) @Max(100) energy?: number;
+  @IsOptional() @IsIn(DEVICES) device?: (typeof DEVICES)[number];
 }
 
 /** One way to make the video, as the agent pitches it. */
@@ -46,6 +50,23 @@ export class ConceptsRequestDto {
 }
 
 /** Different directions so parallel pitches don't converge on the same idea. */
+/** Reels, TikTok and Shorts (9:16, 4:5, 1:1): the attention sawtooth (docs/agent/craft.md). */
+const SHORT_FORM_STORY = `STORY SHAPE: this format is short-form (Reels, TikTok, Shorts), so attention is a sawtooth, not an arc.
+- Start at 70%: the first beat opens in medias res on the most surprising result, conflict or image. No setup, no logo.
+- Re-hook every 4-7 s: each beat opens a question, pays part of it with a concrete fact or visual, and opens the next
+  before closing the last.
+- A pattern interrupt around 30% (a twist, "but…"); peaks escalate; the biggest reveal in the last 20%.
+- End on the peak: last reveal + CTA in the final 2-3 s, no outro, no goodbye; the last line hands back to the first so
+  the video loops.
+- Valleys still teach: a fact per beat, never filler.
+- The sawtooth lives in WHAT HAPPENS, not in inserted teaser lines: each re-hook is a turn of the one continuous story
+  (a consequence, a discovery, a twist), told in connected sentences.
+- Tag every beat with "energy" (0-100, how hard it grabs) and "device" (${DEVICES.join(" | ")}). The energies trace the
+  sawtooth: the first ≥70, dips never under 35, each peak higher than the one before, the final beat the highest.`;
+/** 16:9 (YouTube, web): a classic arc still works there. */
+const CLASSIC_STORY = `STORY SHAPE: 16:9 keeps a classic arc (setup, rising interest, climax, short resolution). Still tag every beat with
+"energy" (0-100) and "device" (${DEVICES.join(" | ")}).`;
+
 const ANGLES = [
   "humor: a relatable everyday situation told with comic timing",
   "bold kinetic typography driven by the voice, punchy and rhythmic",
@@ -62,26 +83,36 @@ by hand (no presets: it writes every keyframe). Motionily is a MOTION GRAPHICS t
 shapes, color blocks, icons, UI/product screens animated in 2D. 3D (procedural sets, faceless black stickmen) is an
 occasional ingredient: use it in at most one concept and only when a scene with people/places truly carries the
 idea or the user asks for it. Most concepts must be pure 2D motion graphics. Pitch genuinely different concepts for the user's idea: different metaphors, structures, tones and
-visual worlds — never variations of one idea. Short-form rules: hook in the first 1.5 s (max 6 words), one idea
-per beat, end with a clear payoff/CTA. The video is built ON TOP of the voice-over, so the script comes first.
+visual worlds — never variations of one idea. The format sets the STORY SHAPE (given with the request); always: hook in
+the first 1.5 s (max 6 words), one idea per beat. The video is built ON TOP of the voice-over, so the script comes first.
 "voiceover" is the script ready to paste in ElevenLabs v3:
 - One tone tag first line only: [confident], [warm] or [playful].
-- Storytelling, each paragraph flowing from the previous; natural spoken American English, irregular rhythm,
+- ONE continuous story, the way a person tells it to a friend: every sentence follows from the one before (so, but,
+  because, which meant, until), with real names, places and stakes, building to the end; read aloud without the video
+  it still makes complete sense. Never a list of punchy lines, slogan fragments or teaser filler ("But wait…",
+  "Here's the thing", "You won't believe…").
+- Storytelling, each paragraph flowing from the previous; natural spoken language (see LANGUAGE), irregular rhythm,
   never "Tuesday, ten a.m." openings or three punchy fragments in a row.
 - EXPLAIN, do not tease. For history, science, news or any educational topic the script teaches: say who, what,
   where, when and why, with the concrete facts (names, places, dates, numbers, cause and consequence), 3-5 full
   sentences per scene, so a viewer who knows nothing finishes understanding the story. A reel of 60-90 s is
   expected to carry 150-200 words. Never a slogan-length script for an explanatory topic.
 - Paragraph 1 = cold hook without the brand name; the brand appears in paragraph 2.
+- Short-form formats: each paragraph ends opening the question the next one answers, one "but…" twist around a
+  third of the way, the biggest reveal in the last paragraph, and the closing line (with the CTA) echoes the first.
 - Between scenes exactly "[long pause] [long pause]" on its own line; inside a paragraph only commas/periods.
 - Numbers and times written in letters. Only true claims about the product.
 - ~2.3 words per second of video: the length of the script sets the length of the video. Last sentence = the CTA.
 - What is said mirrors the text that will appear on screen.
-Answer ONLY with JSON: {"concepts":[{"title","hook","direction","beats":[{"at":"0-1.5s","what":"…"}],"voiceover","prompt"}]}.
+Answer ONLY with JSON: {"concepts":[{"title","hook","direction","beats":[{"at":"0-1.5s","what":"…","energy":80,"device":"hook"}],"voiceover","prompt"}]}.
 "direction" = art direction in 1-2 sentences (concept, palette, type, motion, camera). "prompt" = the complete brief
-for the builder agent (in English, 80-200 words): beats tied to the script's paragraphs, art direction, what to show
-of the product. Beats' "at" follow the script timing.
-All text in American English: the audience is mostly in the United States.`;
+for the builder agent (in English, 80-200 words): beats tied to the script's paragraphs with their energy and device,
+art direction, what to show of the product. Beats' "at" follow the script timing.
+LANGUAGE: "title", "hook", the beats' "what" and the "voiceover" are written in the language of the user's Idea line.
+Detect it from the Idea alone: brand notes, asset names, palettes and references never decide it. If the idea is too
+short to tell or mixes languages, use American English (the audience is mostly in the United States). "direction" and
+"prompt" are always in English (they are for the builder agent); "prompt" names the video's language so on-screen text
+matches the voice.`;
 
 /** Asks Claude (no tools, one shot) for N different ways to make a video. */
 @Injectable()
@@ -102,6 +133,7 @@ export class ConceptsService {
         : []),
       `Idea: ${dto.idea.trim()}`,
       `Format: ${dto.format ?? VideoFormat.Vertical}`,
+      (dto.format ?? VideoFormat.Vertical) === VideoFormat.Horizontal ? CLASSIC_STORY : SHORT_FORM_STORY,
       dto.steer?.trim() && `Steer this round: ${dto.steer.trim()}`,
       dto.avoid?.length && `Already pitched (bring different ones): ${dto.avoid.join(" | ")}`,
       ...kit,
@@ -125,33 +157,9 @@ export class ConceptsService {
     }
   }
 
-  private run(prompt: string, model: AgentModel, effort: AgentEffort, references: string[]): Promise<{ text: string; usage: Parameters<typeof usageFrom>[0] | null }> {
-    // Empty folder: no repo CLAUDE.md or tools leak into the pitch.
-    const cwd = mkdtempSync(join(tmpdir(), "motionily-pitch-"));
+  private run(prompt: string, model: AgentModel, effort: AgentEffort, references: string[]) {
     // Reference images go next to it so Claude can Read (see) them; nothing else is allowed.
-    references.forEach((ref, i) => copyFileSync(join(MEDIA_DIR, basename(ref)), join(cwd, `ref-${i + 1}${extname(ref)}`)));
-    return new Promise((resolve, reject) => {
-      const child = spawn(
-        process.env.CLAUDE_BIN ?? "claude",
-        // Own lean system prompt: Claude Code's default one is ~20k tokens of coding instructions.
-        ["-p", prompt, "--system-prompt", SYSTEM, "--tools", references.length ? "Read" : "", "--strict-mcp-config", "--allowedTools", references.length ? "Read" : "", "--output-format", "json", "--model", model, "--effort", effort],
-        { cwd, stdio: ["ignore", "pipe", "pipe"], env: process.env },
-      );
-      let out = "";
-      let err = "";
-      const timer = setTimeout(() => child.kill(), CONCEPT_TIMEOUT_MS);
-      child.stdout.on("data", (d: Buffer) => (out += d.toString()));
-      child.stderr.on("data", (d: Buffer) => (err += d.toString()));
-      child.on("close", (code) => {
-        clearTimeout(timer);
-        if (code !== 0) return reject(new BadGatewayException(`claude failed: ${err.trim().slice(0, 300) || `exit ${code}`}`));
-        try {
-          const r = JSON.parse(out) as Parameters<typeof usageFrom>[0] & { result: string };
-          resolve({ text: r.result, usage: r });
-        } catch {
-          resolve({ text: out, usage: null });
-        }
-      });
-    });
+    const files = references.map((ref, i) => ({ from: join(MEDIA_DIR, basename(ref)), as: `ref-${i + 1}${extname(ref)}` }));
+    return askClaude({ prompt, system: SYSTEM, model, effort, timeoutMs: CONCEPT_TIMEOUT_MS, files });
   }
 }

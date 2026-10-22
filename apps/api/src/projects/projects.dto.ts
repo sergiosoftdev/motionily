@@ -1,3 +1,4 @@
+import { Type } from "class-transformer";
 import { MEDIA_PATH } from "../media";
 import {
   Allow,
@@ -16,12 +17,18 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateNested,
 } from "class-validator";
 import { FeedbackKind, VideoFormat } from "./project.schema";
 import { VoiceModel } from "../voice/elevenlabs";
+import { PLATFORM_COUNT, PostCopyDto } from "../posts/posts.dto";
 
 /** Reference images per prompt. */
 export const MAX_REFERENCES = 8;
+/** About an hour of speech. */
+export const MAX_FOOTAGE_WORDS = 20_000;
+/** Languages the editor transcribes footage in (ISO 639-1, as Whisper takes them). */
+export const FOOTAGE_LANGUAGES = ["en", "es", "pt", "fr", "de", "it"] as const;
 
 export class CreateProjectDto {
   @IsString() @MinLength(1) @MaxLength(80) name: string;
@@ -39,6 +46,8 @@ export class CreateProjectDto {
 
 export class UpdateProjectDto {
   @IsOptional() @IsEnum(VideoFormat) format?: VideoFormat;
+  /** The caption drafts as the user edited them (Schedule dialog). */
+  @IsOptional() @IsArray() @ArrayMaxSize(PLATFORM_COUNT) @ValidateNested({ each: true }) @Type(() => PostCopyDto) postCopy?: PostCopyDto[];
   @IsOptional() @IsString() @MinLength(1) @MaxLength(80) name?: string;
   @IsOptional() @IsString() @MaxLength(4000) brief?: string;
   @IsOptional() @IsBoolean() wantsScript?: boolean;
@@ -113,4 +122,19 @@ export class GenerateVoiceDto {
   @IsOptional() @IsIn(Object.values(VoiceModel)) modelId?: VoiceModel;
   /** The script to read; it also becomes the video's script. Defaults to the saved one. */
   @IsOptional() @IsString() @MaxLength(40_000) text?: string;
+}
+
+export class FootageWordDto {
+  @IsString() @MaxLength(100) text: string;
+  @IsNumber() @Min(0) start: number;
+  @IsNumber() @Min(0) end: number;
+}
+
+/** A clip's transcript, made in the editor (Whisper in the browser). */
+export class FootageWordsDto {
+  @IsArray() @ArrayMaxSize(MAX_FOOTAGE_WORDS) @ValidateNested({ each: true }) @Type(() => FootageWordDto) words: FootageWordDto[];
+}
+
+export class UploadFootageDto {
+  @IsOptional() @IsIn(FOOTAGE_LANGUAGES) language?: (typeof FOOTAGE_LANGUAGES)[number];
 }

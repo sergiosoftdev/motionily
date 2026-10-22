@@ -29,6 +29,20 @@ export class ProjectApi {
     return this.call<{ name: string; category: string; description: string; duration: number; url: string }[]>("GET", "/sounds");
   }
 
+  /** Save a sound the agent designed (WAV + recipe) into the user's library. */
+  async saveSound(s: { name: string; category: string; description: string; recipe: Record<string, unknown>; duration: number }, wav: Buffer) {
+    if (!this.projectId) throw new Error(NO_PROJECT);
+    const form = new FormData();
+    form.set("file", new Blob([new Uint8Array(wav)], { type: "audio/wav" }), `${s.name}.wav`);
+    form.set("name", s.name);
+    form.set("category", s.category);
+    form.set("description", s.description);
+    form.set("recipe", JSON.stringify(s.recipe));
+    form.set("duration", String(s.duration));
+    const res = await fetch(`${this.baseUrl}/projects/${this.projectId}/sounds`, { method: "POST", headers: { Authorization: `Bearer ${this.token}` }, body: form });
+    if (!res.ok) throw new Error(`saving the sound failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
+  }
+
   /** Session for the agent's headless editor. */
   headlessSession() {
     return this.call<{ token: string; user: User }>("POST", "/headless-token");
@@ -87,6 +101,11 @@ export class ProjectApi {
   /** Download a search hit into the project's media, with its credit. */
   importImage(id: string) {
     return this.call<ImageCredit>("POST", "/images", { id });
+  }
+
+  /** Every note of the project, read and unread, without marking any as read. */
+  feedback() {
+    return this.call<(Feedback & { _id: string; consumedAt: string | null })[]>("GET", "/feedback");
   }
 
   consumeFeedback() {

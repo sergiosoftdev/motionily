@@ -10,6 +10,7 @@ import type { EditorProps } from "../editor/context";
 import { EditorMode, useEditorMode } from "../editor/mode";
 import { SimpleEditor } from "../editor/SimpleEditor";
 import { ProEditor } from "../editor/pro/ProEditor";
+import { EditEditor } from "../editor/edit/EditEditor";
 import { OpenElsewhere } from "../editor/OpenElsewhere";
 
 const SAVE_DEBOUNCE_MS = 800;
@@ -38,7 +39,12 @@ function buildToOps(build: Build, byKey: Map<string, Brick>, format: VideoFormat
 export function EditorScreen({ id }: { id: string }) {
   // One engine canvas for the whole screen: each mode's viewer adopts it, so switching modes
   // never restarts the engine or reloads the scene.
-  const [canvasEl] = useState(() => document.createElement("canvas"));
+  const [canvasEl] = useState(() => {
+    const c = document.createElement("canvas");
+    // The preview flies from its place in one mode to its place in the next (see editor/mode.tsx).
+    c.dataset.modePiece = "preview";
+    return c;
+  });
   const canvas = useRef(canvasEl);
   const revision = useRef(0);
   const [project, setProject] = useState<Project | null>(null);
@@ -47,7 +53,7 @@ export function EditorScreen({ id }: { id: string }) {
   const generation = useGenerate(id);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useEditorMode();
-  const captioning = useVoicePipeline(project);
+  const captioning = useVoicePipeline(project, setProject);
 
   const byKey = useMemo(() => new Map(bricks.map((b) => [b.key, b])), [bricks]);
 
@@ -67,7 +73,8 @@ export function EditorScreen({ id }: { id: string }) {
         agentBridge.setProject(id);
         // Once analysed, the agent's summary lists the beats it can sync to.
         void engineHost.setAudio(p.audio ? mediaUrl(p.audio.url) : null).then(() => agentBridge.sceneChanged());
-        useEditor.setState({ selectedLayerId: null, selectedGroup: null, pinnedMoment: false });
+        // The conversation and log belong to this video, not the one open before.
+        useEditor.setState({ selectedLayerId: null, selectedGroup: null, pinnedMoment: false, activity: [] });
       })
       .catch((e: Error) => setError(e.message));
     return () => {
@@ -95,26 +102,43 @@ export function EditorScreen({ id }: { id: string }) {
   }, [id]);
 
   // Persist every scene change (agent or user), debounced, with optimistic revisions.
+  /** Saves the waiting change right away (null when nothing waits). */
+  const flush = useRef<(() => Promise<void>) | null>(null);
+  /** The save in flight; saves run one after another so each sends the latest revision. */
+  const saving = useRef<Promise<void>>(Promise.resolve());
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const save = async () => {
+      try {
+        const res = await api.saveScene(id, JSON.parse(engineHost.sceneJson()), revision.current);
+        revision.current = res.sceneRevision;
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 409) {
+          logActivity(ActivitySource.System, "The scene changed somewhere else; reload to see the latest");
+        }
+      }
+    };
     const off = engineHost.onSceneChange(() => {
       clearTimeout(timer);
-      timer = setTimeout(async () => {
-        try {
-          const res = await api.saveScene(id, JSON.parse(engineHost.sceneJson()), revision.current);
-          revision.current = res.sceneRevision;
-        } catch (e) {
-          if (e instanceof ApiError && e.status === 409) {
-            logActivity(ActivitySource.System, "The scene changed somewhere else; reload to see the latest");
-          }
-        }
-      }, SAVE_DEBOUNCE_MS);
+      flush.current = () => {
+        clearTimeout(timer);
+        flush.current = null;
+        return (saving.current = saving.current.then(save));
+      };
+      timer = setTimeout(() => void flush.current?.(), SAVE_DEBOUNCE_MS);
     });
     return () => {
       off();
       clearTimeout(timer);
+      flush.current = null;
     };
   }, [id]);
+
+  /** Save now if a change is waiting, then report the revision the server holds (what a render shows). */
+  const flushScene = async () => {
+    await (flush.current?.() ?? saving.current);
+    return revision.current;
+  };
 
   const rename = async (name: string) => {
     if (!project || name === project.name) return;
@@ -147,6 +171,7 @@ export function EditorScreen({ id }: { id: string }) {
     canvas,
     g: generation,
     captioning,
+    flushScene,
     mode,
     setMode,
     rename: (name) => void rename(name),
@@ -157,7 +182,7 @@ export function EditorScreen({ id }: { id: string }) {
   };
   return (
     <>
-      {mode === EditorMode.Pro ? <ProEditor ed={ed} /> : <SimpleEditor ed={ed} />}
+      {mode === EditorMode.Pro ? <ProEditor ed={ed} /> : mode === EditorMode.Edit ? <EditEditor ed={ed} /> : <SimpleEditor ed={ed} />}
       <OpenElsewhere />
     </>
   );

@@ -45,6 +45,18 @@ impl Prop {
             _ => return None,
         })
     }
+
+    fn name(self) -> &'static str {
+        match self {
+            Prop::X => "x",
+            Prop::Y => "y",
+            Prop::W => "w",
+            Prop::H => "h",
+            Prop::Scale => "scale",
+            Prop::Rotation => "rotation",
+            Prop::Opacity => "opacity",
+        }
+    }
 }
 
 /// Reads `layer.prop` at a scene time.
@@ -189,6 +201,9 @@ macro_rules! funcs {
             }
             /// Every function name, for error messages.
             const NAMES: &'static [&'static str] = &[$($text),*];
+            fn name(self) -> &'static str {
+                match self { $(Func::$name => $text),* }
+            }
         }
     };
 }
@@ -251,6 +266,99 @@ impl Expr {
             }
             Err(_) => 0.0,
         }
+    }
+
+    /// Ids of the layers this formula reads (`card.x` -> `card`).
+    pub fn refs(&self) -> Vec<String> {
+        fn walk(n: &Node, out: &mut Vec<String>) {
+            match n {
+                Node::Ref(id, _, at) => {
+                    out.push(id.clone());
+                    at.iter().for_each(|a| walk(a, out));
+                }
+                Node::Neg(a) => walk(a, out),
+                Node::Bin(_, a, b) => {
+                    walk(a, out);
+                    walk(b, out);
+                }
+                Node::Call(_, args) | Node::Audio(_, args) => args.iter().for_each(|a| walk(a, out)),
+                Node::Num(_) | Node::Var(_) | Node::Param(_) => {}
+            }
+        }
+        let mut out = Vec::new();
+        if let Ok(n) = self.compiled() {
+            walk(n, &mut out);
+        }
+        out
+    }
+
+    /// The same formula for a layer moved onto a clock that starts `dt` seconds later (precompose:
+    /// `T` becomes the component clock). Scene time reads become `T + dt`, times passed to other
+    /// layers `… - dt`, audio reads get an explicit scene time. `None` when nothing reads scene time.
+    pub fn shifted(&self, dt: f32) -> Option<String> {
+        fn reads_scene_time(n: &Node) -> bool {
+            match n {
+                Node::Var(Var::SceneT) | Node::Audio(..) | Node::Ref(_, _, Some(_)) => true,
+                Node::Neg(a) => reads_scene_time(a),
+                Node::Bin(_, a, b) => reads_scene_time(a) || reads_scene_time(b),
+                Node::Call(_, args) => args.iter().any(reads_scene_time),
+                _ => false,
+            }
+        }
+        fn shift(n: &Node, dt: f32) -> Node {
+            let scene_t = || Node::Bin(Op::Add, Box::new(Node::Var(Var::SceneT)), Box::new(Node::Num(dt)));
+            match n {
+                Node::Var(Var::SceneT) => scene_t(),
+                Node::Ref(id, p, Some(at)) => Node::Ref(id.clone(), *p, Some(Box::new(Node::Bin(Op::Sub, Box::new(shift(at, dt)), Box::new(Node::Num(dt)))))),
+                Node::Audio(ch, args) => {
+                    let mut args: Vec<Node> = args.iter().map(|a| shift(a, dt)).collect();
+                    // Without a time argument it reads the clock it is sampled on: make it the scene's.
+                    if args.len() < *ch.arity().end() {
+                        args.push(scene_t());
+                    }
+                    Node::Audio(*ch, args)
+                }
+                Node::Neg(a) => Node::Neg(Box::new(shift(a, dt))),
+                Node::Bin(op, a, b) => Node::Bin(*op, Box::new(shift(a, dt)), Box::new(shift(b, dt))),
+                Node::Call(f, args) => Node::Call(*f, args.iter().map(|a| shift(a, dt)).collect()),
+                other => other.clone(),
+            }
+        }
+        let n = self.compiled().as_ref().ok()?;
+        reads_scene_time(n).then(|| print(&shift(n, dt)))
+    }
+}
+
+/// Source text of a parsed formula (fully parenthesized; parses back to the same tree).
+fn print(n: &Node) -> String {
+    let list = |args: &[Node]| args.iter().map(print).collect::<Vec<_>>().join(", ");
+    match n {
+        Node::Num(v) if *v < 0.0 => format!("(-{})", -v),
+        Node::Num(v) => format!("{v}"),
+        Node::Var(Var::T) => "t".into(),
+        Node::Var(Var::SceneT) => "T".into(),
+        Node::Var(Var::I) => "i".into(),
+        Node::Var(Var::N) => "n".into(),
+        Node::Neg(a) => format!("(-{})", print(a)),
+        Node::Bin(op, a, b) => {
+            let sym = match op {
+                Op::Add => "+",
+                Op::Sub => "-",
+                Op::Mul => "*",
+                Op::Div => "/",
+                Op::Rem => "%",
+                Op::Pow => "^",
+                Op::Lt => "<",
+                Op::Gt => ">",
+            };
+            format!("({} {sym} {})", print(a), print(b))
+        }
+        Node::Call(f, args) => format!("{}({})", f.name(), list(args)),
+        Node::Ref(id, p, None) => format!("{id}.{}", p.name()),
+        Node::Ref(id, p, Some(at)) => format!("{id}.{}({})", p.name(), print(at)),
+        Node::Param(name) => format!("${name}"),
+        Node::Audio(ch, args) if args.is_empty() => ch.name().to_owned(),
+        Node::Audio(ch, args) => format!("{}({})", ch.name(), list(args)),
     }
 }
 

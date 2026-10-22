@@ -85,6 +85,8 @@ export const ServerMessageType = {
   Review: "review",
   /** Where every layer lands on screen at some instants (numbers, no pixels). */
   Layout: "layout",
+  /** Render a synth recipe (a sound the agent designed) to a WAV file. */
+  RenderSound: "render_sound",
 } as const;
 export type ServerMessageType = (typeof ServerMessageType)[keyof typeof ServerMessageType];
 
@@ -97,7 +99,8 @@ export type ServerMessage =
   | { type: typeof ServerMessageType.ProjectChanged; projectId: string }
   | { type: typeof ServerMessageType.RenderFrames; requestId: string; projectId: string; times: number[]; width?: number }
   | { type: typeof ServerMessageType.Review; requestId: string; projectId: string; frames: number }
-  | { type: typeof ServerMessageType.Layout; requestId: string; projectId: string; times: number[] };
+  | { type: typeof ServerMessageType.Layout; requestId: string; projectId: string; times: number[] }
+  | { type: typeof ServerMessageType.RenderSound; requestId: string; projectId: string; recipe: Record<string, unknown> };
 
 /** One layer as it lands on screen (engine `Scene::layout`). */
 export type LayoutRow = {
@@ -168,6 +171,8 @@ export type EditorMessage =
       images?: string[];
       review?: ReviewReport;
       layouts?: FrameLayout[];
+      /** A rendered sound: WAV data URL and its length in seconds. */
+      sound?: { wav: string; duration: number };
     }
   | { type: typeof EditorMessageType.SceneChanged; projectId: string; scene: string; summary: string };
 
@@ -183,6 +188,8 @@ export const OpName = {
   SetCaptions: "set_captions",
   SetDuration: "set_duration",
   SetAudio: "set_audio",
+  /** Background music: `{music: {src, start, trim_in, trim_out, gain, duck}}` or `{music: null}`. */
+  SetMusic: "set_music",
   SetRenderStyle: "set_render_style",
   SetScenario: "set_scenario",
   SetSize: "set_size",
@@ -196,7 +203,10 @@ export const OpName = {
   ReplaceColor: "replace_color",
   SetTiming: "set_timing",
   SetText: "set_text",
+  AddLayer: "add_layer",
   RemoveLayer: "remove_layer",
+  /** Move a layer in the stack: `{id, index}` (0 = back). */
+  Reorder: "reorder",
   RemoveGroup: "remove_group",
   SetGroup: "set_group",
   PutSfx: "put_sfx",
@@ -206,8 +216,28 @@ export const OpName = {
   // components
   DefineComponent: "define_component",
   RemoveComponent: "remove_component",
+  /** Move layers into a new component and put one instance in their place: `{ids, component, id}`. */
+  Precompose: "precompose",
+  // timeline
+  /** Replace the timeline markers: `{markers: Marker[]}` (`[]` clears). */
+  SetMarkers: "set_markers",
+  /** Preview loop range: `{work_area: [in, out] | null}`. Export ignores it. */
+  SetWorkArea: "set_work_area",
 } as const;
 export type OpName = (typeof OpName)[keyof typeof OpName];
+
+/** A named instant on the timeline (scene `markers`, kept sorted by `t`). `color` is `#rrggbb`. */
+export type Marker = { t: number; label: string; color?: string };
+/** Scene `work_area`: `[in, out]` seconds the preview loops in, or null for the whole video. */
+export type WorkArea = [number, number] | null;
+export type SetMarkersOp = { op: typeof OpName.SetMarkers; markers: Marker[] };
+export type SetWorkAreaOp = { op: typeof OpName.SetWorkArea; work_area: WorkArea };
+/** `id` is the new instance layer; it spans the layers' time range at the topmost one's stacking position. */
+export type PrecomposeOp = { op: typeof OpName.Precompose; ids: string[]; component: string; id: string };
+
+/** Layer switches set with `patch` fields (false = left out). Solo changes what renders; locked and shy are editor-only. */
+export const LayerSwitch = { Solo: "solo", Locked: "locked", Shy: "shy" } as const;
+export type LayerSwitch = (typeof LayerSwitch)[keyof typeof LayerSwitch];
 
 // ── API (apps/api) shapes used by the editor and the MCP server ───────────
 
@@ -352,6 +382,17 @@ export type Project = {
   scene: Record<string, unknown> | null;
   /** The voice-over; `words` is set when it was generated with ElevenLabs (exact timing, no transcription needed). */
   audio: { url: string; name: string; mime: string; words?: VoiceWord[] | null } | null;
+  /**
+   * Background music file the user uploaded (the scene's `music` places and levels it). `trimIn` = where in the song
+   * the video should start (its loud part on the key moment), from the song's energy (`summary`).
+   */
+  music: { url: string; name: string; trimIn: number; summary: string | null; duration: number | null } | null;
+  /** Claude's prompt for this video's music in Suno, kept until the user asks for another. */
+  sunoPrompt: SunoPrompt | null;
+  /** Claude's latest caption and hashtags per platform, as the user left them. */
+  postCopy: { platform: string; caption: string; hashtags: string[] }[];
+  /** The user's own clips to edit, in upload order (c1, c2…). */
+  footage: FootageClip[];
   sceneRevision: number;
   /** Tokens and cost of each agent run on this video (newest last). */
   agentRuns: AgentRunUsage[];
@@ -365,6 +406,25 @@ export type ProjectListItem = { _id: string; name: string; build: Build; format?
 /** A spoken word and when it is said, in seconds. */
 export type VoiceWord = { text: string; start: number; end: number };
 
+/** Suno prompt for a video's music: style and structure fields to paste, and the video second the drop should hit. */
+export type SunoPrompt = { title: string; style: string; structure: string; dropAt: number | null; notes: string; createdAt: string };
+
+/** A clip uploaded to be edited. `words` (file seconds) once the editor transcribed it; `poster` = a 4×3 contact sheet. */
+export type FootageClip = {
+  id: string;
+  name: string;
+  url: string;
+  mime: string;
+  size: number;
+  duration: number | null;
+  width: number | null;
+  height: number | null;
+  poster: string | null;
+  /** Language spoken (ISO 639-1). */
+  language: string;
+  words: VoiceWord[] | null;
+};
+
 /** ElevenLabs text-to-speech models the user can pick. */
 export const VoiceModel = { V4: "eleven_v4", V3: "eleven_v3", MultilingualV2: "eleven_multilingual_v2", FlashV25: "eleven_flash_v2_5" } as const;
 export type VoiceModel = (typeof VoiceModel)[keyof typeof VoiceModel];
@@ -373,3 +433,6 @@ export type VoiceModel = (typeof VoiceModel)[keyof typeof VoiceModel];
 export type Voice = { id: string; name: string; category: string | null; description: string | null; labels: Record<string, string>; previewUrl: string | null };
 
 export type User = { id: string; email: string; name: string; avatarUrl: string | null; provider: string };
+
+/** Short-form attention curve: devices, measurement and checks (see attention.ts). */
+export * from "./attention.js";

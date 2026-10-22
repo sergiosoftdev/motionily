@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { SfxCue } from "../audio/sfxPlayer";
+import type { MusicTrack } from "../audio/music";
 import { engineHost } from "../engine/host";
 
 export type AudioTrack = { start: number; trim_in: number; trim_out: number | null };
@@ -26,6 +27,7 @@ export type SceneView = {
   layers: SceneLayerView[];
   captions?: { words: { text: string; start: number; end: number; emphasis?: boolean }[] } | null;
   audio?: AudioTrack | null;
+  music?: MusicTrack | null;
   sfx?: SfxCue[];
   sfx_volume?: number;
 };

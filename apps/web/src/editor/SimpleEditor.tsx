@@ -1,19 +1,22 @@
 import { useState } from "react";
-import { mediaUrl } from "../api/client";
+import { api, mediaUrl } from "../api/client";
 import { Logo } from "../components/Logo";
 import { AskBox, AskVariant } from "../components/AskBox";
 import { AgentBar } from "../components/AgentBar";
 import { ActivityLog } from "../components/ActivityLog";
 import { ConnectAgent } from "../components/ConnectAgent";
 import { ExportButton } from "../export/ExportButton";
+import { ScheduleButton } from "../posts/ScheduleButton";
 import { href, RouteName } from "../router";
 import { useEditor } from "../store";
 import { AgentLine } from "./AgentLine";
 import type { EditorProps } from "./context";
-import { ModeSwitch } from "./mode";
+import { ModePiece, ModeSwitch } from "./mode";
 import { PROJECT_TABS, ProjectPanel, type ProjectTab } from "./ProjectPanels";
 import { ProjectTitle } from "./ProjectTitle";
 import { SceneStrip } from "./SceneStrip";
+import { SimpleMedia } from "./SimpleMedia";
+import { AttentionStrip } from "./AttentionStrip";
 import { Viewer } from "./Viewer";
 
 /** Widest the preview gets, like a video player rather than a full-bleed canvas. */
@@ -23,11 +26,12 @@ const PREVIEW_MAX_WIDTH = 1100;
 export function SimpleEditor({ ed }: { ed: EditorProps }) {
   const { project, g } = ed;
   const [settings, setSettings] = useState(false);
-  const hasScene = !!project?.scene;
+  /** Something on screen yet (an empty scene can be saved before the first build). */
+  const hasScene = !!(project?.scene?.layers as unknown[] | undefined)?.length;
 
   return (
     <div className="flex h-dvh flex-col">
-      <header className="flex items-center gap-4 px-5 py-3">
+      <header className={`flex items-center gap-4 px-5 py-3 ${ModePiece.Header}`}>
         <a href={href({ name: RouteName.Projects })} className="shrink-0">
           <Logo />
         </a>
@@ -36,18 +40,26 @@ export function SimpleEditor({ ed }: { ed: EditorProps }) {
         <button type="button" onClick={() => setSettings(true)} className="rounded-lg px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-900 hover:text-white">
           Video settings
         </button>
+        {project && <ScheduleButton ed={ed} />}
         {project && <ExportButton name={project.name} audioUrl={project.audio ? mediaUrl(project.audio.url) : null} />}
       </header>
 
       <main className="flex min-h-0 flex-1 flex-col items-center gap-5 px-6 pb-6">
         <Viewer canvas={ed.canvas} error={ed.error} maxWidth={PREVIEW_MAX_WIDTH} canvasClass="rounded-2xl shadow-2xl shadow-black/50" />
         <div className="flex w-full max-w-3xl flex-col gap-3">
-          <SceneStrip />
+          <div className={ModePiece.Timeline}>
+            <SceneStrip />
+          </div>
+          <AttentionStrip g={g} />
           <AgentLine g={g} captioning={ed.captioning} />
+          {project && <SimpleMedia key={project.id} ed={ed} />}
           {project &&
             (hasScene || g.running ? (
               <AskBox g={g} hasScene={hasScene} projectId={ed.id} variant={AskVariant.Simple} />
-            ) : ed.captioning ? null : (
+            ) : ed.captioning ? null : !project.brief.trim() ? (
+              // Opened empty from the dashboard: the first ask is the brief.
+              <AskBox g={g} hasScene={false} projectId={ed.id} variant={AskVariant.Simple} onBrief={(brief) => api.updateProject(ed.id, { brief }).then(ed.setProject)} />
+            ) : (
               <div className="flex flex-col items-center gap-3 py-2 text-center">
                 <button type="button" onClick={() => void g.start()} className="rounded-xl bg-white px-6 py-3 text-sm font-semibold text-neutral-900 hover:bg-neutral-200">
                   Generate video

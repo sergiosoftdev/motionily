@@ -4,6 +4,8 @@ export const VideoPipeline = {
   Generate: "generate",
   /** Transcribe the uploaded voice into captions first, then start the agent. */
   TranscribeThenGenerate: "transcribe_then_generate",
+  /** Transcribe the user's own clips first, then start the agent on the edit. */
+  TranscribeFootageThenGenerate: "transcribe_footage_then_generate",
 } as const;
 export type VideoPipeline = (typeof VideoPipeline)[keyof typeof VideoPipeline];
 
