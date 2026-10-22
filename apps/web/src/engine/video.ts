@@ -30,8 +30,19 @@ export type VideoStatus = (typeof VideoStatus)[keyof typeof VideoStatus];
 
 export type FrameNeed = { key: string; src: string; time: number };
 export type ClipState = { id: string; src: string; time: number; rate: number; volume: number };
-/** One stretch of a clip's sound for the export mix: from video second `at`, play `seconds` of the file from `offset`. */
-export type ClipSound = { src: string; at: number; offset: number; seconds: number; rate: number; volume: number };
+/**
+ * One stretch of a clip's sound for the export mix: from video second `at`, play `seconds` of the
+ * file from `offset`, starting at `volume` and ramping through `levels` ([video second, level]) when
+ * the clip's volume is keyframed.
+ */
+export type ClipSound = { src: string; at: number; offset: number; seconds: number; rate: number; volume: number; levels: [number, number][] };
+
+/** Whether a video layer's `volume` (a number, keyframes or an expression) is ever above 0. */
+export function hasSound(volume: unknown): boolean {
+  if (typeof volume === "number") return volume > 0;
+  if (Array.isArray(volume)) return volume.some((k) => typeof (k as { v?: unknown })?.v === "number" && (k as { v: number }).v > 0);
+  return typeof volume === "string";
+}
 
 /** One opened video file and its sequential decoder. */
 class VideoFile {
@@ -252,7 +263,8 @@ export class ClipSounds {
   sync(clips: ClipState[], playing: boolean) {
     const live = new Set<string>();
     for (const c of clips) {
-      if (c.volume <= 0) continue;
+      // A keyframed clip that dips to silence keeps its element (at volume 0) so it never restarts.
+      if (c.volume <= 0 && !this.els.has(c.id)) continue;
       live.add(c.id);
       let el = this.els.get(c.id);
       if (!el || !el.src.endsWith(c.src)) {
@@ -288,12 +300,13 @@ export class ClipSounds {
  */
 export function clipSounds(engine: Engine, fps: number, duration: number): ClipSound[] {
   const out: ClipSound[] = [];
-  const open = new Map<string, ClipSound & { last: number }>();
+  /** Open stretches, with the previous frame's level (to start a ramp where the level starts changing). */
+  const open = new Map<string, ClipSound & { last: number; prevT: number; prevV: number; prevKept: boolean }>();
   const frames = Math.max(1, Math.round(duration * fps));
   const step = 1 / fps;
   const close = (id: string) => {
     const s = open.get(id);
-    if (s && s.seconds > 0) out.push({ src: s.src, at: s.at, offset: s.offset, seconds: s.seconds, rate: s.rate, volume: s.volume });
+    if (s && s.seconds > 0) out.push({ src: s.src, at: s.at, offset: s.offset, seconds: s.seconds, rate: s.rate, volume: s.volume, levels: s.levels });
     open.delete(id);
   };
   for (let i = 0; i <= frames; i++) {
@@ -308,10 +321,17 @@ export function clipSounds(engine: Engine, fps: number, duration: number): ClipS
       if (s && continues) {
         s.seconds += step;
         s.last = c.time;
+        // Volume keyframes: a point where the level changes (and the one before it, where the ramp starts).
+        const changed = Math.abs(c.volume - s.prevV) > 1e-4;
+        if (changed && !s.prevKept) s.levels.push([s.prevT, s.prevV]);
+        if (changed) s.levels.push([t, c.volume]);
+        s.prevKept = changed;
+        s.prevT = t;
+        s.prevV = c.volume;
         continue;
       }
       close(c.id);
-      if (rate >= MIN_RATE) open.set(c.id, { src: c.src, at: t, offset: c.time, seconds: step, rate, volume: c.volume, last: c.time });
+      if (rate >= MIN_RATE) open.set(c.id, { src: c.src, at: t, offset: c.time, seconds: step, rate, volume: c.volume, levels: [], last: c.time, prevT: t, prevV: c.volume, prevKept: true });
     }
     for (const id of [...open.keys()]) if (!seen.has(id)) close(id);
   }

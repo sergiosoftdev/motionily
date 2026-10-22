@@ -1,12 +1,12 @@
 import { mediaUrl } from "../api/client";
-import { duckAt, musicFileTime, type MusicTrack, type SpeechSpan } from "./ducking";
+import { musicFileTime, musicLevel, type MusicTrack, type SpeechSpan } from "./ducking";
 
 export * from "./ducking";
 
 /** Preview drift (s) tolerated before the music element is re-synced. */
 const DRIFT = 0.25;
 
-/** Plays the scene's music in the preview, following the playhead, its trim and the ducking. */
+/** Plays the scene's music in the preview, following the playhead, its trim, the ducking and its envelope. */
 export class MusicPlayer {
   private el: HTMLAudioElement | null = null;
   private track: MusicTrack | null = null;
@@ -28,7 +28,7 @@ export class MusicPlayer {
       if (!a.paused) a.pause();
       return;
     }
-    a.volume = Math.min(1, m.gain * duckAt(spans, m.duck, t));
+    a.volume = Math.min(1, musicLevel(m, spans, t));
     if (Math.abs(a.currentTime - f) > DRIFT) a.currentTime = f;
     if (playing && a.paused) void a.play();
     if (!playing && !a.paused) a.pause();

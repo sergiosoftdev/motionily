@@ -1,7 +1,9 @@
 /** Background music math, without the DOM: where speech is, how much the music ducks, which file second plays. */
 
 /** Background music as the scene keeps it (crates/scene/src/music.rs). */
-export type MusicTrack = { src: string; start: number; trim_in: number; trim_out?: number | null; gain: number; duck: number };
+export type MusicTrack = { src: string; start: number; trim_in: number; trim_out?: number | null; gain: number; duck: number; envelope?: LevelKey[] };
+/** A point of the music's volume envelope: level `v` (0..1 of `gain`) at `t` seconds from the music's start. */
+export type LevelKey = { t: number; v: number };
 /** New music's level and ducking, the engine's defaults (crates/scene/src/music.rs). */
 export const DEFAULT_MUSIC_GAIN = 0.25;
 export const DEFAULT_DUCK = 0.35;
@@ -34,6 +36,24 @@ export function duckAt(spans: SpeechSpan[], duck: number, t: number): number {
     k = Math.min(k, duck + (1 - duck) * ramp);
   }
   return k;
+}
+
+/** The envelope's level at `t` seconds from the music's start: straight between keys, held before and after (1 without keys). */
+export function envelopeAt(keys: LevelKey[] | undefined, t: number): number {
+  const first = keys?.[0];
+  const last = keys?.at(-1);
+  if (!keys || !first || !last) return 1;
+  if (t <= first.t) return first.v;
+  if (t >= last.t) return last.v;
+  const i = keys.findIndex((k) => k.t > t);
+  const a = keys[i - 1]!;
+  const b = keys[i]!;
+  return a.v + ((b.v - a.v) * (t - a.t)) / Math.max(1e-6, b.t - a.t);
+}
+
+/** The music's level at scene second `t`: its gain, ducked under speech, shaped by its envelope. */
+export function musicLevel(m: MusicTrack, spans: SpeechSpan[], t: number): number {
+  return m.gain * duckAt(spans, m.duck, t) * envelopeAt(m.envelope, t - m.start);
 }
 
 /** File second playing at scene second `t`, or null when the music is silent there. */

@@ -4,7 +4,7 @@
 //! decodes the file and uploads that exact frame under [`frame_key`] before each render, so any
 //! frame renders the same in any order (export, scrubbing, review).
 
-use crate::{DrawItem, ImageFit, Scene};
+use crate::{Animated, DrawItem, ImageFit, Scene};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -54,13 +54,17 @@ pub struct VideoClip {
     /// Wrap from `out` back to `in` instead of holding the last frame.
     #[serde(rename = "loop", default, skip_serializing_if = "std::ops::Not::not")]
     pub looping: bool,
-    /// Clip sound, 0 (muted, the default) to 1.
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub volume: f32,
+    /// Clip sound, 0 (muted, the default) to 1. Keyframes (seconds from the layer start, like any
+    /// property) make fades and dips: `[{"t":0,"v":0},{"t":0.5,"v":1,"ease":"linear"}]`.
+    #[serde(default, skip_serializing_if = "is_muted")]
+    pub volume: Animated,
 }
 
 fn is_zero(v: &f32) -> bool {
     *v == 0.0
+}
+fn is_muted(v: &Animated) -> bool {
+    matches!(v, Animated::Static(x) if *x == 0.0)
 }
 fn unit() -> f32 {
     1.0
@@ -81,10 +85,18 @@ impl VideoClip {
         if !(self.speed > 0.0 && self.speed <= MAX_SPEED) {
             return Err("video speed must be > 0 and <= 16 (freeze or reverse with time=)");
         }
-        if !(0.0..=1.0).contains(&self.volume) {
-            return Err("video volume must be 0..1");
+        match &self.volume {
+            Animated::Static(v) if !(0.0..=1.0).contains(v) => return Err("video volume must be 0..1"),
+            Animated::Keys(keys) if keys.iter().any(|k| !(0.0..=1.0).contains(&k.v)) => return Err("video volume keyframes must be 0..1"),
+            Animated::Keys(keys) if keys.windows(2).any(|w| w[1].t < w[0].t) => return Err("video volume keyframes must be in time order"),
+            _ => {}
         }
         Ok(())
+    }
+
+    /// Sound level at layer time `lt` (expressions are clamped to 0..1).
+    pub fn volume_at(&self, lt: f32) -> f32 {
+        self.volume.sample(lt).clamp(0.0, 1.0)
     }
 
     /// Seconds into the file shown at layer time `lt` (after the layer's time remap), for a file
@@ -113,8 +125,11 @@ impl VideoClip {
         if self.looping {
             s += " loop";
         }
-        if self.volume > 0.0 {
-            s += &format!(" vol={}", self.volume);
+        match &self.volume {
+            Animated::Static(v) if *v > 0.0 => s += &format!(" vol={v}"),
+            Animated::Static(_) => {}
+            Animated::Keys(keys) => s += &format!(" vol={}", keys.iter().map(|k| k.v.to_string()).collect::<Vec<_>>().join(">")),
+            Animated::Expr(e) => s += &format!(" vol=\"{}\"", e.src),
         }
         s
     }
@@ -186,12 +201,15 @@ impl Scene {
             .filter_map(|l| {
                 let crate::LayerContent::Video { clip } = &l.content else { return None };
                 let duration = media_duration(&clip.src);
-                let (lt, ahead) = crate::expr::with_vars(t, 0.0, 1.0, || (l.local_time(t), l.local_time(t + RATE_PROBE)));
+                let (lt, ahead, volume) = crate::expr::with_vars(t, 0.0, 1.0, || {
+                    let lt = l.local_time(t);
+                    (lt, l.local_time(t + RATE_PROBE), clip.volume_at(lt))
+                });
                 let time = clip.media_time(lt, duration);
                 let next = clip.media_time(ahead, duration);
                 // A wrap (loop) or a jump is not a rate: measure the clock itself then.
                 let rate = if next >= time { (next - time) / RATE_PROBE } else { clip.speed * (ahead - lt) / RATE_PROBE };
-                Some(ClipState { id: l.id.clone(), src: clip.src.clone(), time, rate: rate.max(0.0), volume: clip.volume })
+                Some(ClipState { id: l.id.clone(), src: clip.src.clone(), time, rate: rate.max(0.0), volume })
             })
             .collect()
     }
@@ -267,6 +285,27 @@ mod tests {
         assert!(clip(r#"{"src":"a.mp4"}"#).check().is_err());
         // Defaults stay out of the JSON.
         assert_eq!(serde_json::to_string(&clip(r#"{"src":"/media/a.mp4"}"#)).unwrap(), r#"{"src":"/media/a.mp4","fit":"cover"}"#);
+    }
+
+    #[test]
+    fn volume_takes_keyframes() {
+        let c = clip(r#"{"src":"/media/a.mp4","volume":[{"t":0,"v":0,"ease":"linear"},{"t":1,"v":0.8}]}"#);
+        assert!(c.check().is_ok());
+        assert_eq!(c.volume_at(-1.0), 0.0);
+        assert!((c.volume_at(0.5) - 0.4).abs() < 1e-4);
+        assert_eq!(c.volume_at(3.0), 0.8);
+        assert!(c.describe().contains("vol=0>0.8"), "{}", c.describe());
+        assert!(clip(r#"{"src":"/media/a.mp4","volume":[{"t":0,"v":1.5}]}"#).check().is_err());
+        assert!(clip(r#"{"src":"/media/a.mp4","volume":[{"t":1,"v":1},{"t":0,"v":0}]}"#).check().is_err());
+        // Each instant's level reaches the clip state the host mixes.
+        let mut scene = Scene::default();
+        scene
+            .apply(&[Op::AddLayer {
+                layer: serde_json::from_str(r#"{"id":"c","type":"video","src":"/media/k.mp4","start":2,"w":10,"h":10,"volume":[{"t":0,"v":1,"ease":"linear"},{"t":2,"v":0}]}"#).unwrap(),
+            }])
+            .unwrap();
+        let v = scene.video_clips(3.0)[0].volume;
+        assert!((v - 0.5).abs() < 1e-3, "{v}");
     }
 
     #[test]

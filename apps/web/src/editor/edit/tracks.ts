@@ -2,6 +2,8 @@ import { OpName, type FootageClip, type Op } from "@motionily/protocol";
 import { isKeyWord, type CaptionWord } from "../../captions/transcribe";
 import { VIDEO_LAYER } from "../../engine/video";
 import type { SceneLayerView, SceneView } from "../sceneView";
+import { overlapMatches, readTransition, refitTransitionOps, roomAfter, roomBefore, round, shiftAfterOps, stripTransitionFields, stripTransitionOps, type ClipTransition } from "./transitions";
+import { readVolume, shiftKeys, type VolumeKey } from "./volume";
 
 /**
  * The Edit view's tracks, read from the scene: video clips (on lanes, like CapCut's main track and
@@ -26,9 +28,15 @@ export type EditClip = {
   in: number;
   out: number | null;
   speed: number;
+  /** Loudest level of its sound (0 = muted throughout); `volumeKeys` when it changes over the clip. */
   volume: number;
+  volumeKeys: VolumeKey[] | null;
   scale: number;
   lane: number;
+  /** Main track: the transition it enters with (it overlaps the clip before by its length). */
+  transition: ClipTransition | null;
+  /** Main track: length of the transition into the next clip (0 = a plain cut). */
+  outgoing: number;
 };
 
 /** Layers of motion graphics shown and moved as one piece: a group, or layers that overlap in time. */
@@ -45,15 +53,22 @@ export function editTracks(scene: SceneView, footage: FootageClip[]): EditTracks
   const clips: EditClip[] = [];
   const lanesEnd: number[] = [];
   const videos = scene.layers.filter((l) => l.type === VIDEO_LAYER).sort((a, b) => (a.start ?? 0) - (b.start ?? 0));
+  /** Last clip placed on the main track. */
+  let main: EditClip | null = null;
   for (const l of videos) {
     const start = l.start ?? 0;
     const end = endOf(l, duration);
-    let lane = lanesEnd.findIndex((e) => e <= start + EPS);
+    // A clip that overlaps the end of the main track's last clip by exactly its transition stays on the main track.
+    const tr = main && start > main.start + EPS && start < main.end - EPS ? readTransition(l) : null;
+    const into: ClipTransition | null = main && tr && overlapMatches(main.end - start, tr.duration) ? { ...tr, from: main.id } : null;
+    let lane = into ? 0 : lanesEnd.findIndex((e) => e <= start + EPS);
     if (lane < 0) lane = lanesEnd.push(end) - 1;
     else lanesEnd[lane] = end;
+    if (into && main) main.outgoing = into.duration;
     const src = String(l.src ?? "");
     const fc = byUrl.get(src) ?? null;
-    clips.push({
+    const volume = readVolume(l.volume);
+    const clip: EditClip = {
       id: l.id,
       footage: fc,
       name: fc ? `${fc.id} · ${fc.name}` : (src.split("/").pop() ?? l.id),
@@ -63,10 +78,15 @@ export function editTracks(scene: SceneView, footage: FootageClip[]): EditTracks
       in: num(l.in, 0),
       out: typeof l.out === "number" ? l.out : null,
       speed: num(l.speed, 1),
-      volume: num(l.volume, 0),
+      volume: volume.level,
+      volumeKeys: volume.keys,
       scale: num(l.scale, 1),
       lane,
-    });
+      transition: into,
+      outgoing: 0,
+    };
+    clips.push(clip);
+    if (lane === 0) main = clip;
   }
 
   const backdrop: string[] = [];
@@ -128,58 +148,104 @@ export function editTracks(scene: SceneView, footage: FootageClip[]): EditTracks
 /** File second at the end of a clip (out, or where its length on screen runs out). */
 const fileEnd = (c: EditClip) => c.in + (c.end - c.start) * c.speed;
 
-export function moveClipOps(c: EditClip, start: number): Op[] {
+/** The main-track clip a transition leads into from `c` (the next clip overlaps `c` by it). */
+const nextOf = (c: EditClip, tracks: EditTracks) => tracks.clips.find((x) => x.transition?.from === c.id) ?? null;
+const clipById = (id: string, tracks: EditTracks) => tracks.clips.find((x) => x.id === id) ?? null;
+
+/** Seconds of the scene where the clip is what shows: its transitions give half their length to each side. */
+export const shownSpan = (c: EditClip): [number, number] => [c.start + (c.transition?.duration ?? 0) / 2, c.end - c.outgoing / 2];
+
+/** Move a clip in time. On the main track, its transitions go: they belong to the cuts it leaves. */
+export function moveClipOps(c: EditClip, start: number, scene: SceneView, tracks: EditTracks): Op[] {
   const s = Math.max(0, start);
-  return [{ op: OpName.SetTiming, id: c.id, start: s, end: s + (c.end - c.start) }];
+  const next = nextOf(c, tracks);
+  return [
+    { op: OpName.SetTiming, id: c.id, start: s, end: s + (c.end - c.start) },
+    ...(c.transition ? stripTransitionOps(scene, c.id) : []),
+    ...(next ? stripTransitionOps(scene, next.id) : []),
+  ];
 }
 
 /** Drag the clip's left or right edge to scene second `t`: the file window moves with it, the picture stays put. */
 export function trimClipOps(c: EditClip, edge: "in" | "out", t: number): Op[] {
+  return trimmed(c, edge, t).ops;
+}
+
+/** A trim's ops and where the clip ends up. */
+function trimmed(c: EditClip, edge: "in" | "out", t: number): { ops: Op[]; start: number; end: number } {
   if (edge === "in") {
     // Never before the file's first frame, never past the other edge.
     const start = Math.min(Math.max(t, c.start - c.in / c.speed, 0), c.end - MIN_CLIP);
-    return [
+    const fields: Record<string, unknown> = { in: round(c.in + (start - c.start) * c.speed) };
+    // Volume keys stay on the same sound while the start moves.
+    if (c.volumeKeys) fields.volume = shiftKeys(c.volumeKeys, start - c.start);
+    const ops: Op[] = [
       { op: OpName.SetTiming, id: c.id, start, end: c.end },
-      { op: OpName.Patch, id: c.id, fields: { in: round(c.in + (start - c.start) * c.speed) } },
+      { op: OpName.Patch, id: c.id, fields },
     ];
+    return { ops, start, end: c.end };
   }
   const fileLength = c.footage?.duration ?? Infinity;
   const end = Math.max(Math.min(t, c.start + (fileLength - c.in) / c.speed), c.start + MIN_CLIP);
-  return [
+  const ops: Op[] = [
     { op: OpName.SetTiming, id: c.id, start: c.start, end },
     { op: OpName.Patch, id: c.id, fields: { out: round(c.in + (end - c.start) * c.speed) } },
   ];
+  return { ops, start: c.start, end };
+}
+
+/**
+ * Trim with the main track's transitions kept whole: an edge that holds a transition stops where it
+ * would grow past what fits, and the transition takes the new overlap (or goes when there is none).
+ */
+export function trimWithTransitionsOps(c: EditClip, edge: "in" | "out", t: number, scene: SceneView, tracks: EditTracks): Op[] {
+  const prev = edge === "in" && c.transition ? clipById(c.transition.from, tracks) : null;
+  if (prev) {
+    const r = trimmed(c, edge, Math.max(t, prev.end - roomAfter(prev)));
+    return [...r.ops, ...refitTransitionOps(scene, prev, { ...c, start: r.start }, prev.end - r.start)];
+  }
+  const next = edge === "out" ? nextOf(c, tracks) : null;
+  if (next) {
+    const r = trimmed(c, edge, Math.min(t, next.start + roomBefore(next)));
+    return [...r.ops, ...refitTransitionOps(scene, { ...c, end: r.end }, next, r.end - next.start)];
+  }
+  return trimClipOps(c, edge, t);
 }
 
 /** Cut the clip in two at scene second `t`; the second half is a copy of the layer named `newId`. */
 export function splitClipOps(c: EditClip, t: number, layer: Record<string, unknown>, newId: string, index: number): Op[] | null {
-  if (t <= c.start + MIN_CLIP || t >= c.end - MIN_CLIP) return null;
+  // Never inside a transition: each half keeps its own.
+  const [from, to] = shownSpan(c);
+  if (t <= Math.max(c.start, from) + MIN_CLIP || t >= Math.min(c.end, to) - MIN_CLIP) return null;
   const cutAt = round(c.in + (t - c.start) * c.speed);
+  // The second half starts at the cut: no way in, and its volume keys stay on the same sound.
+  const copy: Record<string, unknown> = { ...layer, ...(stripTransitionFields(layer as SceneLayerView) ?? {}), id: newId, start: t, end: c.end, in: cutAt, out: c.out ?? round(fileEnd(c)) };
+  if (c.volumeKeys) copy.volume = shiftKeys(c.volumeKeys, t - c.start);
+  for (const k of Object.keys(copy)) if (copy[k] === null) delete copy[k];
   return [
     { op: OpName.SetTiming, id: c.id, start: c.start, end: t },
     { op: OpName.Patch, id: c.id, fields: { out: cutAt } },
-    { op: OpName.AddLayer, layer: { ...layer, id: newId, start: t, end: c.end, in: cutAt, out: c.out ?? round(fileEnd(c)) } },
+    { op: OpName.AddLayer, layer: copy },
     { op: OpName.Reorder, id: newId, index: index + 1 },
   ];
 }
 
 /**
  * Delete a clip of the main track and close the gap, like CapCut's magnetic track: everything that
- * starts after it (clips, graphics, sound effects) moves back by its length, and the video gets shorter.
+ * starts after it (clips, graphics, sound effects) moves back, and the video gets shorter. Its
+ * transitions go with it, and the clips on both sides meet in a plain cut.
  */
 export function rippleDeleteOps(c: EditClip, scene: SceneView): Op[] {
-  const gap = c.end - c.start;
-  const ops: Op[] = [{ op: OpName.RemoveLayer, id: c.id }];
-  for (const l of scene.layers) {
-    const start = l.start ?? 0;
-    if (l.id === c.id || start < c.end - EPS) continue;
-    ops.push({ op: OpName.SetTiming, id: l.id, start: round(start - gap), end: l.end == null ? null : round(l.end - gap) });
-  }
-  for (const cue of scene.sfx ?? []) {
-    if (cue.at >= c.end - EPS) ops.push({ op: OpName.PutSfx, cue: { ...cue, at: round(cue.at - gap) } });
-    else if (cue.at >= c.start) ops.push({ op: OpName.RemoveSfx, id: cue.id });
-  }
-  ops.push({ op: OpName.SetDuration, duration: round(Math.max(MIN_CLIP, scene.duration - gap)) });
+  const tracks = editTracks(scene, []);
+  const me = clipById(c.id, tracks) ?? c;
+  const next = nextOf(me, tracks);
+  // Close the gap from where the clip before ends (or this one started) to where the next one starts.
+  const from = me.start + (me.transition?.duration ?? 0);
+  const until = next ? next.start : me.end;
+  const gap = until - from;
+  const ops: Op[] = [{ op: OpName.RemoveLayer, id: c.id }, ...(next ? stripTransitionOps(scene, next.id) : [])];
+  for (const cue of scene.sfx ?? []) if (cue.at >= from && cue.at < until - EPS) ops.push({ op: OpName.RemoveSfx, id: cue.id });
+  if (gap > EPS) ops.push(...shiftAfterOps(scene, until, -gap, new Set([c.id])));
   return ops;
 }
 
@@ -193,19 +259,22 @@ export function moveBlockOps(b: GraphicsBlock, dt: number, scene: SceneView): Op
 
 /**
  * Captions of a video cut from the user's footage: every transcribed word the clips show, at the
- * second it plays. Re-run after any clip edit so captions (and @word timing) follow the cut.
+ * second it plays. Re-run after any clip edit so captions (and @word timing) follow the cut. Where a
+ * transition overlaps two clips, each keeps the words up to the middle of it.
  */
 export function footageCaptions(clips: EditClip[]): CaptionWord[] {
   const words: CaptionWord[] = [];
   for (const c of clips) {
     const transcript = c.footage?.words;
     if (!transcript || c.volume <= 0) continue;
-    const last = c.out ?? fileEnd(c);
+    const [from, to] = shownSpan(c);
+    const first = c.in + (from - c.start) * c.speed;
+    const last = Math.min(c.out ?? fileEnd(c), c.in + (to - c.start) * c.speed);
     for (const w of transcript) {
       // A word belongs to the clip when most of it plays inside the clip's window.
       const mid = (w.start + w.end) / 2;
-      if (mid < c.in || mid > last) continue;
-      const start = round(c.start + (Math.max(w.start, c.in) - c.in) / c.speed);
+      if (mid < first || mid > last) continue;
+      const start = round(c.start + (Math.max(w.start, first) - c.in) / c.speed);
       const end = round(c.start + (Math.min(w.end, last) - c.in) / c.speed);
       words.push({ text: w.text, start, end: Math.max(end, start + 0.05), ...(isKeyWord(w.text) ? { emphasis: true } : {}) });
     }
@@ -239,8 +308,4 @@ export function freshId(base: string, taken: Set<string>) {
     if (!taken.has(id)) return id;
   }
   return `${base}_${Date.now().toString(36)}`;
-}
-
-function round(n: number) {
-  return Math.round(n * 1000) / 1000;
 }

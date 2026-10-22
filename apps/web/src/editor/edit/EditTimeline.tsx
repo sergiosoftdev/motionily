@@ -1,17 +1,30 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { OpName, type Op } from "@motionily/protocol";
+import { mediaUrl } from "../../api/client";
 import type { SfxCue } from "../../audio/sfxPlayer";
 import type { MusicTrack } from "../../audio/music";
 import { engineHost } from "../../engine/host";
 import { useEditor } from "../../store";
 import type { SceneView } from "../sceneView";
-import { MIN_CLIP, moveBlockOps, moveClipOps, trimClipOps, type EditClip, type EditTracks, type GraphicsBlock } from "./tracks";
+import { Filmstrip, SoundWave, usePeaks, Waveform } from "./TimelineMedia";
+import { MIN_CLIP, moveBlockOps, moveClipOps, shownSpan, trimWithTransitionsOps, type EditClip, type EditTracks, type GraphicsBlock } from "./tracks";
+import { CUT_EPS } from "./transitions";
+import { TransitionChip } from "./TransitionChip";
 import type { EditActions } from "./useEditActions";
+import { VolumeLine } from "./VolumeLine";
+import type { VolumeKey } from "./volume";
 
 const HEADER_W = 104;
 const RULER_H = 26;
 const LANE_H = 44;
 const SMALL_LANE_H = 28;
+/** Video lanes are taller: frames on top, the clip's sound along the bottom. */
+const VIDEO_LANE_H = 64;
+const CLIP_H = VIDEO_LANE_H - 12;
+const WAVE_H = 16;
+/** Voice and music lanes, tall enough for a waveform and the music's volume line. */
+const AUDIO_LANE_H = 40;
+const AUDIO_H = AUDIO_LANE_H - 8;
 const MIN_LABEL_GAP = 70;
 const TICK_STEPS = [0.5, 1, 2, 5, 10, 15, 30, 60, 120];
 /** Edges snap to the playhead and to other clips within this many pixels. */
@@ -22,21 +35,32 @@ const MAX_ZOOM = 30;
 /** Words further apart than this start a new caption chip, and a chip holds at most this many words. */
 const PHRASE_GAP = 0.35;
 const PHRASE_WORDS = 6;
+/** Frame shape of footage whose size is unknown. */
+const DEFAULT_ASPECT = 16 / 9;
+const CLIP_WAVE = "rgba(186,230,253,0.9)";
+const MUTED_WAVE = "rgba(186,230,253,0.35)";
+const VOICE_WAVE = "rgba(209,250,229,0.85)";
+const MUSIC_WAVE = "rgba(252,231,243,0.8)";
 
 /** What the user has picked in the timeline. Clips and blocks follow the editor's selection (canvas or timeline). */
 export type EditSelection = { kind: "clip"; clip: EditClip } | { kind: "block"; block: GraphicsBlock } | { kind: "cue"; cue: SfxCue } | { kind: "music"; music: MusicTrack } | null;
 
 type Drag = { kind: "move" | "in" | "out"; x0: number; moved: boolean };
 
+/** Music fields for its volume line: keys without eases (the envelope is linear), a flat level as one key, 100% as none. */
+const envelopeOf = (v: VolumeKey[] | number) => (typeof v === "number" ? (v >= 1 ? [] : [{ t: 0, v }]) : v.map(({ t, v: level }) => ({ t, v: level })));
+
 /**
  * CapCut-style multitrack timeline: graphics blocks on top, video lanes (the main track at the
- * bottom of them), captions, voice and sound effects. Drag to move, drag an edge to trim; the
- * parent decides what Delete and S do.
+ * bottom of them) with each clip's frames and sound, captions, voice, music and sound effects. Drag to
+ * move, drag an edge to trim; a cut on the main track takes a transition; a selected clip or the music
+ * shows its volume line for keyframes. The parent decides what Delete and S do.
  */
 export function EditTimeline({
   scene,
   tracks,
   selection,
+  audioUrl,
   onSelectCue,
   onSelectMusic,
   edits,
@@ -44,20 +68,34 @@ export function EditTimeline({
   scene: SceneView;
   tracks: EditTracks;
   selection: EditSelection;
+  /** The voice-over file, for its waveform. */
+  audioUrl: string | null;
   onSelectCue: (cue: SfxCue | null) => void;
   onSelectMusic: (on: boolean) => void;
   edits: EditActions;
 }) {
   const time = useEditor((s) => s.time);
   const duration = Math.max(scene.duration, 0.1);
+  const fps = scene.fps ?? 30;
   const [zoom, setZoom] = useState(1);
   const [viewW, setViewW] = useState(800);
+  /** Track px on screen (left, right): blocks draw frames and waveforms only there. */
+  const [view, setView] = useState({ l: 0, r: 1600 });
   const scroller = useRef<HTMLDivElement>(null);
+  const voicePeaks = usePeaks(audioUrl);
+  const musicPeaks = usePeaks(scene.music ? mediaUrl(scene.music.src) : null);
 
+  const readView = () => {
+    const el = scroller.current;
+    if (el) setView({ l: el.scrollLeft, r: el.scrollLeft + el.clientWidth - HEADER_W });
+  };
   useEffect(() => {
     const el = scroller.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setViewW(el.clientWidth - HEADER_W));
+    const ro = new ResizeObserver(() => {
+      setViewW(el.clientWidth - HEADER_W);
+      readView();
+    });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
@@ -65,6 +103,8 @@ export function EditTimeline({
   const trackW = Math.max(200, viewW * zoom);
   const pps = trackW / duration;
   const px = (t: number) => t * pps;
+  /** Block-local px range on screen of a block starting at track px `left`, `width` wide. */
+  const visible = (left: number, width: number) => ({ visL: Math.max(0, view.l - left), visR: Math.min(width, view.r - left) });
   const step = TICK_STEPS.find((s) => s * pps >= MIN_LABEL_GAP) ?? TICK_STEPS.at(-1)!;
   const ticks = useMemo(() => Array.from({ length: Math.floor(duration / step) + 1 }, (_, i) => i * step), [duration, step]);
   const phrases = useMemo(() => {
@@ -148,6 +188,104 @@ export function EditTimeline({
     useEditor.setState({ selectedLayerId: b.group ? null : b.ids[0]!, selectedGroup: b.group });
   };
 
+  /** One clip: frames, its sound, its name, the volume line when selected (or keyed), trim handles. */
+  const clipBlock = (c: EditClip) => {
+    const on = selection?.kind === "clip" && selection.clip.id === c.id;
+    // Main-track clips show from the middle of each transition, like a cut there.
+    const [from, to] = c.lane === 0 ? shownSpan(c) : [c.start, c.end];
+    const left = px(from);
+    const width = Math.max(4, px(to - from));
+    const vis = visible(left, width);
+    const fc = c.footage;
+    const edge = (kind: "in" | "out") => (e: ReactPointerEvent) =>
+      drag(
+        e,
+        kind,
+        () => selectClip(c),
+        (dt) => trimWithTransitionsOps(c, kind, snap((kind === "in" ? c.start : c.end) + dt, clipPoints(c)), scene, tracks),
+        () => `Trims ${c.id}`,
+        true,
+      );
+    return (
+      <div
+        key={c.id}
+        data-clip={c.id}
+        title={`${c.name} · ${c.start.toFixed(2)}–${c.end.toFixed(2)} s · file ${c.in.toFixed(2)}–${(c.out ?? c.in + (c.end - c.start) * c.speed).toFixed(2)} s`}
+        onPointerDown={(e) =>
+          drag(
+            e,
+            "move",
+            () => selectClip(c),
+            (dt) => {
+              const pts = clipPoints(c);
+              let start = snap(c.start + dt, pts);
+              if (start === c.start + dt) start = snap(c.end + dt, pts) - (c.end - c.start);
+              return moveClipOps(c, start, scene, tracks);
+            },
+            () => `Moves ${c.id}`,
+            true,
+          )
+        }
+        className={`group absolute top-1.5 bottom-1.5 cursor-grab overflow-hidden rounded-md text-[11px] whitespace-nowrap text-sky-50 active:cursor-grabbing ${on ? "bg-sky-800 ring-2 ring-white" : "bg-sky-900 hover:brightness-110"}`}
+        style={{ left, width }}
+      >
+        {vis.visR > vis.visL && (
+          <>
+            <Filmstrip
+              src={c.src}
+              poster={fc?.poster ?? null}
+              fileDuration={fc?.duration ?? null}
+              aspect={fc?.width && fc.height ? fc.width / fc.height : DEFAULT_ASPECT}
+              clipStart={c.start}
+              clipIn={c.in}
+              speed={c.speed}
+              from={from}
+              pps={pps}
+              visL={vis.visL}
+              visR={vis.visR}
+              height={CLIP_H}
+            />
+            <SoundWave url={mediaUrl(c.src)} fileAt0={c.in + (from - c.start) * c.speed} rate={c.speed / pps} visL={vis.visL} visR={vis.visR} top={CLIP_H - WAVE_H} height={WAVE_H} color={c.volume > 0 ? CLIP_WAVE : MUTED_WAVE} />
+          </>
+        )}
+        <span className="pointer-events-none absolute top-1 left-1 max-w-[calc(100%-8px)] truncate rounded bg-black/55 px-1.5 text-[10px] leading-4">
+          {c.name}
+          {c.scale > 1 ? ` · ${Math.round((c.scale - 1) * 100)}% zoom` : ""}
+          {c.volume <= 0 ? " · muted" : ""}
+        </span>
+        {(on || c.volumeKeys) && (
+          <VolumeLine
+            keys={c.volumeKeys}
+            level={c.volume}
+            keyZero={c.start}
+            from={from}
+            width={width}
+            height={CLIP_H}
+            pps={pps}
+            fps={fps}
+            active={on}
+            toOps={(volume) => [{ op: OpName.Patch, id: c.id, fields: { volume } }]}
+            what={`Volume of ${c.id}`}
+            recaption
+            edits={edits}
+          />
+        )}
+        <span onPointerDown={edge("in")} className="absolute inset-y-0 left-0 cursor-ew-resize bg-white/0 group-hover:bg-white/25" style={{ width: HANDLE_PX }} />
+        <span onPointerDown={edge("out")} className="absolute inset-y-0 right-0 cursor-ew-resize bg-white/0 group-hover:bg-white/25" style={{ width: HANDLE_PX }} />
+      </div>
+    );
+  };
+
+  /** Each cut of the main track (touching clips, or a transition between them) gets its chip. */
+  const cuts = () => {
+    const main = tracks.clips.filter((c) => c.lane === 0);
+    return main.slice(1).flatMap((b, i) => {
+      const a = main[i]!;
+      if (b.transition?.from !== a.id && Math.abs(b.start - a.end) > CUT_EPS) return [];
+      return [<TransitionChip key={`cut-${b.id}`} a={a} b={b} scene={scene} pps={pps} edits={edits} />];
+    });
+  };
+
   const lanes: { key: string; label: string; height: number; body: ReactNode }[] = [];
   for (let row = tracks.blockLanes - 1; row >= 0; row--) {
     lanes.push({
@@ -187,51 +325,13 @@ export function EditTimeline({
     lanes.push({
       key: `video-${lane}`,
       label: lane === 0 ? "Video" : `Overlay ${lane}`,
-      height: LANE_H,
-      body: tracks.clips
-        .filter((c) => c.lane === lane)
-        .map((c) => {
-          const on = selection?.kind === "clip" && selection.clip.id === c.id;
-          const edge = (kind: "in" | "out") => (e: ReactPointerEvent) =>
-            drag(
-              e,
-              kind,
-              () => selectClip(c),
-              (dt) => trimClipOps(c, kind, snap((kind === "in" ? c.start : c.end) + dt, clipPoints(c))),
-              () => `Trims ${c.id}`,
-              true,
-            );
-          return (
-            <div
-              key={c.id}
-              title={`${c.name} · ${c.start.toFixed(2)}–${c.end.toFixed(2)} s · file ${c.in.toFixed(2)}–${(c.out ?? c.in + (c.end - c.start) * c.speed).toFixed(2)} s`}
-              onPointerDown={(e) =>
-                drag(
-                  e,
-                  "move",
-                  () => selectClip(c),
-                  (dt) => {
-                    const pts = clipPoints(c);
-                    let start = snap(c.start + dt, pts);
-                    if (start === c.start + dt) start = snap(c.end + dt, pts) - (c.end - c.start);
-                    return moveClipOps(c, start);
-                  },
-                  () => `Moves ${c.id}`,
-                  true,
-                )
-              }
-              className={`group absolute top-1.5 bottom-1.5 cursor-grab overflow-hidden rounded-md text-[11px] whitespace-nowrap text-sky-50 active:cursor-grabbing ${on ? "bg-sky-500 ring-2 ring-white" : "bg-sky-700/90 hover:bg-sky-600"}`}
-              style={{ left: px(c.start), width: Math.max(4, px(c.end - c.start)) }}
-            >
-              <span className="pointer-events-none absolute inset-0 truncate px-2.5 leading-[30px]">
-                {c.name}
-                {c.scale > 1 ? ` · ${Math.round((c.scale - 1) * 100)}% zoom` : ""}
-              </span>
-              <span onPointerDown={edge("in")} className="absolute inset-y-0 left-0 cursor-ew-resize bg-white/0 group-hover:bg-white/25" style={{ width: HANDLE_PX }} />
-              <span onPointerDown={edge("out")} className="absolute inset-y-0 right-0 cursor-ew-resize bg-white/0 group-hover:bg-white/25" style={{ width: HANDLE_PX }} />
-            </div>
-          );
-        }),
+      height: VIDEO_LANE_H,
+      body: (
+        <>
+          {tracks.clips.filter((c) => c.lane === lane).map(clipBlock)}
+          {lane === 0 && cuts()}
+        </>
+      ),
     });
   }
   if (phrases.length)
@@ -247,23 +347,39 @@ export function EditTimeline({
     });
   if (scene.audio) {
     const a = scene.audio;
+    const fileOut = a.trim_out ?? voicePeaks?.duration ?? null;
+    const end = Math.min(duration, fileOut != null ? a.start + fileOut - a.trim_in : duration);
+    const left = px(a.start);
+    const width = Math.max(8, px(end - a.start));
+    const vis = visible(left, width);
     lanes.push({
       key: "voice",
       label: "Voice",
-      height: SMALL_LANE_H,
-      body: <div className="pointer-events-none absolute top-1 bottom-1 rounded bg-emerald-700/70 px-1.5 text-[10px] leading-5 text-emerald-50" style={{ left: px(a.start), right: 0 }}>Voice-over</div>,
+      height: AUDIO_LANE_H,
+      body: (
+        <div className="pointer-events-none absolute top-1 bottom-1 overflow-hidden rounded bg-emerald-800/70 text-[10px] leading-5 text-emerald-50" style={{ left, width }}>
+          {voicePeaks && vis.visR > vis.visL && <Waveform peaks={voicePeaks} fileAt0={a.trim_in} rate={1 / pps} visL={vis.visL} visR={vis.visR} top={0} height={AUDIO_H} color={VOICE_WAVE} />}
+          <span className="absolute top-0 left-1.5">Voice-over</span>
+        </div>
+      ),
     });
   }
   if (scene.music) {
     const m = scene.music;
     const on = selection?.kind === "music";
-    const end = m.trim_out != null ? m.start + (m.trim_out - m.trim_in) : duration;
+    const fileOut = m.trim_out ?? musicPeaks?.duration ?? null;
+    const end = Math.min(duration, fileOut != null ? m.start + (fileOut - m.trim_in) : duration);
+    const left = px(m.start);
+    const width = Math.max(8, px(end - m.start));
+    const vis = visible(left, width);
+    const envelope = m.envelope?.length ? m.envelope : null;
     lanes.push({
       key: "music",
       label: "Music",
-      height: SMALL_LANE_H,
+      height: AUDIO_LANE_H,
       body: (
         <div
+          data-music
           title={`Music from ${m.start.toFixed(1)} s · level ${Math.round(m.gain * 100)}%`}
           onPointerDown={(e) =>
             drag(
@@ -279,10 +395,28 @@ export function EditTimeline({
               false,
             )
           }
-          className={`absolute top-1 bottom-1 cursor-grab truncate rounded px-1.5 text-[10px] leading-5 ${on ? "bg-pink-400 text-neutral-900" : "bg-pink-700/70 text-pink-50 hover:bg-pink-600"}`}
-          style={{ left: px(m.start), width: Math.max(8, px(Math.min(duration, end) - m.start)) }}
+          className={`absolute top-1 bottom-1 cursor-grab overflow-hidden rounded text-[10px] leading-5 ${on ? "bg-pink-600 ring-2 ring-white" : "bg-pink-800/70 hover:bg-pink-700/80"}`}
+          style={{ left, width }}
         >
-          ♪ {m.src.split("/").pop()}
+          {musicPeaks && vis.visR > vis.visL && <Waveform peaks={musicPeaks} fileAt0={m.trim_in} rate={1 / pps} visL={vis.visL} visR={vis.visR} top={0} height={AUDIO_H} color={MUSIC_WAVE} />}
+          <span className="pointer-events-none absolute top-0 left-1.5 truncate text-pink-50">♪ {m.src.split("/").pop()}</span>
+          {(on || envelope) && (
+            <VolumeLine
+              keys={envelope}
+              level={1}
+              keyZero={m.start}
+              from={m.start}
+              width={width}
+              height={AUDIO_H}
+              pps={pps}
+              fps={fps}
+              active={on}
+              toOps={(v) => [{ op: OpName.SetMusic, music: { ...m, envelope: envelopeOf(v) } }]}
+              what="Music volume"
+              recaption={false}
+              edits={edits}
+            />
+          )}
         </div>
       ),
     });
@@ -325,6 +459,7 @@ export function EditTimeline({
     <div className="flex min-h-0 flex-1 flex-col">
       <div
         ref={scroller}
+        onScroll={() => requestAnimationFrame(readView)}
         onWheel={(e) => {
           if (!(e.ctrlKey || e.metaKey)) return;
           e.preventDefault();

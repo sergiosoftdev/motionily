@@ -40,6 +40,17 @@ pub struct MusicTrack {
     /// Level multiplier while the voice speaks (captions words), 0..1.
     #[serde(default = "default_duck")]
     pub duck: f32,
+    /// Volume keyframes on top of `gain` (fades, dips): `v` 0..1 at `t` seconds from the music's
+    /// `start`, linear between keys, the first and last level held before and after them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub envelope: Vec<LevelKey>,
+}
+
+/// One point of the music's volume envelope.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct LevelKey {
+    pub t: f32,
+    pub v: f32,
 }
 
 impl MusicTrack {
@@ -55,6 +66,12 @@ impl MusicTrack {
         }
         if !(0.0..=1.0).contains(&self.duck) {
             return Err("music duck must be in 0..1");
+        }
+        if self.envelope.iter().any(|k| !(0.0..=1.0).contains(&k.v) || !k.t.is_finite()) {
+            return Err("music envelope levels must be in 0..1");
+        }
+        if self.envelope.windows(2).any(|w| w[1].t < w[0].t) {
+            return Err("music envelope keys must be in time order");
         }
         Ok(())
     }
@@ -73,10 +90,21 @@ mod tests {
 
     #[test]
     fn rejects_bad_levels_and_trims() {
-        let ok = MusicTrack { src: "/media/a.mp3".into(), start: 0.0, trim_in: 2.0, trim_out: Some(30.0), gain: 0.3, duck: 0.4 };
+        let ok = MusicTrack { src: "/media/a.mp3".into(), start: 0.0, trim_in: 2.0, trim_out: Some(30.0), gain: 0.3, duck: 0.4, envelope: vec![] };
         assert!(MusicTrack { gain: 3.0, ..ok.clone() }.check().is_err());
         assert!(MusicTrack { duck: 1.5, ..ok.clone() }.check().is_err());
         assert!(MusicTrack { trim_out: Some(1.0), ..ok.clone() }.check().is_err());
+        assert!(MusicTrack { envelope: vec![LevelKey { t: 0.0, v: 1.2 }], ..ok.clone() }.check().is_err());
+        assert!(MusicTrack { envelope: vec![LevelKey { t: 2.0, v: 1.0 }, LevelKey { t: 1.0, v: 0.0 }], ..ok.clone() }.check().is_err());
         assert!(MusicTrack { src: " ".into(), ..ok }.check().is_err());
+    }
+
+    #[test]
+    fn envelope_round_trips_and_stays_out_when_empty() {
+        let m: MusicTrack = serde_json::from_str(r#"{"src":"/media/a.mp3","envelope":[{"t":0,"v":0},{"t":2,"v":1}]}"#).unwrap();
+        assert!(m.check().is_ok());
+        assert_eq!(m.envelope.len(), 2);
+        let plain: MusicTrack = serde_json::from_str(r#"{"src":"/media/a.mp3"}"#).unwrap();
+        assert!(!serde_json::to_string(&plain).unwrap().contains("envelope"));
     }
 }
