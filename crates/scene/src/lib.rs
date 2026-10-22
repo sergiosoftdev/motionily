@@ -33,6 +33,7 @@ mod transition;
 pub mod video;
 pub mod music;
 pub mod reactive;
+mod timeline;
 
 pub use anim::{Animated, Easing, Keyframe};
 pub use layer::{Xform, PathData, AnimRef, Bounds, DrawImage, DrawItem, DrawObject, DrawShape, EvalCtx, ImageFit, Layer, LayerContent, Shape};
@@ -230,7 +231,7 @@ impl Scene {
             expr::with_vars(gt, 0.0, 1.0, || value.sample(lt))
         };
         // Audio-reactive expressions read the analysed file through this scene's placement of it.
-        reactive::with_track(self.audio.unwrap_or_default(), || expr::with_resolver(&resolve, f))
+        reactive::with_track(self.audio.clone().unwrap_or_default(), || expr::with_resolver(&resolve, f))
     }
 
     /// Resolve every visible layer at time `t` (seconds), back to front.
@@ -884,17 +885,18 @@ impl Scene {
         }
         if let Some(a) = &self.audio {
             let out = a.trim_out.map(|o| format!("{o:.2}")).unwrap_or_else(|| "end".into());
-            let _ = writeln!(s, "audio: plays from {:.2}s, file {:.2}-{}", a.start, a.trim_in, out);
+            let cuts = if a.cuts.is_empty() { String::new() } else { format!(", cut out of the file: {}", a.cuts.iter().map(|[x, y]| format!("{x:.2}-{y:.2}")).collect::<Vec<_>>().join(", ")) };
+            let _ = writeln!(s, "audio: plays from {:.2}s, file {:.2}-{}{cuts}", a.start, a.trim_in, out);
         }
         if let Some(m) = &self.music {
             let out = m.trim_out.map(|o| format!("{o:.2}")).unwrap_or_else(|| "end".into());
             let _ = writeln!(s, "music: {} from {:.2}s, file {:.2}-{}, level {:.0}%, {:.0}% of that while the voice speaks", m.src, m.start, m.trim_in, out, m.gain * 100.0, m.duck * 100.0);
         }
-        if let Some(line) = reactive::summary_line(self.audio) {
+        if let Some(line) = reactive::summary_line(self.audio.clone()) {
             let _ = writeln!(s, "{line}");
         }
         let words = self.captions.as_ref().map_or(&[][..], |c| &c.words[..]);
-        if let Some(line) = reactive::voice_timeline(self.audio, words) {
+        if let Some(line) = reactive::voice_timeline(self.audio.clone(), words) {
             let _ = writeln!(s, "{line}");
         }
         if let Some(c) = &self.captions {

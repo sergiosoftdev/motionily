@@ -13,6 +13,7 @@ import { TransitionChip } from "./TransitionChip";
 import type { EditActions } from "./useEditActions";
 import { VolumeLine } from "./VolumeLine";
 import type { VolumeKey } from "./volume";
+import { audioPieces } from "../../audio/track";
 
 const HEADER_W = 104;
 const RULER_H = 26;
@@ -440,21 +441,26 @@ export function EditTimeline({
       )),
     });
   if (scene.audio) {
-    const a = scene.audio;
-    const fileOut = a.trim_out ?? voicePeaks?.duration ?? null;
-    const end = Math.min(duration, fileOut != null ? a.start + fileOut - a.trim_in : duration);
-    const left = px(a.start);
-    const width = Math.max(8, px(end - a.start));
-    const vis = visible(left, width);
+    // One block per audible piece: cuts show as gaps closed up, like clips on an edit.
+    const pieces = audioPieces(scene.audio, voicePeaks?.duration ?? Infinity).filter((p) => p.at < duration);
     lanes.push({
       key: "voice",
       label: "Voice",
       height: AUDIO_LANE_H,
       body: (
-        <div className="pointer-events-none absolute top-1 bottom-1 overflow-hidden rounded bg-emerald-800/70 text-[10px] leading-5 text-emerald-50" style={{ left, width }}>
-          {voicePeaks && vis.visR > vis.visL && <Waveform peaks={voicePeaks} fileAt0={a.trim_in} rate={1 / pps} visL={vis.visL} visR={vis.visR} top={0} height={AUDIO_H} color={VOICE_WAVE} />}
-          <span className="absolute top-0 left-1.5">Voice-over</span>
-        </div>
+        <>
+          {pieces.map((p, i) => {
+            const left = px(p.at);
+            const width = Math.max(8, px(Math.min(duration, p.at + (p.to - p.from)) - p.at));
+            const vis = visible(left, width);
+            return (
+              <div key={i} className="pointer-events-none absolute top-1 bottom-1 overflow-hidden rounded bg-emerald-800/70 text-[10px] leading-5 text-emerald-50" style={{ left, width }}>
+                {voicePeaks && vis.visR > vis.visL && <Waveform peaks={voicePeaks} fileAt0={p.from} rate={1 / pps} visL={vis.visL} visR={vis.visR} top={0} height={AUDIO_H} color={VOICE_WAVE} />}
+                {i === 0 && <span className="absolute top-0 left-1.5">Voice-over</span>}
+              </div>
+            );
+          })}
+        </>
       ),
     });
   }

@@ -15,8 +15,8 @@ import {
 } from "mediabunny";
 import { Engine } from "../engine/pkg/engine_wasm.js";
 import { VIDEO_LAYER, clipSounds, hasSound, type ClipSound, type VideoLibrary } from "../engine/video";
+import { audioPieces, type AudioTrack } from "../audio/track";
 
-type AudioTrack = { start: number; trim_in: number; trim_out: number | null };
 type SceneInfo = {
   width: number;
   height: number;
@@ -50,11 +50,13 @@ async function renderAudio(url: string | null, track: AudioTrack, cues: SfxCue[]
     const file = await decode(url);
     // No caption words to duck under: the voice file says where the speech is.
     if (!speech.length) speech = voiceOnTimeline(speechInFile(file.getChannelData(0), file.sampleRate), track);
-    const src = ctx.createBufferSource();
-    src.buffer = file;
-    src.connect(ctx.destination);
-    const end = track.trim_out ?? file.duration;
-    src.start(track.start, track.trim_in, Math.max(0, end - track.trim_in));
+    // One source per audible piece: cuts in the voice play as jump cuts.
+    for (const p of audioPieces(track, file.duration)) {
+      const src = ctx.createBufferSource();
+      src.buffer = file;
+      src.connect(ctx.destination);
+      src.start(p.at, p.from, p.to - p.from);
+    }
   }
   if (music) {
     const file = await decode(mediaUrl(music.src)).catch(() => null);

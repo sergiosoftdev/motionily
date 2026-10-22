@@ -7,7 +7,7 @@
 //! Everything is deterministic: the same samples always give the same curves and beats.
 
 use crate::AudioTrack;
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 
 /// Analysis frames per second (one every 10 ms); values in between are interpolated.
@@ -127,7 +127,7 @@ pub struct AudioAnalysis {
 thread_local! {
     static ANALYSIS: RefCell<Option<Rc<AudioAnalysis>>> = const { RefCell::new(None) };
     /// Placement of the analysed file on the timeline of the scene being evaluated.
-    static TRACK: Cell<AudioTrack> = Cell::new(AudioTrack::default());
+    static TRACK: RefCell<AudioTrack> = RefCell::new(AudioTrack::default());
 }
 
 /// Install (or clear) the analysis of the project's audio for every scene on this thread.
@@ -144,7 +144,7 @@ pub(crate) fn with_track<R>(track: AudioTrack, f: impl FnOnce() -> R) -> R {
     struct Restore(AudioTrack);
     impl Drop for Restore {
         fn drop(&mut self) {
-            TRACK.with(|c| c.set(self.0));
+            TRACK.with(|c| *c.borrow_mut() = std::mem::take(&mut self.0));
         }
     }
     let _restore = Restore(TRACK.with(|c| c.replace(track)));
@@ -155,11 +155,13 @@ pub(crate) fn with_track<R>(track: AudioTrack, f: impl FnOnce() -> R) -> R {
 /// `gt` the current scene time. 0 when there is no analysed audio.
 pub fn eval(ch: Channel, args: &[f32], gt: f32) -> f32 {
     let Some(a) = analysis() else { return 0.0 };
-    let track = TRACK.with(|c| c.get());
-    match ch {
-        Channel::Spec => a.sample_at(ch, args.first().copied().unwrap_or(0.0), &track, args.get(1).copied().unwrap_or(gt)),
-        _ => a.sample_at(ch, 0.0, &track, args.first().copied().unwrap_or(gt)),
-    }
+    TRACK.with(|c| {
+        let track = c.borrow();
+        match ch {
+            Channel::Spec => a.sample_at(ch, args.first().copied().unwrap_or(0.0), &track, args.get(1).copied().unwrap_or(gt)),
+            _ => a.sample_at(ch, 0.0, &track, args.first().copied().unwrap_or(gt)),
+        }
+    })
 }
 
 /// One line for the scene summary: what the agent can sync to (beats in scene seconds).
@@ -190,14 +192,22 @@ impl AudioAnalysis {
     /// Beats inside the trimmed window, in scene seconds.
     pub fn scene_beats(&self, track: &AudioTrack) -> Vec<f32> {
         let end = self.end(track);
-        self.beats.iter().filter(|b| **b >= track.trim_in && **b < end).map(|b| track.start + b - track.trim_in).collect()
+        self.beats.iter().filter(|b| **b < end).filter_map(|b| track.to_scene(*b)).collect()
     }
 
     /// `ch` at scene time `gt` (band position `k` for `spec`).
     pub fn sample_at(&self, ch: Channel, k: f32, track: &AudioTrack, gt: f32) -> f32 {
-        let ft = track.trim_in + (gt - track.start);
         let end = self.end(track);
-        if gt < track.start || !ft.is_finite() {
+        // Past the last piece the file clock keeps running (beats go on decaying); before the start, nothing.
+        let ft = match track.to_file(gt) {
+            Some(f) => f,
+            None if gt >= track.start => match track.pieces(f32::INFINITY).last() {
+                Some(&(at, a, b)) if gt >= at + (b - a) => b + (gt - at - (b - a)),
+                _ => return 0.0,
+            },
+            None => return 0.0,
+        };
+        if !ft.is_finite() {
             return 0.0;
         }
         match ch {
@@ -381,7 +391,8 @@ fn silences(level: &[f32], frame_s: f32) -> (Vec<[f32; 2]>, Option<[f32; 2]>) {
 /// from the gaps between caption words when there is no analysis (e.g. music under the voice).
 pub fn voice_timeline(track: Option<AudioTrack>, words: &[crate::Word]) -> Option<String> {
     let track = track.unwrap_or_default();
-    let scene = |t: f32| track.start + t - track.trim_in;
+    // File time to video time; a point inside a cut lands on the cut (where the audio jumps).
+    let scene = |t: f32| track.to_scene(t).unwrap_or_else(|| track.start + t - track.trim_in - track.cuts.iter().filter(|c| c[1] <= t).map(|c| c[1] - c[0]).sum::<f32>());
     let (pauses, sound): (Vec<[f32; 2]>, [f32; 2]) = match analysis() {
         Some(a) => {
             let end = a.end(&track);
@@ -574,7 +585,7 @@ mod tests {
     fn placement_shifts_and_trims_the_curves() {
         let a = analyze(&kicks(0.5, 8.0), RATE);
         // Audio starts at 2 s on the timeline, from file second 1, cut at file second 3.
-        let track = AudioTrack { start: 2.0, trim_in: 1.0, trim_out: Some(3.0) };
+        let track = AudioTrack { start: 2.0, trim_in: 1.0, trim_out: Some(3.0), cuts: vec![] };
         let scene_beats = a.scene_beats(&track);
         assert!(scene_beats.iter().all(|b| *b >= 2.0 && *b < 4.0), "{scene_beats:?}");
         assert_eq!(a.sample_at(Channel::Beat, 0.0, &track, 1.5), 0.0, "before the audio starts");

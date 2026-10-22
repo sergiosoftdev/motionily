@@ -223,6 +223,10 @@ export const OpName = {
   SetMarkers: "set_markers",
   /** Preview loop range: `{work_area: [in, out] | null}`. Export ignores it. */
   SetWorkArea: "set_work_area",
+  /** Take `{from, to}` seconds out of the whole video and close the gap (voice, captions, layers, clips, sfx, markers). */
+  RippleDelete: "ripple_delete",
+  /** Cut a layer in two: `{id, at, new_id?}`. */
+  SplitLayer: "split_layer",
 } as const;
 export type OpName = (typeof OpName)[keyof typeof OpName];
 

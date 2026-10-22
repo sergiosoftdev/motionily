@@ -1,3 +1,4 @@
+import { audioPieces } from "./track";
 /** Background music math, without the DOM: where speech is, how much the music ducks, which file second plays. */
 
 /** Background music as the scene keeps it (crates/scene/src/music.rs). */
@@ -96,14 +97,15 @@ export function speechInFile(samples: Float32Array, rate: number): SpeechSpan[] 
   return spans.filter(([s, e]) => e - s >= MIN_SPEECH);
 }
 
-/** File-second spans of the voice placed on the video (its start and trim). */
-export function voiceOnTimeline(spans: SpeechSpan[], track: { start: number; trim_in: number; trim_out?: number | null }): SpeechSpan[] {
+/** File-second spans of the voice placed on the video (its start, trims and cuts). */
+export function voiceOnTimeline(spans: SpeechSpan[], track: { start: number; trim_in: number; trim_out?: number | null; cuts?: [number, number][] }): SpeechSpan[] {
   const out: SpeechSpan[] = [];
-  const last = track.trim_out ?? Infinity;
-  for (const [s, e] of spans) {
-    const a = Math.max(s, track.trim_in);
-    const b = Math.min(e, last);
-    if (b > a) out.push([track.start + a - track.trim_in, track.start + b - track.trim_in]);
-  }
+  const pieces = audioPieces({ ...track, trim_out: track.trim_out ?? null });
+  for (const [s, e] of spans)
+    for (const p of pieces) {
+      const a = Math.max(s, p.from);
+      const b = Math.min(e, p.to);
+      if (b > a) out.push([p.at + a - p.from, p.at + b - p.from]);
+    }
   return out;
 }

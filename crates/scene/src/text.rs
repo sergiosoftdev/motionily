@@ -97,7 +97,7 @@ pub struct Captions {
 }
 
 /// How the project's voice-over/music sits on the video timeline.
-#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct AudioTrack {
     /// Video time (s) where the audio starts playing.
     #[serde(default)]
@@ -108,6 +108,64 @@ pub struct AudioTrack {
     /// File time (s) where playback stops; `None` = end of file.
     #[serde(default)]
     pub trim_out: Option<f32>,
+    /// File ranges `[from, to]` (s) cut out of the middle: what follows plays right on, earlier
+    /// (`ripple_delete` writes them). Sorted, never overlapping.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cuts: Vec<[f32; 2]>,
+}
+
+impl AudioTrack {
+    /// The audible pieces in play order: `(video start, file from, file to)`. `file_len` closes an
+    /// open end (`f32::INFINITY` when unknown).
+    pub fn pieces(&self, file_len: f32) -> Vec<(f32, f32, f32)> {
+        let end = self.trim_out.map_or(file_len, |o| o.min(file_len));
+        let mut out = Vec::new();
+        let (mut at, mut from) = (self.start, self.trim_in);
+        for &[a, b] in &self.cuts {
+            if b <= from {
+                continue;
+            }
+            if a >= end {
+                break;
+            }
+            if a > from {
+                out.push((at, from, a));
+                at += a - from;
+            }
+            from = b;
+        }
+        if end > from {
+            out.push((at, from, end));
+        }
+        out
+    }
+
+    /// Video time a file time plays at; `None` inside a cut or outside the trimmed window.
+    pub fn to_scene(&self, file_t: f32) -> Option<f32> {
+        self.pieces(f32::INFINITY).into_iter().find(|&(_, a, b)| file_t >= a && file_t < b).map(|(at, a, _)| at + file_t - a)
+    }
+
+    /// File time heard at a video time; `None` while the audio is silent there.
+    pub fn to_file(&self, t: f32) -> Option<f32> {
+        self.pieces(f32::INFINITY).into_iter().find(|&(at, a, b)| t >= at && t < at + (b - a)).map(|(at, a, _)| a + t - at)
+    }
+
+    /// Add a file range to the cuts (merged with the ones it touches).
+    pub fn cut(&mut self, from: f32, to: f32) {
+        if to <= from {
+            return;
+        }
+        self.cuts.push([from, to]);
+        self.cuts.sort_by(|x, y| x[0].total_cmp(&y[0]));
+        let mut merged: Vec<[f32; 2]> = Vec::new();
+        for c in self.cuts.drain(..) {
+            match merged.last_mut() {
+                Some(last) if c[0] <= last[1] => last[1] = last[1].max(c[1]),
+                _ => merged.push(c),
+            }
+        }
+        self.cuts = merged;
+    }
 }
 
 pub const DEFAULT_FAMILY: &str = "Inter";

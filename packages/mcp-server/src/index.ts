@@ -1249,10 +1249,55 @@ server.registerTool(
   }),
 );
 
+/** Where a phrase sits in the caption words: indices of its first and last word, or null. */
+function findPhrase(words: Word[], phrase: string): [number, number] | null {
+  const norm = (w: string) => w.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "");
+  const want = phrase.split(/\s+/).map(norm).filter(Boolean);
+  const have = words.map((w) => norm(w.text));
+  if (!want.length) return null;
+  for (let i = 0; i + want.length <= have.length; i++) if (want.every((w, k) => have[i + k] === w)) return [i, i + want.length - 1];
+  return null;
+}
+
+server.registerTool(
+  "cut",
+  {
+    description: `Cut time out of the video like an editor's razor: everything in the range goes (the voice skips it, captions, layers, clips with a jump cut, sound effects, markers) and everything after moves up, so nothing goes out of sync. Give the phrase to remove (exact words as spoken: it is found in the caption words and cut at the middle of the pauses around it) or from/to in seconds. The video gets shorter by the cut. To cut just one layer or clip in two, use the split_layer op; to trim a clip, its in/out.`,
+    inputSchema: {
+      phrase: z.string().min(1).optional().describe("words as spoken, e.g. 'On Historia, we open the files one screen at a time'"),
+      from: z.number().min(0).optional(),
+      to: z.number().positive().optional(),
+    },
+  },
+  guard(async ({ phrase, from, to }) => {
+    const scene = await currentScene();
+    let range: [number, number];
+    if (phrase) {
+      const words = wordsOf(scene);
+      if (!words.length) return fail("no caption words to find the phrase in: give from/to seconds (inspect's voice timeline has them)");
+      const hit = findPhrase(words, phrase);
+      if (!hit) return fail(`'${phrase}' is not in the captions word for word. They read: ${words.map((w) => w.text).join(" ").slice(0, 600)}…`);
+      const [i, j] = hit;
+      const before = words[i - 1];
+      const after = words[j + 1];
+      range = [before ? (before.end + words[i]!.start) / 2 : Math.max(0, words[i]!.start - 0.05), after ? (words[j]!.end + after.start) / 2 : words[j]!.end + 0.15];
+    } else if (from !== undefined && to !== undefined && to > from) range = [from, to];
+    else return fail("give the phrase to cut, or from and to (seconds, to > from)");
+    const res = await bridge.applyOps([{ op: OpName.RippleDelete, from: range[0], to: range[1] }] as Op[]);
+    if (!res.ok) return fail(res.error ?? "the cut was refused");
+    session.editsSinceReview = true;
+    const dur = Number((await currentScene())?.duration ?? 0);
+    return text(`cut ${range[0].toFixed(2)}–${range[1].toFixed(2)} s (${(range[1] - range[0]).toFixed(2)} s): everything after moved up; the video is now ${dur.toFixed(2)} s. Check the seams with render_frames around ${range[0].toFixed(2)} s.`);
+  }),
+);
+
 /** Ops agents reach for that do not exist, and what does the job (or that nothing does). */
 const OP_ALIASES: Record<string, string> = {
-  set_voice: "the voice-over is ONE track (`set_audio`: start, trim_in, trim_out, volume) — it cannot be cut inside; to drop a phrase the voice must be regenerated from an edited script (the user's ElevenLabs voice panel, or set_voice_script + their confirmation)",
-  cut_audio: "the voice-over is ONE track (`set_audio`: start and trims only); say so to the user instead of trying",
+  set_voice: "the cut tool (a phrase or from/to: the voice and everything else move up together), or the `ripple_delete` op; `set_audio` only places and trims the whole voice",
+  cut_audio: "the cut tool (a phrase or from/to) or the `ripple_delete` op",
+  cut_voice: "the cut tool (a phrase or from/to) or the `ripple_delete` op",
+  split: "the `split_layer` op {id, at}",
+  cut_layer: "the `split_layer` op {id, at}, then remove the piece you do not want",
   set_volume: "`set_audio` (voice), `set_music` (music) or `set_sfx_volume` (effects)",
   add_text: "`add_layer` with a text layer (or add_layers lines)",
   set_font: "the set_font tool (or `set_typography`)",

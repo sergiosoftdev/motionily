@@ -3,7 +3,8 @@ import type { SfxCue } from "../audio/sfxPlayer";
 import type { MusicTrack } from "../audio/music";
 import { engineHost } from "../engine/host";
 
-export type AudioTrack = { start: number; trim_in: number; trim_out: number | null };
+import type { AudioTrack } from "../audio/track";
+export type { AudioTrack };
 export type SceneLayerView = {
   id: string;
   type: string;

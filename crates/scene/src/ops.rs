@@ -128,6 +128,16 @@ pub enum Op {
     SetMarkers { markers: Vec<crate::Marker> },
     /// Preview loop range `[in, out]` seconds (`null` = the whole video). Export ignores it.
     SetWorkArea { work_area: Option<[f32; 2]> },
+    /// Take `[from, to]` seconds out of the whole video and close the gap: voice (its file skips
+    /// that stretch), captions, layers (clips get a jump cut), sound effects, transitions, markers.
+    RippleDelete { from: f32, to: f32 },
+    /// Cut a layer in two at scene second `at` (`new_id` names the second half, default `<id>_2`).
+    SplitLayer {
+        id: String,
+        at: f32,
+        #[serde(default)]
+        new_id: Option<String>,
+    },
 }
 
 /// `set_prop` names (numbers that take keyframes/expressions); any other field goes through `patch`.
@@ -497,7 +507,7 @@ impl Scene {
                         return Err(OpError::Invalid("audio needs start >= 0 and trim_in < trim_out"));
                     }
                 }
-                self.audio = *audio;
+                self.audio = audio.clone();
             }
             Op::SetMusic { music } => {
                 if let Some(m) = music {
@@ -535,6 +545,10 @@ impl Scene {
                 let mut markers = markers.clone();
                 markers.sort_by(|a, b| a.t.total_cmp(&b.t));
                 self.markers = markers;
+            }
+            Op::RippleDelete { from, to } => self.ripple_delete(*from, *to)?,
+            Op::SplitLayer { id, at, new_id } => {
+                self.split_layer(id, *at, new_id.as_deref())?;
             }
             Op::SetWorkArea { work_area } => {
                 if work_area.is_some_and(|[a, b]| !(a.is_finite() && b.is_finite() && a >= 0.0 && b > a)) {

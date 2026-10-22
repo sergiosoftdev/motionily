@@ -35,6 +35,7 @@ import { KeyCommand, KeyMenu, KeyTrack, runKeyCommand } from "./timeline/KeyTrac
 import { addMarker, removeMarker, Ruler, RULER_H, setWorkAreaEnd, TimeIndicator } from "./timeline/Ruler";
 import { clearTimelinePicks, setKeySelection, useTimelineSelection, type KeyRef } from "./timeline/selection";
 import { ShortcutsHelp } from "./timeline/ShortcutsHelp";
+import { audioEnd } from "../../audio/track";
 
 /** Width of the layer columns (A/V switches, label, #, source name, shy, fx, mode, track matte, parent). */
 const LEFT_W = 680;
@@ -684,9 +685,9 @@ export function ProTimeline({ scene: view, audioUrl }: { scene: SceneView | null
                 <div
                   onPointerDown={dragAudio(LayerDrag.Move)}
                   className="absolute inset-y-[3px] flex cursor-grab overflow-hidden rounded-[2px] active:cursor-grabbing"
-                  style={{ left: px(audio.start), width: Math.max(4, px(audioOut - audio.trim_in)), background: `${AUDIO_LABEL}55` }}
+                  style={{ left: px(audio.start), width: Math.max(4, px(audioEnd(audio, audioOut) - audio.start)), background: `${AUDIO_LABEL}55` }}
                 >
-                  {peaks && <Waveform peaks={peaks.peaks} from={audio.trim_in / peaks.duration} to={audioOut / peaks.duration} width={px(audioOut - audio.trim_in)} />}
+                  {peaks && <Waveform peaks={peaks.peaks} from={audio.trim_in / peaks.duration} to={audioOut / peaks.duration} width={px(audioEnd(audio, audioOut) - audio.start)} />}
                   <span className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize hover:bg-white/40" onPointerDown={dragAudio(LayerDrag.TrimIn)} />
                   <span className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize hover:bg-white/40" onPointerDown={dragAudio(LayerDrag.TrimOut)} />
                 </div>

@@ -66,6 +66,7 @@ applied: fix it and resend the call.
 | `edit_layers` | change ONLY the keys you write on existing layers: `id …`, `a,b …`, `g:group …`, `* …` (restyles, feedback fixes) |
 | `define_component` · `get_component` | reusable motifs with params, placed with `use` lines (syntax: Components) |
 | `apply_ops` | atomic batch of JSON ops (palette, duration, remove, timing, text, 3D stage…) |
+| `cut` | the razor: remove a phrase (as spoken) or `from`/`to` seconds from the whole video — voice, captions, layers, clips, sfx move up together; for one layer or clip use the `split_layer` op, for a clip's ends its in/out |
 | `load_scene` | replace the whole scene JSON (rarely needed) |
 | `inspect` | read back: `inspect` (summary; `full=true` for every layer), `inspect ID` (one layer), `inspect group:NAME` (a group with its times) |
 | `checkpoint` | named snapshots of this session: `save NAME` before a risky change, `diff NAME [OTHER]` (what changed, layer by layer), `restore NAME`, `list` |
@@ -93,6 +94,11 @@ applied: fix it and resend the call.
 {"op":"replace_color","from":"#e87c3d","to":"#57a0db","group":"hook"?}   // every fill/stroke/stop/effect color at once
 {"op":"set_fill","id":"card","fill":"accent"}  {"op":"set_text","id":"title","text":"…"}
 {"op":"set_timing","id":"card","start":1,"end":3}       // end may be null (= video end)
+{"op":"ripple_delete","from":12.4,"to":15.1}            // take 12.4-15.1 s out of the WHOLE video and close the gap: the voice
+                                                        // skips it (audio `cuts`), captions, layers (moved/trimmed; keys move
+                                                        // with them), clips (a jump cut: split, the rest from what played at 15.1),
+                                                        // sfx, transitions, markers; music plays on. The video is 2.7 s shorter.
+{"op":"split_layer","id":"clip","at":6.2,"new_id":"clip_b"?}  // cut one layer in two at 6.2 s (clips keep their file time; keys move)
 {"op":"reorder","id":"card","index":0}                  // 0 = back (only matters without a camera or at equal depth)
 {"op":"define_anim","key":"my/rise","template":{"keys":{"opacity":[[0,0],[0.4,1]],"dy":[[0,60,"back"],[0.5,0]]}}}
 {"op":"add_anim","id":"card","anim":{"use":"my/rise","at":0.2}}  {"op":"clear_anims","id":"card"}

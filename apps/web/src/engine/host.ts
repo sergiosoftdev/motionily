@@ -8,8 +8,8 @@ import { mediaUrl } from "../api/client";
 import { EngineStatus, useEditor } from "../store";
 import { ClipSounds, VIDEO_LAYER, VideoLibrary, VideoStatus, type ClipState, type FrameCache } from "./video";
 import { decodeMono, type AudioAnalysisInfo } from "./audioReactive";
+import { audioFileAt, type AudioTrack } from "../audio/track";
 
-type AudioTrack = { start: number; trim_in: number; trim_out: number | null };
 /** A layer under the pointer (see `pickStack`). */
 export type PickHit = { id: string; cover: boolean };
 type ReviewLayer = {
@@ -558,11 +558,9 @@ class EngineHost {
     const a = this.audio;
     if (!a) return;
     const t = useEditor.getState().time;
-    const { start, trim_in, trim_out } = this.audioTrack;
-    const fileTime = trim_in + (t - start);
-    const end = trim_out ?? (Number.isFinite(a.duration) ? a.duration : Infinity);
-    const inside = t >= start && fileTime < end;
-    if (!inside) {
+    // Cuts make the file jump: the drift check below seeks across them.
+    const fileTime = audioFileAt(this.audioTrack, t, Number.isFinite(a.duration) ? a.duration : Infinity);
+    if (fileTime === null) {
       if (!a.paused) a.pause();
       return;
     }
