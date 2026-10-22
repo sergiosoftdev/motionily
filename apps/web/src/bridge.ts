@@ -172,6 +172,9 @@ function describeOps(names: string[]): string {
 }
 
 export const agentBridge = new AgentBridge();
+// A hot update (development) builds a fresh bridge: close this one's socket first, or the hub sees two editors in one
+// tab and the stale one shows "open in another tab".
+import.meta.hot?.dispose(() => agentBridge.setProject(null));
 
 /** A blob as a data URL (rendered sounds travel to the agent inline). */
 function dataUrl(blob: Blob): Promise<string> {
