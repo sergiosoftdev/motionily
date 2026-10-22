@@ -21,7 +21,7 @@
  * World: cam=FOCAL[,FOCUS,APERTURE] on a vis=0 layer = the camera (x/y look, z dolly, s zoom, r roll) · z= depth (parallax)
  *   · fixed=1 pinned to the screen · rx= ry= tilt a layer and its children in perspective · persp= (animatable).
  * 3D object lights: light=AZIMUTH,ELEVATION[,COLOR[,INTENSITY]] = lights.key; the rest of `lights` goes in the JSON tail.
- * Icons: path layers take ic=NAME:SIZE (Lucide, centered on x,y; find_icons searches them) instead of "M…".
+ * Icons: path layers take ic=NAME:SIZE (Lucide name, or an Iconify id prefix:name; centered on x,y; find_icons searches both) instead of "M…".
  * Materials: inner=X,Y,BLUR,COLOR,OP · sheen=AT,ANGLE,WIDTH,OP · bevel=WIDTH,STRENGTH · backdrop=BLUR (frosted glass).
  * Gradients: grad=lin:… | rad:… | con:CX,CY:ANGLE:stops (conic) · sgrad= paints the stroke.
  * Text: "Just *ask.*" colors the marked words with accent= (default palette accent) · count=0>12480@0-2:eo dec=0 with {n} in the text · reveal=(t*16) caret=1 (typewriter).
@@ -36,8 +36,11 @@
  * Audio-reactive expressions: vol bass mid high beat beats (now) · vol(T-0.1) · spec(i/n) — 0..1 from the project audio, 0 without it.
  */
 
-import { ICON_GRID, iconPath } from "./icons.js";
+import { ICON_GRID, iconPath, iconStyle, splitIcon } from "./icons.js";
 import { checkRef } from "./timing.js";
+
+/** How a filled path treats overlapping subpaths: nonzero (SVG's default, imported vectors) or even-odd (overlaps cut holes). */
+export const FillRule = { NonZero: "nonzero", EvenOdd: "evenodd" } as const;
 
 type Keyframe = { t: number; v: number; ease?: string; bezier?: number[] };
 type Animated = number | string | Keyframe[];
@@ -283,12 +286,12 @@ function plainNum(v: string, line: string): number | string {
   return PARAM_REF.test(v) ? v : num(v, line);
 }
 
-/** `ic:NAME[:SIZE]` -> a Lucide icon as path data that remembers its name. */
+/** `ic:NAME[:SIZE]` (Lucide name or Iconify prefix:name) -> the icon as path data that remembers its name. */
 function iconValue(v: string, line: string): { ic: string; d: string } | undefined {
-  const m = /^ic:([\w-]+)(?::([\d.]+))?$/.exec(v);
-  if (!m) return undefined;
-  const size = m[2] ? num(m[2], line) : ICON_GRID * 2;
-  return { ic: `${m[1]}:${size}`, d: iconPath(m[1]!, size) };
+  if (!/^ic:[\w-]+(?::[\w.-]+){0,2}$/.test(v)) return undefined;
+  const { name, size } = splitIcon(v.slice(3));
+  const px = size ?? ICON_GRID * 2;
+  return { ic: `${name}:${px}`, d: iconPath(name, px) };
 }
 
 /** A `$param=value` of an instance: "quoted" text, true/false, ic:NAME[:SIZE], numbers/tweens/keys/(expr), else a bare word (color, src…). */
@@ -464,7 +467,7 @@ function particleKey(layer: Layer, k: string, v: string, line: string): boolean 
     });
   else if (k === "ic") {
     // Fitted to the particle size, so any icon size works: the 24 px grid is kept.
-    const name = v.split(":")[0]!;
+    const { name } = splitIcon(v);
     layer.icon = name;
     layer.d = iconPath(name, ICON_GRID);
   } else return false;
@@ -617,11 +620,17 @@ export function parseLine(line: string, partial = false): Layer {
     else if (k === "caret") layer.caret = flag(v);
     else if (k === "ic") {
       if (v.startsWith("$")) throw new Error(`ic= takes an icon name; inside a component make the icon a path param and write "${v.split(":")[0]}" as the path data with stroke=W:COLOR: ${line}`);
-      const [name, size] = v.split(":");
-      const px = size ? num(size, line) : ICON_GRID * 2;
+      const { name, size } = splitIcon(v);
+      const px = size ?? ICON_GRID * 2;
+      const style = iconStyle(name);
       layer.icon = `${name}:${px}`;
-      layer.d = iconPath(name!, px);
-      layer.stroke ??= { width: Math.max(1.5, px / 12), color: "text" };
+      layer.d = iconPath(name, px);
+      // Filled sets (Phosphor, Material, Solar…) paint with fill; line sets (Lucide, Tabler) with a stroke.
+      if (style.filled) {
+        layer.filled = true;
+        layer.fill ??= "text";
+        if (style.nonzero) layer.nonzero = true;
+      } else layer.stroke ??= { width: style.strokeAt(px), color: "text" };
     } else if (k === "fixed") layer.fixed = flag(v);
     else if (k === "finish") {
       if (!FINISHES.includes(v)) throw new Error(`finish is ${FINISHES.join(", ")}: ${line}`);
@@ -705,6 +714,11 @@ export function parseLine(line: string, partial = false): Layer {
     else if (k === "lock") layer.locked = flag(v);
     else if (k === "shy") layer.shy = flag(v);
     else if (k === "filled") layer.filled = flag(v);
+    else if (k === "rule") {
+      if (v !== FillRule.NonZero && v !== FillRule.EvenOdd) throw new Error(`rule is ${FillRule.NonZero} or ${FillRule.EvenOdd}: ${line}`);
+      if (v === FillRule.NonZero) layer.nonzero = true;
+      else delete layer.nonzero;
+    }
     else if (k === "pivot") layer.pivot = list(v, line, 2).map((n) => num(n, line));
     else if (k === "rep") {
       const [count, step, ...opts] = v.split(":");
@@ -1051,8 +1065,10 @@ export function formatLayer(l: Layer): string {
   if (l.visible === false) parts.push("vis=0");
   else if (typeof l.visible === "string") parts.push(`vis=${l.visible}`);
   parts.push(...flagOut("filled", (l.filled as boolean | string | undefined) ?? false));
+  if (l.nonzero === true) parts.push(`rule=${FillRule.NonZero}`);
   done.add("visible");
   done.add("filled");
+  done.add("nonzero");
   // The icon name reads back as ic= (not again in the JSON tail).
   done.add("icon");
   // Instance params read back as $name=value (shader layers keep theirs as p0..p7 above).

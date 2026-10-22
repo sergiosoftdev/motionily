@@ -111,8 +111,25 @@ rules below are exact. To know where something lands on screen, get_layout retur
 
 /** MCP tools each role sees (each tool description costs context on every turn). */
 const ROLE_TOOLS = {
-  planner: ["get_project", "get_brand", "view_image", "view_asset", "search_fonts", "set_font", "apply_ops", "add_layers", "search_images", "import_image", "define_component", "get_component"],
-  builder: ["run", "add_layers", "edit_layers", "apply_ops", "get_layout", "render_frames", "view_asset", "view_image", "get_brand", "find_icons", "define_component", "get_component"],
+  planner: [
+    "get_project",
+    "get_brand",
+    "view_image",
+    "view_asset",
+    "search_fonts",
+    "set_font",
+    "apply_ops",
+    "add_layers",
+    "search_assets",
+    "import_assets",
+    "cut_out",
+    "list_library",
+    "generate_image",
+    "set_direction",
+    "define_component",
+    "get_component",
+  ],
+  builder: ["run", "add_layers", "edit_layers", "apply_ops", "get_layout", "render_frames", "view_asset", "view_image", "get_brand", "find_icons", "add_vector", "add_map", "cut_out", "define_component", "get_component"],
   finisher: ["run", "get_feedback", "edit_layers", "review_video", "get_layout", "render_frames", "inspect", "add_layers", "apply_ops", "list_sounds", "make_sound", "add_sfx", "get_component", "set_font", "search_fonts"],
   sound: ["get_project", "list_sounds", "make_sound", "add_sfx"],
 } as const;
@@ -251,12 +268,17 @@ Your job is ONLY to plan, set the global look and lay out the WORLD, fast. Do no
    beats follow its paragraphs / word timings.
 2. Decide an art direction (concept, palette with hex codes following COLOR below, typography, motion language,
    recurring motif) for THIS brief. Unique palette: never the generic violet/magenta/cyan AI look.
-2b. REAL PHOTOS: if the brief asks for real images or its subject is real (history, events, places, people, nature,
-   documentary), ONE search_images call with all queries (one per subject, English, specific: names, places, years;
-   at most one more call for empty subjects), pick by looking at the
-   thumbnails (sharp, on topic, fits the format) and import_image the chosen ones in ONE call (one or two per beat).
-   Write each photo's src and how to show it (slow push/pan, grade, what text sits on it) into the beat's brief:
-   builders only know the photos you hand them. Brand/product videos use get_brand images instead.
+2b. MATERIAL, like a human editor: list what the viewer should SEE in each beat (the real logo, the place, the person,
+   the object, a texture, a map) and gather it in ONE search_assets call (kinds photo|footage|logo|texture, one query
+   per subject, English, specific; at most one more call for empty needs), pick by looking at the numbered sheets and
+   import_assets the chosen ids in ONE call; cut_out subjects you want to collage. Write into each beat's brief the
+   srcs to use and how: photos (src, slow push/pan, grade, text beside), logos (svg for add_vector: which pieces
+   animate how, or the PNG src), footage (video src, in/out seconds), cutouts, maps (add_map focus/highlight/points)
+   and the icon set (find_icons ids) — builders only know the material you hand them. Brand videos start from
+   get_brand and search only for what the kit lacks.
+2c. set_direction with the genre (STYLE VOCABULARY), concept and techniques; honor the two constraints it returns
+   and make this video look unlike the account's latest ones it lists (font, main color, moves). Put the constraints
+   and how each beat honors them into the plan.
 3. Apply the global look with tools: set_palette op (apply_ops), set_font, set_duration op.
 4. WORLD FIRST: the video is ONE continuous space the camera travels through (like the reference films), not
    slides. With ONE add_layers call create the global layers (group "world"): the background (fixed=1 for
@@ -322,8 +344,10 @@ ${CRAFT}`;
  * minutes of silent planning of the whole film) and a cut-off run keeps what it built.
  */
 const SOLO_STEPS = `Build it STEP BY STEP, as ONE continuous world the camera travels through:
-1. Gather: get_project, get_brand, references and photos. Decide the direction and the beat list briefly; do not
-   compose every beat in your head now.
+1. Gather like a human editor: get_project, get_brand, references; then ONE search_assets with everything the viewer
+   should see (real logos, places, people, objects, footage, textures), ONE import_assets with your picks (cut_out
+   for collage subjects), and set_direction (genre, concept, techniques: honor its two constraints, avoid the looks
+   of the account's latest videos). Decide the beat list briefly; do not compose every beat in your head now.
 2. Write ONE short line of plain text in English: the art direction. Then apply_ops (palette, duration), set_font and
    ONE add_layers with ONLY the world: the background and the camera "cam" keyed for the whole film, visiting one
    region per beat.
@@ -342,6 +366,9 @@ exactly like a motion designer building a spot by hand. Avoid generic videos. Wo
    parallel. The manual is below: no get_reference. If the brand has palettes, build from them; if not, choose your own
    palette for the concept.
    Show and explain the real product (view_asset to look at screenshots; image layers to show them).
+   Gather real material like a human editor (ONE search_assets with every need: logos as SVG, photos, footage,
+   textures; ONE import_assets; cut_out, add_vector for logos, add_map for places) and declare the look with
+   set_direction before building: honor its two constraints and do not repeat the account's latest looks.
    The VOICE-OVER drives the video: if there are captions (the user uploaded the voice), tie every beat, text
    and cut to the words' timings and make on-screen text mirror what is said. If there is only a voice script
    (get_project), time beats to its paragraphs (~2.3 words/s, "[long pause]" = scene change) and keep it.

@@ -73,6 +73,8 @@ export class MediaController {
   @Get(":file")
   serve(@Param("file") file: string, @Res() res: Response) {
     if (!SAFE_NAME.test(file)) throw new NotFoundException();
+    // Imported SVGs are sanitized; opened directly they still must not run anything.
+    if (file.endsWith(".svg")) res.setHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox");
     res.sendFile(join(MEDIA_DIR, file), (err) => {
       if (err && !res.headersSent) res.status(404).end();
     });

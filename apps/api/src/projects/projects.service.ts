@@ -4,7 +4,7 @@ import { Model, Types } from "mongoose";
 import { BricksService } from "../bricks/bricks.service";
 import { BrickSlot, SLOT_CARDINALITY, SlotCardinality } from "../bricks/brick.enums";
 import { Build, Feedback, FeedbackKind, Project, ProjectDocument, type AgentRunUsage, type FootageClip, type PostCopyDraft, type SunoPrompt } from "./project.schema";
-import type { ImageCredit } from "../images/image-search";
+import type { AssetCredit } from "../assets/asset-types";
 import { removeMedia } from "../media";
 import type { CreateFeedbackDto, CreateProjectDto, SaveSceneDto, SetSlotDto, UpdateProjectDto } from "./projects.dto";
 
@@ -69,7 +69,7 @@ export class ProjectsService {
   }
 
   /** Remember an imported photo's attribution (once per image). */
-  async addImageCredit(id: string, credit: ImageCredit) {
+  async addImageCredit(id: string, credit: AssetCredit) {
     await this.projects.updateOne({ _id: id, "imageCredits.pageUrl": { $ne: credit.pageUrl } }, { $push: { imageCredits: credit } });
   }
 
@@ -131,9 +131,8 @@ export class ProjectsService {
   async remove(ownerId: Types.ObjectId, id: string) {
     const project = await this.get(ownerId, id);
     await Promise.all([project.deleteOne(), this.feedback.deleteMany({ projectId: project._id })]);
-    // Imported photos belong to this video only.
+    // Imported material lives on in the user's library; only this video's own uploads go.
     const files = [
-      ...(project.imageCredits ?? []).flatMap((c) => [c.src, c.preview ?? ""]),
       ...(project.footage ?? []).flatMap((c) => [c.file, c.poster ?? ""]),
       project.music?.file ?? "",
     ].filter(Boolean);

@@ -335,14 +335,33 @@ export type AgentRunUsage = {
   durationMs: number;
 };
 
-/** Free image libraries the agent searches for real photos (only openly licensed images come back). */
-export const ImageSource = { Commons: "commons", Openverse: "openverse" } as const;
+/** What the agent looks for when it gathers material (mirrors AssetKind in the API). */
+export const AssetKind = { Photo: "photo", Footage: "footage", Logo: "logo", Texture: "texture" } as const;
+export type AssetKind = (typeof AssetKind)[keyof typeof AssetKind];
+
+/** Where imported material comes from (mirrors AssetSource in the API). */
+export const ImageSource = {
+  Commons: "commons",
+  Openverse: "openverse",
+  Pexels: "pexels",
+  Pixabay: "pixabay",
+  Iconify: "iconify",
+  Web: "web",
+  Generated: "generated",
+  Library: "library",
+} as const;
 export type ImageSource = (typeof ImageSource)[keyof typeof ImageSource];
 
-/** One search result: `id` ("commons:File:…" / "openverse:<uuid>") is what import_image takes. */
+/** How an asset is used: image layer, vector (add_vector, plus a PNG), video layer. */
+export const AssetFormat = { Raster: "raster", Svg: "svg", Video: "video" } as const;
+export type AssetFormat = (typeof AssetFormat)[keyof typeof AssetFormat];
+
+/** One search result: `id` ("commons:File:…", "pexels:video:123", "iconify:simple-icons:spotify", "library:<id>"…) is what import takes. */
 export type ImageHit = {
   id: string;
+  kind: AssetKind;
   source: ImageSource;
+  format: AssetFormat;
   title: string;
   description: string;
   author: string;
@@ -351,20 +370,67 @@ export type ImageHit = {
   width: number;
   height: number;
   thumb: string;
+  duration?: number;
+  /** Web results: license unknown, only for commentary/news-style use. */
+  editorial?: boolean;
+  /** Already in the user's library. */
+  library?: boolean;
 };
 
-/** Attribution of an image imported into a video (CC BY / BY-SA require it). */
+/** Attribution of material imported into a video (CC BY / BY-SA and icon sets require it). */
 export type ImageCredit = {
   src: string;
-  /** Small copy the agent looks at (the full image would flood its context). Missing on early imports. */
+  /** Small copy the agent looks at (the full image would flood its context). */
   preview?: string;
+  /** Vectors: the sanitized SVG (`src` is its PNG rendering). */
+  svg?: string;
+  /** Footage: contact sheet and facts. */
+  poster?: string;
+  duration?: number;
+  width?: number;
+  height?: number;
+  kind?: AssetKind;
+  format?: AssetFormat;
   source: ImageSource;
   title: string;
   author: string;
   license: string;
   licenseUrl: string | null;
   pageUrl: string;
+  editorial?: boolean;
 };
+
+/** Genre vocabularies a video's direction picks from (mirrors Genre in the API and docs/agent/motion-2d.md). */
+export const Genre = {
+  ProductLaunch: "product_launch",
+  ArchivalDocumentary: "archival_documentary",
+  EditorialCollage: "editorial_collage",
+  MapDataStory: "map_data_story",
+  KineticType: "kinetic_type",
+  RetroPrint: "retro_print",
+  ScrapbookHandmade: "scrapbook_handmade",
+  FlatIllustration: "flat_illustration",
+  SocialNative: "social_native",
+  CinematicTrailer: "cinematic_trailer",
+  SwissEditorial: "swiss_editorial",
+  Glossy3d: "glossy_3d",
+  BrutalistZine: "brutalist_zine",
+} as const;
+export type Genre = (typeof Genre)[keyof typeof Genre];
+
+/** The look the agent declared for a video before building it. */
+export type Direction = { genre: Genre; concept: string; techniques: string[]; setAt: string };
+
+/** How an earlier video of the account looked. */
+export type Fingerprint = { name: string; genre: Genre | null; concept: string | null; techniques: string[]; font: string | null; primary: string | null; background: string | null; constraints: string[] };
+
+/** Asset sources the user can connect with their own key (Settings › Asset sources). */
+export const ProviderKey = { Pexels: "pexels", Pixabay: "pixabay", Brave: "brave", OpenAI: "openai" } as const;
+export type ProviderKey = (typeof ProviderKey)[keyof typeof ProviderKey];
+export type ProviderStatus = { provider: ProviderKey; connected: boolean; hint: string | null; platform: boolean };
+
+/** An item of the user's asset library. */
+export type LibraryItem = { id: string; kind: AssetKind; format: AssetFormat; title: string; credit: ImageCredit; videos: number };
 
 export type Project = {
   id: string;
@@ -396,8 +462,12 @@ export type Project = {
   sceneRevision: number;
   /** Tokens and cost of each agent run on this video (newest last). */
   agentRuns: AgentRunUsage[];
-  /** Real photos the agent imported from free libraries, with what their licenses ask to credit. */
+  /** Material the agent imported (photos, footage, logos, icon sets, generated images), with what their licenses ask to credit. */
   imageCredits: ImageCredit[];
+  /** The look declared with set_direction. */
+  direction: Direction | null;
+  /** The two creative constraints this video drew. */
+  constraints: string[];
   updatedAt: string;
 };
 

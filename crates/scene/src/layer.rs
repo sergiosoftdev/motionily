@@ -105,6 +105,10 @@ pub enum LayerContent {
         /// Fill closed subpaths with `fill` (false = stroke only).
         #[serde(default)]
         filled: bool,
+        /// Fill with the nonzero winding rule (SVG's default, needed by imported vectors whose shapes
+        /// overlap); false = even-odd, where every overlap cuts a hole.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        nonzero: bool,
         /// Icon this path came from (Lucide name), so it reads back as `ic=name`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         icon: Option<String>,
@@ -758,7 +762,7 @@ impl Layer {
                 };
                 Some(DrawItem::Shape(DrawShape { center, size, radius, rotation, color, style }))
             }
-            LayerContent::Path { d, trim_start, trim_end, trim_offset, filled, morph, .. } => {
+            LayerContent::Path { d, trim_start, trim_end, trim_offset, filled, nonzero, morph, .. } => {
                 let lines = path_at(d, if animated { morph } else { &[] }, lt)?;
                 let lines = lines.as_ref();
                 let to_world = |p: [f32; 2]| {
@@ -779,6 +783,7 @@ impl Layer {
                     lines: trimmed.into_iter().map(|l| l.into_iter().map(to_world).collect()).collect(),
                     fills: if *filled && full { lines.iter().filter(|l| l.closed).map(|l| l.points.iter().copied().map(to_world).collect()).collect() } else { Vec::new() },
                     fill: (*filled).then_some(color),
+                    nonzero: *nonzero,
                     stroke,
                     stroke_end: None,
                     dash: self.stroke.as_ref().and_then(|s| s.dash),

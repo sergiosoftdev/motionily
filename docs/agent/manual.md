@@ -8,25 +8,32 @@ watches, picks and comments.
 trial renders to see what z, rx or the camera do — the formulas are in "World, camera and depth". If you need to know
 where something lands, `get_layout` returns screen boxes as numbers (cheap, no images).
 
-## Fast path — a full video in ~10-15 tool calls
+## Fast path — a full video in ~12-18 tool calls
 1. In parallel: `get_project` (brief, format, voice), `get_brand` (product notes, palettes, logos, screenshots),
    `view_image` for each reference image; `view_asset` on the screenshots you will show.
-2. Decide the art direction in your head: concept, palette (hex), font, motion language, camera path through ONE world,
-   2-6 beats with their times and regions. Do not ask the user unless the brief is empty.
-3. ONE `apply_ops`: `clear_layers` (new video only) + `set_palette` + `set_duration`. Then `set_font` (use `search_fonts`
+2. MATERIAL FIRST, like a human editor: list what the viewer should SEE in each beat (the real logo, the factory, the
+   person, the product, the place, a texture) and gather it in ONE `search_assets` call (see "Real material"), then
+   ONE `import_assets` with the numbers you picked (and `cut_out` for subjects you will collage). Brand videos start
+   from `get_brand`; search only for what the kit lacks (partner logos, places, textures).
+3. ONE `set_direction`: a genre from STYLE VOCABULARY that fits THIS story and its material, the concept and your
+   techniques. Read what it returns: 3 reference films of that genre, 2 creative constraints you must honor, and the
+   account's latest videos (font, color, moves) — this video must not look like them. Then decide palette (hex), font,
+   camera path through ONE world, 2-6 beats with their times and regions. Do not ask the user unless the brief is empty.
+4. ONE `apply_ops`: `clear_layers` (new video only) + `set_palette` + `set_duration`. Then `set_font` (use `search_fonts`
    only if unsure of the exact family) and ONE `find_icons` with every word you need.
-4. ONE `add_layers` for the world (camera + background), then ONE `run` script per beat: `mo.add` with all its layers,
+5. ONE `add_layers` for the world (camera + background), then ONE `run` script per beat: `mo.add` with all its layers,
    `mo.layout` at 3-6 key instants (off frame, behind the camera or colliding boxes come back as numbers), fixes with
    `mo.apply` / `mo.add` (same id replaces), a short `console.log`. A motif that repeats (cards, pills, rows, bars) is
    ONE `define_component` + one `use` line per copy.
-5. CODE MODE: whenever a step needs two or more calls, write it as ONE `run` script instead; the data between the calls
+6. CODE MODE: whenever a step needs two or more calls, write it as ONE `run` script instead; the data between the calls
    stays in the script, which is much cheaper. Exact lint fixes (text too small, low contrast, a still layer mostly off
    the frame) are applied automatically after every write: only what needs your judgment is reported.
-6. `review_video` once: contact sheet + motion strips + automatic checks. Fix what it shows; `render_frames` (≤6 stills) to
+7. `review_video` once: contact sheet + motion strips + automatic checks (and a variety check against the account's
+   latest videos). Fix what it shows; `render_frames` (≤6 stills) to
    zoom into a moment. Max 3 review rounds.
-7. Sound: `list_sounds`, 2-4 sounds of this video's own with `make_sound` (its signature; everything when the library
+8. Sound: `list_sounds`, 2-4 sounds of this video's own with `make_sound` (its signature; everything when the library
    is empty), then ONE `add_sfx`. Voice-over script: `set_voice_script` when the user wants one.
-8. `get_feedback`, apply it, and finish with a 2-3 sentence summary (in the user's language).
+9. `get_feedback`, apply it, and finish with a 2-3 sentence summary (in the user's language).
 
 Batch everything: one call with 30 lines beats 30 calls. To change what exists, `edit_layers` (only the keys you
 write) or `replace_color` — never rewrite whole layers or send one op per layer. Write colors as palette slots
@@ -39,8 +46,13 @@ applied: fix it and resend the call.
 | `get_project` | brief, format, voice script/captions, scene state (and this manual the first time) |
 | `get_brand` · `view_asset` · `view_image` | product notes, palettes, logos/screenshots (src for image layers), video clips (src for video layers, with length; view_asset = contact sheet); user's references |
 | `search_fonts` · `set_font` | any Google Font for the whole video |
-| `find_icons` | Lucide icon names for `ic=NAME:SIZE` |
-| `search_images` · `import_image` | real photos from Wikimedia Commons / Openverse (reusable licenses only) → src for image layers |
+| `find_icons` | icon names for `ic=NAME:SIZE`: Lucide (`bell`) and Iconify's 150+ sets (`ph:bell-ringing`, `tabler:bell`, `solar:bell-bold-duotone`…) |
+| `search_assets` · `import_assets` | REAL material: photos, stock footage, logos (SVG), textures from every source at once, one numbered contact sheet per query; import → src / svg / video src, credited, kept in the user's library |
+| `cut_out` | a subject cut out of a photo (transparent PNG trimmed to it) for collages and frame breaks |
+| `add_vector` | an imported SVG logo or an Iconify icon as path layers you animate piece by piece (or letter by letter) |
+| `add_map` | real country maps as path layers, framed and clipped, highlighted countries as their own layers, places → scene x,y |
+| `list_library` · `generate_image` | the user's asset library (everything imported before) · last resort: an image generated with the user's OpenAI key |
+| `set_direction` | declare genre, concept and techniques; returns reference films, this video's 2 creative constraints and the account's latest looks |
 | `get_footage` · `edit_footage` | the user's own clips: transcript by numbered words + contact sheet; cut them by word ranges (see Footage) |
 | `run` | CODE MODE: one JavaScript script calling `mo.add/apply/layout/lint/autofix/scene/attention/tool`; use it for any multi-step work |
 | `add_layers` | write/replace layers in compact lines (also `mo.add` inside `run`) |
@@ -132,16 +144,46 @@ When `get_project` lists **Footage**, the video is an edit of clips the user upl
 - The footage is the backdrop: no background layers, nothing over the face (contact sheet, `render_frames`); graphics
   go in the top third or at the sides, clear of the captions.
 
-## Real photos
-For real subjects (history, events, places, people, nature, documentary) or when the brief asks for real images:
-- ONE `search_images` call with every query (one per subject: names, places, years, in English). At most one more call
-  for the subjects that came back empty. Every thumbnail stays in your context: never search photo by photo. Choose
-  sharp, on-topic images whose shape fits the frame (portrait photos for 9:16).
-- `import_image` with all chosen ids in ONE call; each comes back as a `/media/…` src. Import only what you show.
-- Credits are recorded automatically and listed in the editor for the post description: do not write them into the video.
-- Documentary look: the photo fills its box (`fit=cover`), always moving slowly (`s=1>1.12@0-5:l` push or an x/y pan,
-  never static), old photos graded (`color=0,0,0,1.1` = B/W with a bit more contrast, plus `grain=.05`), text on a dark gradient band or beside
-  the photo, a date/place kicker per photo, cuts or slow cross-fades between photos on the voice's beats.
+## Real material — find it like a human editor
+A human cutting this video would go and get things: the actual logo, a photo of the factory, the person, a clip of
+the product, a map, a paper texture. Do the same: real material makes a video read as made by a person; type and
+shapes alone read as generated.
+- ONE `search_assets` with every need of the video (`needs: [{q, kind}]`, ≤10, English, specific: names, places,
+  years, objects). kinds: `photo`, `footage` (stock clips), `logo` (SVG), `texture`. Each query returns one numbered
+  contact sheet across all sources; items already in the user's library come first. At most one more call for needs
+  that came back empty (other words, another kind). Never search item by item.
+- Pick by looking: on topic, sharp, a shape that fits the frame (portrait for 9:16), a logo of the right era. Then ONE
+  `import_assets` with all chosen ids (+ `query`, a few words of what they are). Each comes back as:
+  photo/texture → image `src` (+ size) · logo → vector `svg` (for `add_vector`) + PNG `src` · footage → video `src` with
+  seconds and a contact sheet (`video` layer, trim with `in=`/`out=`).
+- Logos: `add_vector svg=… x= y= w=` turns the logo into real path layers (`ID` parent + `ID_1…` pieces in paint order;
+  `split=letters` = one layer per letter/island, left to right). Animate pieces with `edit_layers`: letters flying in
+  with stagger, the outline drawing on (`stroke=W:COLOR` on add_vector, then `te=0>1@…` and the fill fading in),
+  the mark scaling from huge with blur, colors swapping to the palette (`color=`). The PNG `src` (image layer,
+  `fit=contain`) is for logos used as plain pictures or with text the vector reports missing. Never crop a logo.
+- Photos: documentary look = the photo fills its box (`fit=cover`), always moving slowly (`s=1>1.12@0-5:l` push or an
+  x/y pan, never static), old photos graded (`color=0,0,0,1.1` = B/W with more contrast, plus `grain=.05`), text on a
+  dark gradient band or beside the photo, a date/place kicker per photo, cuts or slow cross-fades on the voice's beats.
+  As prints: a white border (a rect behind, 3-4% bigger) + soft shadow + a slight rotation, stacking on a surface.
+- Cutouts: `cut_out` the subject (person, bottle, building) → a transparent PNG trimmed to it. Collage moves: a
+  sticker edge (a tight strong white glow, `glow=8,6,#ffffff`, before the shadow in the effect order), a drop shadow,
+  the cutout overlapping the border of its own photo, parallax layers (cutout nearer the camera than its photo).
+- Footage: a `video` layer with `src`, `fit=cover`, `in=`/`out=` seconds of the file, `volume=0`; inside a card, a phone
+  screen or a matte shape, never just a full-frame stock clip with text on top for the whole video.
+- Textures: a paper/film/fabric photo as the background, or as an `adj=1` full-frame layer with `blend=multiply` /
+  `overlay` / `soft_light` and low opacity over everything (a physical surface that glues the film).
+- Maps: `add_map focus=[…] highlight=[…] points=[{name,lon,lat}]` → `ID_land`, `ID_borders`, `ID_<country>` layers and
+  the scene x,y of each point. Fill a country in (`o=0>1`, or `fill=` keys), draw a route between points (a path
+  with `te=0>1`), drop pins on the returned coordinates, zoom the camera from the world into the place.
+- Icons: `ic=` takes Lucide names or Iconify ids; one set per video (Phosphor duotone, Tabler line, Material rounded…)
+  is a style decision, not an accident. Multicolor icons and emoji sets (`fluent-emoji-flat:…`, `noto:…`) go through
+  `add_vector icon=…`.
+- Licenses: every source states one and credits are kept with the video. Web results (only when the user added a
+  Brave key) have unknown licenses: editorial use only (history, news, commentary), never implying a brand endorses
+  the video. `generate_image` (the user's OpenAI key) is the last resort for what does not exist: generated images
+  read generated.
+- Missing API keys are reported ("Not searched: pexels…"): carry on with the other sources and mention once, in your
+  final summary, which key would have helped.
 
 ## 3D
 Most videos are 2D layers; 3D objects inside them (`object` layers, see syntax) cover glossy icons and hero props. Use the

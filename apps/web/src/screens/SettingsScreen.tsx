@@ -3,6 +3,7 @@ import { useSession } from "../session";
 import { MotionilyLayout } from "../shell/MotionilyLayout";
 import { AgentEffort, AgentModel, EFFORT_LABEL, loadPrefs, MODEL_LABEL, savePrefs, type AgentPrefs } from "../components/GeneratePanel";
 import { ElevenLabsKeyForm, useElevenLabs } from "../voice/ElevenLabs";
+import { AssetSourcesForm, LibraryGrid } from "../assets/AssetSources";
 
 export function SettingsScreen() {
   const user = useSession((s) => s.user);
@@ -53,6 +54,20 @@ export function SettingsScreen() {
           <p className="text-xs text-neutral-500">Generate voice-overs inside Motionily with your own ElevenLabs account: pick a voice and the script is read with every word timed.</p>
         </div>
         <ElevenLabsKeyForm el={elevenLabs} />
+      </section>
+      <section className="flex max-w-xl flex-col gap-3">
+        <div>
+          <h2 className="text-sm font-semibold">Asset sources</h2>
+          <p className="text-xs text-neutral-500">Where the agent looks for real photos, footage and logos beyond the free libraries.</p>
+        </div>
+        <AssetSourcesForm />
+      </section>
+      <section className="flex flex-col gap-3">
+        <div>
+          <h2 className="text-sm font-semibold">Library</h2>
+          <p className="text-xs text-neutral-500">Everything the agent found, cut out or generated for your videos, reused across them.</p>
+        </div>
+        <LibraryGrid />
       </section>
     </MotionilyLayout>
   );

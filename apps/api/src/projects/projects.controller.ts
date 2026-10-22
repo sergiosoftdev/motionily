@@ -366,6 +366,8 @@ export class ProjectsController {
       sceneRevision: p.sceneRevision,
       agentRuns: p.agentRuns ?? [],
       imageCredits: p.imageCredits ?? [],
+      direction: p.direction ?? null,
+      constraints: p.constraints ?? [],
       updatedAt: (p as unknown as { updatedAt: Date }).updatedAt,
     };
   }

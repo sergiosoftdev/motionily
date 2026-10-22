@@ -24,7 +24,11 @@ import { Prefab, PrefabSchema } from "./prefabs/prefab.schema";
 import { PrefabsService } from "./prefabs/prefabs.service";
 import { PrefabsController } from "./prefabs/prefabs.controller";
 import { FontsController } from "./fonts";
-import { ImagesController } from "./images/images.controller";
+import { AssetsController } from "./assets/assets.controller";
+import { AssetsService } from "./assets/assets.service";
+import { LibraryAsset, LibraryAssetSchema, LibraryController, LibraryService } from "./assets/library";
+import { ProviderKeysController, ProviderKeysService } from "./assets/provider-keys";
+import { DirectionController, DirectionService } from "./direction/direction.controller";
 import { VoiceController } from "./voice/voice.controller";
 import { VoiceService } from "./voice/voice.service";
 import { Post, PostSchema } from "./posts/post.schema";
@@ -50,6 +54,7 @@ import { SunoService } from "./music/suno";
       { name: Brand.name, schema: BrandSchema },
       { name: BrandAsset.name, schema: BrandAssetSchema },
       { name: Post.name, schema: PostSchema },
+      { name: LibraryAsset.name, schema: LibraryAssetSchema },
     ]),
     JwtModule.registerAsync({
       global: true,
@@ -60,7 +65,7 @@ import { SunoService } from "./music/suno";
       }),
     }),
   ],
-  controllers: [AuthController, BricksController, ProjectsController, MediaController, ReferencesController, FontsController, BrandsController, PrefabsController, SoundsController, ImagesController, VoiceController, PostsController],
-  providers: [BricksService, ProjectsService, GenerateService, PrefabsService, BrandsService, ConceptsService, VoiceService, PostsService, CopywriterService, SunoService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
+  controllers: [AuthController, BricksController, ProjectsController, MediaController, ReferencesController, FontsController, BrandsController, PrefabsController, SoundsController, AssetsController, LibraryController, ProviderKeysController, DirectionController, VoiceController, PostsController],
+  providers: [BricksService, ProjectsService, GenerateService, PrefabsService, BrandsService, ConceptsService, VoiceService, PostsService, CopywriterService, SunoService, AssetsService, LibraryService, ProviderKeysService, DirectionService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
 })
 export class AppModule {}

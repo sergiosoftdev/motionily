@@ -19,6 +19,10 @@ export class User {
   /** The user's own ElevenLabs API key, encrypted; never sent back (only `elevenLabsHint`, its last characters). */
   @Prop({ type: MongooseSchema.Types.Mixed, select: false }) elevenLabsKey?: Sealed | null;
   @Prop() elevenLabsHint?: string;
+  /** The user's keys for asset sources (Pexels, Pixabay, Brave, OpenAI), encrypted; never sent back. */
+  @Prop({ type: MongooseSchema.Types.Mixed, select: false }) providerKeys?: Record<string, Sealed>;
+  /** Last characters of each connected key, shown in Settings. */
+  @Prop({ type: MongooseSchema.Types.Mixed }) providerHints?: Record<string, string>;
 }
 
 export type UserDocument = HydratedDocument<User>;

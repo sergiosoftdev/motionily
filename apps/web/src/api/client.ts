@@ -1,4 +1,4 @@
-import type { AgentRunUsage, AttentionDevice, Brick, BrickSlot, Project, ProjectListItem, SunoPrompt, User, VideoFormat, Voice, VoiceModel } from "@motionily/protocol";
+import type { AgentRunUsage, AttentionDevice, Brick, BrickSlot, LibraryItem, Project, ProjectListItem, ProviderKey, ProviderStatus, SunoPrompt, User, VideoFormat, Voice, VoiceModel } from "@motionily/protocol";
 import { useSession } from "../session";
 import type { SoundRecipe } from "../audio/synth";
 import type { AgentPrefs, GenerateState } from "../components/GeneratePanel";
@@ -182,6 +182,13 @@ export const api = {
   elevenLabs: () => call<ElevenLabsStatus>(HttpMethod.Get, "/voice/elevenlabs"),
   connectElevenLabs: (apiKey: string) => call<ElevenLabsStatus>(HttpMethod.Put, "/voice/elevenlabs", { apiKey }),
   disconnectElevenLabs: () => call<ElevenLabsStatus>(HttpMethod.Delete, "/voice/elevenlabs"),
+  /** The user's own keys for asset sources (stock libraries, web image search, image generation). */
+  providerKeys: () => call<ProviderStatus[]>(HttpMethod.Get, "/keys"),
+  connectProviderKey: (provider: ProviderKey, apiKey: string) => call<ProviderStatus[]>(HttpMethod.Put, `/keys/${provider}`, { apiKey }),
+  disconnectProviderKey: (provider: ProviderKey) => call<ProviderStatus[]>(HttpMethod.Delete, `/keys/${provider}`),
+  /** Everything agents imported, cut out or generated, reusable in every video. */
+  library: () => call<LibraryItem[]>(HttpMethod.Get, "/library?limit=500"),
+  removeLibraryItem: (id: string) => call<{ ok: true }>(HttpMethod.Delete, `/library/${encodeURIComponent(id)}`),
   voices: () => call<Voice[]>(HttpMethod.Get, "/voice/voices"),
   /** Read the script aloud with an ElevenLabs voice; the project comes back with the audio and its words. */
   generateVoice: (id: string, body: { voiceId: string; voiceName?: string; modelId?: VoiceModel; text?: string }) => call<Project>(HttpMethod.Post, `/projects/${id}/voice`, body),

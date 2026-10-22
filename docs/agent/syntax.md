@@ -79,11 +79,14 @@ id type start[-end] key=value… "text or path data" {optional JSON merged into 
 
 ### Paths, icons, images, 3D objects
 - path: `"SVG path data"` relative to x,y (M L H V C S Q T A Z; default x=y=0 = scene coordinates). `ts= te= to=` trim
-  start/end/offset 0..1 (`te=0>1@0-.8:o` draws it on). `filled=1` fills closed subpaths with fill/grad.
+  start/end/offset 0..1 (`te=0>1@0-.8:o` draws it on). `filled=1` fills closed subpaths with fill/grad; overlaps cut
+  holes (even-odd) unless `rule=nonzero` (SVG's default, set by add_vector on imported pieces).
   Morph (JSON): `{"morph":[{"t":0,"d":"M…"},{"t":0.8,"d":"M…","ease":"expo_in_out"}]}` (subpaths pair in order).
-- icons: `id path START x= y= ic=NAME:SIZE stroke=2.5:text` — 1,900 Lucide line icons centered on x,y; `find_icons` finds names.
-  Never hand-draw icons.
-- image: `id image START x= y= w= h= src=/media/… fit=cover|contain rad=28` — src from get_brand or import_image; `contain` for logos
+- icons: `id path START x= y= ic=NAME:SIZE` centered on x,y — NAME is a Lucide line icon (`bell`, stroked: `stroke=2.5:text`)
+  or an Iconify id (`ph:bell-ringing`, `tabler:bell`, `solar:bell-bold-duotone`…): filled sets get `filled=1 fill=text`
+  (override with `fill=`), line sets a stroke scaled to SIZE. One-color icons only; multicolor ones (emoji, logos) go
+  through `add_vector icon=…`. `find_icons` finds names. Never hand-draw icons.
+- image: `id image START x= y= w= h= src=/media/… fit=cover|contain rad=28` — src from get_brand, import_assets, cut_out or generate_image; `contain` for logos and cutouts
   (never crop them), `cover` for photos. Put screenshots on a card or a device frame built from shapes and walk through
   features by keying the image's scale/x/y while text explains them.
 - 3D object inside the 2D frame: `id object START x= y= w= h= finish=glossy|glass|chrome|matte|toon spin=RX,RY,RZ fov=28 {"node":{…}}`

@@ -5,7 +5,7 @@
  * builds the video with small ops (rendered live in the editor) and iterates
  * on the user's feedback.
  */
-import { findIcons } from "./icons.js";
+import { findIcons, ICONIFY_ID, preloadIcons } from "./icons.js";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,12 +13,15 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import {
+  AssetFormat,
+  AssetKind,
   FeedbackKind,
-  ImageSource,
+  Genre,
   OpName,
   VideoFormat,
   type Feedback,
   type FrameLayout,
+  type ImageCredit,
   type Op,
   type Project,
 } from "@motionily/protocol";
@@ -38,6 +41,10 @@ import { attentionReport } from "./attention.js";
 import { LOG_CHARS, runScript, type HostApi } from "./sandbox.js";
 import { attentionCurve, attentionIssues, attentionSparkline } from "@motionily/protocol";
 import { buildEdit, DEFAULT_EDIT, FOOTAGE_GROUP, footageLines, parseSegments, transcriptLines } from "./footage.js";
+import { svgToVector } from "./svg.js";
+import { vectorLines, VectorSplit } from "./vectorize.js";
+import { MapProjection, mapLines } from "./maps.js";
+import { varietyNotes } from "./variety.js";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const doc = (name: string) => readFileSync(resolve(here, "../../../docs/agent", name), "utf8").trim();
@@ -666,6 +673,7 @@ server.registerTool(
 
 /** add_layers' work, for the tool and for run scripts: parse, write, place and lint (auto-fixing what has exact fixes). */
 async function writeLines(lines: string): Promise<{ count: number; notes: string[] }> {
+  await preloadIcons(lines, api);
   const layers = parseLines(lines);
   resolveLayerTimes(layers, wordsOf(await currentScene()));
   const existing = new Set(layersOf(await currentScene()).map((l) => String(l.id)));
@@ -697,6 +705,7 @@ server.registerTool(
     },
   },
   guard(async ({ name, params, duration, lines }) => {
+    await preloadIcons(`${lines}\n${params ?? ""}`, api);
     let component: ComponentDef;
     try {
       component = { params: params ? parseParams(params) : [], ...(duration ? { duration } : {}), layers: parseLines(lines) };
@@ -771,62 +780,83 @@ server.registerTool(
   "find_icons",
   {
     description:
-      "Search 1,900 clean line icons (Lucide) by words: returns icon names. Use them in add_layers as path layers: `bell path 1 x=300 y=200 ic=bell:48 stroke=2.5:text` (centered on x,y; SIZE px). Real icons make UI look real — never hand-draw icons.",
+      "Search icons by words in Lucide (1,900 clean line icons, bundled) and Iconify (~275k icons in 150+ sets: Phosphor, Tabler, Material Symbols, Solar, hand-drawn and duotone sets…; only sets a video may use). Returns names grouped by set: `bell` (Lucide) or `ph:bell-ringing` (Iconify). Use them in path layers: `bell path 1 x=300 y=200 ic=ph:bell-ringing:48` (centered on x,y; SIZE px; filled sets get fill=, line sets stroke=). Pick ONE set per video so icons match. Multicolor icons go through add_vector icon=…. Never hand-draw icons.",
     inputSchema: { query: z.string().min(1).describe("words, e.g. 'chart growth' or 'mail send'"), limit: z.number().int().min(1).max(60).default(24) },
   },
   guard(async ({ query, limit }) => {
-    const names = findIcons(query, limit);
-    return text(names.length ? names.join(", ") : `no icon matches '${query}'; try simpler words`);
+    const lucide = findIcons(query, Math.min(limit, 12));
+    const remote = await api.icons(query, limit).catch(() => null);
+    const bySet = new Map<string, string[]>();
+    for (const i of remote ?? []) {
+      const key = `${i.set} (${i.license}${i.multicolor ? ", multicolor: add_vector" : ""})`;
+      bySet.set(key, [...(bySet.get(key) ?? []), i.id]);
+    }
+    const lines = [lucide.length ? `Lucide (line, stroke=): ${lucide.join(", ")}` : ""];
+    for (const [set, ids] of bySet) lines.push(`${set}: ${ids.join(", ")}`);
+    if (!remote) lines.push("(Iconify unreachable right now: Lucide only)");
+    const out = lines.filter(Boolean);
+    return text(out.length ? out.join("\n") : `no icon matches '${query}'; try simpler words`);
   }),
 );
 
-const THUMB_TIMEOUT_MS = 8000;
-/** Wikimedia asks every client to identify itself. */
-const THUMB_HEADERS = { "User-Agent": "Motionily/0.1 (https://github.com/sergiosoftdev/motionily)" };
+/** Hits per query by default: two rows of a contact sheet. */
+const HITS_PER_QUERY = 8;
+const KindEnum = z.enum(Object.values(AssetKind) as [AssetKind, ...AssetKind[]]);
 
-/** Hits per query by default: a few per subject is enough to choose, and every thumbnail costs context. */
-const HITS_PER_QUERY = 4;
+/** One line per imported item: what it is and how to place it. */
+function assetLine(c: ImageCredit): string {
+  const size = c.width && c.height ? ` ${c.width}×${c.height}` : "";
+  if (c.format === AssetFormat.Video) return `"${c.title}" video src "${c.src}"${c.duration ? ` ${c.duration.toFixed(1)}s` : ""}${size}${c.poster ? ` (contact sheet ${c.poster})` : ""}`;
+  if (c.format === AssetFormat.Svg) return `"${c.title}" vector svg "${c.svg}" (add_vector) · PNG src "${c.src}"${size}`;
+  return `"${c.title}" image src "${c.src}"${size}`;
+}
 
 server.registerTool(
-  "search_images",
+  "search_assets",
   {
-    description:
-      "Find REAL photos (history, places, people, events, nature, documentary) in free libraries: Wikimedia Commons and Openverse. Only reusable licenses come back (public domain, CC0, CC BY, CC BY-SA). Put ALL your queries in ONE call (one per subject); you see each hit's small thumbnail with its id, size, date and license: pick by looking, then import_image. Queries in English (better results), names, places and years.",
+    description: `Gather REAL material for the video like a human editor: photos, stock footage, logos, textures. ONE call with every need of the whole video (one query per subject, in English: names, places, years, objects). Each query searches all sources of its kind at once and comes back as ONE numbered contact sheet; pick by looking, then import_assets the numbers' ids.
+kinds: photo (Wikimedia Commons, Openverse, Pexels, Pixabay, web*) · footage (Pexels, Pixabay video clips) · logo (brand logos as SVG: Iconify brand sets, Wikimedia Commons, web*) · texture (paper, film, fabric, concrete… for backgrounds and blend layers).
+Items already in the user's library come first (marked). *web = the user's own Brave key; its results have unknown licenses: editorial use only (history, news, commentary), never as if the brand endorsed the video.`,
     inputSchema: {
-      queries: z.array(z.string().min(2).max(120)).min(1).max(8).describe("one per subject, e.g. ['Spanish Civil War Madrid 1936 barricade', 'Guernica 1937 ruins']"),
-      source: z.enum([ImageSource.Commons, ImageSource.Openverse]).optional().describe("one library only; default both"),
-      per_query: z.number().int().min(1).max(8).default(HITS_PER_QUERY),
+      needs: z
+        .array(z.object({ q: z.string().min(2).max(120), kind: KindEnum }))
+        .min(1)
+        .max(10)
+        .describe("e.g. [{q:'Fanta',kind:'logo'},{q:'Coca-Cola bottling plant Essen 1940',kind:'photo'},{q:'apples falling slow motion',kind:'footage'},{q:'old newsprint paper',kind:'texture'}]"),
+      per_query: z.number().int().min(2).max(12).default(HITS_PER_QUERY),
     },
   },
-  async ({ queries, source, per_query }) => {
+  async ({ needs, per_query }) => {
     try {
-      const results = await Promise.all(queries.map((q) => api.searchImages(q, per_query, source)));
-      const seen = new Set<string>();
-      const groups = results.map((r, i) => ({ query: queries[i]!, hits: r.hits.filter((h) => !seen.has(h.id) && seen.add(h.id)) }));
-      const unavailable = [...new Set(results.flatMap((r) => r.unavailable.map((u) => u.split(" (")[0]!)))];
-      const hits = groups.flatMap((g) => g.hits);
-      const thumbs = await Promise.all(
-        hits.map(async (h) => {
-          try {
-            const res = await fetch(h.thumb, { headers: THUMB_HEADERS, signal: AbortSignal.timeout(THUMB_TIMEOUT_MS) });
-            const mime = res.headers.get("content-type") ?? "";
-            return res.ok && mime.startsWith("image/") ? { data: Buffer.from(await res.arrayBuffer()).toString("base64"), mimeType: mime.split(";")[0]! } : null;
-          } catch {
-            return null;
-          }
-        }),
-      );
+      const res = await api.searchAssets(needs, per_query);
       const content: ({ type: "text"; text: string } | { type: "image"; data: string; mimeType: string })[] = [];
-      if (unavailable.length) content.push({ type: "text", text: `Unavailable right now: ${unavailable.join(", ")}` });
-      let n = 0;
-      for (const g of groups) {
-        content.push({ type: "text", text: g.hits.length ? `## ${g.query}` : `## ${g.query}: no reusable images (try other words: names, places, years)` });
-        for (const h of g.hits) {
-          const facts = [h.title, h.date, `${h.width}x${h.height}`, h.license, `by ${h.author}`, h.description].filter(Boolean).join(" | ");
-          content.push({ type: "text", text: `[${n + 1}] id="${h.id}" ${facts}` });
-          const t = thumbs[n++];
-          if (t) content.push({ type: "image", ...t });
+      const notes = [
+        res.missingKeys.length ? `Not searched (no API key): ${res.missingKeys.join(", ")} — the user can add keys in Settings › Asset sources.` : "",
+        res.unavailable.length ? `Unavailable right now: ${res.unavailable.join(", ")}` : "",
+      ].filter(Boolean);
+      if (notes.length) content.push({ type: "text", text: notes.join("\n") });
+      let n = 1;
+      for (const g of res.groups) {
+        if (!g.hits.length) {
+          content.push({ type: "text", text: `## ${g.kind} "${g.q}": nothing usable (try other words: names, places, years; or another kind)` });
+          continue;
         }
+        const rows = g.hits.map((h) => {
+          const facts = [
+            h.title,
+            h.format === AssetFormat.Svg ? "SVG" : h.format === AssetFormat.Video ? `video ${h.duration ? `${Math.round(h.duration)}s` : ""}`.trim() : "",
+            h.width && h.height ? `${h.width}x${h.height}` : "",
+            h.date,
+            h.license,
+            h.author ? `by ${h.author}` : "",
+            h.library ? "IN YOUR LIBRARY" : "",
+            h.editorial ? "EDITORIAL ONLY" : "",
+            h.description,
+          ].filter(Boolean);
+          return `[${n++}] id="${h.id}" ${facts.join(" | ")}`;
+        });
+        content.push({ type: "text", text: `## ${g.kind} "${g.q}" (sheet numbered left→right, top→bottom)\n${rows.join("\n")}` });
+        if (g.sheet) content.push({ type: "image", data: g.sheet, mimeType: "image/jpeg" });
       }
       return { content };
     } catch (e) {
@@ -836,22 +866,185 @@ server.registerTool(
 );
 
 server.registerTool(
-  "import_image",
+  "import_assets",
   {
     description:
-      "Import search_images hits into this video: downloads each one (up to 2560 px wide) and records its credit. Returns the src for image layers (`fit=cover`). Import only what you will show.",
-    inputSchema: { ids: z.array(z.string().min(3)).min(1).max(12).describe("ids from search_images") },
+      "Import chosen search_assets hits (or library ids) into this video, with their credits; everything also joins the user's library for later videos. Returns per item: image src (image layer, `fit=cover` photos / `contain` logos), a vector svg for logos (add_vector — animate its pieces) plus its PNG src, or a video src with length and contact sheet (video layer). Import only what you will show.",
+    inputSchema: {
+      ids: z.array(z.string().min(3)).min(1).max(16).describe("ids from search_assets"),
+      query: z.string().max(300).optional().describe("what these are, in a few words (makes the library findable later)"),
+    },
   },
-  guard(async ({ ids }) => {
-    const lines = await Promise.all(
-      ids.map((id) =>
-        api.importImage(id).then(
-          (c) => `${id} -> src "${c.src}" (${c.license}, ${c.author})`,
-          (e: Error) => `${id} -> FAILED: ${e.message}`,
-        ),
-      ),
+  guard(async ({ ids, query }) => {
+    const res = await api.importAssets(ids, query);
+    const lines = res.map((r) => (r.credit ? `${r.id} -> ${assetLine(r.credit)} · ${r.credit.license}, ${r.credit.author}` : `${r.id} -> FAILED: ${r.error}`));
+    return text(`${lines.join("\n")}\nCredits are kept with the video; the user sees them in the editor. view_image shows any of them.`);
+  }),
+);
+
+server.registerTool(
+  "cut_out",
+  {
+    description:
+      "Cut the subject out of images (person, bottle, building, animal…): returns a PNG with a transparent background trimmed to the subject, for collage looks — cutouts with a white outline (stroke on a duplicate or shadow) and a drop shadow, subjects breaking out of their photo's frame, parallax layers. Works on imported photos and brand images (/media/… src). A few seconds each.",
+    inputSchema: { srcs: z.array(z.string().regex(/^\/media\/[a-f0-9-]{36}\.[a-z0-9]{1,5}$/)).min(1).max(6) },
+  },
+  guard(async ({ srcs }) => {
+    const lines: string[] = [];
+    for (const src of srcs) {
+      try {
+        const c = await api.cutout(src);
+        lines.push(`${src} -> cutout src "${c.src}" ${c.width}×${c.height} (transparent; image layer with fit=contain)`);
+      } catch (e) {
+        lines.push(`${src} -> FAILED: ${(e as Error).message}`);
+      }
+    }
+    return text(lines.join("\n"));
+  }),
+);
+
+server.registerTool(
+  "generate_image",
+  {
+    description:
+      "LAST RESORT: generate an image with the user's own OpenAI key when no real photo, logo or footage exists for something the story needs (an illustration in a precise style, an object that never existed). Real material reads human; generated images read generated. Describe subject, style, framing and background precisely; transparent=true for a cutout-ready object. Costs the user OpenAI credits: one image per real need.",
+    inputSchema: {
+      prompt: z.string().min(8).max(4000),
+      transparent: z.boolean().default(false),
+      orientation: z.enum(["portrait", "landscape", "square"]).optional().describe("default: the video's shape"),
+    },
+  },
+  async ({ prompt, transparent, orientation }) => {
+    try {
+      const c = await api.generateImage(prompt, transparent, orientation);
+      const img = await api.media(c.preview ?? c.src);
+      return {
+        content: [
+          { type: "text" as const, text: `generated src "${c.src}" ${c.width}×${c.height}${transparent ? " (transparent)" : ""}; it joined the user's library.` },
+          { type: "image" as const, data: img.bytes.toString("base64"), mimeType: img.mime },
+        ],
+      };
+    } catch (e) {
+      return fail((e as Error).message);
+    }
+  },
+);
+
+server.registerTool(
+  "list_library",
+  {
+    description: "The user's asset library: everything imported, cut out or generated for earlier videos (logos, photos, footage, textures), newest first. Reuse with import_assets ids (library:…). search_assets already puts matching library items first.",
+    inputSchema: { kind: KindEnum.optional(), limit: z.number().int().min(1).max(200).default(60) },
+  },
+  guard(async ({ kind, limit }) => {
+    const rows = await api.library(kind, limit);
+    return text(rows.length ? rows.map((r) => `${r.id} | ${r.kind} | ${assetLine(r.credit)} | used in ${r.videos} video(s)`).join("\n") : "The library is empty: search_assets + import_assets fill it.");
+  }),
+);
+
+server.registerTool(
+  "add_vector",
+  {
+    description: `Place an SVG (an imported logo's svg, or an icon prefix:name) as REAL path layers you can animate piece by piece, like a vector logo in After Effects: a parent layer ID (invisible, w×h of the drawing: move/scale/rotate the whole thing) and children ID_1…ID_N in paint order, each with its own fill/stroke. Fitted inside w×h keeping its aspect, centered on x,y.
+split=parts (default): one layer per run of shapes painted alike. split=letters: every separate piece (each letter with its holes, a dot, a leaf) its own layer, left to right — for letters flying in one by one.
+color= recolors every piece (one-color logos on your palette). stroke=W:COLOR outlines every piece: draw it on with te=0>1 and fade the fill in after (o or fill keys) for a classic logo reveal.
+Returns each piece's id, paint and box (center x,y relative to the parent, size): animate them with edit_layers. Pieces are nonzero-filled like the SVG. Text inside the SVG cannot become paths (it is reported): use the PNG then.`,
+    inputSchema: {
+      id: z.string().regex(/^[A-Za-z_][\w-]{0,39}$/),
+      svg: z.string().regex(/^\/media\/[a-f0-9-]{36}\.svg$/).optional().describe("an imported logo's svg path"),
+      icon: z.string().regex(ICONIFY_ID).optional().describe("or an Iconify icon id (multicolor ones too)"),
+      x: z.number(),
+      y: z.number(),
+      w: z.number().positive().optional(),
+      h: z.number().positive().optional(),
+      start: z.number().min(0).default(0),
+      end: z.number().positive().optional(),
+      g: z.string().optional().describe("group (default: the id)"),
+      split: z.enum([VectorSplit.Parts, VectorSplit.Letters]).default(VectorSplit.Parts),
+      color: z.string().optional().describe("palette slot or #hex for every piece"),
+      stroke: z.string().regex(/^[\d.]+:\S+$/).optional().describe("W:COLOR outline on every piece"),
+    },
+  },
+  guard(async ({ id, svg, icon, x, y, w, h, start, end, g, split, color, stroke }) => {
+    if (!svg === !icon) return fail("give exactly one of svg (an imported logo) or icon (prefix:name)");
+    let source: string;
+    if (svg) source = await api.mediaText(svg);
+    else {
+      const { icons, missing } = await api.iconData([icon!]);
+      const i = icons[0];
+      if (!i) return fail(missing[0] ?? `no icon ${icon}`);
+      source = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${i.width} ${i.height}" color="#000000">${i.body}</svg>`;
+    }
+    const built = vectorLines(svgToVector(source), { id, start, end, x, y, w, h, group: g ?? id, split, color, stroke });
+    const { count, notes } = await writeLines(built.lines.join("\n"));
+    const parts = built.parts.map((p) => `${p.id}: ${p.paint} · center ${p.box[0]},${p.box[1]} size ${p.box[2]}×${p.box[3]}`);
+    return text(
+      [`${count} layers: parent ${id} (${built.size[0]}×${built.size[1]} at ${x},${y}) + ${built.parts.length} pieces`, ...parts, ...built.warnings.map((w) => `note: ${w}`), ...notes].join("\n"),
     );
-    return text(`${lines.join("\n")}\nCredits are kept with the video; the user sees them in the editor.`);
+  }),
+);
+
+server.registerTool(
+  "add_map",
+  {
+    description: `Add a real map (Natural Earth countries, public domain) as path layers framed on the places that matter: parent ID (invisible, the map box) + ID_land (all land, one fill) + ID_borders (country lines) + ID_<country> for each highlighted country (own layer: fill it in, pulse it, draw its outline on with a stroke + te). Clipped to the box. Countries in English ("Germany", "USA", "Bosnia and Herzegovina"…).
+focus = countries the frame fits (empty = the whole world). projection: mercator (default with a focus), natural_earth (default for the world), equirectangular.
+points = places as lon/lat: their scene x,y come back for pins, labels and routes (draw a route as a path with te=0>1 between the returned points).`,
+    inputSchema: {
+      id: z.string().regex(/^[A-Za-z_][\w-]{0,39}$/),
+      x: z.number(),
+      y: z.number(),
+      w: z.number().positive(),
+      h: z.number().positive(),
+      start: z.number().min(0).default(0),
+      end: z.number().positive().optional(),
+      g: z.string().optional(),
+      focus: z.array(z.string()).max(30).default([]),
+      highlight: z.array(z.string()).max(20).default([]),
+      projection: z.enum([MapProjection.Mercator, MapProjection.NaturalEarth, MapProjection.Equirectangular]).optional(),
+      land: z.string().default("surface").describe("land fill: palette slot or #hex"),
+      accent: z.string().default("accent").describe("highlighted countries' fill"),
+      borders: z.string().default("1:background").describe("W:COLOR or none"),
+      pad: z.number().min(0).max(2).default(0.12).describe("margin around the focus (fraction of its size)"),
+      points: z.array(z.object({ name: z.string(), lon: z.number().min(-180).max(180), lat: z.number().min(-90).max(90) })).max(40).default([]),
+    },
+  },
+  guard(async (o) => {
+    const built = await mapLines({ ...o, group: o.g ?? o.id });
+    if (built.unknown.length) return fail(`unknown countries: ${built.unknown.join(", ")} (English names, e.g. "Germany", "United Kingdom")`);
+    const { count, notes } = await writeLines(built.lines.join("\n"));
+    return text([`${count} map layers`, ...built.info, ...notes].join("\n"));
+  }),
+);
+
+server.registerTool(
+  "set_direction",
+  {
+    description: `Declare this video's art direction BEFORE building the world, after reading the brief and gathering material: a genre from the vocabulary in the manual (STYLE VOCABULARY), the concept in one sentence and the signature techniques you will use. Returns three reference films of that genre drawn at random (take their moves, never copy them whole), the two creative constraints this video must honor (say how you honor each in your scene lines), and what the account's latest videos looked like (font, color, genre, techniques): this one must look clearly different from them.`,
+    inputSchema: {
+      genre: z.enum(Object.values(Genre) as [Genre, ...Genre[]]),
+      concept: z.string().min(10).max(400).describe("one sentence: the visual idea and why it fits this story"),
+      techniques: z.array(z.string().max(120)).max(12).describe("signature moves, e.g. ['cutouts with white outline', 'map route drawn on', 'halftone photos']"),
+      redraw: z.boolean().optional().describe("draw new constraints (a fresh take on the same video)"),
+    },
+  },
+  guard(async (body) => {
+    const r = await api.setDirection(body);
+    const refs = r.references.map((f) => `- ${f.title}: ${f.look} Moves: ${f.moves}`);
+    const recent = r.recent.map((f) => `- "${f.name}": ${[f.genre, f.font && `font ${f.font}`, f.primary && `primary ${f.primary}`, f.techniques.join(", ")].filter(Boolean).join(" · ")}`);
+    return text(
+      [
+        `Direction saved: ${r.direction.genre} — ${r.direction.concept}`,
+        `Reference films (${r.direction.genre}):`,
+        ...refs,
+        `Creative constraints (honor both, visibly):`,
+        ...r.constraints.map((c, i) => `${i + 1}. ${c}`),
+        recent.length ? "The account's latest videos (do NOT repeat their font, main color or signature moves):" : "",
+        ...recent,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    );
   }),
 );
 
@@ -1037,6 +1230,7 @@ server.registerTool(
     inputSchema: { lines: z.string().min(1) },
   },
   guard(async ({ lines }) => {
+    await preloadIcons(lines, api);
     const layers = layersOf(await currentScene());
     const ops: Op[] = [];
     for (const raw of lines.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"))) {
@@ -1124,6 +1318,11 @@ server.registerTool(
         r.issues.length ? `automatic checks found ${r.issues.length} issue(s):\n- ${r.issues.join("\n- ")}` : "automatic checks: no issues (still look at the sheet).",
         r.motion?.length ? `motion notes:\n- ${r.motion.join("\n- ")}` : "",
         attentionReport(scene),
+        await api
+          .direction()
+          .then((d) => varietyNotes(scene as Parameters<typeof varietyNotes>[0], d.direction, d.recent))
+          .then((v) => (v.length ? `variety (vs the account's latest videos):\n- ${v.join("\n- ")}` : ""))
+          .catch(() => ""),
         r.strips?.length ? `motion strips (consecutive frames at 12 fps) of the moments that change most: ${r.strips.map((s) => `${s.from}-${s.to}s`).join(", ")} — judge the easing, spacing and continuity there.` : "",
       ]
         .filter(Boolean)
@@ -1277,7 +1476,10 @@ function describeProject(p: Project): string {
   lines.push(`Format: ${p.format}`);
   if (p.voiceScript.trim()) lines.push(`Voice script (ElevenLabs; the video is built on it):\n${p.voiceScript.trim()}`);
   if (p.references?.length) lines.push(`Reference images from the user (look with view_image): ${p.references.join(", ")}`);
-  if (p.imageCredits?.length) lines.push(`Imported photos (src for image layers): ${p.imageCredits.map((c) => `${c.src} "${c.title}"`).join(", ")}`);
+  const imported = (p.imageCredits ?? []).filter((c) => c.src);
+  if (imported.length) lines.push(`Imported material: ${imported.map(assetLine).join("; ")}`);
+  if (p.direction) lines.push(`Direction (set_direction): ${p.direction.genre} — ${p.direction.concept}${p.direction.techniques.length ? ` · techniques: ${p.direction.techniques.join(", ")}` : ""}`);
+  if (p.constraints?.length) lines.push(`Creative constraints this video must honor: ${p.constraints.map((c, i) => `(${i + 1}) ${c}`).join(" ")}`);
   if (p.audio || !p.footage?.length) lines.push(p.audio ? `Voice uploaded: ${p.audio.name}. inspect's summary has its voice timeline (phrases, pauses, LONG pauses = scene changes) and captions carry word timings: time the beats to them.` : "Voice: not uploaded yet.");
   if (p.footage?.length) {
     const clips = p.footage.map((c) => `${c.id} "${c.name}" ${c.duration?.toFixed(0) ?? "?"}s${c.words ? "" : " (not transcribed yet)"}`).join(", ");

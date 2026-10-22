@@ -1,4 +1,4 @@
-import type { Brick, BrickSlot, Feedback, ImageCredit, ImageHit, ImageSource, Project, User } from "@motionily/protocol";
+import type { AssetKind, Brick, BrickSlot, Direction, Feedback, Fingerprint, Genre, ImageCredit, ImageHit, LibraryItem, Project, User } from "@motionily/protocol";
 
 /** Motionily API client for one project, with an agent-scoped token. */
 export class ProjectApi {
@@ -92,15 +92,57 @@ export class ProjectApi {
     return { bytes: Buffer.from(await res.arrayBuffer()), mime: res.headers.get("content-type") ?? "image/png" };
   }
 
-  /** Openly licensed photos from free libraries (sources that fail are listed, not fatal). */
-  searchImages(q: string, limit: number, source?: ImageSource) {
-    const params = new URLSearchParams({ q, limit: String(limit), ...(source ? { source } : {}) });
-    return this.call<{ hits: ImageHit[]; unavailable: string[] }>("GET", `/images/search?${params}`);
+  /** Every query against every source of its kind; one numbered contact sheet (base64 JPEG) per query. */
+  searchAssets(queries: { q: string; kind: AssetKind }[], perQuery: number) {
+    return this.call<{ groups: { q: string; kind: AssetKind; hits: ImageHit[]; sheet: string | null }[]; unavailable: string[]; missingKeys: string[] }>("POST", "/assets/search", { queries, perQuery });
   }
 
-  /** Download a search hit into the project's media, with its credit. */
-  importImage(id: string) {
-    return this.call<ImageCredit>("POST", "/images", { id });
+  /** Download hits (or library items) into the video and the user's library, with their credits. */
+  importAssets(ids: string[], query?: string) {
+    return this.call<{ id: string; credit?: ImageCredit; error?: string }[]>("POST", "/assets/import", { ids, ...(query ? { query } : {}) });
+  }
+
+  /** The subject of a /media image on a transparent background. */
+  cutout(src: string) {
+    return this.call<ImageCredit>("POST", "/assets/cutout", { src });
+  }
+
+  /** An image generated with the user's own OpenAI key. */
+  generateImage(prompt: string, transparent: boolean, orientation?: string) {
+    return this.call<ImageCredit & { revisedPrompt: string | null }>("POST", "/assets/generate", { prompt, transparent, ...(orientation ? { orientation } : {}) });
+  }
+
+  library(kind?: AssetKind, limit?: number) {
+    const params = new URLSearchParams({ ...(kind ? { kind } : {}), ...(limit ? { limit: String(limit) } : {}) });
+    return this.call<LibraryItem[]>("GET", `/assets/library?${params}`);
+  }
+
+  /** Iconify icon ids for words (reusable sets only). */
+  icons(q: string, limit: number) {
+    return this.call<{ id: string; set: string; license: string; category: string; multicolor: boolean }[]>("GET", `/assets/icons?${new URLSearchParams({ q, limit: String(limit) })}`);
+  }
+
+  /** SVG bodies of Iconify icons (the API records credits for sets that ask for them). */
+  iconData(ids: string[]) {
+    return this.call<{ icons: { id: string; body: string; width: number; height: number; set: string; license: string; multicolor: boolean }[]; missing: string[] }>(
+      "GET",
+      `/assets/icon-data?${new URLSearchParams({ ids: ids.join(",") })}`,
+    );
+  }
+
+  direction() {
+    return this.call<{ direction: Direction | null; constraints: string[]; recent: Fingerprint[]; genres: Genre[] }>("GET", "/direction");
+  }
+
+  setDirection(body: { genre: Genre; concept: string; techniques: string[]; redraw?: boolean }) {
+    return this.call<{ direction: Direction; constraints: string[]; references: { genre: Genre; title: string; look: string; moves: string }[]; recent: Fingerprint[] }>("PUT", "/direction", body);
+  }
+
+  /** Text of a media file (a sanitized SVG). */
+  async mediaText(path: string) {
+    const res = await fetch(`${this.baseUrl}${path}`);
+    if (!res.ok) throw new Error(`file not found (${res.status})`);
+    return res.text();
   }
 
   /** Every note of the project, read and unread, without marking any as read. */

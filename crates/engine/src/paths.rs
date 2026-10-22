@@ -107,7 +107,7 @@ impl PathPipeline {
                 p.gradient.as_ref().map_or(flat.0, |g| g.color_at([(q[0] - lo[0]) / size[0], (q[1] - lo[1]) / size[1]]).0)
             };
             if let Some(fill) = p.fill.filter(|_| !p.fills.is_empty()) {
-                tessellate(&p.fills, &mut verts, |q| paint(q, fill));
+                tessellate(&p.fills, p.nonzero, &mut verts, |q| paint(q, fill));
                 for poly in &p.fills {
                     push_polyline(&mut segs, poly, FILL_RIM / 2.0, None, &|q| paint(q, fill));
                 }
@@ -178,7 +178,7 @@ fn push_polyline(out: &mut Vec<Seg>, line: &[[f32; 2]], half: f32, dash: Option<
     }
 }
 
-fn tessellate(polys: &[Vec<[f32; 2]>], out: &mut Vec<Vertex>, paint: impl Fn([f32; 2]) -> [f32; 4]) {
+fn tessellate(polys: &[Vec<[f32; 2]>], nonzero: bool, out: &mut Vec<Vertex>, paint: impl Fn([f32; 2]) -> [f32; 4]) {
     let mut builder = LyonPath::builder();
     for poly in polys.iter().filter(|p| p.len() > 2) {
         builder.begin(point(poly[0][0], poly[0][1]));
@@ -191,7 +191,7 @@ fn tessellate(polys: &[Vec<[f32; 2]>], out: &mut Vec<Vertex>, paint: impl Fn([f3
     let mut geom: VertexBuffers<[f32; 2], u32> = VertexBuffers::new();
     let ok = FillTessellator::new().tessellate_path(
         &path,
-        &FillOptions::tolerance(TESSELLATION_TOLERANCE).with_fill_rule(FillRule::EvenOdd),
+        &FillOptions::tolerance(TESSELLATION_TOLERANCE).with_fill_rule(if nonzero { FillRule::NonZero } else { FillRule::EvenOdd }),
         &mut BuffersBuilder::new(&mut geom, |v: FillVertex| v.position().to_array()),
     );
     if ok.is_err() {

@@ -940,6 +940,8 @@ pub struct DrawPath {
     /// Closed untrimmed subpaths to fill, as polygons.
     pub fills: Vec<Vec<[f32; 2]>>,
     pub fill: Option<Rgba>,
+    /// Nonzero winding for `fills` (false = even-odd).
+    pub nonzero: bool,
     pub stroke: Option<(f32, Rgba)>,
     /// Stroke color varying along the path (start, end).
     pub stroke_end: Option<Rgba>,

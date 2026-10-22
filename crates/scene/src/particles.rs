@@ -1061,6 +1061,7 @@ impl Particles {
                     out.push(DrawItem::Path(DrawPath {
                         stroke: (!self.filled).then_some((p.size * PATH_STROKE, color)),
                         fill: self.filled.then_some(color),
+                        nonzero: false,
                         lines: if self.filled { Vec::new() } else { lines },
                         fills,
                         stroke_end: None,
