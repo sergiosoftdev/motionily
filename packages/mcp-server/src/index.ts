@@ -1249,6 +1249,28 @@ server.registerTool(
   }),
 );
 
+/** Ops agents reach for that do not exist, and what does the job (or that nothing does). */
+const OP_ALIASES: Record<string, string> = {
+  set_voice: "the voice-over is ONE track (`set_audio`: start, trim_in, trim_out, volume) — it cannot be cut inside; to drop a phrase the voice must be regenerated from an edited script (the user's ElevenLabs voice panel, or set_voice_script + their confirmation)",
+  cut_audio: "the voice-over is ONE track (`set_audio`: start and trims only); say so to the user instead of trying",
+  set_volume: "`set_audio` (voice), `set_music` (music) or `set_sfx_volume` (effects)",
+  add_text: "`add_layer` with a text layer (or add_layers lines)",
+  set_font: "the set_font tool (or `set_typography`)",
+};
+
+/** The closest real op names to an unknown one (edit distance), plus a known alias. */
+function unknownOpHint(name: string, valid: string[]): string {
+  const dist = (a: string, b: string) => {
+    const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array<number>(b.length).fill(0)]);
+    for (let j = 1; j <= b.length; j++) d[0]![j] = j;
+    for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i]![j] = Math.min(d[i - 1]![j]! + 1, d[i]![j - 1]! + 1, d[i - 1]![j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+    return d[a.length]![b.length]!;
+  };
+  const near = valid.map((v) => ({ v, d: dist(name, v) })).sort((x, y) => x.d - y.d).slice(0, 3).map((x) => `\`${x.v}\``);
+  const alias = OP_ALIASES[name];
+  return `${alias ? ` Use: ${alias}.` : ""}${near.length ? ` Closest ops: ${near.join(", ")}.` : ""} If nothing in the ops list does what you need, the engine cannot do it yet: tell the user plainly instead of trying variants.`;
+}
+
 /** Said with every rejected op: the cheap, sure way to change existing layers. */
 const EDIT_HINT =
   "To change existing layers use edit_layers (`id key=value…`, `g:group …`, `* …`) or {\"op\":\"patch\",\"id\"|\"group\"|\"all\":…,\"fields\":{…}}; to recolor everything at once {\"op\":\"replace_color\",\"from\":\"#…\",\"to\":\"#…\"}. The ops list is in the manual (Ops).";
@@ -1275,7 +1297,9 @@ server.registerTool(
     }
     // The whole batch is lost when one op is wrong: say which one and the cheap way to do it, so the retry is right.
     const unknown = /unknown variant `([^`]+)`/.exec(res.error ?? "")?.[1];
-    return fail(`${res.error ?? "rejected"}\nNothing was applied${unknown ? ` (\`${unknown}\` does not exist here)` : ""}: resend the whole batch fixed.\n${EDIT_HINT}`);
+    const valid = /expected one of (.+)$/m.exec(res.error ?? "")?.[1]?.match(/`([a-z_]+)`/g)?.map((v) => v.replace(/`/g, "")) ?? [];
+    const hint = unknown ? unknownOpHint(unknown, valid) : "";
+    return fail(`${unknown ? `op \`${unknown}\` does not exist.${hint}` : (res.error ?? "rejected")}\nNothing was applied: resend the whole batch fixed.\n${EDIT_HINT}`);
   }),
 );
 
