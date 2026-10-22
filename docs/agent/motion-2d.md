@@ -7,30 +7,30 @@ Genre ids (set_direction `genre`):
   centered card); dark kinetic type with the product UI in slight perspective and collaboration cursors; neon glass app
   tiles orbiting a short word; a warm fluid gradient behind white agent UI (typing prompt, node graph drawn with trim);
   a dark dashboard where a glowing prompt sends and charts draw on. Material: get_brand screenshots, icons, 3D objects.
-- archival_documentary — real photos and footage carry it. Slow push/pan on every photo, grain and a grade, date and
-  place kickers, typewritten captions on paper strips, newspaper clippings, prints dropped on a desk, film burn between
-  acts, maps for geography. Material: search_assets photos/footage (Commons for history), logos of the era, paper.
-- editorial_collage — explainer collage: cut_out people and objects with a sticker edge and a drop shadow on flat paper
-  colors, halftone photos, torn paper edges, highlighter swipes behind key words, hand-drawn arrows and circles (paths
-  drawn with trim), photos cropped into shapes. Material: cutouts, logos as vectors, paper textures.
+- archival_documentary — real photos and footage carry it, full frame. Slow push/pan on photos, a grade that matches
+  the era, newsreel clips cut on the voice, real documents and newspapers of the time (photographed, not imitated),
+  maps for geography, plain captions only where a date or place is needed. Material: search_assets photos/footage
+  (Commons and the Internet Archive for history), logos of the era.
+- editorial_collage — explainer collage: cut_out people and objects composed on flat color fields, photos cropped into
+  shapes (circles, arches, strips), scale contrast between a huge cutout and small type, layers sliding in parallax,
+  one pointer drawn on a photo when something in it must be found. Material: cutouts, logos as vectors, real photos.
 - map_data_story — geography and numbers: add_map with highlighted countries filling in, routes drawing between places,
   pins dropping, the camera zooming from the world into the place; numbers as physical things (stacks, piles, counted
   objects) or counters; a timeline ruler scrubbed by the camera.
 - kinetic_type — the words are the picture: one family set big and tight, words replacing each other in place on the
   voice's rhythm, masks and crops by the frame edge, extreme size contrast, two or three colors; one real image as
   punctuation at the peak. Vary the typographic voice: editorial serif, condensed grotesk, wide extended, mono.
-- retro_print — two or three spot inks, misregistered layers (rgb=2..4 or offset copies), halftone dots, paper grain that
-  never stops, stamps and badges hitting on beats, sunburst rays, mid-century shapes.
-- scrapbook_handmade — lined paper, tape strips slapping on, polaroids, sticky notes, doodles drawn on with trim, objects
-  pushed in by hand from the frame edges, motion on 12 fps (time=(floor(t*12)/12)) with a smooth camera.
+- retro_print — two or three spot inks, misregistered layers (rgb=2..4 or offset copies), halftone dots on photos,
+  paper grain, mid-century shapes and real period print ads or packaging as material.
+- scrapbook_handmade — real photos and objects arranged top-down as on a table, pushed in from the frame edges as if by
+  hand, motion on 12 fps (time=(floor(t*12)/12)) with a smooth camera; only for personal, diary-like stories.
 - flat_illustration — geometric shapes and limited flat colors, shapes morphing into the next idea, staggered pops, a
   camera pulling back to reveal the system; isometric dioramas; single-weight line art drawing on. People on the 3D stage
   are stickman rigs.
-- social_native — native to the feed: a phone or browser as the stage, real screenshots and photos, big rounded captions,
-  zoom punches, HARD CUTS every 0.5-1.5 s, stickers and emoji (add_vector), a cutout "host" in front of evidence, circles
-  and arrows drawn over it.
-- cinematic_trailer — dark, letterboxed, big spaced titles with a light sweep, dust and light leaks, fog textures, slow
-  pushes, depth of field shifts, flash cuts on low hits, the final title slamming with the biggest sound.
+- social_native — native to the feed: a phone or browser as the stage, real screenshots, photos and clips, big readable
+  captions, zoom punches into the evidence, HARD CUTS every 0.5-1.5 s, a cutout "host" in front of the evidence.
+- cinematic_trailer — dark, letterboxed, footage and photos graded hard, big spaced titles on black between shots, slow
+  pushes, depth of field shifts, cuts on low hits, the final title held with the biggest sound.
 - swiss_editorial — strict visible grid, a neo-grotesk, thin rule lines drawing on, numbers set huge, one red (or one
   strong color) on white or black, everything flush left, elements sliding along grid lines.
 - glossy_3d — 3D object layers (glossy, glass, chrome, matte toon), pearly or deep gradients, light sweeps across objects,

@@ -167,10 +167,10 @@ shapes alone read as generated.
 - Photos: documentary look = the photo fills its box (`fit=cover`), always moving slowly (`s=1>1.12@0-5:l` push or an
   x/y pan, never static), old photos graded (`color=0,0,0,1.1` = B/W with more contrast, plus `grain=.05`), text on a
   dark gradient band or beside the photo, a date/place kicker per photo, cuts or slow cross-fades on the voice's beats.
-  As prints: a white border (a rect behind, 3-4% bigger) + soft shadow + a slight rotation, stacking on a surface.
-- Cutouts: `cut_out` the subject (person, bottle, building) → a transparent PNG trimmed to it. Collage moves: a
-  sticker edge (a tight strong white glow, `glow=8,6,#ffffff`, before the shadow in the effect order), a drop shadow,
-  the cutout overlapping the border of its own photo, parallax layers (cutout nearer the camera than its photo).
+  As prints (only when the story is about photographs): a white border (a rect behind, 3-4% bigger) and a soft shadow.
+- Cutouts: `cut_out` the subject (person, bottle, building) → a transparent PNG trimmed to it. Collage moves: the
+  cutout overlapping the border of its own photo, parallax layers (cutout nearer the camera than its photo), scale
+  contrast (a huge cutout next to small type), a soft contact shadow only where it sits on something.
 - Footage: a `video` layer with `src`, `fit=cover`, `in=`/`out=` seconds of the file, `volume=0`; inside a card, a phone
   screen or a matte shape, never just a full-frame stock clip with text on top for the whole video.
 - Textures: a paper/film/fabric photo as the background, or as an `adj=1` full-frame layer with `blend=multiply` /

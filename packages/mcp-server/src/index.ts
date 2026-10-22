@@ -45,6 +45,7 @@ import { svgToVector } from "./svg.js";
 import { vectorLines, VectorSplit } from "./vectorize.js";
 import { MapProjection, mapLines } from "./maps.js";
 import { varietyNotes } from "./variety.js";
+import { slopNotes } from "./slop.js";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const doc = (name: string) => readFileSync(resolve(here, "../../../docs/agent", name), "utf8").trim();
@@ -1353,6 +1354,7 @@ server.registerTool(
           .then((d) => varietyNotes(scene as Parameters<typeof varietyNotes>[0], d.direction, d.recent))
           .then((v) => (v.length ? `variety (vs the account's latest videos):\n- ${v.join("\n- ")}` : ""))
           .catch(() => ""),
+        ((n) => (n.length ? `AI tells (craft: AI TELLS) — fix these before calling it done:\n- ${n.join("\n- ")}` : ""))(slopNotes(scene as Parameters<typeof slopNotes>[0])),
         r.strips?.length ? `motion strips (consecutive frames at 12 fps) of the moments that change most: ${r.strips.map((s) => `${s.from}-${s.to}s`).join(", ")} — judge the easing, spacing and continuity there.` : "",
       ]
         .filter(Boolean)

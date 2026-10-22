@@ -9,7 +9,7 @@ export type Palette = { background: string; surface: string; primary: string; ac
 export type Layer = Record<string, unknown>;
 export type Op = Record<string, unknown>;
 
-export type IssueKind = "off_frame" | "tiny_text" | "text_overlap" | "low_contrast" | "place_missing";
+export type IssueKind = "off_frame" | "tiny_text" | "text_overlap" | "low_contrast" | "place_missing" | "cropped_text";
 export type Issue = { kind: IssueKind; id: string; times: number[]; message: string; fix?: Op[] };
 
 /** WCAG AA for normal text. */
@@ -18,6 +18,12 @@ export const MIN_CONTRAST = 4.5;
 export const MIN_TEXT_SHARE = 0.024;
 /** Share of a layer outside the frame before it is reported (a sliver off edge is intended). */
 const OFF_SHARE = 0.1;
+/** Ink past a frame edge (share of the frame side) from which a word reads as cut. */
+const CROP_SHARE = 0.01;
+/** A word cut in this share of the sampled frames where it shows is a layout, not a slide passing through. */
+const CROP_PERSIST = 0.5;
+/** Width a cut word is refitted to (share of the frame), centered. */
+const REFIT_SHARE = 0.86;
 /** Overlap of two text boxes, as a share of the smaller one, that reads as a collision. */
 const TEXT_OVERLAP = 0.08;
 
@@ -104,6 +110,35 @@ export function lintLayers({ layers, frames, palette, size }: LintInput): Issue[
       const min = Math.ceil(short * MIN_TEXT_SHARE);
       add(`tiny:${id}`, { kind: "tiny_text", id, message: `text '${id}' is ${size}px on a ${short}px frame: too small to read on a phone (at least ${min}px)`, fix: [{ op: "patch", id, fields: { size: min } }] }, null);
     }
+  }
+
+  // Words cut by the frame edge read as broken (screen boxes, so it holds with a camera too).
+  const isText3d = (l: Layer) => l.type === "object" && (l.node as { shape?: string } | undefined)?.shape === "text";
+  const cropped = new Map<string, { shown: number; cut: number[] }>();
+  for (const frame of frames) {
+    for (const row of frame.layers) {
+      const entry = byId.get(row.id);
+      if (!entry || !row.visible || !(entry.layer.type === "text" || isText3d(entry.layer))) continue;
+      const [x0, y0, x1, y1] = row.screen;
+      const c = cropped.get(row.id) ?? { shown: 0, cut: [] };
+      c.shown++;
+      const past = Math.max(-x0, x1 - w, 0) / w + Math.max(-y0, y1 - h, 0) / h;
+      const inside = insideArea(row, size) > 0;
+      if (inside && past > CROP_SHARE) c.cut.push(frame.t);
+      cropped.set(row.id, c);
+    }
+  }
+  for (const [id, c] of cropped) {
+    if (!c.cut.length || c.cut.length / c.shown < CROP_PERSIST) continue;
+    const layer = byId.get(id)!.layer;
+    const fits = typeof layer.w === "number" && (layer.w as number) > w * REFIT_SHARE && typeof layer.x === "number" && !layer.parent;
+    add(`crop:${id}`, {
+      kind: "cropped_text",
+      id,
+      message: `'${id}' is cut by the frame edge: cut words read as broken, not bold — keep every word whole inside the frame`,
+      fix: fits ? [{ op: "patch", id, fields: { w: Math.round(w * REFIT_SHARE), x: w / 2 } }] : undefined,
+    }, c.cut[0]!);
+    for (const t of c.cut.slice(1)) add(`crop:${id}`, { kind: "cropped_text", id, message: "" }, t);
   }
 
   for (const frame of frames) {
