@@ -11,7 +11,7 @@ import { CONSTRAINT_MEMORY, CONSTRAINTS, CONSTRAINTS_PER_VIDEO, Genre, REFERENCE
 export type Direction = { genre: Genre; concept: string; techniques: string[]; setAt: string };
 
 /** How an earlier video of the account looked, so the next one goes elsewhere. */
-export type Fingerprint = { name: string; genre: Genre | null; concept: string | null; techniques: string[]; font: string | null; primary: string | null; background: string | null; constraints: string[] };
+export type Fingerprint = { name: string; favorite: boolean; genre: Genre | null; concept: string | null; techniques: string[]; font: string | null; primary: string | null; background: string | null; constraints: string[] };
 
 /** Earlier videos compared against. */
 const RECENT = 6;
@@ -41,14 +41,15 @@ export class DirectionService {
   async recent(ownerId: Types.ObjectId, exceptId: string): Promise<Fingerprint[]> {
     const rows = await this.projects
       .find({ ownerId, _id: { $ne: new Types.ObjectId(exceptId) }, scene: { $ne: null } })
-      .select({ name: 1, direction: 1, constraints: 1, "scene.typography": 1, "scene.palette": 1 })
+      .select({ name: 1, direction: 1, constraints: 1, favorite: 1, "scene.typography": 1, "scene.palette": 1 })
       .sort({ updatedAt: -1 })
       .limit(RECENT)
-      .lean<Pick<Project, "name" | "direction" | "constraints" | "scene">[]>();
+      .lean<Pick<Project, "name" | "direction" | "constraints" | "scene" | "favorite">[]>();
     return rows.map((p) => {
       const scene = p.scene as { typography?: { family?: string }; palette?: { primary?: string; background?: string } } | null;
       return {
         name: p.name,
+        favorite: !!p.favorite,
         genre: p.direction?.genre ?? null,
         concept: p.direction?.concept ?? null,
         techniques: p.direction?.techniques ?? [],

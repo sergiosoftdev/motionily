@@ -12,6 +12,9 @@ type KitPayload = { defaults?: Partial<Build> };
 
 const NEUTRAL_BASE = "motion_style/apple";
 
+/** Favorites an agent reads at once. */
+const MAX_FAVORITES = 12;
+
 @Injectable()
 export class ProjectsService {
   constructor(
@@ -22,8 +25,26 @@ export class ProjectsService {
 
   list(ownerId: Types.ObjectId, brandId?: Types.ObjectId) {
     return this.projects
-      .find(brandId ? { ownerId, brandId, hidden: { $ne: true } } : { ownerId, hidden: { $ne: true } }, { name: 1, build: 1, format: 1, brandId: 1, updatedAt: 1, createdAt: 1 })
+      .find(brandId ? { ownerId, brandId, hidden: { $ne: true } } : { ownerId, hidden: { $ne: true } }, { name: 1, build: 1, format: 1, brandId: 1, favorite: 1, updatedAt: 1, createdAt: 1 })
       .sort({ updatedAt: -1 })
+      .lean();
+  }
+
+  async setFavorite(ownerId: Types.ObjectId, id: string, favorite: boolean) {
+    const project = await this.get(ownerId, id);
+    project.favorite = favorite;
+    project.favoritedAt = favorite ? new Date() : null;
+    await project.save();
+    return { favorite };
+  }
+
+  /** The user's starred videos (newest star first), without their scenes. */
+  favorites(ownerId: Types.ObjectId, exceptId?: string) {
+    return this.projects
+      .find({ ownerId, favorite: true, scene: { $ne: null }, ...(exceptId && Types.ObjectId.isValid(exceptId) ? { _id: { $ne: new Types.ObjectId(exceptId) } } : {}) })
+      .select({ name: 1, format: 1, brief: 1, direction: 1, favoritedAt: 1, "scene.typography": 1, "scene.palette": 1, "scene.duration": 1 })
+      .sort({ favoritedAt: -1 })
+      .limit(MAX_FAVORITES)
       .lean();
   }
 

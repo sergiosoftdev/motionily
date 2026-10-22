@@ -1,4 +1,4 @@
-import type { AssetKind, Brick, BrickSlot, Direction, Feedback, Fingerprint, Genre, ImageCredit, ImageHit, LibraryItem, Project, User } from "@motionily/protocol";
+import type { AssetKind, Brick, BrickSlot, Direction, FavoriteVideo, Feedback, Fingerprint, Genre, ImageCredit, ImageHit, LibraryItem, Project, User } from "@motionily/protocol";
 
 /** Motionily API client for one project, with an agent-scoped token. */
 export class ProjectApi {
@@ -128,6 +128,19 @@ export class ProjectApi {
       "GET",
       `/assets/icon-data?${new URLSearchParams({ ids: ids.join(",") })}`,
     );
+  }
+
+  /** The account's other starred videos (the user's taste). */
+  favorites() {
+    return this.call<FavoriteVideo[]>("GET", "/favorites");
+  }
+
+  favoriteScene(id: string) {
+    return this.call<{ id: string; name: string; direction: Direction | null; scene: Record<string, unknown> | null }>("GET", `/favorites/${id}`);
+  }
+
+  setFavorite(favorite: boolean) {
+    return this.call<{ favorite: boolean }>("PUT", "/favorite", { favorite });
   }
 
   direction() {

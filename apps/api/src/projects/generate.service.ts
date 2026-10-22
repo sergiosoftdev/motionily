@@ -126,6 +126,7 @@ const ROLE_TOOLS = {
     "list_library",
     "generate_image",
     "set_direction",
+    "examples",
     "define_component",
     "get_component",
   ],
@@ -276,8 +277,9 @@ Your job is ONLY to plan, set the global look and lay out the WORLD, fast. Do no
    animate how, or the PNG src), footage (video src, in/out seconds), cutouts, maps (add_map focus/highlight/points)
    and the icon set (find_icons ids) — builders only know the material you hand them. Brand videos start from
    get_brand and search only for what the kit lacks.
-2c. set_direction with the genre (STYLE VOCABULARY), concept and techniques; honor the two constraints it returns
-   and make this video look unlike the account's latest ones it lists (font, main color, moves). Put the constraints
+2c. examples find (the user's FAVORITE videos: their taste) and set_direction with the genre (STYLE VOCABULARY),
+   concept and techniques; honor the two constraints it returns, keep the principles of the favorites and make this
+   video look unlike the account's latest other ones it lists (font, main color, moves). Put the constraints
    and how each beat honors them into the plan.
 3. Apply the global look with tools: set_palette op (apply_ops), set_font, set_duration op.
 4. WORLD FIRST: the video is ONE continuous space the camera travels through (like the reference films), not
@@ -347,7 +349,8 @@ const SOLO_STEPS = `Build it STEP BY STEP, as ONE continuous world the camera tr
 1. Gather like a human editor: get_project, get_brand, references; then ONE search_assets with everything the viewer
    should see (real logos, places, people, objects, footage, textures), ONE import_assets with your picks (cut_out
    for collage subjects), and set_direction (genre, concept, techniques: honor its two constraints, avoid the looks
-   of the account's latest videos). Decide the beat list briefly; do not compose every beat in your head now.
+   of the account's latest videos; examples find shows the user's favorite videos: keep what makes them work). Decide the
+   beat list briefly; do not compose every beat in your head now.
 2. Write ONE short line of plain text in English: the art direction. Then apply_ops (palette, duration), set_font and
    ONE add_layers with ONLY the world: the background and the camera "cam" keyed for the whole film, visiting one
    region per beat.

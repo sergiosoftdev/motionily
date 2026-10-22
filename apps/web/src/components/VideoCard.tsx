@@ -1,6 +1,7 @@
 import type { Brick, PalettePayload, ProjectListItem } from "@motionily/protocol";
 import { href, RouteName } from "../router";
 import { Thumb } from "./style/Thumb";
+import { FavoriteStar } from "./FavoriteStar";
 
 /** A video in a grid: its palette as a thumbnail, its name and date; opens the editor. */
 export function VideoCard({ video, catalog, onDelete }: { video: ProjectListItem; catalog: Map<string, Brick>; onDelete?: () => void }) {
@@ -19,6 +20,12 @@ export function VideoCard({ video, catalog, onDelete }: { video: ProjectListItem
         </span>
         <span className="-mt-2 px-1 text-xs text-neutral-400">{new Date(video.updatedAt).toLocaleDateString("en-US")}</span>
       </a>
+      <FavoriteStar
+        projectId={video._id}
+        initial={!!video.favorite}
+        revealOnHover
+        className="absolute top-4 left-4 bg-black/60"
+      />
       {onDelete && (
         <button
           type="button"

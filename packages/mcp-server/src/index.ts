@@ -34,7 +34,7 @@ import { isRef, resolveLayerTimes, type Word } from "./timing.js";
 import { formatIssues, lintLayers, type Issue, type Layer as LintLayer, type Palette } from "./lint.js";
 import { placementPatches, type Box } from "./place.js";
 import { Checkpoints, diffScenes } from "./checkpoints.js";
-import { describeExample, examplesDir, loadExamples, rankExamples, saveExample } from "./examples.js";
+import { describeExample, rankExamples, type Example } from "./examples.js";
 import { nextSteps, type ProjectState } from "./nextstep.js";
 import { frameStats } from "./review.js";
 import { attentionReport } from "./attention.js";
@@ -1060,9 +1060,10 @@ server.registerTool(
     },
   },
   guard(async (body) => {
-    const r = await api.setDirection(body);
+    const [r, favorites] = await Promise.all([api.setDirection(body), api.favorites().catch(() => [])]);
     const refs = r.references.map((f) => `- ${f.title}: ${f.look} Moves: ${f.moves}`);
-    const recent = r.recent.map((f) => `- "${f.name}": ${[f.genre, f.font && `font ${f.font}`, f.primary && `primary ${f.primary}`, f.techniques.join(", ")].filter(Boolean).join(" · ")}`);
+    const loved = favorites.map((f) => `- "${f.name}": ${[f.direction ? `${f.direction.genre} — ${f.direction.concept}` : "", f.font && `font ${f.font}`].filter(Boolean).join(" · ")}`);
+    const recent = r.recent.filter((f) => !f.favorite).map((f) => `- "${f.name}": ${[f.genre, f.font && `font ${f.font}`, f.primary && `primary ${f.primary}`, f.techniques.join(", ")].filter(Boolean).join(" · ")}`);
     return text(
       [
         `Direction saved: ${r.direction.genre} — ${r.direction.concept}`,
@@ -1070,7 +1071,9 @@ server.registerTool(
         ...refs,
         `Creative constraints (honor both, visibly):`,
         ...r.constraints.map((c, i) => `${i + 1}. ${c}`),
-        recent.length ? "The account's latest videos (do NOT repeat their font, main color or signature moves):" : "",
+        loved.length ? "The user's FAVORITE videos — their taste: study why they work (examples find) and keep those principles; the look may differ:" : "",
+        ...loved,
+        recent.length ? "The account's latest other videos (do NOT repeat their font, main color or signature moves):" : "",
         ...recent,
       ]
         .filter(Boolean)
@@ -1194,32 +1197,55 @@ server.registerTool(
   }),
 );
 
+/** Characters of each layer line an example card shows. */
+const EXAMPLE_LINE = 220;
+
 server.registerTool(
   "examples",
   {
     description:
-      "Videos the user approved, kept outside the repo. save LABEL [tags] keeps the current video as one (only after the user approves it). find QUERY [width height] returns up to three: their techniques and first layers. Reference only: learn the technique, then write your own scene; never paste one in whole.",
+      "The user's FAVORITE videos (they star them in the editor): their taste. find [QUERY] returns up to three, best match first: what each was about, its direction and techniques, and its first layers. Learn WHY they work (material, restraint, the one signature device, timing) and bring those principles here; never paste one in or clone its look. save stars the current video as a favorite — only when the user says they love it.",
     inputSchema: {
       action: z.enum(["save", "find"]),
-      label: z.string().optional(),
-      tags: z.string().optional().describe("comma-separated, e.g. 'clinic,vertical,booking'"),
-      query: z.string().optional(),
-      width: z.number().optional(),
-      height: z.number().optional(),
+      query: z.string().optional().describe("words about this video (topic, genre, format)"),
     },
   },
-  guard(async ({ action, label, tags, query, width, height }) => {
-    const dir = examplesDir();
+  guard(async ({ action, query }) => {
     if (action === "save") {
-      if (!label) return fail("examples save needs a label");
-      const scene = await currentScene();
-      if (!scene) return fail("no scene to save");
-      const file = saveExample(dir, label, (tags ?? "").split(",").map((t) => t.trim()).filter(Boolean), scene);
-      return text(`saved '${label}' (${file})`);
+      await api.setFavorite(true);
+      return text("starred: this video is now one of the user's favorites (agents study it as their taste).");
     }
-    const found = rankExamples(loadExamples(dir), query ?? "", width, height).slice(0, 3);
-    if (!found.length) return text(`no approved examples${query ? ` match '${query}'` : ""} yet. examples save LABEL after the user approves a video.`);
-    return text(found.map((e) => describeExample(e, (l) => formatLayer(l))).join("\n\n"));
+    const favorites = await api.favorites();
+    if (!favorites.length) return text("the user has no favorite videos yet (they star the ones they love in the editor).");
+    const examples = favorites.map((f) => ({
+      fav: f,
+      ex: {
+        label: f.name,
+        tags: [f.direction?.genre ?? "", ...(f.direction?.techniques ?? []), f.brief, f.format].filter(Boolean),
+        savedAt: f.favoritedAt,
+        width: 0,
+        height: 0,
+        duration: f.duration ?? 0,
+        palette: f.palette,
+        scene: {},
+      } as Example,
+    }));
+    const ranked = rankExamples(examples.map((e) => e.ex), query ?? "").slice(0, 3);
+    const cards = await Promise.all(
+      ranked.map(async (ex) => {
+        const f = examples.find((e) => e.ex === ex)!.fav;
+        const full = await api.favoriteScene(f.id);
+        const scene = full.scene ?? {};
+        // Long path data and code say nothing about the craft: cut each line short.
+        const card = describeExample({ ...ex, width: Number(scene.width ?? 0), height: Number(scene.height ?? 0), scene }, (l) => {
+          const line = formatLayer(l);
+          return line.length > EXAMPLE_LINE ? `${line.slice(0, EXAMPLE_LINE)}…` : line;
+        });
+        const dir = f.direction ? `direction: ${f.direction.genre} — ${f.direction.concept}` : "";
+        return [card.split("\n")[0], dir, f.font ? `font: ${f.font}` : "", ...card.split("\n").slice(1)].filter(Boolean).join("\n");
+      }),
+    );
+    return text(`${favorites.length} favorite video(s); the closest:\n\n${cards.join("\n\n")}`);
   }),
 );
 
@@ -1511,6 +1537,7 @@ function describeProject(p: Project): string {
   const imported = (p.imageCredits ?? []).filter((c) => c.src);
   if (imported.length) lines.push(`Imported material: ${imported.map(assetLine).join("; ")}`);
   if (p.direction) lines.push(`Direction (set_direction): ${p.direction.genre} — ${p.direction.concept}${p.direction.techniques.length ? ` · techniques: ${p.direction.techniques.join(", ")}` : ""}`);
+  if (p.favorite) lines.push("The user starred THIS video as a favorite: keep what they love about it when editing.");
   if (p.constraints?.length) lines.push(`Creative constraints this video must honor: ${p.constraints.map((c, i) => `(${i + 1}) ${c}`).join(" ")}`);
   if (p.audio || !p.footage?.length) lines.push(p.audio ? `Voice uploaded: ${p.audio.name}. inspect's summary has its voice timeline (phrases, pauses, LONG pauses = scene changes) and captions carry word timings: time the beats to them.` : "Voice: not uploaded yet.");
   if (p.footage?.length) {

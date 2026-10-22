@@ -182,6 +182,8 @@ export const api = {
   elevenLabs: () => call<ElevenLabsStatus>(HttpMethod.Get, "/voice/elevenlabs"),
   connectElevenLabs: (apiKey: string) => call<ElevenLabsStatus>(HttpMethod.Put, "/voice/elevenlabs", { apiKey }),
   disconnectElevenLabs: () => call<ElevenLabsStatus>(HttpMethod.Delete, "/voice/elevenlabs"),
+  /** Star a video: agents study favorites as the user's taste. */
+  setFavorite: (id: string, favorite: boolean) => call<{ favorite: boolean }>(HttpMethod.Put, `/projects/${id}/favorite`, { favorite }),
   /** The user's own keys for asset sources (stock libraries, web image search, image generation). */
   providerKeys: () => call<ProviderStatus[]>(HttpMethod.Get, "/keys"),
   connectProviderKey: (provider: ProviderKey, apiKey: string) => call<ProviderStatus[]>(HttpMethod.Put, `/keys/${provider}`, { apiKey }),

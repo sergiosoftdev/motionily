@@ -26,7 +26,9 @@ function hsl(hex: string | null | undefined): [number, number, number] | null {
 
 const hueGap = (a: number, b: number) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b));
 
-export function varietyNotes(scene: { typography?: { family?: string }; palette?: { primary?: string } } | null, direction: Direction | null, recent: Fingerprint[]): string[] {
+export function varietyNotes(scene: { typography?: { family?: string }; palette?: { primary?: string } } | null, direction: Direction | null, all: Fingerprint[]): string[] {
+  // Favorites are the user's taste, not repetition to avoid.
+  const recent = all.filter((r) => !r.favorite);
   const notes: string[] = [];
   const font = scene?.typography?.family;
   if (font) {

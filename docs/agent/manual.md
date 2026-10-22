@@ -16,8 +16,9 @@ where something lands, `get_layout` returns screen boxes as numbers (cheap, no i
    ONE `import_assets` with the numbers you picked (and `cut_out` for subjects you will collage). Brand videos start
    from `get_brand`; search only for what the kit lacks (partner logos, places, textures).
 3. ONE `set_direction`: a genre from STYLE VOCABULARY that fits THIS story and its material, the concept and your
-   techniques. Read what it returns: 3 reference films of that genre, 2 creative constraints you must honor, and the
-   account's latest videos (font, color, moves) — this video must not look like them. Then decide palette (hex), font,
+   techniques. Read what it returns: 3 reference films of that genre, 2 creative constraints you must honor, the
+   user's FAVORITE videos (their taste: `examples find` shows how they are built; keep their principles) and the
+   account's latest other videos (font, color, moves) — this video must not look like those. Then decide palette (hex), font,
    camera path through ONE world, 2-6 beats with their times and regions. Do not ask the user unless the brief is empty.
 4. ONE `apply_ops`: `clear_layers` (new video only) + `set_palette` + `set_duration`. Then `set_font` (use `search_fonts`
    only if unsure of the exact family) and ONE `find_icons` with every word you need.
@@ -63,7 +64,7 @@ applied: fix it and resend the call.
 | `inspect` | read back: `inspect` (summary; `full=true` for every layer), `inspect ID` (one layer), `inspect group:NAME` (a group with its times) |
 | `checkpoint` | named snapshots of this session: `save NAME` before a risky change, `diff NAME [OTHER]` (what changed, layer by layer), `restore NAME`, `list` |
 | `next_step` | what to do next, from the state (empty, lint open, not reviewed, no sound, done) |
-| `examples` | videos the user approved: `save LABEL tags` (only after approval), `find QUERY` (their techniques and first layers, to learn from; never paste one in whole) |
+| `examples` | the user's FAVORITE videos (starred in the editor): `find [QUERY]` (what each is about, its direction, techniques and first layers — learn why they work, never paste or clone), `save` stars this video (only when the user says they love it) |
 | `get_layout` | where every layer lands on screen at given seconds (numbers) |
 | `render_frames` · `review_video` | look at stills / full self-review |
 | `list_prefabs` · `get_prefab` · `save_prefab` · `clone_prefab` | the user's 3D library |

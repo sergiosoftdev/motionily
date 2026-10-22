@@ -107,6 +107,9 @@ export class Project {
   @Prop({ type: MongooseSchema.Types.Mixed, default: null }) direction: Direction | null;
   /** The two creative constraints this video drew (kept across runs; redrawn on request). */
   @Prop({ type: [String], default: [] }) constraints: string[];
+  /** The user starred it: agents study favorites as the user's taste (examples find). */
+  @Prop({ default: false }) favorite: boolean;
+  @Prop({ type: Date, default: null }) favoritedAt: Date | null;
   /**
    * The agent team working on this video right now, persisted so an API restart can neither hide a
    * running team (and let a second one start) nor leave its claude processes orphaned.

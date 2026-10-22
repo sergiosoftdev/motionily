@@ -6,6 +6,7 @@ import {
   ForbiddenException,
   Get,
   HttpCode,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -31,7 +32,7 @@ import { BrandsService } from "../brands/brands.service";
 import { brandView } from "../brands/brands.controller";
 import { ClonePrefabDto, PREFAB_NAME, SavePrefabDto } from "../prefabs/prefabs.dto";
 import { GenerateService } from "./generate.service";
-import { CreateFeedbackDto, CreateProjectDto, FOOTAGE_LANGUAGES, FootageWordsDto, UploadFootageDto, GenerateDto, GenerateVoiceDto, SaveSceneDto, SetSlotDto, UpdateProjectDto } from "./projects.dto";
+import { CreateFeedbackDto, CreateProjectDto, FOOTAGE_LANGUAGES, FootageWordsDto, UploadFootageDto, FavoriteDto, GenerateDto, GenerateVoiceDto, SaveSceneDto, SetSlotDto, UpdateProjectDto } from "./projects.dto";
 import { describeVideo, VIDEO_TYPES } from "../brands/video-asset";
 import { fitSong, songEnergy } from "../music/energy";
 import { SunoPromptDto, SunoService } from "../music/suno";
@@ -41,6 +42,9 @@ import type { ProjectDocument } from "./project.schema";
 
 /** A few minutes of phone video (4K HEVC runs about 100 MB a minute). */
 const MAX_FOOTAGE_BYTES = 2 * 1024 * 1024 * 1024;
+
+/** Brief characters an agent gets per favorite (enough to know what it was about). */
+const BRIEF_EXCERPT = 400;
 
 @Controller("projects")
 export class ProjectsController {
@@ -134,6 +138,38 @@ export class ProjectsController {
   @Get(":id")
   async get(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     return this.view(await this.projects.get(user.id, id));
+  }
+
+  /** Star or unstar a video (the user; or an agent, only after the user said they love it). */
+  @Put(":id/favorite")
+  favorite(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: FavoriteDto) {
+    return this.projects.setFavorite(user.id, id, dto.favorite);
+  }
+
+  /** The account's other starred videos, for an agent working on this one: what the user likes. */
+  @Get(":id/favorites")
+  async favorites(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    await this.projects.get(user.id, id);
+    return (await this.projects.favorites(user.id, id)).map((p) => ({
+      id: p._id.toString(),
+      name: p.name,
+      format: p.format,
+      brief: (p.brief ?? "").slice(0, BRIEF_EXCERPT),
+      direction: p.direction ?? null,
+      font: (p.scene as { typography?: { family?: string } } | null)?.typography?.family ?? null,
+      palette: (p.scene as { palette?: unknown } | null)?.palette ?? null,
+      duration: (p.scene as { duration?: number } | null)?.duration ?? null,
+      favoritedAt: p.favoritedAt,
+    }));
+  }
+
+  /** One starred video's scene, to study how it is built (never to paste). */
+  @Get(":id/favorites/:favoriteId")
+  async favoriteScene(@CurrentUser() user: AuthUser, @Param("id") id: string, @Param("favoriteId") favoriteId: string) {
+    await this.projects.get(user.id, id);
+    const fav = await this.projects.get(user.id, favoriteId);
+    if (!fav.favorite) throw new NotFoundException("that video is not a favorite");
+    return { id: fav.id, name: fav.name, direction: fav.direction ?? null, scene: fav.scene };
   }
 
   @Patch(":id")
@@ -368,6 +404,7 @@ export class ProjectsController {
       imageCredits: p.imageCredits ?? [],
       direction: p.direction ?? null,
       constraints: p.constraints ?? [],
+      favorite: p.favorite ?? false,
       updatedAt: (p as unknown as { updatedAt: Date }).updatedAt,
     };
   }

@@ -44,6 +44,10 @@ export class CreateProjectDto {
   @IsOptional() @IsMongoId() brandId?: string;
 }
 
+export class FavoriteDto {
+  @IsBoolean() favorite: boolean;
+}
+
 export class UpdateProjectDto {
   @IsOptional() @IsEnum(VideoFormat) format?: VideoFormat;
   /** The caption drafts as the user edited them (Schedule dialog). */

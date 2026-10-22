@@ -425,12 +425,15 @@ export type Genre = (typeof Genre)[keyof typeof Genre];
 export type Direction = { genre: Genre; concept: string; techniques: string[]; setAt: string };
 
 /** How an earlier video of the account looked. */
-export type Fingerprint = { name: string; genre: Genre | null; concept: string | null; techniques: string[]; font: string | null; primary: string | null; background: string | null; constraints: string[] };
+export type Fingerprint = { name: string; favorite: boolean; genre: Genre | null; concept: string | null; techniques: string[]; font: string | null; primary: string | null; background: string | null; constraints: string[] };
 
 /** Asset sources the user can connect with their own key (Settings › Asset sources). */
 export const ProviderKey = { Pexels: "pexels", Pixabay: "pixabay", Brave: "brave", OpenAI: "openai", Europeana: "europeana" } as const;
 export type ProviderKey = (typeof ProviderKey)[keyof typeof ProviderKey];
 export type ProviderStatus = { provider: ProviderKey; connected: boolean; hint: string | null; platform: boolean };
+
+/** A starred video as an agent sees it (its scene comes on request). */
+export type FavoriteVideo = { id: string; name: string; format: VideoFormat; brief: string; direction: Direction | null; font: string | null; palette: Record<string, string> | null; duration: number | null; favoritedAt: string };
 
 /** An item of the user's asset library. */
 export type LibraryItem = { id: string; kind: AssetKind; format: AssetFormat; title: string; credit: ImageCredit; videos: number };
@@ -471,10 +474,12 @@ export type Project = {
   direction: Direction | null;
   /** The two creative constraints this video drew. */
   constraints: string[];
+  /** Starred by the user: agents study favorites as their taste. */
+  favorite: boolean;
   updatedAt: string;
 };
 
-export type ProjectListItem = { _id: string; name: string; build: Build; format?: VideoFormat; brandId?: string; updatedAt: string; generating?: boolean };
+export type ProjectListItem = { _id: string; name: string; build: Build; format?: VideoFormat; brandId?: string; favorite?: boolean; updatedAt: string; generating?: boolean };
 
 /** A spoken word and when it is said, in seconds. */
 export type VoiceWord = { text: string; start: number; end: number };
