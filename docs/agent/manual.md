@@ -15,10 +15,13 @@ where something lands, `get_layout` returns screen boxes as numbers (cheap, no i
    2-6 beats with their times and regions. Do not ask the user unless the brief is empty.
 3. ONE `apply_ops`: `clear_layers` (new video only) + `set_palette` + `set_duration`. Then `set_font` (use `search_fonts`
    only if unsure of the exact family) and ONE `find_icons` with every word you need.
-4. ONE `add_layers` for the world (camera + background), then ONE `add_layers` per beat with all its layers. A motif that
-   repeats (cards, pills, rows, bars) is ONE `define_component` + one `use` line per copy.
-5. `get_layout` at 3-6 key instants: off frame, tiny, behind the camera or colliding boxes are listed as numbers. Fix with
-   `add_layers` (same id replaces).
+4. ONE `add_layers` for the world (camera + background), then ONE `run` script per beat: `mo.add` with all its layers,
+   `mo.layout` at 3-6 key instants (off frame, behind the camera or colliding boxes come back as numbers), fixes with
+   `mo.apply` / `mo.add` (same id replaces), a short `console.log`. A motif that repeats (cards, pills, rows, bars) is
+   ONE `define_component` + one `use` line per copy.
+5. CODE MODE: whenever a step needs two or more calls, write it as ONE `run` script instead; the data between the calls
+   stays in the script, which is much cheaper. Exact lint fixes (text too small, low contrast, a still layer mostly off
+   the frame) are applied automatically after every write: only what needs your judgment is reported.
 6. `review_video` once: contact sheet + motion strips + automatic checks. Fix what it shows; `render_frames` (≤6 stills) to
    zoom into a moment. Max 3 review rounds.
 7. Sound: `list_sounds`, 2-4 sounds of this video's own with `make_sound` (its signature; everything when the library
@@ -39,7 +42,8 @@ applied: fix it and resend the call.
 | `find_icons` | Lucide icon names for `ic=NAME:SIZE` |
 | `search_images` · `import_image` | real photos from Wikimedia Commons / Openverse (reusable licenses only) → src for image layers |
 | `get_footage` · `edit_footage` | the user's own clips: transcript by numbered words + contact sheet; cut them by word ranges (see Footage) |
-| `add_layers` | write/replace layers in compact lines (main tool) |
+| `run` | CODE MODE: one JavaScript script calling `mo.add/apply/layout/lint/autofix/scene/attention/tool`; use it for any multi-step work |
+| `add_layers` | write/replace layers in compact lines (also `mo.add` inside `run`) |
 | `edit_layers` | change ONLY the keys you write on existing layers: `id …`, `a,b …`, `g:group …`, `* …` (restyles, feedback fixes) |
 | `define_component` · `get_component` | reusable motifs with params, placed with `use` lines (syntax: Components) |
 | `apply_ops` | atomic batch of JSON ops (palette, duration, remove, timing, text, 3D stage…) |

@@ -28,13 +28,15 @@ import { formatLayer, formatParams, parseLines, parseParams, parsePartial, type 
 import { ACCOUNT_SCOPE, AccountApi, ProjectApi, VIDEO_ASSET, clipFacts, posterTimes } from "./api.js";
 import { formatLayouts } from "./layout.js";
 import { isRef, resolveLayerTimes, type Word } from "./timing.js";
-import { formatIssues, lintLayers, type Layer as LintLayer, type Palette } from "./lint.js";
+import { formatIssues, lintLayers, type Issue, type Layer as LintLayer, type Palette } from "./lint.js";
 import { placementPatches, type Box } from "./place.js";
 import { Checkpoints, diffScenes } from "./checkpoints.js";
 import { describeExample, examplesDir, loadExamples, rankExamples, saveExample } from "./examples.js";
 import { nextSteps, type ProjectState } from "./nextstep.js";
 import { frameStats } from "./review.js";
 import { attentionReport } from "./attention.js";
+import { LOG_CHARS, runScript, type HostApi } from "./sandbox.js";
+import { attentionCurve, attentionIssues, attentionSparkline } from "@motionily/protocol";
 import { buildEdit, DEFAULT_EDIT, FOOTAGE_GROUP, footageLines, parseSegments, transcriptLines } from "./footage.js";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
@@ -113,6 +115,20 @@ if (onlyTools?.length) {
     onlyTools.includes(String(name)) ? register(name, ...rest) : undefined;
 }
 
+/** What a tool handler returns (text, sometimes images). */
+type ToolResult = { content: { type: string; text?: string }[]; isError?: boolean };
+/** The tools this agent may call, with their input schemas: run scripts reach them through mo.tool. */
+const toolHandlers = new Map<string, { schema: z.ZodRawShape; cb: (args: Record<string, unknown>) => Promise<ToolResult> }>();
+{
+  const register = server.registerTool.bind(server) as (...args: unknown[]) => unknown;
+  (server as unknown as { registerTool: (...args: unknown[]) => unknown }).registerTool = (name: unknown, config: unknown, cb: unknown) => {
+    const registered = register(name, config, cb);
+    // The role's allowlist returns undefined for tools this agent does not get.
+    if (registered !== undefined) toolHandlers.set(String(name), { schema: ((config as { inputSchema?: z.ZodRawShape }).inputSchema ?? {}), cb: cb as (args: Record<string, unknown>) => Promise<ToolResult> });
+    return registered;
+  };
+}
+
 const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] });
 const fail = (t: string) => ({ ...text(t), isError: true });
 /** How often (ms) tool results look for notes the user just left. */
@@ -120,6 +136,8 @@ const NOTE_CHECK_MS = 2000;
 /** Notes already shown to this agent: each reaches it once, on its next tool call. */
 const shownNotes = new Set<string>();
 let noteCheckAt = 0;
+/** run scripts in progress (their tool calls must not swallow the user's notes). */
+let scriptDepth = 0;
 
 /**
  * Notes the user leaves while the agent works, appended to its next tool result so it obeys right
@@ -127,7 +145,8 @@ let noteCheckAt = 0;
  * (the finisher's) still gets them.
  */
 async function freshNotes(): Promise<string> {
-  if (!api.projectId || Date.now() - noteCheckAt < NOTE_CHECK_MS) return "";
+  // Inside a run script the tool results go to the script, not the model: notes wait for the run's own result.
+  if (scriptDepth > 0 || !api.projectId || Date.now() - noteCheckAt < NOTE_CHECK_MS) return "";
   noteCheckAt = Date.now();
   const notes = (await api.feedback().catch(() => [])).filter((f) => f.kind === FeedbackKind.Comment && !f.consumedAt && !shownNotes.has(f._id));
   if (!notes.length) return "";
@@ -575,7 +594,6 @@ async function settle(touched: string[], hint: Record<string, unknown>[] = []): 
   for (const l of hint) byId.set(String(l.id), { ...byId.get(String(l.id)), ...l });
   const layers = [...byId.values()] as LintLayer[];
   const scene = live ?? {};
-  const duration = durationOf(scene);
   const size = sizeOf(scene);
   const notes: string[] = [];
   const placed = layers.filter((l) => l.place);
@@ -592,6 +610,16 @@ async function settle(touched: string[], hint: Record<string, unknown>[] = []): 
     }
   }
   const ids = new Set(touched);
+  const issues = await lintTouched(layers, ids, scene);
+  if (!issues) return [...notes, "lint skipped: the editor is not connected"];
+  const { fixed, remaining } = await autofix(issues, byId, ids, scene);
+  session.lintIds = [...new Set(remaining.map((i) => i.id))];
+  return [...notes, ...fixed, ...(remaining.length ? formatIssues(remaining) : [fixed.length ? "lint: clean after the auto-fixes" : "lint: clean"])];
+}
+
+/** Lint the layers in `ids` at their own start and middle; null when the editor is not connected. */
+async function lintTouched(layers: LintLayer[], ids: Set<string>, scene: Record<string, unknown>): Promise<Issue[] | null> {
+  const duration = durationOf(scene);
   const times: number[] = [];
   for (const l of layers) {
     if (!ids.has(String(l.id)) || l.visible === false) continue;
@@ -599,12 +627,28 @@ async function settle(touched: string[], hint: Record<string, unknown>[] = []): 
     const end = l.end == null ? duration : Math.min(Number(l.end), duration);
     times.push(start, (start + Math.max(start, end)) / 2);
   }
-  if (!times.length) return notes;
+  if (!times.length) return [];
   const list = await layoutAt(times);
-  if (!list) return [...notes, "lint skipped: the editor is not connected"];
-  const issues = lintLayers({ layers, frames: list, palette: paletteOf(scene, list), size }).filter((i) => i.id.split("+").some((part) => ids.has(part)));
-  session.lintIds = [...new Set(issues.map((i) => i.id))];
-  return [...notes, ...(issues.length ? formatIssues(issues) : ["lint: clean"])];
+  if (!list) return null;
+  return lintLayers({ layers, frames: list, palette: paletteOf(scene, list), size: sizeOf(scene) }).filter((i) => i.id.split("+").some((part) => ids.has(part)));
+}
+
+/**
+ * Apply every lint fix that carries exact ops (text too small, low contrast, a still layer mostly off
+ * the frame) without a round trip to the model, then lint once more: only what needs judgment
+ * (overlaps, missing anchors, fixes that did not hold) reaches the agent.
+ */
+async function autofix(issues: Issue[], byId: Map<string, Record<string, unknown>>, ids: Set<string>, scene: Record<string, unknown>): Promise<{ fixed: string[]; remaining: Issue[] }> {
+  const fixable = issues.filter((i) => i.fix?.length);
+  if (!fixable.length) return { fixed: [], remaining: issues };
+  const ops = fixable.flatMap((i) => i.fix!);
+  const res = await bridge.applyOps(ops as Op[]);
+  if (!res.ok) return { fixed: [`auto-fix rejected: ${res.error ?? "?"}`], remaining: issues };
+  session.editsSinceReview = true;
+  // Keep the in-memory layers in step with what the editor now has.
+  for (const op of ops) if (op.op === "patch" && op.fields && typeof op.fields === "object") Object.assign(byId.get(String(op.id)) ?? {}, op.fields);
+  const again = await lintTouched([...byId.values()] as LintLayer[], ids, scene);
+  return { fixed: [`auto-fixed ${fixable.length}: ${fixable.map((i) => i.message).join("; ")}`], remaining: again ?? issues.filter((i) => !i.fix?.length) };
 }
 
 server.registerTool(
@@ -615,22 +659,22 @@ server.registerTool(
     inputSchema: { lines: z.string().min(1) },
   },
   guard(async ({ lines }) => {
-    let layers;
-    try {
-      layers = parseLines(lines);
-      resolveLayerTimes(layers, wordsOf(await currentScene()));
-    } catch (e) {
-      return fail((e as Error).message);
-    }
-    const existing = new Set(layersOf(await currentScene()).map((l) => String(l.id)));
-    const ops = layers.flatMap((layer) => [...(existing.has(String(layer.id)) ? [{ op: "remove_layer", id: layer.id }] : []), { op: "add_layer", layer }]);
-    const res = await bridge.applyOps(ops as Op[]);
-    if (!res.ok) return fail(res.error ?? "rejected");
-    session.editsSinceReview = true;
-    const notes = await settle(layers.map((l) => String(l.id)), layers);
-    return text([`${layers.length} layers ok`, ...notes].join("\n"));
+    const { count, notes } = await writeLines(lines);
+    return text([`${count} layers ok`, ...notes].join("\n"));
   }),
 );
+
+/** add_layers' work, for the tool and for run scripts: parse, write, place and lint (auto-fixing what has exact fixes). */
+async function writeLines(lines: string): Promise<{ count: number; notes: string[] }> {
+  const layers = parseLines(lines);
+  resolveLayerTimes(layers, wordsOf(await currentScene()));
+  const existing = new Set(layersOf(await currentScene()).map((l) => String(l.id)));
+  const ops = layers.flatMap((layer) => [...(existing.has(String(layer.id)) ? [{ op: "remove_layer", id: layer.id }] : []), { op: "add_layer", layer }]);
+  const res = await bridge.applyOps(ops as Op[]);
+  if (!res.ok) throw new Error(res.error ?? "rejected");
+  session.editsSinceReview = true;
+  return { count: layers.length, notes: await settle(layers.map((l) => String(l.id)), layers) };
+}
 
 // ── components ──
 type ComponentDef = { params?: ParamDef[]; duration?: number; layers: Record<string, unknown>[] };
@@ -1064,13 +1108,18 @@ server.registerTool(
       const textIds = new Set(layers.filter((l) => l.type === "text").map((l) => String(l.id)));
       const list = await layoutAt(r.times);
       const numbers = list ? list.map((f) => { const s = frameStats(f, sizeOf(scene), textIds); return `t=${f.t}s · ${s.onScreen} layers on screen · text covers ${s.textCover}% of the frame`; }) : [];
-      const lint = list ? lintLayers({ layers, frames: list, palette: paletteOf(scene, list), size: sizeOf(scene) }) : [];
+      const found = list ? lintLayers({ layers, frames: list, palette: paletteOf(scene, list), size: sizeOf(scene) }) : [];
+      // Fixes with exact ops are applied here, without a round trip; only what needs judgment is listed.
+      const fixable = found.filter((i) => i.fix?.length);
+      const autoFix = fixable.length ? await bridge.applyOps(fixable.flatMap((i) => i.fix!) as Op[]) : null;
+      const lint = autoFix?.ok ? found.filter((i) => !i.fix?.length) : found;
       session.reviewed = true;
       session.editsSinceReview = false;
       session.lintIds = [...new Set(lint.map((i) => i.id))];
       const report = [
         `duration ${r.duration}s · frames at ${r.times.join(", ")}s`,
         numbers.length ? `per frame (numbers):\n- ${numbers.join("\n- ")}` : "",
+        autoFix?.ok ? `auto-fixed ${fixable.length} (the sheet below was drawn before these fixes): ${fixable.map((i) => i.message).join("; ")}` : "",
         lint.length ? `lint (apply the fix ops with apply_ops):\n- ${formatIssues(lint).join("\n- ")}` : list ? "lint: clean on the sampled frames." : "",
         r.issues.length ? `automatic checks found ${r.issues.length} issue(s):\n- ${r.issues.join("\n- ")}` : "automatic checks: no issues (still look at the sheet).",
         r.motion?.length ? `motion notes:\n- ${r.motion.join("\n- ")}` : "",
@@ -1123,6 +1172,103 @@ server.registerTool(
   guard(async () => {
     const items = await api.consumeFeedback();
     return text(items.length ? items.map(feedbackLine).join("\n") : "No new feedback.");
+  }),
+);
+
+// ── Code Mode: one script instead of a chain of tool calls ──
+/** Script time allowed (time waiting on the editor does not count). */
+const RUN_CPU_MS = 20_000;
+/** Returned value shown back, at most this many characters. */
+const RUN_RETURN_CHARS = 2000;
+
+/** Lint scope for scripts: the given layers, or every layer. */
+async function lintScope(ids?: string[]) {
+  const scene = (await currentScene()) ?? {};
+  const byId = new Map(layersOf(scene).map((l) => [String(l.id), l]));
+  return { scene, byId, set: new Set(ids?.length ? ids : [...byId.keys()]) };
+}
+const brief = (i: Issue) => ({ kind: i.kind, id: i.id, message: i.message, ...(i.fix ? { fix: i.fix } : {}) });
+
+/** What run scripts can call as mo.<name>(...): the data behind the tools, as JSON. */
+const scriptApi: HostApi = {
+  scene: async () => currentScene(),
+  layer: async (id) => layersOf(await currentScene()).find((l) => l.id === id) ?? null,
+  layers: async (group) => layersOf(await currentScene()).filter((l) => group === undefined || l.group === group),
+  add: async (lines) => writeLines(String(lines)),
+  apply: async (ops) => {
+    const res = await bridge.applyOps(ops as Op[]);
+    if (!res.ok) throw new Error(res.error ?? "rejected");
+    session.editsSinceReview = true;
+    return { ok: true };
+  },
+  layout: async (times, ids) => {
+    const list = await layoutAt(times as number[]);
+    if (!list) throw new Error("the editor is not connected");
+    const want = Array.isArray(ids) && ids.length ? new Set(ids as string[]) : null;
+    return list.flatMap((f) => f.layers.filter((r) => !want || want.has(r.id)).map((r) => ({ t: f.t, id: r.id, box: r.screen, visible: r.visible })));
+  },
+  lint: async (ids) => {
+    const { scene, byId, set } = await lintScope(ids as string[] | undefined);
+    const issues = await lintTouched([...byId.values()] as LintLayer[], set, scene);
+    if (!issues) throw new Error("the editor is not connected");
+    return issues.map(brief);
+  },
+  autofix: async (ids) => {
+    const { scene, byId, set } = await lintScope(ids as string[] | undefined);
+    const issues = await lintTouched([...byId.values()] as LintLayer[], set, scene);
+    if (!issues) throw new Error("the editor is not connected");
+    const { fixed, remaining } = await autofix(issues, byId, set, scene);
+    return { fixed, remaining: remaining.map(brief) };
+  },
+  attention: async () => {
+    const scene = await currentScene();
+    if (!scene) return null;
+    return { curve: attentionSparkline(attentionCurve(scene).bins), issues: attentionIssues(scene) };
+  },
+  sounds: async () => (await api.sounds()).map(({ name, category, duration, description }) => ({ name, category, duration, description })),
+  tool: async (name, args) => {
+    if (name === "run") throw new Error("run cannot call itself");
+    const t = toolHandlers.get(String(name));
+    if (!t) throw new Error(`no tool '${String(name)}' for this agent`);
+    const res = await t.cb(z.object(t.schema).parse(args ?? {}) as Record<string, unknown>);
+    const out = res.content.filter((c) => c.type === "text").map((c) => c.text).join("\n");
+    if (res.isError) throw new Error(out);
+    const images = res.content.filter((c) => c.type === "image").length;
+    return images ? `${out}\n(${images} image(s) left out: call ${String(name)} directly to see them)` : out;
+  },
+};
+
+server.registerTool(
+  "run",
+  {
+    description: `CODE MODE: one JavaScript script instead of a chain of tool calls. Prefer it whenever a step needs more than one call (write → measure → fix, many similar layers, checking every beat): the data between calls stays in the script and only what you console.log or return comes back, so it is far cheaper than separate calls.
+Calls are synchronous (no await); the code is a function body, \`return\` a small result.
+mo.add(lines) → {count, notes}: add_layers compact lines (placement + lint run, exact lint fixes auto-applied; notes say what is left)
+mo.apply(ops) → {ok}: apply_ops · mo.scene() · mo.layer(id) · mo.layers(group?)
+mo.layout(times, ids?) → [{t, id, box:[x0,y0,x1,y1], visible}] in scene px
+mo.lint(ids?) → [{kind, id, message, fix?}] · mo.autofix(ids?) → {fixed, remaining}
+mo.attention() → {curve, issues} (vertical/square videos) · mo.sounds() → [{name, category, duration, description}]
+mo.tool(name, args) → any other tool of yours as text (images left out: look with render_frames / review_video directly)
+Example: const r = mo.add(\`title text 0-3 x=540 y=420 size=96 "Hello"\`); const b = mo.layout([0.5], ["title"])[0].box; if (b[2] > 1040) mo.apply([{op:"patch", id:"title", fields:{size:80}}]); console.log(r.notes.join(" | "), b);
+Limits: ${RUN_CPU_MS / 1000} s of script time, 64 MB, no network or files; the log shows the first ${LOG_CHARS} characters.`,
+    inputSchema: { code: z.string().min(1).max(30_000) },
+  },
+  guard(async ({ code }) => {
+    scriptDepth += 1;
+    let r;
+    try {
+      r = await runScript(code, scriptApi, RUN_CPU_MS);
+    } finally {
+      scriptDepth -= 1;
+    }
+    const value = r.value === undefined ? "" : JSON.stringify(r.value);
+    const lines = [
+      `${r.ok ? "ok" : "error"} · ${r.calls} calls · ${(r.ms / 1000).toFixed(1)} s`,
+      ...r.logs,
+      value ? `return: ${value.length > RUN_RETURN_CHARS ? `${value.slice(0, RUN_RETURN_CHARS)}… (cut)` : value}` : "",
+      r.ok ? "" : `error: ${r.error}`,
+    ].filter(Boolean);
+    return r.ok ? text(lines.join("\n")) : fail(lines.join("\n"));
   }),
 );
 

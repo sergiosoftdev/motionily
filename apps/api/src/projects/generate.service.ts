@@ -112,8 +112,8 @@ rules below are exact. To know where something lands on screen, get_layout retur
 /** MCP tools each role sees (each tool description costs context on every turn). */
 const ROLE_TOOLS = {
   planner: ["get_project", "get_brand", "view_image", "view_asset", "search_fonts", "set_font", "apply_ops", "add_layers", "search_images", "import_image", "define_component", "get_component"],
-  builder: ["add_layers", "edit_layers", "apply_ops", "get_layout", "render_frames", "view_asset", "view_image", "get_brand", "find_icons", "define_component", "get_component"],
-  finisher: ["get_feedback", "edit_layers", "review_video", "get_layout", "render_frames", "inspect", "add_layers", "apply_ops", "list_sounds", "make_sound", "add_sfx", "get_component", "set_font", "search_fonts"],
+  builder: ["run", "add_layers", "edit_layers", "apply_ops", "get_layout", "render_frames", "view_asset", "view_image", "get_brand", "find_icons", "define_component", "get_component"],
+  finisher: ["run", "get_feedback", "edit_layers", "review_video", "get_layout", "render_frames", "inspect", "add_layers", "apply_ops", "list_sounds", "make_sound", "add_sfx", "get_component", "set_font", "search_fonts"],
   sound: ["get_project", "list_sounds", "make_sound", "add_sfx"],
 } as const;
 
@@ -288,8 +288,9 @@ There are NO presets: write every animation as keyframes yourself. Work ONLY on 
 - The camera ("cam") and the world background exist already: never add a camera. Build your beat in YOUR region
   of the world (its x/y center and depth z): the camera arrives there on time. Use z for depth inside your beat
   (foreground pieces at z<0, far ones z>0) so the camera move gives real parallax.
-- Write ALL your layers in ONE add_layers call (fewer turns = cheaper and faster), then ONE get_layout and ONE
-  render_frames at 2 moments of your span; fix only what is clearly broken with one more add_layers. Do not run review_video.
+- Build your beat in ONE run script (fewer turns = cheaper and faster): mo.add with ALL your layers, mo.layout at your
+  key instants, fix what is off with mo.apply / mo.autofix, console.log a 2-3 line summary. Then ONE render_frames at
+  2 moments of your span to look at it; fix only what is clearly broken with one more run. Do not run review_video.
 ${NO_PROBING}
 - Product screenshots/logos: get_brand lists them; use their src in image layers.
 ${COMPACT_REF}
@@ -305,7 +306,8 @@ const FINISHER_GUIDE = `You are the finishing editor of a Motionily video built 
 biggest gaps (palette, density, camera, transitions, rhythm); fix them first. On vertical or square videos, fix every
 item of its attention section next (still frame 0, flat stretches, no pattern interrupt, weak finale, fade-out
 ending): it decides whether people keep watching. 2. Fix only what is wrong (overlaps between beats, off-frame, dead air, broken transitions,
-unreadable text): inspect group:NAME to read a group as compact lines, get_layout for exact screen boxes, add_layers to fix.
+unreadable text): batch the reading and fixing in run scripts (mo.layers, mo.layout for exact screen boxes, mo.lint,
+mo.apply, mo.add) instead of one tool call per check.
 ${NO_PROBING} 3. Review again only if you
 changed a lot (max 2 rounds).
 4. SOUND DESIGN: list_sounds, then ONE add_sfx call with a cue on every key motion moment of the timings below
@@ -325,9 +327,10 @@ const SOLO_STEPS = `Build it STEP BY STEP, as ONE continuous world the camera tr
 2. Write ONE short line of plain text in English: the art direction. Then apply_ops (palette, duration), set_font and
    ONE add_layers with ONLY the world: the background and the camera "cam" keyed for the whole film, visiting one
    region per beat.
-3. Then each beat IN ORDER: first a plain-text line "Scene N: <what it shows>" (the user sees it), then ONE add_layers
-   with only that beat's layers (its own group), then get_layout at its key instants and fix what is off. Never put
-   two beats in one add_layers, and do not design the next beat until this one is on screen.
+3. Then each beat IN ORDER: first a plain-text line "Scene N: <what it shows>" (the user sees it), then ONE run script
+   that adds only that beat's layers (its own group) with mo.add, measures them at its key instants with mo.layout and
+   fixes what is off (mo.apply / mo.autofix), logging a short summary. Never put two beats in one script, and do not
+   design the next beat until this one is on screen.
 4. When every beat is in: review_video, fix, review again until clean (max 3 rounds).`;
 
 /** How the agent should work when launched from the editor's Generate button. */
