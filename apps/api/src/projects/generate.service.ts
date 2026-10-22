@@ -120,6 +120,7 @@ const ROLE_TOOLS = {
     "set_font",
     "apply_ops",
     "add_layers",
+    "cut",
     "search_assets",
     "import_assets",
     "cut_out",
@@ -269,6 +270,8 @@ Your job is ONLY to plan, set the global look and lay out the WORLD, fast. Do no
    beats follow its paragraphs / word timings.
 2. Decide an art direction (concept, palette with hex codes following COLOR below, typography, motion language,
    recurring motif) for THIS brief. Unique palette: never the generic violet/magenta/cyan AI look.
+2a. If there is a voice, tighten it before planning the beats: cut pauses=true (every silence over 0.6 s becomes a
+   0.4 s breath, the one after the hook above all); plan the beats on the tightened timing (get_project/inspect again).
 2b. MATERIAL, like a human editor: list what the viewer should SEE in each beat (the real logo, the place, the person,
    the object, a texture, a map) and gather it in ONE search_assets call (kinds photo|footage|logo|texture, one query
    per subject, English, specific; at most one more call for empty needs), pick by looking at the numbered sheets and
@@ -346,6 +349,8 @@ ${CRAFT}`;
  * minutes of silent planning of the whole film) and a cut-off run keeps what it built.
  */
 const SOLO_STEPS = `Build it STEP BY STEP, as ONE continuous world the camera travels through:
+0. If the video has a voice, tighten it first: cut pauses=true (every silence over 0.6 s becomes a 0.4 s breath, above
+   all the one after the hook); every beat is then timed to the tightened voice.
 1. Gather like a human editor: get_project, get_brand, references; then ONE search_assets with everything the viewer
    should see (real logos, places, people, objects, footage, textures), ONE import_assets with your picks (cut_out
    for collage subjects), and set_direction (genre, concept, techniques: honor its two constraints, avoid the looks
@@ -375,6 +380,7 @@ exactly like a motion designer building a spot by hand. Avoid generic videos. Wo
    The VOICE-OVER drives the video: if there are captions (the user uploaded the voice), tie every beat, text
    and cut to the words' timings and make on-screen text mirror what is said. If there is only a voice script
    (get_project), time beats to its paragraphs (~2.3 words/s, "[long pause]" = scene change) and keep it.
+   Dead air is never kept: with a voice, cut pauses=true BEFORE building (no silence over ~0.5 s, never after the hook).
 2. Lay out the WORLD first: one camera layer ("cam", cam=…) keyed for the whole film and a region (x/y, depth z)
    per beat that the camera travels to; the film is one continuous space, not slides.
    Decide an art direction that fits THIS brief (one sentence: concept, visual metaphor, mood, pacing), then plan

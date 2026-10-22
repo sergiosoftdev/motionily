@@ -46,6 +46,7 @@ import { vectorLines, VectorSplit } from "./vectorize.js";
 import { MapProjection, mapLines } from "./maps.js";
 import { varietyNotes } from "./variety.js";
 import { slopNotes } from "./slop.js";
+import { deadAir, voiceWords } from "./voice.js";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const doc = (name: string) => readFileSync(resolve(here, "../../../docs/agent", name), "utf8").trim();
@@ -1197,6 +1198,9 @@ server.registerTool(
   }),
 );
 
+/** A voice silence longer than this (s) is dead air review_video reports. */
+const DEAD_AIR_S = 0.8;
+
 /** Characters of each layer line an example card shows. */
 const EXAMPLE_LINE = 220;
 
@@ -1262,27 +1266,48 @@ function findPhrase(words: Word[], phrase: string): [number, number] | null {
 server.registerTool(
   "cut",
   {
-    description: `Cut time out of the video like an editor's razor: everything in the range goes (the voice skips it, captions, layers, clips with a jump cut, sound effects, markers) and everything after moves up, so nothing goes out of sync. Give the phrase to remove (exact words as spoken: it is found in the caption words and cut at the middle of the pauses around it) or from/to in seconds. The video gets shorter by the cut. To cut just one layer or clip in two, use the split_layer op; to trim a clip, its in/out.`,
+    description: `Cut time out of the video like an editor's razor: everything in the range goes (the voice skips it, captions, layers, clips with a jump cut, sound effects, markers) and everything after moves up, so nothing goes out of sync. Three ways:
+- pauses=true: tighten the voice's dead air — every silence longer than longer_than (0.6 s) becomes a breath of keep (0.4 s). Do it FIRST, before building beats (the build then sits on the tight timing), and whenever review_video reports dead air. The pause right after the hook is the one that loses viewers.
+- phrase: the words to remove, as spoken (found in the voice's words; cut at the middle of the pauses around it).
+- from/to: seconds.
+The video gets shorter by the cut. To cut just one layer or clip in two, use the split_layer op; to trim a clip, its in/out.`,
     inputSchema: {
+      pauses: z.boolean().optional().describe("tighten every long silence of the voice"),
+      longer_than: z.number().min(0.3).max(3).default(0.6).describe("pauses=true: silences longer than this (s) are cut"),
+      keep: z.number().min(0.1).max(1).default(0.4).describe("pauses=true: the breath left in each (s)"),
       phrase: z.string().min(1).optional().describe("words as spoken, e.g. 'On Historia, we open the files one screen at a time'"),
       from: z.number().min(0).optional(),
       to: z.number().positive().optional(),
     },
   },
-  guard(async ({ phrase, from, to }) => {
+  guard(async ({ pauses, longer_than, keep, phrase, from, to }) => {
     const scene = await currentScene();
+    if (pauses) {
+      const words = voiceWords(scene, (await api.project()).audio?.words);
+      if (!words.length) return fail("no voice words to find the pauses in (no captions and no voice alignment): give from/to seconds");
+      const gaps = deadAir(words, longer_than);
+      if (!gaps.length) return text(`no silence longer than ${longer_than} s: the voice is already tight.`);
+      // Last first, so the earlier ranges keep their times; the breath sits slightly before the next word.
+      const ops = gaps.map((g) => ({ op: OpName.RippleDelete, from: +(g.from + keep * 0.45).toFixed(3), to: +(g.to - keep * 0.55).toFixed(3) })).reverse();
+      const res = await bridge.applyOps(ops as Op[]);
+      if (!res.ok) return fail(res.error ?? "the cuts were refused");
+      session.editsSinceReview = true;
+      const total = ops.reduce((sum, o) => sum + (o.to - o.from), 0);
+      const dur = Number((await currentScene())?.duration ?? 0);
+      return text(`tightened ${gaps.length} pause(s) to ${keep} s (${total.toFixed(2)} s of dead air gone): ${gaps.map((g) => `${g.from.toFixed(2)} s "${g.before} … ${g.after}" ${(g.to - g.from).toFixed(2)} s`).join("; ")}. The video is now ${dur.toFixed(2)} s; everything after each cut moved up.`);
+    }
     let range: [number, number];
     if (phrase) {
-      const words = wordsOf(scene);
-      if (!words.length) return fail("no caption words to find the phrase in: give from/to seconds (inspect's voice timeline has them)");
+      const words = voiceWords(scene, (await api.project()).audio?.words);
+      if (!words.length) return fail("no voice words to find the phrase in: give from/to seconds (inspect's voice timeline has them)");
       const hit = findPhrase(words, phrase);
-      if (!hit) return fail(`'${phrase}' is not in the captions word for word. They read: ${words.map((w) => w.text).join(" ").slice(0, 600)}…`);
+      if (!hit) return fail(`'${phrase}' is not in the voice word for word. It reads: ${words.map((w) => w.text).join(" ").slice(0, 600)}…`);
       const [i, j] = hit;
       const before = words[i - 1];
       const after = words[j + 1];
       range = [before ? (before.end + words[i]!.start) / 2 : Math.max(0, words[i]!.start - 0.05), after ? (words[j]!.end + after.start) / 2 : words[j]!.end + 0.15];
     } else if (from !== undefined && to !== undefined && to > from) range = [from, to];
-    else return fail("give the phrase to cut, or from and to (seconds, to > from)");
+    else return fail("give pauses=true, the phrase to cut, or from and to (seconds, to > from)");
     const res = await bridge.applyOps([{ op: OpName.RippleDelete, from: range[0], to: range[1] }] as Op[]);
     if (!res.ok) return fail(res.error ?? "the cut was refused");
     session.editsSinceReview = true;
@@ -1450,6 +1475,11 @@ server.registerTool(
           .then((v) => (v.length ? `variety (vs the account's latest videos):\n- ${v.join("\n- ")}` : ""))
           .catch(() => ""),
         ((n) => (n.length ? `AI tells (craft: AI TELLS) — fix these before calling it done:\n- ${n.join("\n- ")}` : ""))(slopNotes(scene as Parameters<typeof slopNotes>[0])),
+        await api
+          .project()
+          .then((p) => deadAir(voiceWords(scene, p.audio?.words), DEAD_AIR_S))
+          .then((g) => (g.length ? `dead air in the voice (viewers drop here): ${g.map((x) => `${x.from.toFixed(2)} s (${(x.to - x.from).toFixed(2)} s, "${x.before} … ${x.after}")`).join(", ")} — cut pauses=true` : ""))
+          .catch(() => ""),
         r.strips?.length ? `motion strips (consecutive frames at 12 fps) of the moments that change most: ${r.strips.map((s) => `${s.from}-${s.to}s`).join(", ")} — judge the easing, spacing and continuity there.` : "",
       ]
         .filter(Boolean)

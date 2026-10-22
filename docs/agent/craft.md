@@ -24,6 +24,8 @@ SHORT-FORM ATTENTION CURVE — always for 9:16, 4:5 and 1:1 (Reels, TikTok, Shor
 Attention is a sawtooth, not an arc: start high, dip a little, re-hook, repeat, end on the highest peak.
 - Start at 70%: frame 0 already moving, in medias res on the most surprising result, conflict or image. No setup,
   no logo intro; context arrives later in small doses, only when the viewer needs it.
+- No dead air: no voice silence longer than ~0.5 s anywhere, and never right after the hook (that is where most viewers
+  swipe). `cut pauses=true` removes it before building.
 - Re-hook every 4-7 s: open a question → pay part of it with a concrete fact or visual → open the next question
   before closing the last. Never leave the viewer with nothing open.
 - Peaks escalate (stakes, numbers, reveals), each bigger than the one before; the biggest reveal in the last 20%.

@@ -17,30 +17,33 @@ remain when you finish.
 ## Fast path — a full video in ~12-18 tool calls
 1. In parallel: `get_project` (brief, format, voice), `get_brand` (product notes, palettes, logos, screenshots),
    `view_image` for each reference image; `view_asset` on the screenshots you will show.
-2. MATERIAL FIRST, like a human editor: list what the viewer should SEE in each beat (the real logo, the factory, the
+2. TIGHTEN THE VOICE before anything is built: `cut pauses=true` turns every silence longer than 0.6 s into a 0.4 s
+   breath (the long pauses ElevenLabs renders between scenes, and above all the one right after the hook: that is where
+   viewers swipe away). Every beat is then timed to the tightened voice; its paragraphs, not its pauses, are the beats.
+3. MATERIAL FIRST, like a human editor: list what the viewer should SEE in each beat (the real logo, the factory, the
    person, the product, the place, a texture) and gather it in ONE `search_assets` call (see "Real material"), then
    ONE `import_assets` with the numbers you picked (and `cut_out` for subjects you will collage). Brand videos start
    from `get_brand`; search only for what the kit lacks (partner logos, places, textures).
-3. ONE `set_direction`: a genre from STYLE VOCABULARY that fits THIS story and its material, the concept and your
+4. ONE `set_direction`: a genre from STYLE VOCABULARY that fits THIS story and its material, the concept and your
    techniques. Read what it returns: 3 reference films of that genre, 2 creative constraints you must honor, the
    user's FAVORITE videos (their taste: `examples find` shows how they are built; keep their principles) and the
    account's latest other videos (font, color, moves) — this video must not look like those. Then decide palette (hex), font,
    camera path through ONE world, 2-6 beats with their times and regions. Do not ask the user unless the brief is empty.
-4. ONE `apply_ops`: `clear_layers` (new video only) + `set_palette` + `set_duration`. Then `set_font` (use `search_fonts`
+5. ONE `apply_ops`: `clear_layers` (new video only) + `set_palette` + `set_duration`. Then `set_font` (use `search_fonts`
    only if unsure of the exact family) and ONE `find_icons` with every word you need.
-5. ONE `add_layers` for the world (camera + background), then ONE `run` script per beat: `mo.add` with all its layers,
+6. ONE `add_layers` for the world (camera + background), then ONE `run` script per beat: `mo.add` with all its layers,
    `mo.layout` at 3-6 key instants (off frame, behind the camera or colliding boxes come back as numbers), fixes with
    `mo.apply` / `mo.add` (same id replaces), a short `console.log`. A motif that repeats (cards, pills, rows, bars) is
    ONE `define_component` + one `use` line per copy.
-6. CODE MODE: whenever a step needs two or more calls, write it as ONE `run` script instead; the data between the calls
+7. CODE MODE: whenever a step needs two or more calls, write it as ONE `run` script instead; the data between the calls
    stays in the script, which is much cheaper. Exact lint fixes (text too small, low contrast, a still layer mostly off
    the frame) are applied automatically after every write: only what needs your judgment is reported.
-7. `review_video` once: contact sheet + motion strips + automatic checks (and a variety check against the account's
+8. `review_video` once: contact sheet + motion strips + automatic checks (and a variety check against the account's
    latest videos). Fix what it shows; `render_frames` (≤6 stills) to
    zoom into a moment. Max 3 review rounds.
-8. Sound: `list_sounds`, 2-4 sounds of this video's own with `make_sound` (its signature; everything when the library
+9. Sound: `list_sounds`, 2-4 sounds of this video's own with `make_sound` (its signature; everything when the library
    is empty), then ONE `add_sfx`. Voice-over script: `set_voice_script` when the user wants one.
-9. `get_feedback`, apply it, and finish with a 2-3 sentence summary (in the user's language).
+10. `get_feedback`, apply it, and finish with a 2-3 sentence summary (in the user's language).
 
 Batch everything: one call with 30 lines beats 30 calls. To change what exists, `edit_layers` (only the keys you
 write) or `replace_color` — never rewrite whole layers or send one op per layer. Write colors as palette slots
@@ -135,6 +138,8 @@ Rejected on purpose: `set_size` (use `set_format`), `set_style`, `set_library`, 
   `music: …`. The editor lowers it to `gain × duck` around every caption word (or the voice's own speech when there are
   no captions). Leave it unless the user asks; `set_music` changes it (`{"op":"set_music","music":null}` removes it).
 - Only a voice script: ~2.3 words/s, one paragraph per beat, `[long pause]` = beat change.
+- Dead air is never kept: once the voice exists, `cut pauses=true` takes every silence over 0.6 s down to a breath
+  (scene changes then come from the paragraphs). review_video reports any silence over 0.8 s left in the voice.
 - `set_voice_script`: ElevenLabs v3 — one tone tag like `[warm]` first, one paragraph per scene, `[long pause] [long pause]`
   between scenes, numbers in letters, last sentence = CTA.
 - `add_sfx` lines `id sound_name at [gain]` (gain default 0.45; 0.3-0.6 under a voice, never above 0.8 — the user also has an effects volume slider, shown as `sfx volume` in get_scene: never fight it): whoosh ~0.1 s before moves and transitions, pop on entrances, click/tick on UI
