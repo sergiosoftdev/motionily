@@ -671,6 +671,36 @@ server.registerTool(
   }),
 );
 
+/**
+ * Patch fields written as compact keys (`ls`, `lh`, `s`, `o`, `rad`, `te`, `g`…, with compact values
+ * like `0>1@0-.8:eo`) become the layer's JSON fields, so a patch op takes either spelling. JSON
+ * names and JSON values (objects, arrays) pass through untouched.
+ */
+function aliasPatchFields(ops: Record<string, unknown>[], layers: Record<string, unknown>[]): Record<string, unknown>[] {
+  return ops.map((op) => {
+    if (op.op !== "patch" || !op.fields || typeof op.fields !== "object") return op;
+    const ids = new Set([op.id, ...((op.ids as unknown[] | undefined) ?? [])].filter(Boolean).map(String));
+    const layer = layers.find((l) => ids.has(String(l.id)) || (op.group !== undefined && l.group === op.group)) ?? (op.all ? layers[0] : undefined);
+    if (!layer) return op;
+    const fields: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(op.fields as Record<string, unknown>)) {
+      const plain = typeof value === "number" || (typeof value === "string" && !/\s/.test(value));
+      let parsed: Record<string, unknown> | null = null;
+      if (plain && !key.includes(".")) {
+        try {
+          parsed = parsePartial(`${key}=${value}`, layer);
+        } catch {
+          parsed = null;
+        }
+      }
+      // Only a key the compact syntax renames is translated (fill, text… keep their JSON value).
+      if (parsed && !(key in parsed)) Object.assign(fields, parsed);
+      else fields[key] = value;
+    }
+    return { ...op, fields };
+  });
+}
+
 /** add_layers' work, for the tool and for run scripts: parse, write, place and lint (auto-fixing what has exact fixes). */
 async function writeLines(lines: string): Promise<{ count: number; notes: string[] }> {
   await preloadIcons(lines, api);
@@ -1204,7 +1234,7 @@ server.registerTool(
     inputSchema: { ops: z.array(z.looseObject({ op: z.string() })).min(1) },
   },
   guard(async ({ ops }) => {
-    const batch = ops as Record<string, unknown>[];
+    const batch = aliasPatchFields(ops as Record<string, unknown>[], layersOf(await currentScene()));
     try {
       resolveOpTimes(batch, wordsOf(await currentScene()));
     } catch (e) {
@@ -1395,7 +1425,7 @@ const scriptApi: HostApi = {
   layers: async (group) => layersOf(await currentScene()).filter((l) => group === undefined || l.group === group),
   add: async (lines) => writeLines(String(lines)),
   apply: async (ops) => {
-    const res = await bridge.applyOps(ops as Op[]);
+    const res = await bridge.applyOps(aliasPatchFields(ops as Record<string, unknown>[], layersOf(await currentScene())) as Op[]);
     if (!res.ok) throw new Error(res.error ?? "rejected");
     session.editsSinceReview = true;
     return { ok: true };

@@ -81,7 +81,8 @@ applied: fix it and resend the call.
 {"op":"set_prop","id":"card","prop":"x|y|w|h|scale|rotation|opacity|radius|z|rotate_x|rotate_y|soft|backdrop|time|perspective","value":<number|keyframes|"expression">}
                                                         // any other prop (gradient, stroke, effects…) is a patch of that field
 {"op":"patch","id":"card"|"ids":[…]|"group":"cards"|"all":true,"fields":{"gradient":{…},"stroke.width":3,"fill":"accent"}}
-                                                        // any layer field (JSON names); "a.b" merges inside; null resets
+                                                        // any layer field (JSON names, or add_layers keys like ls/lh/o/te with their
+                                                        // compact values); "a.b" merges inside; null resets
 {"op":"replace_color","from":"#e87c3d","to":"#57a0db","group":"hook"?}   // every fill/stroke/stop/effect color at once
 {"op":"set_fill","id":"card","fill":"accent"}  {"op":"set_text","id":"title","text":"…"}
 {"op":"set_timing","id":"card","start":1,"end":3}       // end may be null (= video end)
