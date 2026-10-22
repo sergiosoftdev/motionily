@@ -21,7 +21,11 @@ const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 /** Six weeks always fit any month. */
 const GRID_DAYS = 42;
 /** Where to post by hand on the web. */
-const UPLOAD_URL: Record<Platform, string> = { [Platform.Instagram]: "https://www.instagram.com/", [Platform.TikTok]: "https://www.tiktok.com/tiktokstudio/upload" };
+const UPLOAD_URL: Record<Platform, string> = {
+  [Platform.Instagram]: "https://www.instagram.com/",
+  [Platform.TikTok]: "https://www.tiktok.com/tiktokstudio/upload",
+  [Platform.YouTube]: "https://www.youtube.com/upload",
+};
 /** Formats taller than wide: the preview keeps its height in check. */
 const TALL: (string | null)[] = [VideoFormat.Vertical, VideoFormat.Portrait];
 

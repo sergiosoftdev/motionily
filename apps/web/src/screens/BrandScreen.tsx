@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import type { Brick, PalettePayload, ProjectListItem } from "@motionily/protocol";
+import type { Brick, ProjectListItem } from "@motionily/protocol";
 import { api, AssetKind, mediaUrl, type BrandKit, type BrandPalette } from "../api/client";
 import { BrandTab, href, navigate, RouteName } from "../router";
 import { MotionilyLayout } from "../shell/MotionilyLayout";
-import { Thumb } from "../components/style/Thumb";
+import { VideoCard } from "../components/VideoCard";
 import { EditFootageButton } from "../footage/EditFootageButton";
 
 /** Images and the clip formats video layers decode (mp4, webm, mov). */
@@ -87,34 +87,9 @@ function Videos({ brandId }: { brandId: string }) {
   }
   return (
     <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-      {videos?.map((v) => {
-        const palette = catalog.get(v.build.palette)?.payload as PalettePayload | undefined;
-        return (
-          <div key={v._id} className="group relative">
-            <a href={href({ name: RouteName.Editor, id: v._id })} className="flex flex-col gap-3 rounded-xl p-2 hover:bg-neutral-900">
-              {palette ? <Thumb palette={palette} className="aspect-video w-full" /> : <span className="block aspect-video w-full rounded-md bg-neutral-900" />}
-              <span className="flex items-center gap-2 px-1 font-semibold">
-                {v.name}
-                {v.generating && (
-                  <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
-                    <span className="size-1.5 animate-pulse rounded-full bg-emerald-400" /> Generating…
-                  </span>
-                )}
-              </span>
-              <span className="-mt-2 px-1 text-xs text-neutral-400">
-                {new Date(v.updatedAt).toLocaleDateString("en-US")}
-              </span>
-            </a>
-            <button
-              type="button"
-              onClick={() => void remove(v)}
-              className="absolute top-4 right-4 rounded-md bg-black/60 px-2 py-1 text-xs text-neutral-300 opacity-0 group-hover:opacity-100 hover:text-red-400"
-            >
-              Delete
-            </button>
-          </div>
-        );
-      })}
+      {videos?.map((v) => (
+        <VideoCard key={v._id} video={v} catalog={catalog} onDelete={() => void remove(v)} />
+      ))}
     </div>
   );
 }

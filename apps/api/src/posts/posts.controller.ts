@@ -18,7 +18,7 @@ function userOnly(user: AuthUser) {
   return user.id;
 }
 
-/** The posting calendar: videos scheduled for Instagram and TikTok, with their captions and files. */
+/** The posting calendar: videos scheduled for Instagram, TikTok and YouTube Shorts, with their captions and files. */
 @Controller("posts")
 export class PostsController {
   constructor(

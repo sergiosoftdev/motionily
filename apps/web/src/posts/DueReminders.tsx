@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type ScheduledPost } from "../api/client";
 import { href, navigate, RouteName, useRoute } from "../router";
-import { PLATFORM_LABEL } from "./posts";
+import { platformList } from "./posts";
 
 const POLL_MS = 60_000;
 /** Posts already announced with a browser notification (once each). */
@@ -27,7 +27,7 @@ function saveIds(key: string, ids: string[]) {
   }
 }
 
-const where = (p: ScheduledPost) => p.platforms.map((x) => PLATFORM_LABEL[x]).join(" and ");
+const where = (p: ScheduledPost) => platformList(p.platforms);
 
 /**
  * Posts whose time has come: a browser notification once (when allowed) and a reminder in the

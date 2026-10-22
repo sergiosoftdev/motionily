@@ -2,8 +2,10 @@ import { Type } from "class-transformer";
 import { ArrayMaxSize, ArrayMinSize, ArrayUnique, IsArray, IsDateString, IsEnum, IsIn, IsInt, IsMongoId, IsOptional, IsString, Matches, MaxLength, Min, ValidateNested } from "class-validator";
 import { Platform, PostStatus } from "./post.schema";
 
-/** Both platforms cap a caption at 2,200 characters. */
+/** Instagram and TikTok cap a caption at 2,200 characters (YouTube allows more; one limit for all). */
 export const MAX_CAPTION = 2200;
+/** A post's texts: at most one per platform. */
+export const PLATFORM_COUNT = Object.values(Platform).length;
 /** Instagram allows 30 hashtags; a handful works better anyway. */
 export const MAX_HASHTAGS = 30;
 /** `?due=1`: only scheduled posts whose time has come. */
@@ -28,13 +30,13 @@ export class CreatePostDto {
   @IsMongoId() projectId: string;
   @IsDateString() scheduledAt: string;
   @IsArray() @ArrayMinSize(1) @ArrayUnique() @IsEnum(Platform, { each: true }) platforms: Platform[];
-  @IsArray() @ArrayMaxSize(2) @ValidateNested({ each: true }) @Type(() => PostCopyDto) copy: PostCopyDto[];
+  @IsArray() @ArrayMaxSize(PLATFORM_COUNT) @ValidateNested({ each: true }) @Type(() => PostCopyDto) copy: PostCopyDto[];
 }
 
 export class UpdatePostDto {
   @IsOptional() @IsDateString() scheduledAt?: string;
   @IsOptional() @IsArray() @ArrayMinSize(1) @ArrayUnique() @IsEnum(Platform, { each: true }) platforms?: Platform[];
-  @IsOptional() @IsArray() @ArrayMaxSize(2) @ValidateNested({ each: true }) @Type(() => PostCopyDto) copy?: PostCopyDto[];
+  @IsOptional() @IsArray() @ArrayMaxSize(PLATFORM_COUNT) @ValidateNested({ each: true }) @Type(() => PostCopyDto) copy?: PostCopyDto[];
   @IsOptional() @IsEnum(PostStatus) status?: PostStatus;
 }
 

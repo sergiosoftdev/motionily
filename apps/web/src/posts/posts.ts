@@ -1,8 +1,10 @@
 import { Platform, PostStatus, type PostCopy, type ScheduledPost } from "../api/client";
 
-export const PLATFORMS: Platform[] = [Platform.Instagram, Platform.TikTok];
-export const PLATFORM_LABEL: Record<Platform, string> = { instagram: "Instagram", tiktok: "TikTok" };
-/** Both platforms cap a caption at 2,200 characters (hashtags included). */
+export const PLATFORMS: Platform[] = [Platform.Instagram, Platform.TikTok, Platform.YouTube];
+export const PLATFORM_LABEL: Record<Platform, string> = { instagram: "Instagram", tiktok: "TikTok", youtube: "YouTube Shorts" };
+/** "Instagram, TikTok and YouTube Shorts" */
+export const platformList = (ps: Platform[]) => new Intl.ListFormat("en", { type: "conjunction" }).format(ps.map((p) => PLATFORM_LABEL[p]));
+/** Instagram and TikTok cap a caption at 2,200 characters, hashtags included (one limit for all). */
 export const MAX_CAPTION = 2200;
 
 /** What gets pasted on the platform: the caption, a blank line, then the hashtags. */

@@ -5,6 +5,8 @@ import type { CaptionStyle, StylePreset } from "@motionily/protocol";
 export const ActivitySource = {
   Agent: "agent",
   User: "user",
+  /** What the user asked Claude (Edit mode shows these as the conversation). */
+  Ask: "ask",
   System: "system",
 } as const;
 export type ActivitySource = (typeof ActivitySource)[keyof typeof ActivitySource];
@@ -64,8 +66,11 @@ export const useEditor = create<EditorState>(() => ({
   sceneSize: [1080, 1920],
 }));
 
+/** Entries kept: enough for a session's asks and the agent's steps between them. */
+const MAX_ACTIVITY = 200;
+
 export function logActivity(source: ActivitySource, text: string) {
   useEditor.setState((s) => ({
-    activity: [{ id: nextId++, source, text, at: new Date() }, ...s.activity].slice(0, 50),
+    activity: [{ id: nextId++, source, text, at: new Date() }, ...s.activity].slice(0, MAX_ACTIVITY),
   }));
 }

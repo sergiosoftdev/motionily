@@ -3,7 +3,7 @@ import { api, mediaUrl, Platform, PostStatus, type PostCopy, type ScheduledPost 
 import { renderCurrentScene } from "../export/renderScene";
 import { href, RouteName } from "../router";
 import type { EditorProps } from "../editor/context";
-import { defaultSlot, formatWhen, fromLocalInput, hashtagsText, MAX_CAPTION, parseHashtags, PLATFORM_LABEL, PLATFORMS, postText, toLocalInput } from "./posts";
+import { defaultSlot, formatWhen, fromLocalInput, hashtagsText, MAX_CAPTION, parseHashtags, PLATFORM_LABEL, platformList, PLATFORMS, postText, toLocalInput } from "./posts";
 
 const Stage = { Edit: "edit", Rendering: "rendering", Uploading: "uploading", Done: "done" } as const;
 type Stage = (typeof Stage)[keyof typeof Stage];
@@ -15,7 +15,10 @@ const POST_SHORT_SIDE = 1080;
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const emptyCopy = (platform: Platform): PostCopy => ({ platform, caption: "", hashtags: [] });
 
-/** Schedule this video for Instagram and TikTok: Claude writes the text, the editor renders the file. */
+/**
+ * Put this video on the posting calendar: when and where is enough. The caption and hashtags
+ * (Claude writes them on request) and the rendered file are optional and can come later.
+ */
 export function ScheduleButton({ ed }: { ed: EditorProps }) {
   const [open, setOpen] = useState(false);
   return (
@@ -35,6 +38,10 @@ function ScheduleDialog({ ed, onClose }: { ed: EditorProps; onClose: () => void 
   const [platforms, setPlatforms] = useState<Platform[]>(PLATFORMS);
   const [when, setWhen] = useState(() => toLocalInput(defaultSlot()));
   const [copy, setCopy] = useState<PostCopy[]>([]);
+  /** The caption and hashtags fields are shown (closed until there is text or the user opens them). */
+  const [showText, setShowText] = useState(false);
+  /** Render the file now as well, so it is ready when it's time to post. */
+  const [render, setRender] = useState(false);
   /** Bumped when Claude rewrites the text, so the hashtag fields pick it up. */
   const [draft, setDraft] = useState(0);
   const [writing, setWriting] = useState(false);
@@ -48,14 +55,17 @@ function ScheduleDialog({ ed, onClose }: { ed: EditorProps; onClose: () => void 
 
   const copyOf = (p: Platform) => copy.find((c) => c.platform === p) ?? emptyCopy(p);
   const setCopyOf = (p: Platform, patch: Partial<PostCopy>) => setCopy((all) => [...all.filter((c) => c.platform !== p), { ...copyOf(p), ...patch }]);
+  const hasText = platforms.some((p) => copyOf(p).caption.trim());
 
   const write = async (forPlatforms: Platform[], steerText?: string) => {
     setWriting(true);
+    setShowText(true);
     setError(null);
     try {
       const res = await api.writeCopy(project.id, forPlatforms, steerText);
       setCopy((all) => [...all.filter((c) => !res.copy.some((n) => n.platform === c.platform)), ...res.copy]);
       setDraft((d) => d + 1);
+      setSteer("");
     } catch (e) {
       setError(message(e));
     } finally {
@@ -63,34 +73,30 @@ function ScheduleDialog({ ed, onClose }: { ed: EditorProps; onClose: () => void 
     }
   };
 
-  // One video, one post: an upcoming post of this video opens for editing; otherwise the saved draft,
-  // and only a video without one asks Claude (text is never rewritten behind the user's back).
-  const started = useRef(false);
+  // One video, one post: an upcoming post of this video opens for editing; otherwise the saved draft.
+  // Claude only writes when asked (text is never written or rewritten behind the user's back).
   useEffect(() => {
-    // React's dev double mount must not ask Claude twice.
-    if (started.current) return;
-    started.current = true;
     api
       .posts({ projectId: project.id })
       .then((list) => {
         const next = list.find((p) => p.status === PostStatus.Scheduled) ?? null;
         setExisting(next);
-        if (!next) {
-          const saved = project.postCopy.filter((c): c is PostCopy => (PLATFORMS as string[]).includes(c.platform));
-          if (!saved.length) return void write(PLATFORMS);
-          setCopy(saved);
-          setDraft((d) => d + 1);
-          return;
+        const text = next ? next.copy : project.postCopy.filter((c): c is PostCopy => (PLATFORMS as string[]).includes(c.platform));
+        if (next) {
+          setPlatforms(next.platforms);
+          setWhen(toLocalInput(new Date(next.scheduledAt)));
+          // A file to make or remake: offer it ticked.
+          setRender(!!next.video?.outdated);
         }
-        setPlatforms(next.platforms);
-        setWhen(toLocalInput(new Date(next.scheduledAt)));
-        setCopy(next.copy);
+        setCopy(text);
+        setShowText(text.some((c) => c.caption.trim()));
         setDraft((d) => d + 1);
       })
       .catch((e) => {
         setExisting(null);
         setError(message(e));
       });
+    // Once per video: the draft autosave below updates the project, which must not reload this.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id]);
 
@@ -103,14 +109,7 @@ function ScheduleDialog({ ed, onClose }: { ed: EditorProps; onClose: () => void 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [copy, loaded, existing]);
 
-  const toggle = (p: Platform) => {
-    const next = PLATFORMS.filter((x) => (x === p ? !platforms.includes(p) : platforms.includes(x)));
-    setPlatforms(next);
-    if (next.includes(p) && !copyOf(p).caption) void write([p]);
-  };
-
-  /** A new post or a changed video needs a new file; otherwise only the text and time are saved. */
-  const needsRender = !existing || !existing.video || existing.video.outdated;
+  const toggle = (p: Platform) => setPlatforms(PLATFORMS.filter((x) => (x === p ? !platforms.includes(p) : platforms.includes(x))));
 
   const save = async () => {
     const at = fromLocalInput(when);
@@ -121,9 +120,12 @@ function ScheduleDialog({ ed, onClose }: { ed: EditorProps; onClose: () => void 
     setError(null);
     const body = { scheduledAt: at, platforms, copy: platforms.map(copyOf) };
     try {
-      if (!needsRender) {
-        setStage(Stage.Uploading);
-        setSaved(await api.updatePost(existing!.id, body));
+      setStage(Stage.Uploading);
+      const post = existing ? await api.updatePost(existing.id, body) : await api.createPost({ projectId: project.id, ...body });
+      // On the calendar from here on: a retry updates this post instead of adding another.
+      setExisting(post);
+      if (!render) {
+        setSaved(post);
         return setStage(Stage.Done);
       }
       setStage(Stage.Rendering);
@@ -133,14 +135,7 @@ function ScheduleDialog({ ed, onClose }: { ed: EditorProps; onClose: () => void 
       const audioUrl = project.audio ? mediaUrl(project.audio.url) : null;
       const file = await renderCurrentScene({ shortSide: POST_SHORT_SIDE, audioUrl, onProgress: setProgress, signal: abort.current.signal });
       setStage(Stage.Uploading);
-      const post = existing ? await api.updatePost(existing.id, body) : await api.createPost({ projectId: project.id, ...body });
-      try {
-        setSaved(await api.uploadPostVideo(post.id, file.blob, `${project.name || "motionily"}.${file.extension}`, revision));
-      } catch (e) {
-        // A new post without its file is no use on the calendar.
-        if (!existing) await api.deletePost(post.id).catch(() => undefined);
-        throw e;
-      }
+      setSaved(await api.uploadPostVideo(post.id, file.blob, `${project.name || "motionily"}.${file.extension}`, revision));
       setStage(Stage.Done);
     } catch (e) {
       setStage(Stage.Edit);
@@ -148,20 +143,21 @@ function ScheduleDialog({ ed, onClose }: { ed: EditorProps; onClose: () => void 
     }
   };
 
+  const fileNote = !existing?.video ? "Render the video now, so the file is ready when it's time" : existing.video.outdated ? "Render it again: you edited the video after the file was made" : "Render the file again";
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" onClick={() => !busy && onClose()}>
-      <div className="flex max-h-[90dvh] w-full max-w-2xl flex-col gap-6 overflow-y-auto rounded-2xl bg-neutral-900 p-6" onClick={(e) => e.stopPropagation()}>
+      <div className="flex max-h-[90dvh] w-full max-w-lg flex-col gap-6 overflow-y-auto rounded-2xl bg-neutral-900 p-6" onClick={(e) => e.stopPropagation()}>
         <div>
-          <h2 className="text-lg font-bold">{existing ? "Scheduled post" : "Schedule this video"}</h2>
-          <p className="mt-1 text-sm text-neutral-400">
-            Claude writes the caption and hashtags for each platform. When it's time, Motionily reminds you with the video and the text ready to paste.
-          </p>
+          <h2 className="text-lg font-bold">{existing ? "Scheduled post" : "Add to calendar"}</h2>
+          <p className="mt-1 text-sm text-neutral-400">Pick when and where. Motionily reminds you when it's time to post.</p>
         </div>
 
         {stage === Stage.Done && saved ? (
           <div className="flex flex-col gap-5">
             <p className="text-sm text-neutral-300">
-              Scheduled for <span className="font-semibold text-white">{formatWhen(saved.scheduledAt)}</span> on {saved.platforms.map((p) => PLATFORM_LABEL[p]).join(" and ")}.
+              On the calendar for <span className="font-semibold text-white">{formatWhen(saved.scheduledAt)}</span> on {platformList(saved.platforms)}.
+              {!saved.video && " The file can be rendered later, from here or the calendar."}
             </p>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={onClose} className="rounded-lg px-4 py-2 text-sm text-neutral-400 hover:text-white">
@@ -174,82 +170,108 @@ function ScheduleDialog({ ed, onClose }: { ed: EditorProps; onClose: () => void 
           </div>
         ) : (
           <>
-            <div className="flex flex-wrap items-center gap-3">
-              {PLATFORMS.map((p) => (
-                <button
-                  key={p}
-                  type="button"
+            <div className="flex flex-col gap-4">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-xs text-neutral-400">When</span>
+                <input
+                  type="datetime-local"
+                  value={when}
                   disabled={busy}
-                  onClick={() => toggle(p)}
-                  className={`rounded-full px-3.5 py-1.5 text-xs font-medium ${platforms.includes(p) ? "bg-white text-neutral-900" : "bg-neutral-800 text-neutral-400 hover:text-white"}`}
-                >
-                  {PLATFORM_LABEL[p]}
-                </button>
-              ))}
-              <input
-                type="datetime-local"
-                value={when}
-                disabled={busy}
-                onChange={(e) => setWhen(e.target.value)}
-                className="ml-auto rounded-lg bg-neutral-800 px-3 py-1.5 text-sm text-white [color-scheme:dark]"
-              />
+                  onChange={(e) => setWhen(e.target.value)}
+                  className="rounded-lg bg-neutral-800 px-3 py-2 text-sm text-white [color-scheme:dark]"
+                />
+              </label>
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs text-neutral-400">Where</span>
+                <div className="flex flex-wrap gap-2">
+                  {PLATFORMS.map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      disabled={busy}
+                      aria-pressed={platforms.includes(p)}
+                      onClick={() => toggle(p)}
+                      className={`rounded-full px-3.5 py-1.5 text-xs font-medium ${platforms.includes(p) ? "bg-white text-neutral-900" : "bg-neutral-800 text-neutral-400 hover:text-white"}`}
+                    >
+                      {PLATFORM_LABEL[p]}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
             {existing === undefined ? (
               <p className="text-sm text-neutral-500">Loading…</p>
-            ) : (
-              platforms.map((p) => {
-                const c = copyOf(p);
-                const length = postText(c).length;
-                return (
-                  <section key={p} className="flex flex-col gap-2">
-                    <div className="flex items-baseline justify-between">
-                      <h3 className="text-sm font-semibold">{PLATFORM_LABEL[p]}</h3>
-                      <span className={`text-xs tabular-nums ${length > MAX_CAPTION ? "text-red-400" : "text-neutral-500"}`}>
-                        {length} / {MAX_CAPTION}
-                      </span>
-                    </div>
-                    <textarea
-                      value={c.caption}
-                      disabled={busy || writing}
-                      onChange={(e) => setCopyOf(p, { caption: e.target.value })}
-                      rows={p === Platform.Instagram ? 6 : 3}
-                      placeholder={writing ? "Claude is writing…" : "Caption"}
-                      className="resize-y rounded-lg bg-neutral-950 px-3 py-2 text-sm leading-relaxed text-neutral-100 placeholder:text-neutral-600"
-                    />
-                    <input
-                      key={`${p}-${draft}`}
-                      defaultValue={hashtagsText(c.hashtags)}
-                      disabled={busy || writing}
-                      onBlur={(e) => setCopyOf(p, { hashtags: parseHashtags(e.target.value) })}
-                      placeholder="#hashtags"
-                      className="rounded-lg bg-neutral-950 px-3 py-2 text-sm text-sky-300 placeholder:text-neutral-600"
-                    />
-                  </section>
-                );
-              })
-            )}
-
-            {platforms.length > 0 && (
-              <div className="flex gap-2">
-                <input
-                  value={steer}
-                  disabled={busy || writing}
-                  onChange={(e) => setSteer(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && void write(platforms, steer)}
-                  placeholder="Ask for changes: shorter, more playful, no emojis…"
-                  className="min-w-0 flex-1 rounded-lg bg-neutral-800 px-3 py-2 text-sm placeholder:text-neutral-500"
-                />
-                <button
-                  type="button"
-                  disabled={busy || writing}
-                  onClick={() => void write(platforms, steer)}
-                  className="shrink-0 rounded-lg bg-neutral-800 px-3 py-2 text-xs font-semibold hover:bg-neutral-700 disabled:opacity-50"
-                >
-                  {writing ? "Writing…" : "Rewrite"}
+            ) : !showText ? (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                <button type="button" disabled={busy || !platforms.length} onClick={() => void write(platforms)} className="font-medium text-white hover:underline disabled:opacity-50">
+                  Write the caption with Claude
                 </button>
+                <span className="text-neutral-600">or</span>
+                <button type="button" disabled={busy} onClick={() => setShowText(true)} className="text-neutral-400 hover:text-white">
+                  write it yourself
+                </button>
+                <span className="w-full text-xs text-neutral-500">Optional: you can add it later from the calendar.</span>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-5">
+                {platforms.map((p) => {
+                  const c = copyOf(p);
+                  const length = postText(c).length;
+                  return (
+                    <section key={p} className="flex flex-col gap-2">
+                      <div className="flex items-baseline justify-between">
+                        <h3 className="text-sm font-semibold">{PLATFORM_LABEL[p]}</h3>
+                        <span className={`text-xs tabular-nums ${length > MAX_CAPTION ? "text-red-400" : "text-neutral-500"}`}>
+                          {length} / {MAX_CAPTION}
+                        </span>
+                      </div>
+                      <textarea
+                        value={c.caption}
+                        disabled={busy || writing}
+                        onChange={(e) => setCopyOf(p, { caption: e.target.value })}
+                        rows={p === Platform.Instagram ? 5 : 3}
+                        placeholder={writing ? "Claude is writing…" : "Caption"}
+                        className="resize-y rounded-lg bg-neutral-950 px-3 py-2 text-sm leading-relaxed text-neutral-100 placeholder:text-neutral-600"
+                      />
+                      <input
+                        key={`${p}-${draft}`}
+                        defaultValue={hashtagsText(c.hashtags)}
+                        disabled={busy || writing}
+                        onBlur={(e) => setCopyOf(p, { hashtags: parseHashtags(e.target.value) })}
+                        placeholder="#hashtags"
+                        className="rounded-lg bg-neutral-950 px-3 py-2 text-sm text-sky-300 placeholder:text-neutral-600"
+                      />
+                    </section>
+                  );
+                })}
+                {platforms.length > 0 && (
+                  <div className="flex gap-2">
+                    <input
+                      value={steer}
+                      disabled={busy || writing}
+                      onChange={(e) => setSteer(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && void write(platforms, steer)}
+                      placeholder={hasText ? "Ask Claude for changes: shorter, more playful, no emojis…" : "Tell Claude anything to keep in mind (optional)"}
+                      className="min-w-0 flex-1 rounded-lg bg-neutral-800 px-3 py-2 text-sm placeholder:text-neutral-500"
+                    />
+                    <button
+                      type="button"
+                      disabled={busy || writing}
+                      onClick={() => void write(platforms, steer)}
+                      className="shrink-0 rounded-lg bg-neutral-800 px-3 py-2 text-xs font-semibold hover:bg-neutral-700 disabled:opacity-50"
+                    >
+                      {writing ? "Writing…" : hasText ? "Rewrite" : "Write with Claude"}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
+
+            <label className="flex cursor-pointer items-center gap-3 text-sm text-neutral-400">
+              <input type="checkbox" checked={render} disabled={busy} onChange={(e) => setRender(e.target.checked)} className="size-4 accent-white" />
+              {fileNote}
+            </label>
 
             {stage === Stage.Rendering && (
               <div className="flex flex-col gap-2">
@@ -265,17 +287,9 @@ function ScheduleDialog({ ed, onClose }: { ed: EditorProps; onClose: () => void 
               </div>
             )}
             {stage === Stage.Uploading && <p className="text-xs text-neutral-400">Saving…</p>}
-            {existing?.video?.outdated && stage === Stage.Edit && (
-              <p className="text-xs text-amber-200/90">You edited the video after scheduling it: saving renders the new version.</p>
-            )}
             {error && <p className="text-xs text-red-400">{error}</p>}
 
             <div className="flex items-center gap-2">
-              {existing && (
-                <button type="button" disabled={busy} onClick={() => setExisting(null)} className="mr-auto text-xs text-neutral-500 hover:text-white">
-                  Schedule it again as a new post
-                </button>
-              )}
               <button type="button" disabled={busy} onClick={onClose} className="ml-auto rounded-lg px-4 py-2 text-sm text-neutral-400 hover:text-white">
                 Cancel
               </button>
@@ -285,7 +299,7 @@ function ScheduleDialog({ ed, onClose }: { ed: EditorProps; onClose: () => void 
                 onClick={() => void save()}
                 className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-200 disabled:opacity-50"
               >
-                {existing ? (needsRender ? "Render again and save" : "Save") : "Render and schedule"}
+                {existing ? "Save" : "Add to calendar"}
               </button>
             </div>
           </>

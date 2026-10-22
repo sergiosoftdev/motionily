@@ -39,7 +39,12 @@ function buildToOps(build: Build, byKey: Map<string, Brick>, format: VideoFormat
 export function EditorScreen({ id }: { id: string }) {
   // One engine canvas for the whole screen: each mode's viewer adopts it, so switching modes
   // never restarts the engine or reloads the scene.
-  const [canvasEl] = useState(() => document.createElement("canvas"));
+  const [canvasEl] = useState(() => {
+    const c = document.createElement("canvas");
+    // The preview flies from its place in one mode to its place in the next (see editor/mode.tsx).
+    c.dataset.modePiece = "preview";
+    return c;
+  });
   const canvas = useRef(canvasEl);
   const revision = useRef(0);
   const [project, setProject] = useState<Project | null>(null);
@@ -68,7 +73,8 @@ export function EditorScreen({ id }: { id: string }) {
         agentBridge.setProject(id);
         // Once analysed, the agent's summary lists the beats it can sync to.
         void engineHost.setAudio(p.audio ? mediaUrl(p.audio.url) : null).then(() => agentBridge.sceneChanged());
-        useEditor.setState({ selectedLayerId: null, selectedGroup: null, pinnedMoment: false });
+        // The conversation and log belong to this video, not the one open before.
+        useEditor.setState({ selectedLayerId: null, selectedGroup: null, pinnedMoment: false, activity: [] });
       })
       .catch((e: Error) => setError(e.message));
     return () => {

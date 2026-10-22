@@ -201,3 +201,129 @@
   .lp-scene, .lp-word, .lp-pop { opacity: 1; transform: none; filter: none; }
   .lp-scene ~ .lp-scene { display: none; }
 }
+
+/*
+ * Switching editor modes (editor/mode.tsx): the new layout spreads in a circle from the click while
+ * the pieces every mode shares fly to their new place. The preview lifts, travels and lands; side
+ * panels and the timeline that only one mode has slide in from (or out to) their edge.
+ */
+:root {
+  --mode-ease: cubic-bezier(0.2, 0.9, 0.1, 1);
+  --mode-ms: 700ms;
+}
+/* Named only during a switch (editor/mode.tsx): a named element traps modals in its stacking context. */
+:root[data-mode-switch] .mode-piece-header {
+  view-transition-name: mode-header;
+}
+:root[data-mode-switch] .mode-piece-left {
+  view-transition-name: mode-left;
+}
+:root[data-mode-switch] .mode-piece-right {
+  view-transition-name: mode-right;
+}
+:root[data-mode-switch] .mode-piece-timeline {
+  view-transition-name: mode-timeline;
+}
+:root[data-mode-switch] .mode-piece-ask {
+  view-transition-name: mode-ask;
+}
+:root[data-mode-switch] [data-mode-piece="preview"] {
+  view-transition-name: mode-preview;
+}
+::view-transition-group(*) {
+  animation-duration: var(--mode-ms);
+  animation-timing-function: var(--mode-ease);
+}
+::view-transition-old(root) {
+  animation: mode-recede var(--mode-ms) var(--mode-ease) both;
+}
+::view-transition-new(root) {
+  animation: mode-spread var(--mode-ms) var(--mode-ease) both;
+}
+@keyframes mode-spread {
+  from {
+    clip-path: circle(0 at var(--mode-x) var(--mode-y));
+  }
+  to {
+    clip-path: circle(var(--mode-r) at var(--mode-x) var(--mode-y));
+  }
+}
+@keyframes mode-recede {
+  to {
+    opacity: 0.4;
+    filter: blur(6px);
+    transform: scale(0.97);
+  }
+}
+
+/* The preview: a soft lift mid-flight, with its shadow. */
+::view-transition-group(mode-preview) {
+  z-index: 3;
+}
+::view-transition-image-pair(mode-preview) {
+  animation: mode-lift var(--mode-ms) var(--mode-ease) both;
+}
+@keyframes mode-lift {
+  40% {
+    transform: scale(0.94);
+    filter: drop-shadow(0 30px 60px rgb(0 0 0 / 0.7));
+  }
+}
+
+/* Pieces only one side has come in from their edge, or leave to it. */
+::view-transition-new(mode-left):only-child {
+  animation: mode-from-left var(--mode-ms) var(--mode-ease) both;
+}
+::view-transition-old(mode-left):only-child {
+  animation: mode-from-left calc(var(--mode-ms) * 0.6) var(--mode-ease) reverse both;
+}
+::view-transition-new(mode-right):only-child {
+  animation: mode-from-right var(--mode-ms) var(--mode-ease) both;
+}
+::view-transition-old(mode-right):only-child {
+  animation: mode-from-right calc(var(--mode-ms) * 0.6) var(--mode-ease) reverse both;
+}
+::view-transition-new(mode-timeline):only-child {
+  animation: mode-from-below var(--mode-ms) var(--mode-ease) both;
+}
+::view-transition-old(mode-timeline):only-child {
+  animation: mode-from-below calc(var(--mode-ms) * 0.6) var(--mode-ease) reverse both;
+}
+@keyframes mode-from-left {
+  from {
+    opacity: 0;
+    transform: translateX(-48px);
+  }
+}
+@keyframes mode-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(48px);
+  }
+}
+@keyframes mode-from-below {
+  from {
+    opacity: 0;
+    transform: translateY(48px);
+  }
+}
+/* Panels that change shape crossfade without stretching their content. */
+::view-transition-old(mode-left),
+::view-transition-new(mode-left),
+::view-transition-old(mode-right),
+::view-transition-new(mode-right),
+::view-transition-old(mode-timeline),
+::view-transition-new(mode-timeline) {
+  height: 100%;
+  object-fit: cover;
+  object-position: top left;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*),
+  ::view-transition-image-pair(*) {
+    animation: none !important;
+  }
+}

@@ -1,4 +1,4 @@
-import type { AgentRunUsage, Brick, BrickSlot, Project, ProjectListItem, SunoPrompt, User, VideoFormat, Voice, VoiceModel } from "@motionily/protocol";
+import type { AgentRunUsage, AttentionDevice, Brick, BrickSlot, Project, ProjectListItem, SunoPrompt, User, VideoFormat, Voice, VoiceModel } from "@motionily/protocol";
 import { useSession } from "../session";
 import type { SoundRecipe } from "../audio/synth";
 import type { AgentPrefs, GenerateState } from "../components/GeneratePanel";
@@ -29,10 +29,11 @@ export const PrefabKind = { Object: "object", Character: "character", Space: "sp
 export type PrefabKind = (typeof PrefabKind)[keyof typeof PrefabKind];
 export type PrefabSummary = { name: string; kind: PrefabKind; description: string; parent?: string; version: number; updatedAt: string };
 
-export type ConceptBeat = { at: string; what: string };
+/** A beat of a pitched concept; `energy` (0-100) and `device` trace its attention curve. */
+export type ConceptBeat = { at: string; what: string; energy?: number; device?: AttentionDevice };
 export type Concept = { title: string; hook: string; direction: string; beats: ConceptBeat[]; voiceover: string; prompt: string };
 export type ConceptsRequest = { idea: string; format: VideoFormat; count: number; steer?: string; avoid?: string[]; model?: string; effort?: string; references?: string[]; angle?: number };
-export const Platform = { Instagram: "instagram", TikTok: "tiktok" } as const;
+export const Platform = { Instagram: "instagram", TikTok: "tiktok", YouTube: "youtube" } as const;
 export type Platform = (typeof Platform)[keyof typeof Platform];
 export const PostStatus = { Scheduled: "scheduled", Posted: "posted" } as const;
 export type PostStatus = (typeof PostStatus)[keyof typeof PostStatus];
@@ -105,7 +106,7 @@ export const api = {
     call<Brick[]>(HttpMethod.Get, `/bricks?${new URLSearchParams(q as Record<string, string>)}`),
   projects: () => call<ProjectListItem[]>(HttpMethod.Get, "/projects"),
   project: (id: string) => call<Project>(HttpMethod.Get, `/projects/${id}`),
-  createProject: (name: string, brief: string, format: VideoFormat, brandId: string, voiceScript = "", references: string[] = []) =>
+  createProject: (name: string, brief: string, format: VideoFormat, brandId: string | undefined, voiceScript = "", references: string[] = []) =>
     call<Project>(HttpMethod.Post, "/projects", { name, brief, format, brandId, voiceScript, wantsScript: !!voiceScript, references }),
   concepts: (brandId: string, req: ConceptsRequest) => call<{ concepts: Concept[]; usage: AgentRunUsage | null }>(HttpMethod.Post, `/brands/${brandId}/concepts`, req),
   brands: () => call<BrandSummary[]>(HttpMethod.Get, "/brands"),

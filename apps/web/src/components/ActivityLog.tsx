@@ -4,6 +4,7 @@ import { Section } from "./Section";
 const WHO: Record<ActivitySource, string> = {
   [ActivitySource.Agent]: "Agent",
   [ActivitySource.User]: "You",
+  [ActivitySource.Ask]: "You → Claude",
   [ActivitySource.System]: "·",
 };
 

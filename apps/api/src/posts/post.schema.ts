@@ -5,6 +5,7 @@ import { HydratedDocument, Schema as MongooseSchema, Types } from "mongoose";
 export enum Platform {
   Instagram = "instagram",
   TikTok = "tiktok",
+  YouTube = "youtube",
 }
 
 /** A scheduled post is due once its time passes; the user marks it posted after publishing it. */

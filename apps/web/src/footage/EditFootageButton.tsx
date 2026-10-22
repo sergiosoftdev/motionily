@@ -4,25 +4,12 @@ import { api } from "../api/client";
 import { FormatPicker } from "../components/FormatPicker";
 import { requestPipeline, VideoPipeline } from "../pipeline";
 import { navigate, RouteName } from "../router";
+import { browserLanguage, LANGUAGES } from "./languages";
 
 /** Clip formats the editor decodes. */
 const ACCEPT = "video/mp4,video/quicktime,video/webm";
-/** What is spoken in the clips: the transcription needs it (it never guesses). ISO 639-1, as the API takes it. */
-const LANGUAGES: [string, string][] = [
-  ["en", "English"],
-  ["es", "Spanish"],
-  ["pt", "Portuguese"],
-  ["fr", "French"],
-  ["de", "German"],
-  ["it", "Italian"],
-];
 const DEFAULT_BRIEF =
   "A tight short video from my footage: keep the best take of each idea, cut the pauses and filler, open with a strong hook and add a few titles for the key points.";
-
-const browserLanguage = () => {
-  const code = navigator.language.slice(0, 2).toLowerCase();
-  return LANGUAGES.some(([c]) => c === code) ? code : LANGUAGES[0]![0];
-};
 
 /** Start a video from the user's own clips: upload them, then the editor transcribes them and Claude cuts the edit. */
 export function EditFootageButton({ brandId }: { brandId: string }) {
