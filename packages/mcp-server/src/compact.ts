@@ -769,7 +769,9 @@ const MERGED_OBJECTS = new Set(["stroke", "motion_path", "path", "camera", "inne
  * only the keys written change; an effect replaces only its own kind; `t=START[-END]` retimes.
  */
 export function parsePartial(rest: string, layer: Layer): Record<string, unknown> {
-  const type = layer.type === "shape" ? String(layer.shape ?? "rect") : String(layer.type);
+  // 3D text is stored as an object layer whose node is one text shape: edit it with text3d keys (weight, depth, family…).
+  const isText3d = layer.type === "object" && (layer.node as { shape?: string } | undefined)?.shape === "text";
+  const type = layer.type === "shape" ? String(layer.shape ?? "rect") : isText3d ? "text3d" : String(layer.type);
   const toks = tokenize(rest);
   const timing = toks.find((t) => t.startsWith("t="));
   const body = toks.filter((t) => t !== timing).join(" ");
