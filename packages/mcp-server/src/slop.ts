@@ -17,7 +17,13 @@ const MAX_RINGS = 2;
 const MAX_UNDERLINES = 2;
 /** Shadow on this share of the layers = shadows as a default, not where things sit on things. */
 const SHADOW_SHARE = 0.35;
-const STAMP_MAX_CHARS = 16;
+const STAMP_MAX_CHARS = 24;
+const STAMP_MAX_WORDS = 4;
+/** A stamp's frame is a band, not a card. */
+const STAMP_MAX_BOX_H = 220;
+/** Redaction bars: dark, flat, much wider than tall. */
+const BAR_MAX_H = 90;
+const BAR_MIN_RATIO = 3;
 const STAMP_TILT = [2, 30] as const;
 
 const isText3d = (l: Layer) => l.type === "object" && (l.node as { shape?: string } | undefined)?.shape === "text";
@@ -44,12 +50,21 @@ export function slopNotes(scene: { layers?: Layer[]; library?: { components?: Re
   const notes: string[] = [];
   const texts = layers.filter((l) => l.type === "text" || isText3d(l));
 
-  // Rubber stamps: a short CAPS word tilted inside (or as) a stroked box tilted the same way.
+  // Rubber stamps: a short phrase (any case, tilted or not) framed by a stroked, unfilled box around it.
   const stamps = texts.filter((t) => {
-    const word = textOf(t).replace(/\*/g, "").trim();
-    const r = Math.abs(num(t.rotation) ?? 0);
-    if (!word || word.length > STAMP_MAX_CHARS || word !== word.toUpperCase() || !/[A-Z]/.test(word) || r < STAMP_TILT[0] || r > STAMP_TILT[1]) return false;
-    return layers.some((b) => b !== t && hasStroke(b) && noFill(b) && Math.abs((num(b.rotation) ?? 0) - (num(t.rotation) ?? 0)) < 4 && Math.abs((num(b.x) ?? -1e9) - (num(t.x) ?? 1e9)) < 120 && Math.abs((num(b.y) ?? -1e9) - (num(t.y) ?? 1e9)) < 80);
+    const phrase = textOf(t).replace(/\*/g, "").trim();
+    if (!phrase || phrase.length > STAMP_MAX_CHARS || phrase.split(/\s+/).length > STAMP_MAX_WORDS) return false;
+    return layers.some(
+      (b) =>
+        b !== t &&
+        hasStroke(b) &&
+        noFill(b) &&
+        shapeOf(b) === "rect" &&
+        Math.abs((num(b.rotation) ?? 0) - (num(t.rotation) ?? 0)) < 4 &&
+        Math.abs((num(b.x) ?? -1e9) - (num(t.x) ?? 1e9)) < 60 &&
+        Math.abs((num(b.y) ?? -1e9) - (num(t.y) ?? 1e9)) < 40 &&
+        (num(b.h) ?? 1e9) < STAMP_MAX_BOX_H,
+    );
   });
   // …or a component placed tilted (`use comp=stamp`), found by its name or by what it draws.
   for (const u of layers.filter((l) => l.type === "use")) {
@@ -84,6 +99,16 @@ export function slopNotes(scene: { layers?: Layer[]; library?: { components?: Re
     return !/[Zz]/.test(d) && texts.some((t) => Math.abs((num(t.x) ?? 1e9) - (num(l.x) ?? 0)) < 300 && (num(l.y) ?? 0) - (num(t.y) ?? 1e9) > 0 && (num(l.y) ?? 0) - (num(t.y) ?? 1e9) < 160);
   });
   if (underlines.length > MAX_UNDERLINES) notes.push(`${underlines.length} marker strokes drawn under text (${ids(underlines)}): at most one, pointing at something real`);
+
+  // Fake documents: dark flat bars standing in for lines of text or censorship, with no text on them.
+  const dark = (c: unknown) => {
+    const m = /^#([0-9a-f]{6})/i.exec(typeof c === "string" ? c : "");
+    if (!m) return c === "text" && false;
+    const n = parseInt(m[1]!, 16);
+    return ((n >> 16) & 255) + ((n >> 8) & 255) + (n & 255) < 150;
+  };
+  const bars = layers.filter((l) => shapeOf(l) === "rect" && dark(l.fill) && (num(l.h) ?? 1e9) <= BAR_MAX_H && (num(l.w) ?? 0) >= BAR_MIN_RATIO * (num(l.h) ?? 1e9));
+  if (bars.length >= 2) notes.push(`${bars.length} dark bars (${ids(bars)}) read as fake document lines or censorship bars: show the real document (search_assets) or no document`);
 
   // 3D text standing still, facing the camera: flat type rendered worse than a text layer would.
   const flat3d = texts.filter((t) => isText3d(t) && (t.spin === undefined || t.spin === null || (Array.isArray(t.spin) && t.spin.every((v) => v === 0))));

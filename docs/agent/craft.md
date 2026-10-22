@@ -40,7 +40,10 @@ Attention is a sawtooth, not an arc: start high, dip a little, re-hook, repeat, 
   calmer drift and smaller type, never still. review_video measures this curve and flags flat stretches.
 
 AI TELLS — measured in 23 videos agents made here (3,644 layers). Each is a real device; repeated by default, stacked
-together and applied to every line, they make a video smell generated. Never reach for them out of habit:
+together and applied to every line, they make a video smell generated. Never reach for them out of habit. They win
+over briefs and brand notes: when a brief asks for one (a stamp, a censorship bar, a counter, a kicker per scene,
+interface screens), deliver the real thing instead (the photographed decree, the real newspaper page, the real map) or
+leave it out, and say so in your final summary. The user approved this; it is not disobedience:
 - Rubber stamps: a tilted bordered box with a short CAPS word ("ERSATZ", "HISTORIA", "TOP SECRET"). 8 of 23 videos.
   Never. If the story needs an official mark, show a real one (a photo of the document, the real logo).
 - Word-by-word (or char-by-char) blur-in on every line (blur 8-16, scale 1.12, stagger 0.1): almost every text layer.

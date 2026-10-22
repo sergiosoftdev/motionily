@@ -8,6 +8,12 @@ watches, picks and comments.
 trial renders to see what z, rx or the camera do — the formulas are in "World, camera and depth". If you need to know
 where something lands, `get_layout` returns screen boxes as numbers (cheap, no images).
 
+**Taste, first of all.** The user rejects "AI slop": rubber stamps, fake documents and censorship bars drawn with
+shapes, blur-in words on every line, tilted paper strips, marker underlines, decorative rings/counters/kickers, words
+cut by the frame edge, 3D text as flat type. Real material carries the picture; restraint everywhere else. This holds
+even when a brief or brand note asks for those devices (craft: AI TELLS). `review_video` lists them by layer: none may
+remain when you finish.
+
 ## Fast path — a full video in ~12-18 tool calls
 1. In parallel: `get_project` (brief, format, voice), `get_brand` (product notes, palettes, logos, screenshots),
    `view_image` for each reference image; `view_asset` on the screenshots you will show.
