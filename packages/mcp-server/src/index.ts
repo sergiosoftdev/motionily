@@ -115,11 +115,33 @@ if (onlyTools?.length) {
 
 const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] });
 const fail = (t: string) => ({ ...text(t), isError: true });
+/** How often (ms) tool results look for notes the user just left. */
+const NOTE_CHECK_MS = 2000;
+/** Notes already shown to this agent: each reaches it once, on its next tool call. */
+const shownNotes = new Set<string>();
+let noteCheckAt = 0;
+
+/**
+ * Notes the user leaves while the agent works, appended to its next tool result so it obeys right
+ * away instead of whenever it next calls get_feedback. Only shown, never marked read: get_feedback
+ * (the finisher's) still gets them.
+ */
+async function freshNotes(): Promise<string> {
+  if (!api.projectId || Date.now() - noteCheckAt < NOTE_CHECK_MS) return "";
+  noteCheckAt = Date.now();
+  const notes = (await api.feedback().catch(() => [])).filter((f) => f.kind === FeedbackKind.Comment && !f.consumedAt && !shownNotes.has(f._id));
+  if (!notes.length) return "";
+  for (const f of notes) shownNotes.add(f._id);
+  return `USER NOTE, sent just now while you work. It outranks your plan: apply it now to what you own (a note about the whole video changes your part too; if it is only about a part you cannot edit, keep going and the finisher applies it). get_feedback will list it again: do not redo it.\n- ${notes.map(feedbackLine).join("\n- ")}`;
+}
+
 const guard =
   <A,>(fn: (args: A) => Promise<ReturnType<typeof text>>) =>
   async (args: A) => {
     try {
-      return await fn(args);
+      const res = await fn(args);
+      const notes = await freshNotes();
+      return notes ? { ...res, content: [...res.content, { type: "text" as const, text: notes }] } : res;
     } catch (e) {
       return fail((e as Error).message);
     }
@@ -669,7 +691,35 @@ server.registerTool(
   },
   guard(async () => {
     const rows = await api.sounds();
-    return text(rows.map((s) => `${s.name} | ${s.category} | ${s.duration}s | ${s.description}`).join("\n") || "No sounds yet: the user can create them in Sounds.");
+    return text(rows.map((s) => `${s.name} | ${s.category} | ${s.duration}s | ${s.description}`).join("\n") || "No sounds yet: design this video's own with make_sound.");
+  }),
+);
+
+/** Categories of the sound library (mirrors SoundCategory in apps/web/src/audio/starterPack.ts). */
+const SOUND_CATEGORIES = ["whoosh", "pop", "click", "riser", "impact", "chime", "glitch", "ui", "texture"] as const;
+/** snake_case, as the API stores sound names. */
+const SOUND_NAME = /^[a-z][a-z0-9_]{1,39}$/;
+
+server.registerTool(
+  "make_sound",
+  {
+    description: `Design a NEW sound effect for this video as a synth recipe; the editor renders it and it joins the user's library, so add_sfx can place it by name. Use it when the library has nothing that fits a moment (or is empty): a whoosh tuned to this video's camera moves, an impact for its reveal, a chime in its key… Name it after the video and moment (e.g. tordesillas_map_whoosh); taken names are refused.
+Recipe: {"duration":0.4,"reverb":0..1?,"drive":0..1?,"volume":0..1?,"voices":[{"wave":"sine|square|sawtooth|triangle|noise","freq":440 or [start,end] (exponential sweep; not for noise),"gain":0..1,"start":0,"length":s,"attack":s,"decay":s,"sustain":0..1,"release":s,"filter":{"kind":"lowpass|highpass|bandpass","freq":hz or [start,end],"q":1},"pan":-1..1,"wobble":{"rate":hz,"depth":hz}}]}.
+Techniques: whoosh = noise + bandpass sweep with a slow attack; pop = sine pitch drop with a 2 ms attack; impact = low sine drop + short noise; riser = saw or noise sweeping up with a long attack; chime = sines with long decay + reverb; glitch = short alternating square/noise bursts + drive. Max 8 s. Musical and clean, matched to the video's tone.`,
+    inputSchema: {
+      name: z.string().regex(SOUND_NAME).describe("snake_case, unique in the library"),
+      category: z.enum(SOUND_CATEGORIES),
+      description: z.string().min(3).max(300),
+      recipe: z.record(z.string(), z.unknown()),
+    },
+  },
+  guard(async ({ name, category, description, recipe }) => {
+    if ((await api.sounds()).some((s) => s.name === name)) return fail(`"${name}" is already in the user's library (never overwrite their sounds): pick another name`);
+    const res = await bridge.renderSound(recipe);
+    if (!res.ok || !res.sound) return fail(res.error ?? "the editor could not render this recipe");
+    const wav = Buffer.from(res.sound.wav.slice(res.sound.wav.indexOf(",") + 1), "base64");
+    await api.saveSound({ name, category, description, recipe, duration: res.sound.duration }, wav);
+    return text(`made ${name} (${res.sound.duration.toFixed(2)} s, ${category}); place it with add_sfx like any library sound`);
   }),
 );
 

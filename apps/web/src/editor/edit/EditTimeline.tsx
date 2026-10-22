@@ -43,7 +43,39 @@ const VOICE_WAVE = "rgba(209,250,229,0.85)";
 const MUSIC_WAVE = "rgba(252,231,243,0.8)";
 
 /** What the user has picked in the timeline. Clips and blocks follow the editor's selection (canvas or timeline). */
-export type EditSelection = { kind: "clip"; clip: EditClip } | { kind: "block"; block: GraphicsBlock } | { kind: "cue"; cue: SfxCue } | { kind: "music"; music: MusicTrack } | null;
+export type EditSelection =
+  | { kind: "clip"; clip: EditClip }
+  | { kind: "block"; block: GraphicsBlock }
+  | { kind: "cue"; cue: SfxCue }
+  | { kind: "music"; music: MusicTrack }
+  | { kind: "many"; clips: EditClip[]; blocks: GraphicsBlock[]; cues: SfxCue[] }
+  | null;
+
+/** What a marquee or Shift-click can pick, as `data-pick="kind:id"` on each piece. */
+export const PickKind = { Clip: "clip", Block: "block", Cue: "cue" } as const;
+export type PickKind = (typeof PickKind)[keyof typeof PickKind];
+/** Several pieces picked at once, by id (clip ids, block keys, cue ids), resolved against the live scene. */
+export type Picks = Record<PickKind, string[]>;
+export const NO_PICKS: Picks = { clip: [], block: [], cue: [] };
+export const pickCount = (p: Picks) => p.clip.length + p.block.length + p.cue.length;
+
+/** The single selection as picks, so Shift-click and a Shift-marquee add to it. */
+function picksOf(selection: EditSelection): Picks {
+  if (!selection) return NO_PICKS;
+  switch (selection.kind) {
+    case "clip":
+      return { ...NO_PICKS, clip: [selection.clip.id] };
+    case "block":
+      return { ...NO_PICKS, block: [selection.block.key] };
+    case "cue":
+      return { ...NO_PICKS, cue: [selection.cue.id] };
+    case "many":
+      return { clip: selection.clips.map((c) => c.id), block: selection.blocks.map((b) => b.key), cue: selection.cues.map((c) => c.id) };
+    default:
+      return NO_PICKS;
+  }
+}
+const union = (a: Picks, b: Picks): Picks => ({ clip: [...new Set([...a.clip, ...b.clip])], block: [...new Set([...a.block, ...b.block])], cue: [...new Set([...a.cue, ...b.cue])] });
 
 type Drag = { kind: "move" | "in" | "out"; x0: number; moved: boolean };
 
@@ -63,6 +95,7 @@ export function EditTimeline({
   audioUrl,
   onSelectCue,
   onSelectMusic,
+  onPick,
   edits,
 }: {
   scene: SceneView;
@@ -72,6 +105,8 @@ export function EditTimeline({
   audioUrl: string | null;
   onSelectCue: (cue: SfxCue | null) => void;
   onSelectMusic: (on: boolean) => void;
+  /** Several pieces at once (marquee, Shift-click, "select all effects"); null clears them. */
+  onPick: (picks: Picks | null) => void;
   edits: EditActions;
 }) {
   const time = useEditor((s) => s.time);
@@ -82,6 +117,9 @@ export function EditTimeline({
   /** Track px on screen (left, right): blocks draw frames and waveforms only there. */
   const [view, setView] = useState({ l: 0, r: 1600 });
   const scroller = useRef<HTMLDivElement>(null);
+  /** The marquee being dragged, in the track content's px. */
+  const [band, setBand] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  const picked = picksOf(selection);
   const voicePeaks = usePeaks(audioUrl);
   const musicPeaks = usePeaks(scene.music ? mediaUrl(scene.music.src) : null);
 
@@ -177,12 +215,61 @@ export function EditTimeline({
   };
 
   const clipPoints = (c: EditClip) => [0, time, ...tracks.clips.filter((x) => x.id !== c.id && x.lane === c.lane).flatMap((x) => [x.start, x.end])];
+  /** Shift-click: add the piece to the selection, or take it out. */
+  const togglePick = (kind: PickKind, id: string) => {
+    const has = picked[kind].includes(id);
+    onPick({ ...picked, [kind]: has ? picked[kind].filter((x) => x !== id) : [...picked[kind], id] });
+  };
+  /**
+   * Drag on an empty stretch of a lane: a selection box that picks every clip, graphics block and
+   * effect it touches (Shift adds to what is selected). A click without a drag deselects and seeks.
+   */
+  const marquee = (e: ReactPointerEvent) => {
+    e.preventDefault();
+    const el = scroller.current!;
+    const x0 = e.clientX;
+    const y0 = e.clientY;
+    const base = e.shiftKey ? picked : NO_PICKS;
+    let moved = false;
+    const move = (ev: PointerEvent) => {
+      if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) < DRAG_THRESHOLD) return;
+      moved = true;
+      const r = { l: Math.min(x0, ev.clientX), r: Math.max(x0, ev.clientX), t: Math.min(y0, ev.clientY), b: Math.max(y0, ev.clientY) };
+      const box = el.getBoundingClientRect();
+      setBand({ left: r.l - box.left + el.scrollLeft, top: r.t - box.top + el.scrollTop, width: r.r - r.l, height: r.b - r.t });
+      const hit: Picks = { clip: [], block: [], cue: [] };
+      el.querySelectorAll<HTMLElement>("[data-pick]").forEach((node) => {
+        const b = node.getBoundingClientRect();
+        if (b.right < r.l || b.left > r.r || b.bottom < r.t || b.top > r.b) return;
+        const [kind, ...rest] = node.dataset.pick!.split(":");
+        hit[kind as PickKind].push(rest.join(":"));
+      });
+      onPick(union(base, hit));
+    };
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      setBand(null);
+      if (moved) return;
+      useEditor.setState({ selectedLayerId: null, selectedGroup: null });
+      onSelectCue(null);
+      onSelectMusic(false);
+      onPick(null);
+      engineHost.pause();
+      seekTo(ev.clientX);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   const selectClip = (c: EditClip) => {
+    onPick(null);
     onSelectCue(null);
     onSelectMusic(false);
     useEditor.setState({ selectedLayerId: c.id, selectedGroup: null });
   };
   const selectBlock = (b: GraphicsBlock) => {
+    onPick(null);
     onSelectCue(null);
     onSelectMusic(false);
     useEditor.setState({ selectedLayerId: b.group ? null : b.ids[0]!, selectedGroup: b.group });
@@ -190,7 +277,7 @@ export function EditTimeline({
 
   /** One clip: frames, its sound, its name, the volume line when selected (or keyed), trim handles. */
   const clipBlock = (c: EditClip) => {
-    const on = selection?.kind === "clip" && selection.clip.id === c.id;
+    const on = picked.clip.includes(c.id);
     // Main-track clips show from the middle of each transition, like a cut there.
     const [from, to] = c.lane === 0 ? shownSpan(c) : [c.start, c.end];
     const left = px(from);
@@ -210,9 +297,12 @@ export function EditTimeline({
       <div
         key={c.id}
         data-clip={c.id}
+        data-pick={`${PickKind.Clip}:${c.id}`}
         title={`${c.name} · ${c.start.toFixed(2)}–${c.end.toFixed(2)} s · file ${c.in.toFixed(2)}–${(c.out ?? c.in + (c.end - c.start) * c.speed).toFixed(2)} s`}
         onPointerDown={(e) =>
-          drag(
+          e.shiftKey
+            ? (e.stopPropagation(), togglePick(PickKind.Clip, c.id))
+            : drag(
             e,
             "move",
             () => selectClip(c),
@@ -286,20 +376,24 @@ export function EditTimeline({
     });
   };
 
-  const lanes: { key: string; label: string; height: number; body: ReactNode }[] = [];
+  /** `pickAll` turns the lane's label into "select everything on this lane". */
+  const lanes: { key: string; label: string; height: number; body: ReactNode; pickAll?: () => void }[] = [];
   for (let row = tracks.blockLanes - 1; row >= 0; row--) {
     lanes.push({
       key: `graphics-${row}`,
       label: row === 0 ? "Graphics" : "",
       height: LANE_H,
       body: tracks.blocks.filter((b) => b.lane === row).map((b) => {
-        const on = selection?.kind === "block" && selection.block.key === b.key;
+        const on = picked.block.includes(b.key);
         return (
           <div
             key={b.key}
             title={`${b.label} · ${b.start.toFixed(1)}–${b.end.toFixed(1)} s · ${b.ids.length} layers`}
+            data-pick={`${PickKind.Block}:${b.key}`}
             onPointerDown={(e) =>
-              drag(
+              e.shiftKey
+                ? (e.stopPropagation(), togglePick(PickKind.Block, b.key))
+                : drag(
                 e,
                 "move",
                 () => selectBlock(b),
@@ -387,6 +481,7 @@ export function EditTimeline({
               "move",
               () => {
                 useEditor.setState({ selectedLayerId: null, selectedGroup: null });
+                onPick(null);
                 onSelectCue(null);
                 onSelectMusic(true);
               },
@@ -426,18 +521,28 @@ export function EditTimeline({
       key: "sfx",
       label: "Effects",
       height: SMALL_LANE_H,
+      pickAll: () => {
+        useEditor.setState({ selectedLayerId: null, selectedGroup: null });
+        onSelectCue(null);
+        onSelectMusic(false);
+        onPick({ ...NO_PICKS, cue: scene.sfx!.map((c) => c.id) });
+      },
       body: scene.sfx.map((cue) => {
-        const on = selection?.kind === "cue" && selection.cue.id === cue.id;
+        const on = picked.cue.includes(cue.id);
         return (
           <div
             key={cue.id}
-            title={`${cue.sound} · ${cue.at.toFixed(2)} s`}
+            title={`${cue.sound} · ${cue.at.toFixed(2)} s · level ${Math.round((cue.gain ?? 1) * 100)}%`}
+            data-pick={`${PickKind.Cue}:${cue.id}`}
             onPointerDown={(e) =>
-              drag(
+              e.shiftKey
+                ? (e.stopPropagation(), togglePick(PickKind.Cue, cue.id))
+                : drag(
                 e,
                 "move",
                 () => {
                   useEditor.setState({ selectedLayerId: null, selectedGroup: null });
+                  onPick(null);
                   onSelectMusic(false);
                   onSelectCue(cue);
                 },
@@ -490,13 +595,20 @@ export function EditTimeline({
           {lanes.map((l) => (
             <div key={l.key} className="flex" style={{ height: l.height }}>
               <div className="sticky left-0 z-10 flex shrink-0 items-center bg-neutral-950 px-3 text-[11px] text-neutral-500" style={{ width: HEADER_W }}>
-                {l.label}
+                {l.pickAll ? (
+                  <button type="button" onClick={l.pickAll} title={`Select every item on ${l.label}`} className="hover:text-white">
+                    {l.label}
+                  </button>
+                ) : (
+                  l.label
+                )}
               </div>
-              <div onPointerDown={(e) => (useEditor.setState({ selectedLayerId: null, selectedGroup: null }), onSelectCue(null), onSelectMusic(false), scrub(e))} className="relative flex-1 border-b border-neutral-900/80">
+              <div onPointerDown={marquee} className="relative flex-1 border-b border-neutral-900/80">
                 {l.body}
               </div>
             </div>
           ))}
+          {band && <div className="pointer-events-none absolute z-30 rounded-sm border border-white/60 bg-white/10" style={band} />}
           {/* Playhead */}
           <div className="pointer-events-none absolute top-0 bottom-0 z-20 w-px bg-red-400" style={{ left: HEADER_W + px(time) }}>
             <span className="absolute -top-0 -left-1.5 size-3 rotate-45 bg-red-400" />

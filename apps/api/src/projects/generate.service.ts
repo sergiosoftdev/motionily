@@ -113,8 +113,8 @@ rules below are exact. To know where something lands on screen, get_layout retur
 const ROLE_TOOLS = {
   planner: ["get_project", "get_brand", "view_image", "view_asset", "search_fonts", "set_font", "apply_ops", "add_layers", "search_images", "import_image", "define_component", "get_component"],
   builder: ["add_layers", "edit_layers", "apply_ops", "get_layout", "render_frames", "view_asset", "view_image", "get_brand", "find_icons", "define_component", "get_component"],
-  finisher: ["get_feedback", "edit_layers", "review_video", "get_layout", "render_frames", "inspect", "add_layers", "apply_ops", "list_sounds", "add_sfx", "get_component", "set_font", "search_fonts"],
-  sound: ["get_project", "list_sounds", "add_sfx"],
+  finisher: ["get_feedback", "edit_layers", "review_video", "get_layout", "render_frames", "inspect", "add_layers", "apply_ops", "list_sounds", "make_sound", "add_sfx", "get_component", "set_font", "search_fonts"],
+  sound: ["get_project", "list_sounds", "make_sound", "add_sfx"],
 } as const;
 
 /** The timed voice-over, phrase by phrase (the engine's own phrasing: a pause or 12 words starts a new line). */
@@ -204,7 +204,9 @@ function sceneMoments(scene: Record<string, unknown> | null): { moments: Moment[
 const SOUND_GUIDE = `You are Motionily's sound designer. The video is already built. You get its moments (exact times
 where something happens on screen or in the voice) and its brief, which sets the tone. Choose at most one sound per
 moment and place it there.
-1. list_sounds for the user's library. Use only sounds from it.
+1. list_sounds for the user's library. Then design this video's OWN sounds with make_sound: 2-4 that give it a
+   signature (its main transition whoosh, its reveal impact, a chime or riser in its tone), named after the video
+   and the moment; design every sound you need when the library is empty. Use library sounds for the rest.
 2. Match the tone of the brief first.
    - Upbeat, product or playful videos: enter → pop or whoosh_fast · animation → whoosh (start it ~0.1 s before the
      moment) · exit → click or tick · voice → tick, very quiet · emphasis → impact or hit_dry, a little louder.
@@ -308,7 +310,7 @@ ${NO_PROBING} 3. Review again only if you
 changed a lot (max 2 rounds).
 4. SOUND DESIGN: list_sounds, then ONE add_sfx call with a cue on every key motion moment of the timings below
    (whoosh on transitions, pop on entrances, impact on hero text, ticks on counters, riser before the reveal,
-   chime on the payoff). If the library is empty, skip this.
+   chime on the payoff). Design what the library lacks with make_sound (named after this video) and place it too.
 ${COMPACT_REF}
 Finish with a 2-3 sentence summary in English: the art direction and what the video shows.
 ${CRAFT}`;

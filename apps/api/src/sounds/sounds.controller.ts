@@ -47,8 +47,11 @@ export class SoundsController {
     return this.view(user);
   }
 
-  /** Save a sound rendered in the browser: WAV file + its recipe and metadata. */
-  @Post("sounds")
+  /**
+   * Save a sound rendered in the browser: WAV file + its recipe and metadata. The project route is
+   * for the agent (it designs sounds for the video it builds; its token only reaches its project).
+   */
+  @Post(["sounds", "projects/:id/sounds"])
   @UseInterceptors(
     FileInterceptor("file", {
       storage: diskStorage({ destination: MEDIA_DIR, filename: (_req, f, cb) => cb(null, mediaName(f.originalname || "sound.wav")) }),

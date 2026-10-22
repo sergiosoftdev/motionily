@@ -15,7 +15,7 @@ import { useTransportKeys } from "../transportKeys";
 import { Viewer } from "../Viewer";
 import { AttentionStrip } from "../AttentionStrip";
 import { ClaudePanel } from "./ClaudePanel";
-import { EditTimeline, type EditSelection } from "./EditTimeline";
+import { EditTimeline, pickCount, type EditSelection, type Picks } from "./EditTimeline";
 import { Inspector } from "./Inspector";
 import { MediaPanel, MediaTab, mmss, useClipUpload, useMusicUpload } from "./MediaPanel";
 import { editTracks } from "./tracks";
@@ -45,6 +45,8 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
   const tracks = useMemo(() => (scene ? editTracks(scene, footage) : null), [scene, footage]);
   const [cue, setCue] = useState<SfxCue | null>(null);
   const [musicOn, setMusicOn] = useState(false);
+  /** Several pieces picked with the marquee or Shift-click (the editor's selection holds one). */
+  const [picks, setPicks] = useState<Picks | null>(null);
   const [tab, setTab] = useState<MediaTab>(MediaTab.Clips);
   const clips = useClipUpload(ed, edits);
   const music = useMusicUpload(ed, edits);
@@ -54,6 +56,19 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
 
   // The selection is the editor's (canvas clicks select here too); only sound effects are local.
   const selection: EditSelection = useMemo(() => {
+    if (picks && tracks && pickCount(picks)) {
+      const many = {
+        kind: "many" as const,
+        clips: tracks.clips.filter((c) => picks.clip.includes(c.id)),
+        blocks: tracks.blocks.filter((b) => picks.block.includes(b.key)),
+        cues: (scene?.sfx ?? []).filter((c) => picks.cue.includes(c.id)),
+      };
+      // One piece left is an ordinary selection.
+      if (many.clips.length + many.blocks.length + many.cues.length > 1) return many;
+      if (many.clips[0]) return { kind: "clip", clip: many.clips[0] };
+      if (many.blocks[0]) return { kind: "block", block: many.blocks[0] };
+      if (many.cues[0]) return { kind: "cue", cue: many.cues[0] };
+    }
     if (musicOn && scene?.music) return { kind: "music", music: scene.music };
     if (cue) return { kind: "cue", cue };
     if (!tracks) return null;
@@ -66,13 +81,18 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
     if (clip) return { kind: "clip", clip };
     const block = tracks.blocks.find((b) => b.ids.includes(selectedLayer));
     return block ? { kind: "block", block } : null;
-  }, [musicOn, scene?.music, cue, tracks, selectedGroup, selectedLayer]);
+  }, [picks, scene?.sfx, musicOn, scene?.music, cue, tracks, selectedGroup, selectedLayer]);
+  // Picking something on the canvas replaces a multiple selection.
+  useEffect(() => {
+    if (selectedLayer || selectedGroup) setPicks(null);
+  }, [selectedLayer, selectedGroup]);
 
   const ops = useEditOps(scene, tracks, edits);
   const deselect = () => {
     useEditor.setState({ selectedLayerId: null, selectedGroup: null });
     setCue(null);
     setMusicOn(false);
+    setPicks(null);
   };
 
   // S splits, Delete removes (closing the gap on the main track), ⌘Z / ⇧⌘Z undo and redo. Captured
@@ -90,6 +110,7 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
       else if ((e.key === "Delete" || e.key === "Backspace") && sel) {
         o.remove(sel);
         setCue(null);
+        setPicks(null);
       } else handled = false;
       if (handled) {
         e.preventDefault();
@@ -165,13 +186,13 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
           <div className={`relative flex max-h-[40%] min-h-44 shrink-0 flex-col rounded-2xl ring-1 ring-white/[0.06] ${ModePiece.Timeline}`}>
             <div className="flex items-center gap-1 px-3 py-1.5 text-xs">
               <ToolButton label="Split" hint="S" onClick={() => ops.split(selection?.kind === "clip" ? selection.clip : null)} />
-              <ToolButton label="Delete" hint="⌫" disabled={!selection} onClick={() => selection && (ops.remove(selection), setCue(null), setMusicOn(false))} />
+              <ToolButton label="Delete" hint="⌫" disabled={!selection} onClick={() => selection && (ops.remove(selection), setCue(null), setMusicOn(false), setPicks(null))} />
               <ToolButton label="Undo" hint="⌘Z" disabled={!edits.canUndo} onClick={edits.undo} />
               <ToolButton label="Redo" hint="⇧⌘Z" disabled={!edits.canRedo} onClick={edits.redo} />
               <span className="ml-auto truncate pl-3 text-neutral-600">Drag to move, edges to trim · click a cut for a transition · ⌘ + wheel zooms</span>
             </div>
             {scene && tracks ? (
-              <EditTimeline scene={scene} tracks={tracks} selection={selection} audioUrl={project?.audio ? mediaUrl(project.audio.url) : null} onSelectCue={setCue} onSelectMusic={setMusicOn} edits={edits} />
+              <EditTimeline scene={scene} tracks={tracks} selection={selection} audioUrl={project?.audio ? mediaUrl(project.audio.url) : null} onSelectCue={setCue} onSelectMusic={setMusicOn} onPick={setPicks} edits={edits} />
             ) : (
               <p className="px-4 text-sm text-neutral-500">Loading…</p>
             )}

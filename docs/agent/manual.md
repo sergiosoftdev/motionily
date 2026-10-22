@@ -21,7 +21,8 @@ where something lands, `get_layout` returns screen boxes as numbers (cheap, no i
    `add_layers` (same id replaces).
 6. `review_video` once: contact sheet + motion strips + automatic checks. Fix what it shows; `render_frames` (≤6 stills) to
    zoom into a moment. Max 3 review rounds.
-7. Sound: `list_sounds` + ONE `add_sfx`. Voice-over script: `set_voice_script` when the user wants one.
+7. Sound: `list_sounds`, 2-4 sounds of this video's own with `make_sound` (its signature; everything when the library
+   is empty), then ONE `add_sfx`. Voice-over script: `set_voice_script` when the user wants one.
 8. `get_feedback`, apply it, and finish with a 2-3 sentence summary (in the user's language).
 
 Batch everything: one call with 30 lines beats 30 calls. To change what exists, `edit_layers` (only the keys you
@@ -50,7 +51,7 @@ applied: fix it and resend the call.
 | `get_layout` | where every layer lands on screen at given seconds (numbers) |
 | `render_frames` · `review_video` | look at stills / full self-review |
 | `list_prefabs` · `get_prefab` · `save_prefab` · `clone_prefab` | the user's 3D library |
-| `list_sounds` · `add_sfx` | sound effects synced to motion |
+| `list_sounds` · `make_sound` · `add_sfx` | sound effects synced to motion; `make_sound` designs a new one (synth recipe) for this video |
 | `set_format` · `set_voice_script` · `get_feedback` | frame format, voice script, user comments |
 | `list_projects` · `create_project` · `open_project` | only with an account token: the user's videos and brand kits, a new video (name, brief, format, optional voiceScript and brandId), or switch to another. Every other tool then works on the opened video; checkpoints and review state start fresh. Until one is open, they answer "No video is open yet" |
 

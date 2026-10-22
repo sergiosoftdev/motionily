@@ -98,6 +98,11 @@ export class EditorBridge {
     return this.request({ type: ServerMessageType.Review, requestId: randomUUID(), projectId: this.projectId, frames }, REVIEW_TIMEOUT_MS);
   }
 
+  /** Render a synth recipe to a WAV data URL in the editor (open or headless). */
+  renderSound(recipe: Record<string, unknown>) {
+    return this.request({ type: ServerMessageType.RenderSound, requestId: randomUUID(), projectId: this.projectId, recipe });
+  }
+
   layout(times: number[]) {
     return this.request({ type: ServerMessageType.Layout, requestId: randomUUID(), projectId: this.projectId, times });
   }

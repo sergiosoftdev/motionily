@@ -10,7 +10,7 @@ import type { EditOps } from "./useEditOps";
 /** Range of the song-start slider when the song's length is unknown (s). */
 const DEFAULT_SONG_RANGE = 180;
 
-const KIND_LABEL: Record<NonNullable<EditSelection>["kind"], string> = { clip: "Clip", block: "Motion graphics", cue: "Sound effect", music: "Music" };
+const KIND_LABEL: Record<NonNullable<EditSelection>["kind"], string> = { clip: "Clip", block: "Motion graphics", cue: "Sound effect", music: "Music", many: "Selection" };
 
 /** Settings of what is selected in the timeline, as a card on top of the Claude panel (nothing when nothing is selected). */
 export function Inspector({ selection, ops, edits, songLength, onClose }: { selection: EditSelection; ops: EditOps; edits: EditActions; songLength: number | null; onClose: () => void }) {
@@ -29,6 +29,8 @@ export function Inspector({ selection, ops, edits, songLength, onClose }: { sele
         <BlockInspector block={selection.block} ops={ops} />
       ) : selection.kind === "cue" ? (
         <CueInspector cue={selection.cue} edits={edits} ops={ops} />
+      ) : selection.kind === "many" ? (
+        <ManyInspector selection={selection} edits={edits} ops={ops} />
       ) : (
         <MusicInspector music={selection.music} edits={edits} ops={ops} songLength={songLength} />
       )}
@@ -169,6 +171,63 @@ function MusicInspector({ music, edits, ops, songLength }: { music: MusicTrack; 
       <Slider label="Start the song at" value={Math.min(draft.trim_in, maxStart)} min={0} max={maxStart} step={0.5} format={(v) => `${v.toFixed(1)} s`} onChange={(trim_in) => setDraft({ ...draft, trim_in })} onDone={() => save("Music start in the song")} />
       <button type="button" onClick={() => ops.remove({ kind: "music", music })} className="self-start text-xs text-neutral-400 hover:text-red-400">
         Remove music
+      </button>
+    </div>
+  );
+}
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length);
+
+/**
+ * Several pieces at once: one level for every selected sound effect, one volume for every selected
+ * clip (each a single undo step), and Delete for all of them.
+ */
+function ManyInspector({ selection, edits, ops }: { selection: Extract<EditSelection, { kind: "many" }>; edits: EditActions; ops: EditOps }) {
+  const { clips, blocks, cues } = selection;
+  const [level, setLevel] = useState(() => mean(cues.map((c) => c.gain ?? 1)));
+  const [volume, setVolume] = useState(() => mean(clips.map((c) => c.volume)));
+  // A different set of pieces starts from its own average.
+  const key = [...clips.map((c) => c.id), ...cues.map((c) => c.id)].join();
+  useEffect(() => {
+    setLevel(mean(cues.map((c) => c.gain ?? 1)));
+    setVolume(mean(clips.map((c) => c.volume)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  const parts = [clips.length && plural(clips.length, "clip", "clips"), blocks.length && plural(blocks.length, "graphics block", "graphics blocks"), cues.length && plural(cues.length, "effect", "effects")].filter(Boolean);
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <p className="text-sm font-semibold">{clips.length + blocks.length + cues.length} selected</p>
+        <p className="text-xs text-neutral-500">{parts.join(" · ")}</p>
+      </div>
+      {cues.length > 0 && (
+        <Slider
+          label={cues.length > 1 ? "Level of every effect" : "Effect level"}
+          value={level}
+          min={0.05}
+          max={1}
+          step={0.05}
+          format={(v) => `${Math.round(v * 100)}%`}
+          onChange={setLevel}
+          onDone={() => edits.apply(cues.map((c) => ({ op: OpName.PutSfx, cue: { ...c, gain: level } })), `Level of ${plural(cues.length, "effect", "effects")}: ${Math.round(level * 100)}%`, false)}
+        />
+      )}
+      {clips.length > 0 && (
+        <Slider
+          label={clips.length > 1 ? "Volume of every clip" : "Clip volume"}
+          value={volume}
+          min={0}
+          max={1}
+          step={0.05}
+          format={(v) => `${Math.round(v * 100)}%`}
+          onChange={setVolume}
+          onDone={() => edits.apply(clips.map((c) => ({ op: OpName.Patch, id: c.id, fields: { volume } })), `Volume of ${plural(clips.length, "clip", "clips")}: ${Math.round(volume * 100)}%`, true)}
+        />
+      )}
+      <p className="text-[11px] text-neutral-500">Shift-click adds or removes a piece; drag on an empty lane to box-select.</p>
+      <button type="button" onClick={() => ops.remove(selection)} className="self-start text-xs text-neutral-400 hover:text-red-400">
+        Delete all
       </button>
     </div>
   );

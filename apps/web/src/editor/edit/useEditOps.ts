@@ -1,4 +1,4 @@
-import { OpName } from "@motionily/protocol";
+import { OpName, type Op } from "@motionily/protocol";
 import { engineHost } from "../../engine/host";
 import { useEditor } from "../../store";
 import type { SceneView } from "../sceneView";
@@ -30,7 +30,15 @@ export function useEditOps(scene: SceneView | null, tracks: EditTracks | null, e
       const b = sel.block;
       edits.apply(b.group ? [{ op: OpName.RemoveGroup, group: b.group }] : b.ids.map((id) => ({ op: OpName.RemoveLayer, id })), `Deletes ${b.label}`, false);
     } else if (sel.kind === "cue") edits.apply([{ op: OpName.RemoveSfx, id: sel.cue.id }], `Deletes the ${sel.cue.sound} effect`, false);
-    else edits.apply([{ op: OpName.SetMusic, music: null }], "Removes the music", false);
+    else if (sel.kind === "many") {
+      // Several pieces at once: clips go without closing gaps (one ripple per clip would shift the others).
+      const o: Op[] = [
+        ...sel.clips.map((c): Op => ({ op: OpName.RemoveLayer, id: c.id })),
+        ...sel.blocks.flatMap((b): Op[] => (b.group ? [{ op: OpName.RemoveGroup, group: b.group }] : b.ids.map((id) => ({ op: OpName.RemoveLayer, id })))),
+        ...sel.cues.map((c): Op => ({ op: OpName.RemoveSfx, id: c.id })),
+      ];
+      edits.apply(o, `Deletes ${sel.clips.length + sel.blocks.length + sel.cues.length} pieces`, sel.clips.length > 0);
+    } else edits.apply([{ op: OpName.SetMusic, music: null }], "Removes the music", false);
     useEditor.setState({ selectedLayerId: null, selectedGroup: null });
   };
   return { split, remove };
