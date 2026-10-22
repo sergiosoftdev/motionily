@@ -19,6 +19,9 @@ export enum AssetSource {
   Pexels = "pexels",
   Pixabay = "pixabay",
   Iconify = "iconify",
+  Archive = "archive",
+  Met = "met",
+  Europeana = "europeana",
   Web = "web",
   Generated = "generated",
   Library = "library",
@@ -87,7 +90,7 @@ export type ResolvedAsset = {
 };
 
 /** Third-party keys a search may use (the user's own, or the platform's for free sources). */
-export type SourceKeys = { pexels?: string; pixabay?: string; brave?: string };
+export type SourceKeys = { pexels?: string; pixabay?: string; brave?: string; europeana?: string };
 
 /** The video's frame shape: sources that can filter by it return images that fit. */
 export enum Orientation {

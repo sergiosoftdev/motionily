@@ -4,8 +4,14 @@ import { api, mediaUrl } from "../api/client";
 
 /** What each source adds, shown next to its key field. */
 const PROVIDERS: Record<ProviderKey, { name: string; about: string; where: string; placeholder: string }> = {
-  [ProviderKey.Pexels]: { name: "Pexels", about: "Free stock photos and video clips.", where: "Create a key at pexels.com/api.", placeholder: "Pexels API key" },
+  [ProviderKey.Pexels]: { name: "Pexels", about: "Free stock photos and video clips.", where: "Pexels has paused new API keys; a key you already have still works.", placeholder: "Pexels API key" },
   [ProviderKey.Pixabay]: { name: "Pixabay", about: "Free photos and video clips.", where: "Your key is in your Pixabay account under API.", placeholder: "Pixabay API key" },
+  [ProviderKey.Europeana]: {
+    name: "Europeana",
+    about: "Millions of openly licensed photos from Europe's museums and archives: history, places, people.",
+    where: "Get a free key at pro.europeana.eu › Get your API key.",
+    placeholder: "Europeana API key",
+  },
   [ProviderKey.Brave]: {
     name: "Brave Search",
     about: "Web image search for what free libraries do not have. Licenses are unknown, so the agent only uses these for commentary, news or history.",
@@ -89,7 +95,7 @@ export function AssetSourcesForm() {
           </div>
         );
       })}
-      <p className="text-xs leading-relaxed text-neutral-500">Keys are stored encrypted and only ever sent to their provider. Wikimedia Commons, Openverse and Iconify need no key.</p>
+      <p className="text-xs leading-relaxed text-neutral-500">Keys are stored encrypted and only ever sent to their provider. Wikimedia Commons, Openverse, the Internet Archive, the Met and Iconify need no key.</p>
     </div>
   );
 }

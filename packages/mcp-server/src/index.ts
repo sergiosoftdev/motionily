@@ -815,7 +815,7 @@ server.registerTool(
   "search_assets",
   {
     description: `Gather REAL material for the video like a human editor: photos, stock footage, logos, textures. ONE call with every need of the whole video (one query per subject, in English: names, places, years, objects). Each query searches all sources of its kind at once and comes back as ONE numbered contact sheet; pick by looking, then import_assets the numbers' ids.
-kinds: photo (Wikimedia Commons, Openverse, Pexels, Pixabay, web*) · footage (Pexels, Pixabay video clips) · logo (brand logos as SVG: Iconify brand sets, Wikimedia Commons, web*) · texture (paper, film, fabric, concrete… for backgrounds and blend layers).
+kinds: photo (Wikimedia Commons, Europeana, the Met, Openverse, Pexels, Pixabay, web*) · footage (stock clips from Pexels and Pixabay; public-domain films and newsreels from the Internet Archive and Commons) · logo (brand logos as SVG: Iconify brand sets, Wikimedia Commons, web*) · texture (paper, film, fabric, concrete… for backgrounds and blend layers).
 Items already in the user's library come first (marked). *web = the user's own Brave key; its results have unknown licenses: editorial use only (history, news, commentary), never as if the brand endorsed the video.`,
     inputSchema: {
       needs: z

@@ -17,12 +17,14 @@ export enum ProviderKey {
   Pixabay = "pixabay",
   Brave = "brave",
   OpenAI = "openai",
+  Europeana = "europeana",
 }
 
 /** Platform keys (env) for free sources only. */
 const PLATFORM_ENV: Partial<Record<ProviderKey, string>> = {
   [ProviderKey.Pexels]: "PEXELS_API_KEY",
   [ProviderKey.Pixabay]: "PIXABAY_API_KEY",
+  [ProviderKey.Europeana]: "EUROPEANA_API_KEY",
 };
 const HINT_CHARS = 4;
 const CHECK_TIMEOUT_MS = 10_000;
@@ -34,6 +36,7 @@ const CHECKS: Record<ProviderKey, (key: string) => Promise<Response>> = {
   [ProviderKey.Brave]: (key) =>
     fetch("https://api.search.brave.com/res/v1/images/search?q=paper&count=1", { headers: { Accept: "application/json", "X-Subscription-Token": key }, signal: AbortSignal.timeout(CHECK_TIMEOUT_MS) }),
   [ProviderKey.OpenAI]: (key) => fetch("https://api.openai.com/v1/models", { headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(CHECK_TIMEOUT_MS) }),
+  [ProviderKey.Europeana]: (key) => fetch(`https://api.europeana.eu/record/v2/search.json?${new URLSearchParams({ wskey: key, query: "paper", rows: "1" })}`, { signal: AbortSignal.timeout(CHECK_TIMEOUT_MS) }),
 };
 
 export type ProviderStatus = { provider: ProviderKey; connected: boolean; hint: string | null; platform: boolean };
@@ -80,8 +83,8 @@ export class ProviderKeysService {
   }
 
   async sourceKeys(userId: Types.ObjectId): Promise<SourceKeys> {
-    const [pexels, pixabay, brave] = await Promise.all([ProviderKey.Pexels, ProviderKey.Pixabay, ProviderKey.Brave].map((p) => this.keyFor(userId, p)));
-    return { pexels: pexels ?? undefined, pixabay: pixabay ?? undefined, brave: brave ?? undefined };
+    const [pexels, pixabay, brave, europeana] = await Promise.all([ProviderKey.Pexels, ProviderKey.Pixabay, ProviderKey.Brave, ProviderKey.Europeana].map((p) => this.keyFor(userId, p)));
+    return { pexels: pexels ?? undefined, pixabay: pixabay ?? undefined, brave: brave ?? undefined, europeana: europeana ?? undefined };
   }
 }
 

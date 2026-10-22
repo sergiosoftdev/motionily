@@ -149,7 +149,9 @@ A human cutting this video would go and get things: the actual logo, a photo of 
 the product, a map, a paper texture. Do the same: real material makes a video read as made by a person; type and
 shapes alone read as generated.
 - ONE `search_assets` with every need of the video (`needs: [{q, kind}]`, ≤10, English, specific: names, places,
-  years, objects). kinds: `photo`, `footage` (stock clips), `logo` (SVG), `texture`. Each query returns one numbered
+  years, objects). kinds: `photo` (Commons, Europeana, the Met, Openverse, stock), `footage` (stock clips; public-domain
+  films and newsreels from the Internet Archive and Commons — long films: trim seconds with `in=`/`out=`), `logo` (SVG),
+  `texture`. Each query returns one numbered
   contact sheet across all sources; items already in the user's library come first. At most one more call for needs
   that came back empty (other words, another kind). Never search item by item.
 - Pick by looking: on topic, sharp, a shape that fits the frame (portrait for 9:16), a logo of the right era. Then ONE

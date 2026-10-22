@@ -1,5 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { promisify } from "node:util";
 import { join } from "node:path";
 import { BadGatewayException, BadRequestException, HttpException, Injectable } from "@nestjs/common";
 import type { Types } from "mongoose";
@@ -15,6 +18,7 @@ import { download, IMAGE_EXT, SVG_MIME, VIDEO_EXT } from "./http";
 import { generateImage, ProviderError } from "./image-gen";
 import { LibraryService } from "./library";
 import { ProviderKey, ProviderKeysService } from "./provider-keys";
+import { resolveArchive, resolveEuropeana, resolveMet, searchArchive, searchEuropeana, searchMet } from "./sources/archives";
 import { resolveCommons, searchCommons } from "./sources/commons";
 import { iconData, resolveIconify, searchIconifyLogos, searchIcons, needsCredit, setPage } from "./sources/iconify";
 import { resolveOpenverse, searchOpenverse } from "./sources/openverse";
@@ -22,11 +26,13 @@ import { NO_KEY, resolvePexels, resolvePixabay, searchPexels, searchPixabay } fr
 import { resolveWeb, searchWeb } from "./sources/web";
 import { MAX_SVG_BYTES, rasterizeSvg, sanitizeSvg } from "./vector";
 
+const run = promisify(execFile);
+
 /** Sources asked for each kind, in the order their hits are interleaved. */
 const SOURCES_BY_KIND: Record<AssetKind, AssetSource[]> = {
-  [AssetKind.Photo]: [AssetSource.Commons, AssetSource.Pexels, AssetSource.Openverse, AssetSource.Pixabay, AssetSource.Web],
-  [AssetKind.Texture]: [AssetSource.Pexels, AssetSource.Pixabay, AssetSource.Openverse, AssetSource.Commons, AssetSource.Web],
-  [AssetKind.Footage]: [AssetSource.Pexels, AssetSource.Pixabay],
+  [AssetKind.Photo]: [AssetSource.Commons, AssetSource.Pexels, AssetSource.Europeana, AssetSource.Openverse, AssetSource.Pixabay, AssetSource.Met, AssetSource.Web],
+  [AssetKind.Texture]: [AssetSource.Pexels, AssetSource.Pixabay, AssetSource.Openverse, AssetSource.Commons, AssetSource.Europeana, AssetSource.Web],
+  [AssetKind.Footage]: [AssetSource.Pexels, AssetSource.Archive, AssetSource.Pixabay, AssetSource.Commons],
   [AssetKind.Logo]: [AssetSource.Iconify, AssetSource.Commons, AssetSource.Web],
 };
 
@@ -36,6 +42,9 @@ const SEARCHERS: Partial<Record<AssetSource, Searcher>> = {
   [AssetSource.Pexels]: searchPexels,
   [AssetSource.Pixabay]: searchPixabay,
   [AssetSource.Iconify]: searchIconifyLogos,
+  [AssetSource.Archive]: searchArchive,
+  [AssetSource.Met]: searchMet,
+  [AssetSource.Europeana]: searchEuropeana,
   [AssetSource.Web]: searchWeb,
 };
 
@@ -43,6 +52,7 @@ const SEARCHERS: Partial<Record<AssetSource, Searcher>> = {
 const KEY_OF: Partial<Record<AssetSource, ProviderKey>> = {
   [AssetSource.Pexels]: ProviderKey.Pexels,
   [AssetSource.Pixabay]: ProviderKey.Pixabay,
+  [AssetSource.Europeana]: ProviderKey.Europeana,
   [AssetSource.Web]: ProviderKey.Brave,
 };
 
@@ -165,6 +175,12 @@ export class AssetsService {
         return resolvePixabay(ref, keys);
       case AssetSource.Iconify:
         return resolveIconify(ref);
+      case AssetSource.Archive:
+        return resolveArchive(ref);
+      case AssetSource.Met:
+        return resolveMet(ref);
+      case AssetSource.Europeana:
+        return resolveEuropeana(ref, keys);
       case AssetSource.Web:
         return resolveWeb(ref);
       default:
@@ -175,8 +191,9 @@ export class AssetsService {
   /** Download into /media: rasters with a preview, SVGs sanitized plus their PNG rendering, clips with a contact sheet. */
   private async fetchInto(r: ResolvedAsset & { svgText?: string }, untrusted: boolean): Promise<AssetCredit> {
     if (r.format === AssetFormat.Video) {
-      const file = await download(r.download, MAX_VIDEO_BYTES, VIDEO_EXT, { timeoutMs: VIDEO_TIMEOUT_MS, untrusted }).catch(fail);
-      const src = await save(file.bytes, file.ext);
+      const file = await download(r.download, MAX_VIDEO_BYTES, { ...VIDEO_EXT, ...ARCHIVE_VIDEO_EXT }, { timeoutMs: VIDEO_TIMEOUT_MS, untrusted }).catch(fail);
+      // Archives serve webm/ogv/m4v: the editor gets H.264 MP4 every time.
+      const src = file.ext === ".mp4" ? await save(file.bytes, file.ext) : await toMp4(file.bytes, file.ext).catch(fail);
       const facts = await describeVideo(join(MEDIA_DIR, src.slice("/media/".length)));
       return { ...r.credit, format: AssetFormat.Video, src, ...(facts ? { duration: facts.duration, width: facts.width, height: facts.height, poster: facts.poster ?? undefined } : {}) };
     }
@@ -286,6 +303,32 @@ export class AssetsService {
       });
     }
     return out;
+  }
+}
+
+/** Containers archives use besides the ones the editor reads directly. */
+const ARCHIVE_VIDEO_EXT: Record<string, string> = { "video/ogg": ".ogv", "application/ogg": ".ogv", "video/x-m4v": ".m4v", "video/mpeg": ".mpg" };
+const FFMPEG = process.env.FFMPEG_PATH ?? "ffmpeg";
+/** Long side of converted clips (archive films are SD; stock is already ≤ 1080). */
+const CLIP_LONG_SIDE = 1280;
+const TRANSCODE_TIMEOUT_MS = 300_000;
+
+/** Convert any clip to H.264/AAC MP4 (fast start), at most 1280 px on its long side. */
+async function toMp4(bytes: Buffer, ext: string): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "clip-"));
+  try {
+    const input = join(dir, `in${ext}`);
+    await writeFile(input, bytes);
+    const name = mediaName("clip.mp4");
+    const scale = `scale='if(gt(iw,ih),min(${CLIP_LONG_SIDE},iw),-2)':'if(gt(iw,ih),-2,min(${CLIP_LONG_SIDE},ih))'`;
+    await run(FFMPEG, ["-v", "error", "-y", "-i", input, "-vf", `${scale},format=yuv420p`, "-c:v", "libx264", "-preset", "veryfast", "-crf", "22", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", join(MEDIA_DIR, name)], {
+      timeout: TRANSCODE_TIMEOUT_MS,
+    });
+    return `/media/${name}`;
+  } catch (e) {
+    throw new Error(`the clip could not be converted to MP4: ${(e as Error).message.slice(0, 200)}`);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 }
 

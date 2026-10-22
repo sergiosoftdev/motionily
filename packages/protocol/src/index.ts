@@ -346,6 +346,9 @@ export const ImageSource = {
   Pexels: "pexels",
   Pixabay: "pixabay",
   Iconify: "iconify",
+  Archive: "archive",
+  Met: "met",
+  Europeana: "europeana",
   Web: "web",
   Generated: "generated",
   Library: "library",
@@ -425,7 +428,7 @@ export type Direction = { genre: Genre; concept: string; techniques: string[]; s
 export type Fingerprint = { name: string; genre: Genre | null; concept: string | null; techniques: string[]; font: string | null; primary: string | null; background: string | null; constraints: string[] };
 
 /** Asset sources the user can connect with their own key (Settings › Asset sources). */
-export const ProviderKey = { Pexels: "pexels", Pixabay: "pixabay", Brave: "brave", OpenAI: "openai" } as const;
+export const ProviderKey = { Pexels: "pexels", Pixabay: "pixabay", Brave: "brave", OpenAI: "openai", Europeana: "europeana" } as const;
 export type ProviderKey = (typeof ProviderKey)[keyof typeof ProviderKey];
 export type ProviderStatus = { provider: ProviderKey; connected: boolean; hint: string | null; platform: boolean };
 
