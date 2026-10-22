@@ -23,9 +23,10 @@ impl Scene {
     /// Every visible layer under scene point (x, y) at `t`, front to back.
     pub fn pick_stack(&self, t: f32, x: f32, y: f32) -> Vec<Hit> {
         let frame = [self.width as f32, self.height as f32];
+        let solo = self.solo_mask();
         self.measuring(t, |m| {
             let mut hits: Vec<(f32, usize, Hit)> = Vec::new();
-            for (idx, l) in self.layers.iter().enumerate().filter(|(_, l)| l.camera.is_none() && l.visible) {
+            for (idx, l) in self.layers.iter().enumerate().filter(|(i, l)| l.camera.is_none() && l.visible && solo.as_ref().is_none_or(|s| s[*i])) {
                 let Some((b, map)) = self.screen_bounds(idx, t, m) else { continue };
                 if !b.contains([x, y]) || !self.shape_hit(l, t, m.ctx, &map, [x, y]) {
                     continue;

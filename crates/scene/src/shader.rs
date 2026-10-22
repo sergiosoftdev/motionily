@@ -313,7 +313,7 @@ pub fn check_layer(layer: &Layer) -> Result<(), String> {
         }
         check(ShaderStage::Layer, code).map_err(|e| format!("shader layer '{}': {e}", layer.id))?;
     }
-    for e in &layer.effects {
+    for e in layer.effects.iter().map(|s| &s.effect) {
         if let crate::paint::Effect::Shader { code, params } = e {
             if params.len() > MAX_PARAMS {
                 return Err(format!("shader effect on '{}': at most {MAX_PARAMS} params (p0..p7), got {}", layer.id, params.len()));
@@ -330,7 +330,7 @@ pub fn layer_codes(layer: &Layer) -> impl Iterator<Item = (ShaderStage, &ShaderC
         LayerContent::Shader { code, .. } => Some((ShaderStage::Layer, code)),
         _ => None,
     };
-    let effects = layer.effects.iter().filter_map(|e| match e {
+    let effects = layer.effects.iter().map(|s| &s.effect).filter_map(|e| match e {
         crate::paint::Effect::Shader { code, .. } => Some((ShaderStage::Effect, code)),
         _ => None,
     });

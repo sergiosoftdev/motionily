@@ -61,7 +61,7 @@ applied: fix it and resend the call.
 {"op":"set_duration","duration":12}
 {"op":"add_layer","layer":{…}}  {"op":"remove_layer","id":"card"}
 {"op":"remove_group","group":"dashboard"}  {"op":"set_group","ids":["a","b"],"group":"dashboard"}
-{"op":"set_prop","id":"card","prop":"x|y|w|h|scale|rotation|opacity|radius|z|rotate_x|rotate_y|soft|backdrop|time","value":<number|keyframes|"expression">}
+{"op":"set_prop","id":"card","prop":"x|y|w|h|scale|rotation|opacity|radius|z|rotate_x|rotate_y|soft|backdrop|time|perspective","value":<number|keyframes|"expression">}
                                                         // any other prop (gradient, stroke, effects…) is a patch of that field
 {"op":"patch","id":"card"|"ids":[…]|"group":"cards"|"all":true,"fields":{"gradient":{…},"stroke.width":3,"fill":"accent"}}
                                                         // any layer field (JSON names); "a.b" merges inside; null resets
@@ -74,6 +74,10 @@ applied: fix it and resend the call.
 {"op":"set_captions","captions":{"words":[{"text":"Hello","start":0.2,"end":0.5}]}}   // words:[] hides the built-in line
 {"op":"put_sfx","cue":{…}} {"op":"remove_sfx","id":"…"} {"op":"clear_sfx"}           // prefer add_sfx
 {"op":"define_component","name":"stat","component":{"params":[…],"duration":6,"layers":[…]}}  {"op":"remove_component","name":"stat"}  // prefer the define_component tool
+{"op":"precompose","ids":["card","title"],"component":"intro","id":"intro1"}   // layers -> new component + one instance in place (syntax: Precompose)
+{"op":"set_markers","markers":[{"t":1.2,"label":"drop","color":"#f5a623"}]}     // timeline markers (replaces all; [] clears; kept sorted)
+{"op":"set_work_area","work_area":[2,5]}                // preview loops 2-5 s; null = whole video; export always renders everything
+{"op":"patch","id":"card","fields":{"solo":true}}       // solo/locked/shy are layer fields (false = off); solo changes the render
 3D stage: put_prop, remove_prop, set_camera, set_shots, set_stage, set_lights, define_prefab (below)
 ```
 Rejected on purpose: `set_size` (use `set_format`), `set_style`, `set_library`, `set_caption_style`, `set_render_style`,

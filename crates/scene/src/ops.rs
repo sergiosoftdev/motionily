@@ -120,6 +120,14 @@ pub enum Op {
     DefineComponent { name: String, component: crate::component::Component },
     /// Delete a component no layer or other component uses any more.
     RemoveComponent { name: String },
+    /// Move layers into a new component and put one instance `id` where the topmost was, spanning
+    /// their time range (After Effects' precompose): `{"op":"precompose","ids":["a","b"],"component":"intro","id":"intro1"}`.
+    Precompose { ids: Vec<String>, component: String, id: String },
+    // ── timeline ──
+    /// Replace the timeline markers (`[]` clears): `{"op":"set_markers","markers":[{"t":1.2,"label":"drop","color":"#f5a623"}]}`.
+    SetMarkers { markers: Vec<crate::Marker> },
+    /// Preview loop range `[in, out]` seconds (`null` = the whole video). Export ignores it.
+    SetWorkArea { work_area: Option<[f32; 2]> },
 }
 
 /// `set_prop` names (numbers that take keyframes/expressions); any other field goes through `patch`.
@@ -185,6 +193,29 @@ pub enum Prop {
     Time,
     /// Lens (px) of a tilted plane without a camera layer.
     Perspective,
+}
+
+impl Layer {
+    /// The value `set_prop` writes for `p` (`None`: an optional one left unset: `time`, `perspective`).
+    pub fn prop(&self, p: Prop) -> Option<&Animated> {
+        Some(match p {
+            Prop::X => &self.x,
+            Prop::Y => &self.y,
+            Prop::W => &self.w,
+            Prop::H => &self.h,
+            Prop::Scale => &self.scale,
+            Prop::Rotation => &self.rotation,
+            Prop::Opacity => &self.opacity,
+            Prop::Radius => &self.radius,
+            Prop::Z => &self.z,
+            Prop::RotateX => &self.rotate_x,
+            Prop::RotateY => &self.rotate_y,
+            Prop::Soft => &self.soft,
+            Prop::Backdrop => &self.backdrop,
+            Prop::Time => self.time.as_ref()?,
+            Prop::Perspective => self.perspective.as_ref()?,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -496,6 +527,21 @@ impl Scene {
             }
             Op::DefineComponent { name, component } => self.define_component(name, component)?,
             Op::RemoveComponent { name } => self.remove_component(name)?,
+            Op::Precompose { ids, component, id } => self.precompose(ids, component, id)?,
+            Op::SetMarkers { markers } => {
+                if markers.iter().any(|m| !(m.t.is_finite() && m.t >= 0.0)) {
+                    return Err(OpError::Invalid("every marker needs t >= 0 (seconds)"));
+                }
+                let mut markers = markers.clone();
+                markers.sort_by(|a, b| a.t.total_cmp(&b.t));
+                self.markers = markers;
+            }
+            Op::SetWorkArea { work_area } => {
+                if work_area.is_some_and(|[a, b]| !(a.is_finite() && b.is_finite() && a >= 0.0 && b > a)) {
+                    return Err(OpError::Invalid("work_area is [in, out] seconds with 0 <= in < out (or null)"));
+                }
+                self.work_area = *work_area;
+            }
         }
         Ok(())
     }

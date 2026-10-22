@@ -86,6 +86,19 @@ impl Channel {
     pub fn arity(self) -> std::ops::RangeInclusive<usize> {
         if self == Channel::Spec { 1..=2 } else { 1..=1 }
     }
+
+    /// As written in expressions.
+    pub fn name(self) -> &'static str {
+        match self {
+            Channel::Vol => "vol",
+            Channel::Bass => "bass",
+            Channel::Mid => "mid",
+            Channel::High => "high",
+            Channel::Beat => "beat",
+            Channel::Beats => "beats",
+            Channel::Spec => "spec",
+        }
+    }
 }
 
 /// Curves and beats of one audio file, in file seconds.

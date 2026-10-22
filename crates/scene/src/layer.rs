@@ -411,9 +411,9 @@ pub struct Layer {
     /// Frosted glass: blur what is behind this layer's shape by this many px.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub backdrop: Animated,
-    /// Effect stack: blur, glow, shadow.
+    /// Effect stack: blur, glow, shadow. An entry with `enabled: false` stays in the stack but is not drawn.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub effects: Vec<Effect>,
+    pub effects: Vec<EffectSlot>,
     #[serde(default, skip_serializing_if = "is_normal")]
     pub blend: BlendMode,
     /// Track matte: another layer's alpha masks this one.
@@ -422,6 +422,16 @@ pub struct Layer {
     /// false = not drawn by itself (matte sources, parents used as nulls).
     #[serde(default = "yes", skip_serializing_if = "is_true")]
     pub visible: bool,
+    /// Solo: while any layer is solo, only solo layers draw (preview and export); what they need
+    /// still works (parents, matte sources, the camera, adjustment layers above them).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub solo: bool,
+    /// Locked in the editor (can't be selected or dragged there). No effect on the render.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub locked: bool,
+    /// Shy: the editor's timeline can hide it. No effect on the render.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub shy: bool,
     /// Inherit position, rotation and scale from another layer (x/y become relative to it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,
@@ -1083,5 +1093,29 @@ mod fit_width_tests {
         assert_eq!(fit_width(900.0, -300.0, 1920.0), 900.0);
         // On the frame the old rule still applies: a block wider than the room shrinks to it.
         assert!(fit_width(1800.0, 100.0, 1920.0) < 1800.0);
+    }
+}
+
+
+/// One entry of a layer's effect stack: the effect and AE's fx switch. Serialized flat
+/// (`{"fx":"blur","radius":8,"enabled":false}`); `enabled` is left out while on.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EffectSlot {
+    #[serde(flatten)]
+    pub effect: Effect,
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
+    pub enabled: bool,
+}
+
+impl From<Effect> for EffectSlot {
+    fn from(effect: Effect) -> Self {
+        Self { effect, enabled: true }
+    }
+}
+
+impl Layer {
+    /// The effects that draw: the stack without the ones switched off.
+    pub fn live_effects(&self) -> impl Iterator<Item = &Effect> {
+        self.effects.iter().filter(|s| s.enabled).map(|s| &s.effect)
     }
 }

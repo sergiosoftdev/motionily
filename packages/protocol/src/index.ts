@@ -211,8 +211,28 @@ export const OpName = {
   // components
   DefineComponent: "define_component",
   RemoveComponent: "remove_component",
+  /** Move layers into a new component and put one instance in their place: `{ids, component, id}`. */
+  Precompose: "precompose",
+  // timeline
+  /** Replace the timeline markers: `{markers: Marker[]}` (`[]` clears). */
+  SetMarkers: "set_markers",
+  /** Preview loop range: `{work_area: [in, out] | null}`. Export ignores it. */
+  SetWorkArea: "set_work_area",
 } as const;
 export type OpName = (typeof OpName)[keyof typeof OpName];
+
+/** A named instant on the timeline (scene `markers`, kept sorted by `t`). `color` is `#rrggbb`. */
+export type Marker = { t: number; label: string; color?: string };
+/** Scene `work_area`: `[in, out]` seconds the preview loops in, or null for the whole video. */
+export type WorkArea = [number, number] | null;
+export type SetMarkersOp = { op: typeof OpName.SetMarkers; markers: Marker[] };
+export type SetWorkAreaOp = { op: typeof OpName.SetWorkArea; work_area: WorkArea };
+/** `id` is the new instance layer; it spans the layers' time range at the topmost one's stacking position. */
+export type PrecomposeOp = { op: typeof OpName.Precompose; ids: string[]; component: string; id: string };
+
+/** Layer switches set with `patch` fields (false = left out). Solo changes what renders; locked and shy are editor-only. */
+export const LayerSwitch = { Solo: "solo", Locked: "locked", Shy: "shy" } as const;
+export type LayerSwitch = (typeof LayerSwitch)[keyof typeof LayerSwitch];
 
 // ── API (apps/api) shapes used by the editor and the MCP server ───────────
 
@@ -408,3 +428,6 @@ export type VoiceModel = (typeof VoiceModel)[keyof typeof VoiceModel];
 export type Voice = { id: string; name: string; category: string | null; description: string | null; labels: Record<string, string>; previewUrl: string | null };
 
 export type User = { id: string; email: string; name: string; avatarUrl: string | null; provider: string };
+
+/** Short-form attention curve: devices, measurement and checks (see attention.ts). */
+export * from "./attention.js";

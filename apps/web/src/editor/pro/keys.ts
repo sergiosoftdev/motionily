@@ -16,9 +16,10 @@ const same = (a: number, b: number, fps: number) => Math.abs(a - b) < 0.5 / fps;
 export const keyAt = (a: Anim | undefined, lt: number, fps: number) => (isKeys(a) ? a.find((k) => same(k.t, lt, fps)) : undefined);
 
 function insert(a: Key[], k: Key): Key[] {
-  // A new key takes the easing of the key before it, so the motion keeps its feel.
+  // A new key takes the easing (named or custom curve) of the key before it, so the motion keeps its feel.
   const before = [...a].reverse().find((x) => x.t < k.t);
-  return [...a, before?.ease ? { ...k, ease: before.ease } : k].sort((x, y) => x.t - y.t);
+  const feel = { ...(before?.ease ? { ease: before.ease } : {}), ...(before?.bezier ? { bezier: [...before.bezier] } : {}) };
+  return [...a, { ...k, ...feel }].sort((x, y) => x.t - y.t);
 }
 
 /** The value at local time `lt` becomes `v`: a fixed value changes, an animated one gets (or updates) a key there. */

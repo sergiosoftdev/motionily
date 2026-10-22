@@ -644,13 +644,13 @@ impl Scene {
             return drawn;
         }
         let mut out: Vec<DrawItem> = self.backdrop_pass(child, inside.ct, &drawn, None, [0.0; 2]).into_iter().collect();
-        let needs_fx = !child.effects.is_empty() || child.blend != paint::BlendMode::Normal || child.matte.is_some() || child.adjustment;
+        let needs_fx = child.live_effects().next().is_some() || child.blend != paint::BlendMode::Normal || child.matte.is_some() || child.adjustment;
         if !needs_fx {
             out.append(&mut drawn);
             return out;
         }
         let lt = child.local_time(inside.ct);
-        let effects: Vec<paint::DrawEffect> = child.effects.iter().filter_map(|e| e.resolve(lt, ctx.palette)).collect();
+        let effects: Vec<paint::DrawEffect> = child.live_effects().filter_map(|e| e.resolve(lt, ctx.palette)).collect();
         let fx = if child.adjustment {
             paint::DrawFx { items: Vec::new(), effects, blend: child.blend, matte: Some((drawn, paint::MatteMode::Alpha)), samples: Vec::new(), adjust: true, perspective: None, plane_origin: [0.0; 2] }
         } else {
@@ -667,7 +667,7 @@ impl Scene {
 
     /// Motion blur of a component layer: it at the other instants of its shutter (component clock).
     fn child_samples(&self, child: &Layer, inside: &Inside, ctx: &EvalCtx) -> Vec<Vec<DrawItem>> {
-        let Some((shutter, samples)) = child.effects.iter().find_map(|e| match e {
+        let Some((shutter, samples)) = child.live_effects().find_map(|e| match e {
             paint::Effect::MotionBlur { shutter, samples } => Some((*shutter, *samples)),
             _ => None,
         }) else {

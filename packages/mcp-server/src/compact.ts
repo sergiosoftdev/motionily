@@ -701,6 +701,9 @@ export function parseLine(line: string, partial = false): Layer {
     else if (k === "orient") layer.motion_path = { ...(layer.motion_path as object), orient: flag(v) };
     else if (k === "tp") layer.path = { ...(layer.path as object), d: quoted(v, line) };
     else if (k === "tpo") layer.path = { ...(layer.path as object), offset: parseValue(v, line) }; else if (k === "vis") layer.visible = flag(v);
+    else if (k === "solo") layer.solo = flag(v);
+    else if (k === "lock") layer.locked = flag(v);
+    else if (k === "shy") layer.shy = flag(v);
     else if (k === "filled") layer.filled = flag(v);
     else if (k === "pivot") layer.pivot = list(v, line, 2).map((n) => num(n, line));
     else if (k === "rep") {
@@ -903,6 +906,10 @@ const SHORT_FORMS: [string, (v: never) => string[]][] = [
   ["reveal", (r: Animated) => [`reveal=${formatValue(r)}`]],
   ["caret", (c: boolean | string) => flagOut("caret", c)],
   ["fixed", (f: boolean | string) => flagOut("fixed", f)],
+  // The user's editor switches (solo changes the render; locked/shy don't).
+  ["solo", (f: boolean | string) => flagOut("solo", f)],
+  ["locked", (f: boolean | string) => flagOut("lock", f)],
+  ["shy", (f: boolean | string) => flagOut("shy", f)],
   ["backdrop", (b: Animated) => [`backdrop=${formatValue(b)}`]],
   [
     "camera",
