@@ -34,6 +34,7 @@ import { Checkpoints, diffScenes } from "./checkpoints.js";
 import { describeExample, examplesDir, loadExamples, rankExamples, saveExample } from "./examples.js";
 import { nextSteps, type ProjectState } from "./nextstep.js";
 import { frameStats } from "./review.js";
+import { attentionReport } from "./attention.js";
 import { buildEdit, DEFAULT_EDIT, FOOTAGE_GROUP, footageLines, parseSegments, transcriptLines } from "./footage.js";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
@@ -987,7 +988,7 @@ server.registerTool(
   "set_voice_script",
   {
     description:
-      "Save the voice-over script (ElevenLabs v3 format: one tone tag like [warm] first, one paragraph per scene, '[long pause] [long pause]' between scenes, numbers in letters, last sentence = CTA). The user pastes it in ElevenLabs and uploads the mp3.",
+      "Save the voice-over script (ElevenLabs v3 format: one tone tag like [warm] first, one paragraph per scene, '[long pause] [long pause]' between scenes, numbers in letters, last sentence = CTA). Write ONE continuous story told like to a friend: each sentence follows from the last (so, but, because, until), real names and stakes, no list of punchy lines or teaser filler ('But wait…'); for vertical videos its turns are the re-hooks of the attention curve (craft). The user pastes it in ElevenLabs and uploads the mp3.",
     inputSchema: { script: z.string().min(1).max(8000) },
   },
   guard(async ({ script }) => {
@@ -1000,7 +1001,7 @@ server.registerTool(
   "review_video",
   {
     description:
-      "SELF-REVIEW the whole video before saying it's done: one contact sheet of evenly spaced frames, 12 fps strips of the moments that change most (judge easing and continuity there), automatic checks (layers off frame, text colliding or crossing card edges, text too small to read on a phone, palette too saturated/neon, dead air, blank frames) and motion notes (abrupt stops, linear keys, crowded entrances, held layers, no camera). Look at the sheet critically like a motion designer (framing, characters cut off or tiny, camera, readability, rhythm), fix everything with apply_ops and review again. Repeat until it is clean (max ~3 rounds). Works even if the user has no editor open.",
+      "SELF-REVIEW the whole video before saying it's done: one contact sheet of evenly spaced frames, 12 fps strips of the moments that change most (judge easing and continuity there), automatic checks (layers off frame, text colliding or crossing card edges, text too small to read on a phone, palette too saturated/neon, dead air, blank frames), motion notes (abrupt stops, linear keys, crowded entrances, held layers, no camera) and, for vertical/square videos, the attention curve (frame 0 moving, a re-hook every 4-7 s, pattern interrupt at ~30%, escalating finale, no fade-out). Look at the sheet critically like a motion designer (framing, characters cut off or tiny, camera, readability, rhythm), fix everything with apply_ops and review again. Repeat until it is clean (max ~3 rounds). Works even if the user has no editor open.",
     inputSchema: { frames: z.number().int().min(4).max(24).default(12).describe("frames in the sheet") },
   },
   async ({ frames }) => {
@@ -1023,6 +1024,7 @@ server.registerTool(
         lint.length ? `lint (apply the fix ops with apply_ops):\n- ${formatIssues(lint).join("\n- ")}` : list ? "lint: clean on the sampled frames." : "",
         r.issues.length ? `automatic checks found ${r.issues.length} issue(s):\n- ${r.issues.join("\n- ")}` : "automatic checks: no issues (still look at the sheet).",
         r.motion?.length ? `motion notes:\n- ${r.motion.join("\n- ")}` : "",
+        attentionReport(scene),
         r.strips?.length ? `motion strips (consecutive frames at 12 fps) of the moments that change most: ${r.strips.map((s) => `${s.from}-${s.to}s`).join(", ")} — judge the easing, spacing and continuity there.` : "",
       ]
         .filter(Boolean)
