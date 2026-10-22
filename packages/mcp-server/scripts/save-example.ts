@@ -1,0 +1,10 @@
+/** Save the open video as an approved example (only after the user approved it): MOTIONILY_TOKEN, MOTIONILY_PROJECT, label, tags. */
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+
+const [label, tags] = process.argv.slice(2);
+const client = new Client({ name: "save-example", version: "0.0.0" });
+await client.connect(new StdioClientTransport({ command: "npx", args: ["tsx", "src/index.ts"], env: process.env as Record<string, string>, stderr: "ignore" }));
+const res = (await client.callTool({ name: "examples", arguments: { action: "save", label, tags } })) as { content: { type: string; text?: string }[] };
+console.log(res.content.map((c) => c.text).join("\n"));
+await client.close();
