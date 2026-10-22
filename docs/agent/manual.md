@@ -173,8 +173,12 @@ shapes alone read as generated.
   contrast (a huge cutout next to small type), a soft contact shadow only where it sits on something.
 - Footage: a `video` layer with `src`, `fit=cover`, `in=`/`out=` seconds of the file, `volume=0`; inside a card, a phone
   screen or a matte shape, never just a full-frame stock clip with text on top for the whole video.
-- Textures: a paper/film/fabric photo as the background, or as an `adj=1` full-frame layer with `blend=multiply` /
-  `overlay` / `soft_light` and low opacity over everything (a physical surface that glues the film).
+- Textures: when the film has a physical surface (paper, card, film, fabric), it IS a real texture (search_assets
+  kind texture), never a flat color with grain pretending: an image layer at full strength (`fit=cover`, no washed-out
+  multiply over a flat fill) covering the whole camera path — `fixed=1` to stay on screen, or tiles with `rep=` along a
+  long world. Cards, labels and strips on it are cut from a texture too (image layers with the texture as src,
+  `fit=cover`, their own crop), not flat light rects. Overlays (film scan, dust) go on an `adj=1` layer with
+  `blend=overlay`/`soft_light` at low opacity.
 - Maps: `add_map focus=[…] highlight=[…] points=[{name,lon,lat}]` → `ID_land`, `ID_borders`, `ID_<country>` layers and
   the scene x,y of each point. Fill a country in (`o=0>1`, or `fill=` keys), draw a route between points (a path
   with `te=0>1`), drop pins on the returned coordinates, zoom the camera from the world into the place.

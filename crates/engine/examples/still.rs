@@ -38,6 +38,16 @@ fn main() {
             let bytes = std::fs::read(fonts_dir.join(file)).expect("read font");
             renderer.add_font(family, *weight, &bytes).expect("register font");
         }
+        // Extra fonts (e.g. a Google Font the API cached): STILL_FONTS="Family|700|/path/file.ttf;…".
+        for spec in std::env::var("STILL_FONTS").unwrap_or_default().split(';').filter(|s| !s.is_empty()) {
+            let parts: Vec<&str> = spec.split('|').collect();
+            if let [family, weight, path] = parts[..] {
+                let bytes = std::fs::read(path).expect("read extra font");
+                if let Err(e) = renderer.add_font(family, weight.parse().expect("font weight"), &bytes) {
+                    eprintln!("font {family} {weight}: {e}");
+                }
+            }
+        }
         load_media(&mut renderer, &json, &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/api/uploads"));
         for (id, why) in renderer.shader_failures(&scene) {
             eprintln!("shader on '{id}' draws nothing: {why}");

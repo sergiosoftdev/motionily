@@ -58,6 +58,10 @@ together and applied to every line, they make a video smell generated. Never rea
 - Confetti, sparks, dust bursts and white flashes at reveals; pills, chips and fake cursors outside a real product UI.
 - Paper strips with type stuck on, sticky notes, tape and torn edges as decoration: only if the story is about paper.
 - Words cropped by the frame edge: they read as broken, not bold. Every word stays whole inside the frame (5% margin).
+- 3D text used as flat type: text3d renders its extrusion and softer edges; flat words are text layers (the real font,
+  sharp). text3d is for a word that actually turns or sits in 3D space.
+- Fake materials: flat light rects pretending to be paper or cards, gray or black bars pretending to be lines of text,
+  redaction bars, invented forms and tickets. Use real textures and real documents (search_assets), or show nothing.
 - Constant motion: everything drifting, wiggling and pushing all the time. Humans hold: a still frame of a strong
   photo for 2 s with only the voice is a decision, and it makes the moves around it count.
 What a human editor does instead: ONE signature device per film, chosen for this story; hierarchy from layout,

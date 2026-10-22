@@ -85,6 +85,10 @@ export function slopNotes(scene: { layers?: Layer[]; library?: { components?: Re
   });
   if (underlines.length > MAX_UNDERLINES) notes.push(`${underlines.length} marker strokes drawn under text (${ids(underlines)}): at most one, pointing at something real`);
 
+  // 3D text standing still, facing the camera: flat type rendered worse than a text layer would.
+  const flat3d = texts.filter((t) => isText3d(t) && (t.spin === undefined || t.spin === null || (Array.isArray(t.spin) && t.spin.every((v) => v === 0))));
+  if (flat3d.length) notes.push(`3D text used as flat type (${ids(flat3d)}): make them text layers (the real font, sharp edges); keep text3d for a word that turns in 3D`);
+
   const shadowed = layers.filter((l) => ((l.effects as { fx: string }[] | undefined) ?? []).some((e) => e.fx === "shadow"));
   if (layers.length >= 20 && shadowed.length / layers.length >= SHADOW_SHARE) notes.push(`drop shadows on ${shadowed.length} of ${layers.length} layers: shadow only where something sits on something`);
 

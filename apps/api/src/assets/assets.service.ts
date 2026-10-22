@@ -56,6 +56,8 @@ const KEY_OF: Partial<Record<AssetSource, ProviderKey>> = {
   [AssetSource.Web]: ProviderKey.Brave,
 };
 
+/** Long side under which a texture would show its pixels on a 1080p frame. */
+const MIN_TEXTURE_PX = 1600;
 /** Library hits shown first per query (the rest come from the sources). */
 const LIBRARY_FIRST = 3;
 const PREVIEW_PX = 480;
@@ -110,6 +112,8 @@ export class AssetsService {
         else if (r.reason === NO_KEY && KEY_OF[r.source]) missingKeys.add(KEY_OF[r.source]!);
         else unavailable.add(`${r.source} (${r.reason})`);
       }
+      // Textures fill frames: small files would show their pixels (sizes unknown to a source pass).
+      if (kind === AssetKind.Texture) for (const l of lists) l.splice(0, l.length, ...l.filter((h) => !h.width || Math.max(h.width, h.height) >= MIN_TEXTURE_PX));
       // Round robin across sources so one library cannot fill the sheet.
       const hits: AssetHit[] = mine.filter((h) => !seen.has(h.id) && seen.add(h.id));
       for (let i = 0; hits.length < perQuery && lists.some((l) => i < l.length); i++)
