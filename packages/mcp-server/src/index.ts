@@ -46,7 +46,7 @@ import { vectorLines, VectorSplit } from "./vectorize.js";
 import { MapProjection, mapLines } from "./maps.js";
 import { varietyNotes } from "./variety.js";
 import { slopNotes } from "./slop.js";
-import { deadAir, voiceWords } from "./voice.js";
+import { captionDrift, deadAir, voiceWords } from "./voice.js";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const doc = (name: string) => readFileSync(resolve(here, "../../../docs/agent", name), "utf8").trim();
@@ -1200,6 +1200,8 @@ server.registerTool(
 
 /** A voice silence longer than this (s) is dead air review_video reports. */
 const DEAD_AIR_S = 0.8;
+/** Captions further than this (s) from the voice read as out of sync. */
+const SYNC_TOLERANCE_S = 0.25;
 
 /** Characters of each layer line an example card shows. */
 const EXAMPLE_LINE = 220;
@@ -1479,6 +1481,11 @@ server.registerTool(
           .project()
           .then((p) => deadAir(voiceWords(scene, p.audio?.words), DEAD_AIR_S))
           .then((g) => (g.length ? `dead air in the voice (viewers drop here): ${g.map((x) => `${x.from.toFixed(2)} s (${(x.to - x.from).toFixed(2)} s, "${x.before} … ${x.after}")`).join(", ")} — cut pauses=true` : ""))
+          .catch(() => ""),
+        await api
+          .project()
+          .then((p) => captionDrift(scene, p.audio?.words))
+          .then((d) => (d && d.max > SYNC_TOLERANCE_S ? `VOICE AND CAPTIONS OUT OF SYNC: the voice says "${d.word}" ${d.max.toFixed(2)} s away from its caption at ${d.at.toFixed(2)} s. Never time-shift captions by hand: cut and ripple_delete keep voice, captions and layers together.` : ""))
           .catch(() => ""),
         r.strips?.length ? `motion strips (consecutive frames at 12 fps) of the moments that change most: ${r.strips.map((s) => `${s.from}-${s.to}s`).join(", ")} — judge the easing, spacing and continuity there.` : "",
       ]

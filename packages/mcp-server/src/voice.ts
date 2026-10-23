@@ -57,3 +57,29 @@ export function deadAir(words: Word[], longer: number): Pause[] {
   }
   return out;
 }
+
+const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9áéíóúüñ']/gi, "");
+
+/**
+ * How far the captions sit from the voice: each caption word against the same word of the voice's own
+ * alignment placed through the audio track. Null when there is nothing to compare.
+ */
+export function captionDrift(scene: Record<string, unknown> | null, fileWords: Word[] | null | undefined): { max: number; at: number; word: string } | null {
+  const captions = ((scene?.captions as { words?: Word[] } | undefined)?.words ?? []).map((w) => ({ text: String(w.text), start: Number(w.start) }));
+  if (!captions.length || !fileWords?.length) return null;
+  const track = (scene?.audio as Track | null | undefined) ?? {};
+  let j = 0;
+  let worst: { max: number; at: number; word: string } = { max: 0, at: 0, word: "" };
+  for (const c of captions) {
+    // Walk the voice words in order; skip voice words the captions left out.
+    let k = j;
+    while (k < fileWords.length && norm(fileWords[k]!.text) !== norm(c.text) && k - j < 12) k++;
+    if (k >= fileWords.length || norm(fileWords[k]!.text) !== norm(c.text)) continue;
+    j = k + 1;
+    const heard = toScene(track, fileWords[k]!.start);
+    if (heard === null) continue;
+    const off = Math.abs(heard - c.start);
+    if (off > worst.max) worst = { max: off, at: c.start, word: c.text };
+  }
+  return worst;
+}

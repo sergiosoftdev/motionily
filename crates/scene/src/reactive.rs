@@ -391,14 +391,31 @@ fn silences(level: &[f32], frame_s: f32) -> (Vec<[f32; 2]>, Option<[f32; 2]>) {
 /// from the gaps between caption words when there is no analysis (e.g. music under the voice).
 pub fn voice_timeline(track: Option<AudioTrack>, words: &[crate::Word]) -> Option<String> {
     let track = track.unwrap_or_default();
-    // File time to video time; a point inside a cut lands on the cut (where the audio jumps).
-    let scene = |t: f32| track.to_scene(t).unwrap_or_else(|| track.start + t - track.trim_in - track.cuts.iter().filter(|c| c[1] <= t).map(|c| c[1] - c[0]).sum::<f32>());
     let (pauses, sound): (Vec<[f32; 2]>, [f32; 2]) = match analysis() {
         Some(a) => {
-            let end = a.end(&track);
-            let inside = |p: &&[f32; 2]| p[1] > track.trim_in && p[0] < end;
-            let sound = a.sound?;
-            (a.pauses.iter().filter(inside).map(|p| [scene(p[0].max(track.trim_in)), scene(p[1].min(end))]).collect(), [scene(sound[0].max(track.trim_in)), scene(sound[1].min(end))])
+            // File ranges onto the video through the audible pieces: what a cut removed is gone, and the
+            // two sides of a pause split by a cut close up into one.
+            let pieces = track.pieces(a.end(&track));
+            let on_video = |lo: f32, hi: f32| -> Vec<[f32; 2]> {
+                pieces.iter().filter_map(|&(at, f0, f1)| {
+                    let (l, h) = (lo.max(f0), hi.min(f1));
+                    (h > l).then_some([at + l - f0, at + h - f0])
+                }).collect()
+            };
+            let mut pauses: Vec<[f32; 2]> = Vec::new();
+            for p in a.pauses.iter().flat_map(|p| on_video(p[0], p[1])) {
+                match pauses.last_mut() {
+                    Some(last) if p[0] - last[1] < 1e-3 => last[1] = p[1],
+                    _ => pauses.push(p),
+                }
+            }
+            pauses.retain(|p| p[1] - p[0] >= MIN_PAUSE_S);
+            let s = a.sound?;
+            let heard = on_video(s[0], s[1]);
+            let sound = [heard.first()?[0], heard.last()?[1]];
+            // Silence at the very start or end of the sound is not a pause between phrases.
+            pauses.retain(|p| p[0] > sound[0] && p[1] < sound[1]);
+            (pauses, sound)
         }
         None => {
             let (first, last) = (words.first()?, words.last()?);
@@ -591,6 +608,25 @@ mod tests {
         assert_eq!(a.sample_at(Channel::Beat, 0.0, &track, 1.5), 0.0, "before the audio starts");
         assert_eq!(a.sample_at(Channel::Vol, 0.0, &track, 4.5), 0.0, "after trim_out");
         assert_eq!(a.sample_at(Channel::Beats, 0.0, &track, 10.0), scene_beats.len() as f32);
+    }
+
+    #[test]
+    fn voice_timeline_follows_the_cuts() {
+        let mut a = analyze(&kicks(0.5, 20.0), RATE);
+        a.sound = Some([0.1, 19.0]);
+        // A pause at file 5-8 s, and the stretch 6-12 s cut out of the file.
+        a.pauses = vec![[5.0, 8.0], [14.0, 16.0]];
+        set_analysis(Some(a));
+        let track = AudioTrack { cuts: vec![[6.0, 12.0]], ..AudioTrack::default() };
+        let line = voice_timeline(Some(track), &[]).unwrap();
+        set_analysis(None);
+        // The first pause keeps only its 5-6 s part (on the video 5-6 s); the second lands at 8-10 s.
+        assert!(line.contains("pause 1.00s") && line.contains("pause 2.00s"), "{line}");
+        let body = line.split_once("): ").map_or(line.as_str(), |(_, b)| b);
+        for span in body.split(" · ").filter(|p| p.contains('–')) {
+            let nums: Vec<f32> = span.split(|c: char| !(c.is_ascii_digit() || c == '.')).filter_map(|n| n.parse().ok()).take(2).collect();
+            assert!(nums.len() < 2 || nums[0] <= nums[1], "a phrase ends before it starts: {span}");
+        }
     }
 
     #[test]

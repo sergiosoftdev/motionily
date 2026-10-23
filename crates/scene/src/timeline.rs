@@ -206,8 +206,11 @@ impl Scene {
         }
         self.layers = next;
 
-        // Voice: cut the file where it played inside the range, then move it like a layer.
-        if let Some(audio) = &mut self.audio {
+        // Voice: cut the file where it played inside the range, then move it like a layer. A scene without
+        // an explicit track still plays its voice from 0 (the default placement): give it one, or the
+        // voice would keep its full length while everything else moved up.
+        {
+            let audio = self.audio.get_or_insert_with(crate::AudioTrack::default);
             let mut track = audio.clone();
             for (at, a, b) in audio.pieces(f32::INFINITY) {
                 let lo = from.max(at);
@@ -340,6 +343,16 @@ mod tests {
         let bg = serde_json::to_value(s.layer("bg").unwrap()).unwrap();
         let ts: Vec<f64> = bg["x"].as_array().unwrap().iter().map(|k| k["t"].as_f64().unwrap()).collect();
         assert_eq!(ts.last().copied(), Some(15.0));
+    }
+
+    #[test]
+    fn ripple_delete_cuts_the_voice_even_without_an_explicit_track() {
+        let mut s = scene();
+        s.audio = None;
+        s.apply(&Op::parse_list(r#"[{"op":"ripple_delete","from":5,"to":10}]"#).unwrap()).unwrap();
+        let audio = s.audio.as_ref().expect("the default placement became a track with the cut");
+        assert_eq!(audio.cuts, vec![[5.0, 10.0]]);
+        assert_eq!(audio.to_file(6.0), Some(11.0), "voice and captions move up together");
     }
 
     #[test]
