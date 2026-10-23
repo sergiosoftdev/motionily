@@ -387,10 +387,12 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
       : project.footage?.length
       ? this.editFootage(run, refs, { ...opts, ...team.build })
       : this.team(run, refs, opts, team, mode);
-    // Sound-only: just the sound pass on the video that is already on screen.
+    // The sound pass follows a build, not an edit: after every change request it would stack more cues on the
+    // same moments (the edit agent places sounds itself when the user asks for them). Sound-only runs just it.
+    const soundAfter = !instruction?.trim();
     const work = build
       ? build.then(async (usage) => {
-          if (run.status === GenerateStatus.Running) await this.projects.logAgentRun(project.id, await this.soundPass(run, { ...opts, ...team.review }));
+          if (soundAfter && run.status === GenerateStatus.Running) await this.projects.logAgentRun(project.id, await this.soundPass(run, { ...opts, ...team.review }));
           return usage;
         })
       : this.soundPass(run, { ...opts, ...team.review });

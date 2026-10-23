@@ -47,7 +47,7 @@ import { MapProjection, mapLines } from "./maps.js";
 import { varietyNotes } from "./variety.js";
 import { slopNotes } from "./slop.js";
 import { captionDrift, deadAir, measuredPauses, voiceWords } from "./voice.js";
-import { formatSounds, parseCue } from "./sounds.js";
+import { formatSounds, parseCue, type SfxCue } from "./sounds.js";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const doc = (name: string) => readFileSync(resolve(here, "../../../docs/agent", name), "utf8").trim();
@@ -524,6 +524,8 @@ const ORPHAN_CHECK_MS = 5_000;
 
 /** Default level for effects so they sit under a voice-over. */
 const SFX_GAIN = 0.45;
+/** Two cues closer than this (s) stack on one moment. */
+const CUE_GAP_S = 0.25;
 
 const layersOf = (scene: Record<string, unknown> | null) => (scene?.layers as Record<string, unknown>[] | undefined) ?? [];
 
@@ -1060,12 +1062,23 @@ server.registerTool(
     const library = new Map((await api.sounds()).map((s) => [s.name, s]));
     const ops: Op[] = [];
     const warnings: string[] = [];
+    // Cues already on the timeline (a line with the same id replaces its cue, so it does not count).
+    const placed = ((await currentScene())?.sfx as SfxCue[] | undefined) ?? [];
+    const taken = new Map(placed.map((c) => [c.id, c.at]));
     for (const line of lines.split("\n").map((l) => l.trim()).filter(Boolean)) {
       const r = parseCue(line, library, SFX_GAIN);
       if ("error" in r) return fail(`bad line '${line}': ${r.error} (expected 'id sound_name at [gain] [from=S] [len=S]' or 'id sound_name hit=T …'; list_sounds shows the library)`);
+      taken.delete(r.cue.id);
+      const clash = [...taken].find(([, at]) => Math.abs(at - r.cue.at) < CUE_GAP_S);
+      if (clash) {
+        warnings.push(`skipped ${r.cue.id}: ${r.cue.at.toFixed(2)} s is within ${CUE_GAP_S} s of '${clash[0]}' (${clash[1].toFixed(2)} s); one sound per moment`);
+        continue;
+      }
+      taken.set(r.cue.id, r.cue.at);
       ops.push({ op: "put_sfx", cue: r.cue } as Op);
       if (r.warning) warnings.push(r.warning);
     }
+    if (!ops.length) return text(["no sounds placed", ...warnings].join("\n"));
     const res = await bridge.applyOps(ops);
     return res.ok ? text([`${ops.length} sounds placed`, ...warnings].join("\n")) : fail(res.error ?? "rejected");
   }),
