@@ -114,7 +114,15 @@ export function EditorScreen({ id }: { id: string }) {
         revision.current = res.sceneRevision;
       } catch (e) {
         if (e instanceof ApiError && e.status === 409) {
-          logActivity(ActivitySource.System, "The scene changed somewhere else; reload to see the latest");
+          // Another tab or the agent's editor saved since this one loaded. Working on in this stale copy would drop
+          // every later change (the user's and the agent's) without a word: load the saved scene instead.
+          const latest = await api.project(id).catch(() => null);
+          if (latest?.scene && engineHost.ready) {
+            revision.current = latest.sceneRevision;
+            engineHost.loadScene(JSON.stringify(latest.scene));
+            agentBridge.sceneChanged();
+          }
+          logActivity(ActivitySource.System, "The scene changed somewhere else: loaded the saved version");
         }
       }
     };
