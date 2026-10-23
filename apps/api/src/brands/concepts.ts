@@ -52,12 +52,17 @@ export class ConceptsRequestDto {
 /** Different directions so parallel pitches don't converge on the same idea. */
 /** Reels, TikTok and Shorts (9:16, 4:5, 1:1): the attention sawtooth (docs/agent/craft.md). */
 const SHORT_FORM_STORY = `STORY SHAPE: this format is short-form (Reels, TikTok, Shorts), so attention is a sawtooth, not an arc.
-- Start at 70%: the first beat opens in medias res on the most surprising result, conflict or image. No setup, no logo.
+- Start at 70%: the first beat opens in medias res on the most surprising result, conflict or image, acted out on
+  screen by 1.5 s. No setup, no logo.
 - Re-hook every 4-7 s: each beat opens a question, pays part of it with a concrete fact or visual, and opens the next
   before closing the last.
-- A pattern interrupt around 30% (a twist, "but…"); peaks escalate; the biggest reveal in the last 20%.
-- End on the peak: last reveal + CTA in the final 2-3 s, no outro, no goodbye; the last line hands back to the first so
-  the video loops.
+- Pay the hook in steps: first concrete proof by ~6 s, the full answer not before ~60% of the video (viewers leave the
+  moment the question is answered).
+- A pattern interrupt around 30% (a twist, "but…"); peaks escalate; the strongest twist around 50-60%, and the last
+  line tops it.
+- 35-45 s for a story or explainer: completion earns distribution. Cut supporting-reason filler instead of padding.
+- End on the peak: the last line is the payoff and hands back to the first so the video loops. No outro, no goodbye,
+  no "follow for more"; a product video's CTA rides in that last line.
 - Valleys still teach: a fact per beat, never filler.
 - The sawtooth lives in WHAT HAPPENS, not in inserted teaser lines: each re-hook is a turn of the one continuous story
   (a consequence, a discovery, a twist), told in connected sentences.
@@ -69,6 +74,7 @@ const CLASSIC_STORY = `STORY SHAPE: 16:9 keeps a classic arc (setup, rising inte
 
 const ANGLES = [
   "humor: a relatable everyday situation told with comic timing",
+  "myth-busting: correct something the audience already believes about a famous name, event or habit ('X wasn't Y'); prove it in steps, reveal who made the myth, end on where it still lives today",
   "bold kinetic typography driven by the voice, punchy and rhythmic",
   "the product in action: real screens/UI walked through step by step",
   "data and proof: numbers, counters, before/after",
@@ -94,18 +100,24 @@ the first 1.5 s (max 6 words), one idea per beat. The video is built ON TOP of t
 - Storytelling, each paragraph flowing from the previous; natural spoken language (see LANGUAGE), irregular rhythm,
   never "Tuesday, ten a.m." openings or three punchy fragments in a row.
 - EXPLAIN, do not tease. For history, science, news or any educational topic the script teaches: say who, what,
-  where, when and why, with the concrete facts (names, places, dates, numbers, cause and consequence), 3-5 full
-  sentences per scene, so a viewer who knows nothing finishes understanding the story. A reel of 60-90 s is
-  expected to carry 150-200 words. Never a slogan-length script for an explanatory topic.
-- Paragraph 1 = cold hook without the brand name; the brand appears in paragraph 2.
+  where, when and why, with the concrete facts (names, places, dates, numbers, cause and consequence), so a viewer
+  who knows nothing finishes understanding the story. Short-form: 100-130 words (35-45 s), every sentence a new fact
+  or turn; cut supporting reasons and asides rather than rushing. Never a slogan-length script.
+- Sentences of about 14 words at most (~5 s); a name the viewer does not know gets a picture or a two-word gloss.
+- Never name the brand inside the story ("This is X", "Here at X we…"): it costs the hook and nobody follows for it.
+  A product video names it in the closing line with the CTA.
 - Short-form formats: each paragraph ends opening the question the next one answers, one "but…" twist around a
-  third of the way, the biggest reveal in the last paragraph, and the closing line (with the CTA) echoes the first.
+  third of the way, the hook paid in steps (first proof by ~6 s, full answer past ~60%), the strongest twist around
+  50-60%, and the closing line is the payoff that echoes the first so the video loops.
 - Between scenes exactly "[long pause] [long pause]" on its own line; inside a paragraph only commas/periods.
 - Numbers and times written in letters. Only true claims about the product.
-- ~2.3 words per second of video: the length of the script sets the length of the video. Last sentence = the CTA.
+- ~2.7 words per second for [playful] scripts, ~2.3 for [warm] or [confident]: the script's length sets the video's.
+  Story and explainer reels end on the payoff, never "follow for more"; a product video's last sentence carries the CTA.
 - What is said mirrors the text that will appear on screen.
-- Art direction and prompt: real material carries the picture (archive photos and footage, real documents and newspaper
-  pages photographed, maps, logos, the product's real screens); plain captions; one accent colour. Never write AI tells
+- Art direction and prompt: pick what carries THIS story. Either real material (archive photos and footage, real
+  documents and newspaper pages photographed, maps, logos, the product's real screens), or, for playful explainers
+  and stories about an image or a perception, a recurring 2D caricature protagonist built from shapes with big
+  expressive eyes, acting out most beats (the style may BE the story's image). Plain captions; one accent colour. Never write AI tells
   into a brief, even if the brand notes mention them: rubber stamps, censorship or redaction bars, fake documents drawn
   with shapes, tilted paper strips, marker underlines, decorative counters, a kicker on every scene, "interface screens"
   for a story that is not about software, words cut by the frame edge, 3D text used as flat type. Brand palettes and

@@ -137,11 +137,12 @@ Rejected on purpose: `set_size` (use `set_format`), `set_style`, `set_library`, 
 - **Music** is the user's (Edit view): scene `music` = `{src,start,trim_in,trim_out,gain,duck}`, shown in the summary as
   `music: …`. The editor lowers it to `gain × duck` around every caption word (or the voice's own speech when there are
   no captions). Leave it unless the user asks; `set_music` changes it (`{"op":"set_music","music":null}` removes it).
-- Only a voice script: ~2.3 words/s, one paragraph per beat, `[long pause]` = beat change.
+- Only a voice script: ~2.3 words/s ([warm]/[confident]) or ~2.7 ([playful]), one paragraph per beat, `[long pause]` = beat change.
 - Dead air is never kept: once the voice exists, `cut pauses=true` takes every silence over 0.6 s down to a breath
   (scene changes then come from the paragraphs). review_video reports any silence over 0.8 s left in the voice.
 - `set_voice_script`: ElevenLabs v3 — one tone tag like `[warm]` first, one paragraph per scene, `[long pause] [long pause]`
-  between scenes, numbers in letters, last sentence = CTA.
+  between scenes, numbers in letters. Story reels end on the payoff line that echoes the first (no "follow for more");
+  a product video's last sentence carries the CTA. Vertical: 100-130 words (craft: SHORT-FORM).
 - `list_sounds [category]`: `name | seconds | shape, peak, hits | description`. You cannot listen: pick by shape and
   name. `hit` = loudest at once (place at the moment) · `build` = peaks late (risers) · `swell` = passes through
   (start it a little before the move) · `steady` = loop or bed (ticking, static, typing). `peak`/`hits` are seconds

@@ -1401,7 +1401,7 @@ server.registerTool(
   "set_voice_script",
   {
     description:
-      "Save the voice-over script (ElevenLabs v3 format: one tone tag like [warm] first, one paragraph per scene, '[long pause] [long pause]' between scenes, numbers in letters, last sentence = CTA). Write ONE continuous story told like to a friend: each sentence follows from the last (so, but, because, until), real names and stakes, no list of punchy lines or teaser filler ('But wait…'); for vertical videos its turns are the re-hooks of the attention curve (craft). The user pastes it in ElevenLabs and uploads the mp3.",
+      "Save the voice-over script (ElevenLabs v3 format: one tone tag like [warm] first, one paragraph per scene, '[long pause] [long pause]' between scenes, numbers in letters; a story reel ends on its payoff line echoing the first, a product video's last sentence carries the CTA; vertical = 100-130 words). Write ONE continuous story told like to a friend: each sentence follows from the last (so, but, because, until), real names and stakes, no list of punchy lines or teaser filler ('But wait…'); for vertical videos its turns are the re-hooks of the attention curve (craft). The user pastes it in ElevenLabs and uploads the mp3.",
     inputSchema: { script: z.string().min(1).max(8000) },
   },
   guard(async ({ script }) => {

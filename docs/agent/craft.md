@@ -26,14 +26,28 @@ Attention is a sawtooth, not an arc: start high, dip a little, re-hook, repeat, 
   no logo intro; context arrives later in small doses, only when the viewer needs it.
 - No dead air: no voice silence longer than ~0.5 s anywhere, and never right after the hook (that is where most viewers
   swipe). `cut pauses=true` removes it before building.
+- Show the hook, don't type it: by 1.5 s a character or object acts the claim out (a tiny Napoleon beside a giant
+  ruler that stretches to normal size on "wasn't").
 - Re-hook every 4-7 s: open a question → pay part of it with a concrete fact or visual → open the next question
   before closing the last. Never leave the viewer with nothing open.
-- Peaks escalate (stakes, numbers, reveals), each bigger than the one before; the biggest reveal in the last 20%.
+- Pay the hook in steps: the first concrete proof by ~6 s, the full answer not before ~60% of the video. Viewers leave
+  the moment the question is answered (measured on a reel that went viral: average watch 23.9 s of 68, right where its
+  hook was fully paid at ~20 s; 38% of viewers left between 20 and 44 s).
+- Peaks escalate (stakes, numbers, reveals), each bigger than the one before: the strongest twist lands around
+  50-60% and the last line tops it. Never save the best line for the last 20% (that reel's best line came at 58 s,
+  when under 30% were still watching).
+- Length: 35-45 s for a vertical story or explainer; every second past that must bring a new surprise. Completion is
+  what earns the next wave of distribution, and a 68 s reel finished by 5% does not get it.
+- Short sentences: about 14 words (~5 s) at most, and no unknown name without a picture that says who it is. No lists
+  of supporting reasons ("It didn't help that…", "Or that…"): each beat brings a new surprise or it goes.
 - Pattern interrupt at ~30% (where viewers drop most): a twist ("but…") with a hard change of color, layout or
   camera and a sound hit.
-- Valleys breathe: they still carry a fact; a held image with the voice is a valley, not a dead spot.
-- End on the peak: last reveal + CTA in the final 2-3 s, no outro, no fade to black. The last line or image hands
-  back to the first so the replay loops seamlessly.
+- Valleys still carry a new fact. On vertical a hold is a character reacting (blink, glance, gesture) or a slow push:
+  no frame frozen longer than ~0.5 s.
+- End on the peak: the last line is the payoff, and it hands back to the first so the replay loops seamlessly. No
+  outro, no fade to black, no "follow for more" tail (5 follows from 4,400 views, and it breaks the loop). A product
+  video's CTA rides in that last line or on screen under it. Give the viewer something to use on someone else
+  ("next time someone says…"): that is what gets a reel sent.
 - Devices: open loop, stakes up, twist, countdown, visual reveal, proof (real number or screen), direct question
   to the viewer, callback to the hook.
 - The voice tells ONE continuous story (connected sentences, cause and consequence, real names and stakes), never
@@ -67,8 +81,9 @@ leave it out, and say so in your final summary. The user approved this; it is no
   sharp). text3d is for a word that actually turns or sits in 3D space.
 - Fake materials: flat light rects pretending to be paper or cards, gray or black bars pretending to be lines of text,
   redaction bars, invented forms and tickets. Use real textures and real documents (search_assets), or show nothing.
-- Constant motion: everything drifting, wiggling and pushing all the time. Humans hold: a still frame of a strong
-  photo for 2 s with only the voice is a decision, and it makes the moves around it count.
+- Constant motion without a reason: everything drifting, wiggling and pushing all the time. Holds are decisions: on
+  16:9 a strong photo held 2 s with only the voice makes the moves around it count; on vertical the hold is a
+  character reacting or a slow push, never a frozen frame (SHORT-FORM above).
 What a human editor does instead: ONE signature device per film, chosen for this story; hierarchy from layout,
 scale and cuts rather than effects; real material carrying the picture; cuts on the voice's rhythm; uneven timing
 (some beats fast, some held); restraint everywhere else. review_video reports the tells it can measure.

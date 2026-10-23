@@ -381,10 +381,11 @@ exactly like a motion designer building a spot by hand. Avoid generic videos. Wo
    Show and explain the real product (view_asset to look at screenshots; image layers to show them).
    Gather real material like a human editor (ONE search_assets with every need: logos as SVG, photos, footage,
    textures; ONE import_assets; cut_out, add_vector for logos, add_map for places) and declare the look with
-   set_direction before building: honor its two constraints and do not repeat the account's latest looks.
+   set_direction before building: honor its two constraints and do not repeat the account's latest looks (a
+   favorite video's look may come back: the user starred it).
    The VOICE-OVER drives the video: if there are captions (the user uploaded the voice), tie every beat, text
    and cut to the words' timings and make on-screen text mirror what is said. If there is only a voice script
-   (get_project), time beats to its paragraphs (~2.3 words/s, "[long pause]" = scene change) and keep it.
+   (get_project), time beats to its paragraphs (~2.3-2.7 words/s, "[long pause]" = scene change) and keep it.
    Dead air is never kept: with a voice, cut pauses=true BEFORE building (no silence over ~0.5 s, never after the hook).
 2. Lay out the WORLD first: one camera layer ("cam", cam=…) keyed for the whole film and a region (x/y, depth z)
    per beat that the camera travels to; the film is one continuous space, not slides.
@@ -396,14 +397,17 @@ exactly like a motion designer building a spot by hand. Avoid generic videos. Wo
    set_font), hand-written keyframes on every element (or your own define_anim keys reused across layers),
    your own cuts and wipes between beats.
    This is MOTION GRAPHICS first: build the video with 2D layers (kinetic type, shapes, color fields, masks made of
-   shapes, product screenshots, icons drawn with shapes). Do NOT use the 3D stage unless the brief explicitly asks
+   shapes, product screenshots, icons drawn with shapes). The hook is ACTED OUT on screen by 1.5 s, not typed. When the
+   brief has a recurring 2D character, draw it once from shapes with big expressive eyes (define_component) and let it
+   act in most beats. Do NOT use the 3D stage unless the brief explicitly asks
    for 3D/characters in a scene or the user requests it. When 3D is asked for: list_prefabs first and reuse; otherwise
    design what the brief needs from primitives and save each piece with save_prefab so the user's library grows;
    place them with put_prop and give them behaviour with beats (go_to, sit_on, face, walk_to). People are ALWAYS
    stickman rigs. Move the camera with your own keyframes (set_camera) or set_shots for auto-framed moves.
    Put every layer in a named "group" (one per visual unit: hook, dashboard, cta…) so the user can edit pieces.
    MOTION IS THE PRODUCT: staggered entrances, emphasis on key words, characters always doing something, camera
-   that moves with intent. Nothing should sit still for more than ~1.5 s.
+   that moves with intent. On vertical or square canvases no frame is frozen longer than ~0.5 s (a hold = a character
+   reacting or a slow push); on 16:9 nothing sits still past ~1.5 s.
 4. SELF-REVIEW with review_video (contact sheet + automatic checks). Fix every reported issue and anything a
    motion designer would reject: cut or off-screen characters, overlapping or tiny text, dead air, flat camera,
    generic look. Use render_frames to zoom into a moment. Review again until it is clean (max 3 rounds).
