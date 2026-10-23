@@ -31,7 +31,7 @@ import { formatLayer, formatParams, parseLines, parseParams, parsePartial, type 
 import { ACCOUNT_SCOPE, AccountApi, ProjectApi, VIDEO_ASSET, clipFacts, posterTimes } from "./api.js";
 import { formatLayouts } from "./layout.js";
 import { isRef, resolveLayerTimes, type Word } from "./timing.js";
-import { formatIssues, lintLayers, type Issue, type Layer as LintLayer, type Palette } from "./lint.js";
+import { detachedChildren, formatIssues, lintLayers, type Issue, type Layer as LintLayer, type Palette } from "./lint.js";
 import { placementPatches, type Box } from "./place.js";
 import { Checkpoints, diffScenes } from "./checkpoints.js";
 import { describeExample, rankExamples, type Example } from "./examples.js";
@@ -46,26 +46,18 @@ import { vectorLines, VectorSplit } from "./vectorize.js";
 import { MapProjection, mapLines } from "./maps.js";
 import { varietyNotes } from "./variety.js";
 import { slopNotes } from "./slop.js";
-import { captionDrift, deadAir, voiceWords } from "./voice.js";
+import { captionDrift, deadAir, measuredPauses, voiceWords } from "./voice.js";
 import { formatSounds, parseCue } from "./sounds.js";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const doc = (name: string) => readFileSync(resolve(here, "../../../docs/agent", name), "utf8").trim();
 /** The whole manual: workflow and tools, layer syntax with the exact camera math, then design direction. */
 const MANUAL = ["manual.md", "syntax.md", "craft.md", "motion-2d.md"].map(doc).join("\n\n");
-
 /** Shown by the client before the first call (kept short: clients truncate long instructions). */
-const INSTRUCTIONS = `Motionily: you build motion-graphics videos for the user's project through these tools. There are no presets.
-START: call get_project and get_brand in parallel. get_project's answer includes the complete manual (workflow, layer
-syntax, exact camera/depth/perspective formulas, ops, 3D). Read it instead of experimenting.
-Never test how the engine behaves (no debug rectangles, no trial renders to learn what z, rx/ry or the camera do): the
-formulas are exact, and get_layout returns where every layer lands on screen as numbers.
-Work in few, big calls: one apply_ops for palette and duration, one add_layers per beat with all its lines, get_layout to
-check placement, review_video once or twice, one add_sfx.`;
+const INSTRUCTIONS = doc("prompts/mcp.md");
 /** Extra start step when the token reaches the whole account. */
-const ACCOUNT_INSTRUCTIONS = `
-This token reaches the user's whole account: if no video is open, call list_projects, then open_project or create_project
-(with a brief full of real facts when you researched the product in code) before get_project.`;
+const ACCOUNT_INSTRUCTIONS = `\n${doc("prompts/mcp-account.md")}`;
+
 
 const token = process.env.MOTIONILY_TOKEN;
 if (!token) {
@@ -748,7 +740,10 @@ server.registerTool(
     const res = await bridge.applyOps([{ op: OpName.DefineComponent, name, component }]);
     if (!res.ok) return fail(res.error ?? "rejected");
     const ps = component.params ?? [];
-    return text(`component '${name}': ${component.layers.length} layers, params ${ps.map((p) => `$${p.name}`).join(" ") || "none"}. Place it: \`id use START comp=${name} x= y= ${ps.map((p) => `$${p.name}=…`).join(" ")}\``);
+    const detached = detachedChildren(component.layers as LintLayer[]);
+    return text(
+      [`component '${name}': ${component.layers.length} layers, params ${ps.map((p) => `$${p.name}`).join(" ") || "none"}. Place it: \`id use START comp=${name} x= y= ${ps.map((p) => `$${p.name}=…`).join(" ")}\``, ...detached.map((d) => `check: ${d.message}`)].join("\n"),
+    );
   }),
 );
 
@@ -1241,14 +1236,14 @@ server.registerTool(
   "cut",
   {
     description: `Cut time out of the video like an editor's razor: everything in the range goes (the voice skips it, captions, layers, clips with a jump cut, sound effects, markers) and everything after moves up, so nothing goes out of sync. Three ways:
-- pauses=true: tighten the voice's dead air — every silence longer than longer_than (0.6 s) becomes a breath of keep (0.4 s). Do it FIRST, before building beats (the build then sits on the tight timing), and whenever review_video reports dead air. The pause right after the hook is the one that loses viewers.
+- pauses=true: tighten the voice's dead air — every silence longer than longer_than (0.6 s), measured in the voice's sound, becomes a breath of keep (0.45 s) of real silence. Do it FIRST, before building beats (the build then sits on the tight timing), and whenever review_video reports dead air. The pause right after the hook is the one that loses viewers.
 - phrase: the words to remove, as spoken (found in the voice's words; cut at the middle of the pauses around it).
 - from/to: seconds.
 The video gets shorter by the cut. To cut just one layer or clip in two, use the split_layer op; to trim a clip, its in/out.`,
     inputSchema: {
       pauses: z.boolean().optional().describe("tighten every long silence of the voice"),
       longer_than: z.number().min(0.3).max(3).default(0.6).describe("pauses=true: silences longer than this (s) are cut"),
-      keep: z.number().min(0.1).max(1).default(0.4).describe("pauses=true: the breath left in each (s)"),
+      keep: z.number().min(0.1).max(1).default(0.45).describe("pauses=true: the silence left in each (s)"),
       phrase: z.string().min(1).optional().describe("words as spoken, e.g. 'On Historia, we open the files one screen at a time'"),
       from: z.number().min(0).optional(),
       to: z.number().positive().optional(),
@@ -1259,10 +1254,17 @@ The video gets shorter by the cut. To cut just one layer or clip in two, use the
     if (pauses) {
       const words = voiceWords(scene, (await api.project()).audio?.words);
       if (!words.length) return fail("no voice words to find the pauses in (no captions and no voice alignment): give from/to seconds");
-      const gaps = deadAir(words, longer_than);
+      // The sound decides where a pause starts and ends; word timings (late by ~0.2 s at each word) only name it.
+      const silences = await api.voiceSilences().then((r) => r.silences).catch(() => null);
+      const gaps = silences ? measuredPauses(scene, silences, words, longer_than) : deadAir(words, longer_than);
       if (!gaps.length) return text(`no silence longer than ${longer_than} s: the voice is already tight.`);
-      // Last first, so the earlier ranges keep their times; the breath sits slightly before the next word.
-      const ops = gaps.map((g) => ({ op: OpName.RippleDelete, from: +(g.from + keep * 0.45).toFixed(3), to: +(g.to - keep * 0.55).toFixed(3) })).reverse();
+      // Without the measured sound, leave room for the word starts the timings place too late.
+      const lead = silences ? 0 : LATE_WORD_START_S;
+      // Last first, so the earlier ranges keep their times; half the silence stays on each side of the cut.
+      const ops = gaps
+        .map((g) => ({ op: OpName.RippleDelete, from: +(g.from + keep / 2).toFixed(3), to: +(g.to - keep / 2 - lead).toFixed(3) }))
+        .filter((o) => o.to > o.from)
+        .reverse();
       const res = await bridge.applyOps(ops as Op[]);
       if (!res.ok) return fail(res.error ?? "the cuts were refused");
       session.editsSinceReview = true;
@@ -1289,6 +1291,9 @@ The video gets shorter by the cut. To cut just one layer or clip in two, use the
     return text(`cut ${range[0].toFixed(2)}–${range[1].toFixed(2)} s (${(range[1] - range[0]).toFixed(2)} s): everything after moved up; the video is now ${dur.toFixed(2)} s. Check the seams with render_frames around ${range[0].toFixed(2)} s.`);
   }),
 );
+
+/** How late ElevenLabs' timings place a word's start against its sound (the breath and first consonant come first). */
+const LATE_WORD_START_S = 0.2;
 
 /** Ops agents reach for that do not exist, and what does the job (or that nothing does). */
 const OP_ALIASES: Record<string, string> = {
@@ -1401,7 +1406,7 @@ server.registerTool(
   "set_voice_script",
   {
     description:
-      "Save the voice-over script (ElevenLabs v3 format: one tone tag like [warm] first, one paragraph per scene, '[long pause] [long pause]' between scenes, numbers in letters; a story reel ends on its payoff line echoing the first, a product video's last sentence carries the CTA; vertical = 100-130 words). Write ONE continuous story told like to a friend: each sentence follows from the last (so, but, because, until), real names and stakes, no list of punchy lines or teaser filler ('But wait…'); for vertical videos its turns are the re-hooks of the attention curve (craft). The user pastes it in ElevenLabs and uploads the mp3.",
+      "Save the voice-over script, written by craft: VOICE-OVER SCRIPT (in your manual). The user pastes it in ElevenLabs and uploads the mp3.",
     inputSchema: { script: z.string().min(1).max(8000) },
   },
   guard(async ({ script }) => {

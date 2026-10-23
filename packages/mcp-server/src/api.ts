@@ -25,6 +25,11 @@ export class ProjectApi {
     return this.call<Project>("PUT", `/build/${slot}`, { value, applyKitDefaults });
   }
 
+  /** Where the voice file is really silent (file seconds), measured from its sound. */
+  voiceSilences() {
+    return this.call<{ silences: [number, number][] }>("GET", "/voice/silences");
+  }
+
   /** Motionily's sound effect library (the same for every account). */
   sounds() {
     return this.call<LibrarySound[]>("GET", "/sounds");

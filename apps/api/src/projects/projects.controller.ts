@@ -38,6 +38,7 @@ import { fitSong, songEnergy } from "../music/energy";
 import { SunoPromptDto, SunoService } from "../music/suno";
 import { VoiceService } from "../voice/voice.service";
 import { VoiceModel } from "../voice/elevenlabs";
+import { voiceSilences } from "../voice/silences";
 import type { ProjectDocument } from "./project.schema";
 
 /** A few minutes of phone video (4K HEVC runs about 100 MB a minute). */
@@ -335,6 +336,14 @@ export class ProjectsController {
     const { project: saved, previous } = await this.projects.setAudio(user.id, id, { file, name, mime: "audio/mpeg", words, voice: { voiceId: dto.voiceId, model } });
     await removeMedia(previous);
     return this.view(saved);
+  }
+
+  /** Where the voice is really silent (file seconds): the cut tool trims pauses by the sound, not the word timings. */
+  @Get(":id/voice/silences")
+  async voiceSilences(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    const project = await this.projects.get(user.id, id);
+    if (!project.audio?.file) throw new NotFoundException("this video has no voice");
+    return { silences: await voiceSilences(project.audio.file) };
   }
 
   @Delete(":id/audio")

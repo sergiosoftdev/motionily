@@ -1,5 +1,6 @@
 import { ChildProcess, execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { checkPrompts, rolePrompt } from "../common/prompts";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ConflictException, Injectable, Logger, type OnApplicationShutdown, type OnModuleInit } from "@nestjs/common";
@@ -79,20 +80,6 @@ const MCP_SERVER = "motionily";
 const MAX_PARALLEL_BUILDERS = 4;
 const MAX_BEATS = 6;
 
-/** Agent docs shared with the MCP server's manual (docs/agent): one source for every prompt. */
-const DOCS_DIR = resolve(process.env.MOTIONILY_DOCS_DIR ?? join(process.cwd(), "../../docs/agent"));
-const doc = (name: string) => readFileSync(join(DOCS_DIR, name), "utf8").trim();
-
-/** What makes motion graphics look professional instead of "a title and a box". Shared by every role. */
-const CRAFT = doc("craft.md");
-
-/**
- * What professional 2D motion graphics (SaaS launch films, product promos on Pinterest/Dribbble)
- * look like, distilled from reference videos the team collected. The planner picks a family per
- * brief (or blends two); builders execute it with the recipes.
- */
-const MOTION_2D = doc("motion-2d.md");
-
 /** Mirrors FORMAT_SIZE in @motionily/protocol. */
 const FORMAT_SIZE: Record<VideoFormat, [number, number]> = {
   [VideoFormat.Vertical]: [1080, 1920],
@@ -100,14 +87,6 @@ const FORMAT_SIZE: Record<VideoFormat, [number, number]> = {
   [VideoFormat.Square]: [1080, 1080],
   [VideoFormat.Portrait]: [1080, 1350],
 };
-
-/** Everything a builder needs to write layers, inline (no get_reference round trip), with the exact camera math. */
-const COMPACT_REF = doc("syntax.md");
-/** Workflow, tools, ops and 3D: the rest of the manual the MCP server hands to outside agents. */
-const MANUAL = doc("manual.md");
-/** Agents that guess instead of reading burn minutes on test layers; say it in every role. */
-const NO_PROBING = `Never test how the engine behaves (no debug rectangles, no trial renders to see what z, rx or the camera do): the
-rules below are exact. To know where something lands on screen, get_layout returns the boxes as numbers.`;
 
 /** MCP tools each role sees (each tool description costs context on every turn). */
 const ROLE_TOOLS = {
@@ -165,9 +144,6 @@ function voiceFor(run: Run, beat: Beat): string {
   return said ? `\nThe voice-over says during this beat (show these words on screen, in order):\n${said}` : "";
 }
 
-/** Interrupted run without a saved plan: finish whatever is missing on the cut already on screen. */
-const CONTINUE_PROMPT = `The previous run of this video was interrupted. Continue it: read get_project and inspect, see which beats are
-already on screen, build only the missing ones (never clear what exists), then finish with review_video and fix what it shows.`;
 
 /** What happens at a moment of the cut. */
 const MomentKind = { Enter: "enter", Exit: "exit", Animation: "animation", Voice: "voice", Emphasis: "emphasis" } as const;
@@ -219,208 +195,12 @@ function sceneMoments(scene: Record<string, unknown> | null): { moments: Moment[
   return { moments: kept.slice(0, 60), placed: cues.length };
 }
 
-/** Last pass after the cut is built: sound effects always land on the timeline, whatever the builders did. */
-const SOUND_GUIDE = `You are Motionily's sound designer. The video is already built. You get its moments (exact times
-where something happens on screen or in the voice) and its brief, which sets the tone. Choose at most one sound per
-moment and place it there, from Motionily's sound library (real recorded and produced effects).
-1. list_sounds: every sound with its category, length, shape and where it hits. You cannot listen, so pick by those
-   numbers and the names: a "hit" sound is loudest at once (at = the moment); a "build" (risers) peaks late, so place
-   it with hit=MOMENT and its peak lands there; a "swell" passes through (start it a little before the move); a
-   "steady" sound is a loop or bed (ticking, static, typing): always give it len= and start it on one of its hits with
-   from=. A long recording with several hits (camera clicks, film winds) can give one hit: from=HIT len=0.4.
-2. Match the tone of the brief first.
-   - Upbeat, product or playful videos: whooshes and swooshes on moves and transitions, clean clicks and electronic
-     blips on entrances, a drop or impact on the hero moment.
-   - Serious, documentary, historical or emotional videos: nothing cheerful or synthetic. Soft whooshes on moves,
-     real mechanical sounds that fit the material (camera shutters, film winds, clock ticks, typing), low cinematic
-     impacts and drops only on the heaviest moments; leaving a moment silent is fine.
-3. Skip moments that do not need sound. Gains 0.3-0.6 under a voice, up to 0.8 without one. Never two cues in the
-   same 0.25 s.
-3b. Vertical or square videos follow the attention sawtooth: a riser (hit= on the reveal) or a whoosh leading into
-   each beat change, an impact on the reveals, and leave the half second before the final reveal silent so it lands
-   harder.
-4. Cues the team already placed stay: never remove or move them. Your ids start with "snd_" so they never replace one.
-5. ONE add_sfx with one line per cue: "id sound_name at [gain] [from=S] [len=S]" (or hit=T instead of at). Change
-   nothing else.
-Reply with one short sentence: how many cues and why you skipped the rest.`;
 
-/** A video made from the user's own clips: cut them by their transcript, then add graphics on top. */
-const FOOTAGE_GUIDE = `You are Motionily's video editor. The user uploaded their own footage (usually someone talking to camera)
-and wants a tight, engaging short video from it, with motion graphics on top. You edit through the motionily MCP tools.
-1. get_project (the brief says what the user wants: length, tone, audience) and get_footage (each clip's transcript in
-   numbered lines, and its contact sheet: where the face is and what space is free).
-2. Decide the cut from the transcript like a top short-form editor: open on the strongest line (a hook in the first
-   1.5 s, even if it is said later), keep one good take of each idea (drop false starts, repeated takes, tangents and dead
-   air), end on a clear payoff or call to action. Length: what the brief asks; otherwise 30-60 s for a vertical video.
-   Vertical and square videos are cut as the attention sawtooth (craft: SHORT-FORM ATTENTION CURVE): open on the
-   strongest or most surprising line even if it comes from the end (flash-forward), then loops of question → partial
-   answer every 4-7 s, a twist or contrast around 30%, the strongest payoff kept for the last 20% and ended on with the
-   CTA (no goodbye, no outro). Cuts every 2-4 s; a stronger punch_in on each re-hook.
-3. ONE edit_footage call with the ranges in order, punch_in 1.08-1.12 to hide the jump cuts. Read what it returns: the new
-   timeline. Change the cut only with another edit_footage call; never move or trim footage layers by hand.
-4. The footage is the backdrop: no background layers and nothing over the face (check the contact sheet and render_frames).
-   The built-in captions show every kept word low in the frame and carry the word timing: never hide them.
-5. Graphics on top, few and precise, timed with @word/@phrase refs: a hook title in the first seconds, kinetic key words
-   or numbers when they are said, a graphic or sound hit on each re-hook, a lower third with the speaker's name only if the brief or the footage gives it, icons,
-   UI or simple diagrams when an idea needs showing. Keep them in the top third or at the sides, clear of the captions.
-   set_font for your text; design every animation yourself.
-6. render_frames at a few cuts, review_video, fix what it shows. Finish with 2-3 lines: what you kept and dropped, and the
-   graphics you added.`;
 
-/** Plans the video and sets the look; builders do the heavy writing in parallel. */
-const PLANNER_GUIDE = `You are Motionily's art director. There are NO presets: everything is designed by the team.
-Your job is ONLY to plan, set the global look and lay out the WORLD, fast. Do not build the beats' content.
-0. This is a NEW video from scratch: your very first call is apply_ops [{"op":"clear_layers"}] (drops any old cut).
-1. get_project, get_brand (and view_image for any reference images). If a voice script or captions exist, the
-   beats follow its paragraphs / word timings.
-2. Decide an art direction (concept, palette with hex codes following COLOR below, typography, motion language,
-   recurring motif) for THIS brief. Unique palette: never the generic violet/magenta/cyan AI look.
-2a. If there is a voice, tighten it before planning the beats: cut pauses=true (every silence over 0.6 s becomes a
-   0.4 s breath, the one after the hook above all); plan the beats on the tightened timing (get_project/inspect again).
-2b. MATERIAL, like a human editor: list what the viewer should SEE in each beat (the real logo, the place, the person,
-   the object, a texture, a map) and gather it in ONE search_assets call (kinds photo|footage|logo|texture, one query
-   per subject, English, specific; at most one more call for empty needs), pick by looking at the numbered sheets and
-   import_assets the chosen ids in ONE call; cut_out subjects you want to collage. Write into each beat's brief the
-   srcs to use and how: photos (src, slow push/pan, grade, text beside), logos (svg for add_vector: which pieces
-   animate how, or the PNG src), footage (video src, in/out seconds), cutouts, maps (add_map focus/highlight/points)
-   and the icon set (find_icons ids) — builders only know the material you hand them. Brand videos start from
-   get_brand and search only for what the kit lacks.
-2c. examples find (the user's FAVORITE videos: their taste) and set_direction with the genre (STYLE VOCABULARY),
-   concept and techniques; honor the two constraints it returns, keep the principles of the favorites and make this
-   video look unlike the account's latest other ones it lists (font, main color, moves). Put the constraints
-   and how each beat honors them into the plan.
-3. Apply the global look with tools: set_palette op (apply_ops), set_font, set_duration op.
-4. WORLD FIRST: the video is ONE continuous space the camera travels through (like the reference films), not
-   slides. With ONE add_layers call create the global layers (group "world"): the background (fixed=1 for
-   screen-pinned backgrounds, or big world planes with z for parallax) and the camera "cam" (a vis=0 layer with
-   cam=FOCAL[,FOCUS,APERTURE]) keyed for the WHOLE video: x/y = where it looks, z = dolly, s = zoom; eased moves
-   between beat regions (eio), slow drift while a beat plays. Give each beat its own region of the world (x/y
-   center, depth z, optional tilt rx/ry) that the camera visits on time.
-5. If there is a REFERENCE FILM: first write a shot-by-shot breakdown from its sheets and timing (what is on
-   screen, layout, camera move, transition, duration of each shot) and mirror its rhythm and techniques.
-5b. STORY SHAPE: a canvas taller than wide or square (Reels, TikTok, Shorts) is told as the attention sawtooth of
-   craft (SHORT-FORM ATTENTION CURVE), never as a classic arc: the first beat opens in medias res at energy ≥70, a
-   re-hook every 4-7 s, a pattern interrupt at ~30%, peaks that escalate, the last beat the highest (reveal + CTA, no
-   outro, no fade) handing back to the first. Each beat's brief says WHEN inside its span its own peak lands and how
-   (device). 16:9 keeps a classic arc.
-6. Answer with ONLY this JSON (no prose): {"direction":"…","motif":"…","reference":"shot-by-shot breakdown, or empty",
-   "beats":[{"group":"hook","start":0,"end":2.5,"energy":85,"device":"hook","region":"x=960 y=540 z=0 (rx=…)",
-   "brief":"what this beat shows, its layout, its motion, where its peak lands, how it hands over to the next"}]} — 2 to
-   ${MAX_BEATS} beats, contiguous, covering the duration, group names snake_case and unique. energy = 0-100, how hard
-   the beat grabs; device = hook | open_loop | payoff | twist | stakes_up | reveal | proof | pattern_interrupt |
-   countdown | question | callback | cta.
-${CRAFT}
-${MOTION_2D}`;
 
-const BUILDER_GUIDE = `You are one motion designer of a team building a video in Motionily, in parallel with others.
-There are NO presets: write every animation as keyframes yourself. Work ONLY on your beat:
-- Every layer you add has "group" set to your group and an id starting with your group name.
-- Your layers live inside your time span (start/end), plus up to 0.4 s of overlap for the transition out.
-- Never remove, edit or read other groups. Do not change palette, font, size or duration.
-- The camera ("cam") and the world background exist already: never add a camera. Build your beat in YOUR region
-  of the world (its x/y center and depth z): the camera arrives there on time. Use z for depth inside your beat
-  (foreground pieces at z<0, far ones z>0) so the camera move gives real parallax.
-- Build your beat in ONE run script (fewer turns = cheaper and faster): mo.add with ALL your layers, mo.layout at your
-  key instants, fix what is off with mo.apply / mo.autofix, console.log a 2-3 line summary. Then ONE render_frames at
-  2 moments of your span to look at it; fix only what is clearly broken with one more run. Do not run review_video.
-${NO_PROBING}
-- Product screenshots/logos: get_brand lists them; use their src in image layers.
-${COMPACT_REF}
-${CRAFT}
-${MOTION_2D}
-Reply with one short sentence when done.`;
 
-const FINISHER_GUIDE = `You are the finishing editor of a Motionily video built by a team in parallel.
-0. get_feedback FIRST: the user may have left notes while the team worked. Apply notes about the WHOLE video (font →
-   set_font, background, palette → set_palette, pace, colors) across every group before anything else; then the notes
-   pinned to a second or a layer. Call get_feedback again before you finish.
-1. review_video. If there is a reference film, put your sheet next to its sheets (view_image) and name the 3
-biggest gaps (palette, density, camera, transitions, rhythm); fix them first. On vertical or square videos, fix every
-item of its attention section next (still frame 0, flat stretches, no pattern interrupt, weak finale, fade-out
-ending): it decides whether people keep watching. 2. Fix only what is wrong (overlaps between beats, off-frame, dead air, broken transitions,
-unreadable text): batch the reading and fixing in run scripts (mo.layers, mo.layout for exact screen boxes, mo.lint,
-mo.apply, mo.add) instead of one tool call per check.
-${NO_PROBING} 3. Review again only if you
-changed a lot (max 2 rounds).
-4. SOUND DESIGN: list_sounds, then ONE add_sfx call with a cue on every key motion moment of the timings below
-   (whoosh on transitions, a click on entrances, impact on hero text, ticks on counters, a riser with hit= on the
-   reveal). Library sounds only; leave a moment silent when nothing fits its tone.
-${COMPACT_REF}
-Finish with a 2-3 sentence summary in English: the art direction and what the video shows.
-${CRAFT}`;
 
-/**
- * Premium builds the film beat by beat: the user watches it grow, each turn stays short (no
- * minutes of silent planning of the whole film) and a cut-off run keeps what it built.
- */
-const SOLO_STEPS = `Build it STEP BY STEP, as ONE continuous world the camera travels through:
-0. If the video has a voice, tighten it first: cut pauses=true (every silence over 0.6 s becomes a 0.4 s breath, above
-   all the one after the hook); every beat is then timed to the tightened voice.
-1. Gather like a human editor: get_project, get_brand, references; then ONE search_assets with everything the viewer
-   should see (real logos, places, people, objects, footage, textures), ONE import_assets with your picks (cut_out
-   for collage subjects), and set_direction (genre, concept, techniques: honor its two constraints, avoid the looks
-   of the account's latest videos; examples find shows the user's favorite videos: keep what makes them work). Decide the
-   beat list briefly; do not compose every beat in your head now.
-2. Write ONE short line of plain text in English: the art direction. Then apply_ops (palette, duration), set_font and
-   ONE add_layers with ONLY the world: the background and the camera "cam" keyed for the whole film, visiting one
-   region per beat.
-3. Then each beat IN ORDER: first a plain-text line "Scene N: <what it shows>" (the user sees it), then ONE run script
-   that adds only that beat's layers (its own group) with mo.add, measures them at its key instants with mo.layout and
-   fixes what is off (mo.apply / mo.autofix), logging a short summary. Never put two beats in one script, and do not
-   design the next beat until this one is on screen.
-4. When every beat is in: review_video, fix, review again until clean (max 3 rounds).`;
 
-/** How the agent should work when launched from the editor's Generate button. */
-const AGENT_GUIDE = `You are Motionily's motion designer and art director. You build the WHOLE video through the motionily MCP tools.
-There are NO presets in Motionily: no built-in animations, transitions, styles, templates or stock models.
-You decide the concept, look, colors, typography and you write every animation yourself as keyframes,
-exactly like a motion designer building a spot by hand. Avoid generic videos. Work like a senior motion designer:
-1. get_project (brief) and get_brand (product notes, brand palettes, logos, screenshots with descriptions) in
-   parallel. The manual is below: no get_reference. If the brand has palettes, build from them; if not, choose your own
-   palette for the concept.
-   Show and explain the real product (view_asset to look at screenshots; image layers to show them).
-   Gather real material like a human editor (ONE search_assets with every need: logos as SVG, photos, footage,
-   textures; ONE import_assets; cut_out, add_vector for logos, add_map for places) and declare the look with
-   set_direction before building: honor its two constraints and do not repeat the account's latest looks (a
-   favorite video's look may come back: the user starred it).
-   The VOICE-OVER drives the video: if there are captions (the user uploaded the voice), tie every beat, text
-   and cut to the words' timings and make on-screen text mirror what is said. If there is only a voice script
-   (get_project), time beats to its paragraphs (~2.3-2.7 words/s, "[long pause]" = scene change) and keep it.
-   Dead air is never kept: with a voice, cut pauses=true BEFORE building (no silence over ~0.5 s, never after the hook).
-2. Lay out the WORLD first: one camera layer ("cam", cam=…) keyed for the whole film and a region (x/y, depth z)
-   per beat that the camera travels to; the film is one continuous space, not slides.
-   Decide an art direction that fits THIS brief (one sentence: concept, visual metaphor, mood, pacing), then plan
-   2-5 beats. One idea per beat, strong hierarchy, big legible type, deliberate composition. On a vertical or square
-   canvas the beats follow the attention sawtooth (craft: SHORT-FORM ATTENTION CURVE): open at 70% in medias res,
-   re-hook every 4-7 s, interrupt at ~30%, escalate, end on the highest peak; review_video measures it.
-3. Express that direction yourself: set_palette op with your own colors, a Google Font that fits (search_fonts +
-   set_font), hand-written keyframes on every element (or your own define_anim keys reused across layers),
-   your own cuts and wipes between beats.
-   This is MOTION GRAPHICS first: build the video with 2D layers (kinetic type, shapes, color fields, masks made of
-   shapes, product screenshots, icons drawn with shapes). The hook is ACTED OUT on screen by 1.5 s, not typed. When the
-   brief has a recurring 2D character, draw it once from shapes with big expressive eyes (define_component) and let it
-   act in most beats. Do NOT use the 3D stage unless the brief explicitly asks
-   for 3D/characters in a scene or the user requests it. When 3D is asked for: list_prefabs first and reuse; otherwise
-   design what the brief needs from primitives and save each piece with save_prefab so the user's library grows;
-   place them with put_prop and give them behaviour with beats (go_to, sit_on, face, walk_to). People are ALWAYS
-   stickman rigs. Move the camera with your own keyframes (set_camera) or set_shots for auto-framed moves.
-   Put every layer in a named "group" (one per visual unit: hook, dashboard, cta…) so the user can edit pieces.
-   MOTION IS THE PRODUCT: staggered entrances, emphasis on key words, characters always doing something, camera
-   that moves with intent. On vertical or square canvases no frame is frozen longer than ~0.5 s (a hold = a character
-   reacting or a slow push); on 16:9 nothing sits still past ~1.5 s.
-4. SELF-REVIEW with review_video (contact sheet + automatic checks). Fix every reported issue and anything a
-   motion designer would reject: cut or off-screen characters, overlapping or tiny text, dead air, flat camera,
-   generic look. Use render_frames to zoom into a moment. Review again until it is clean (max 3 rounds).
-   Never hand back a video you have not reviewed.
-5. The user can leave notes while you work: call get_feedback after each beat you finish and at the end, and apply
-   them right away (notes about the WHOLE video change every beat: font, background, palette, pace).
-${NO_PROBING}
-${CRAFT}
-${MOTION_2D}
-Prefer add_layers (compact lines) over JSON for writing layers. Sound: list_sounds + add_sfx to sync effects to the motion.
-${MANUAL}
-${COMPACT_REF}
-Finish with a 2-3 sentence summary in English: the art direction you chose and what the video shows.`;
 
 type RoleModel = { model: AgentModel; effort: AgentEffort };
 type TeamSetup = {
@@ -520,6 +300,7 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
 
   /** After a restart: agents a previous API process left behind are stopped and their runs marked interrupted. */
   async onModuleInit() {
+    this.logger.log(`${checkPrompts()} prompts loaded from docs/agent/prompts`);
     for (const p of await this.projects.liveRuns()) {
       const pids = p.liveRun?.pids ?? [];
       for (const pid of pids) if (isClaude(pid)) process.kill(pid, "SIGKILL");
@@ -600,7 +381,7 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
       : resume
       ? saved
         ? this.resume(run, refs, { ...opts, ...team.build }, team, saved)
-        : this.single(run, CONTINUE_PROMPT + refs, { ...opts, ...team.build })
+        : this.single(run, rolePrompt("continue") + refs, { ...opts, ...team.build })
       : instruction?.trim()
       ? this.single(run, `The user asks: "${instruction.trim()}". Apply it to the current video (read get_project and inspect first; finish with review_video and fix what it shows).${refs}`, { ...opts, ...team.build })
       : project.footage?.length
@@ -660,7 +441,7 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
       const prompt = moments.length
         ? `${tone}${team}Place sounds on these moments of the cut (seconds, kind, what). Use the time exactly as written, one add_sfx call:\n${list}`
         : `${tone}Add the sound effects to this video.`;
-      const r = await this.agent(run, prompt, SOUND_GUIDE, { ...o, effort: AgentEffort.Low }, "sound", ROLE_TOOLS.sound);
+      const r = await this.agent(run, prompt, rolePrompt("sound"), { ...o, effort: AgentEffort.Low }, "sound", ROLE_TOOLS.sound);
       results.push(r.result);
       // What the sound agent says it did, so an empty result is visible in the log instead of silent.
       this.push(run, GenerateEventKind.Text, `Sound: ${r.text}`);
@@ -675,13 +456,13 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
 
   /** One editor cuts the user's clips and adds the graphics: the cut needs a single view of the whole transcript. */
   private async editFootage(run: Run, refs: string, o: AgentOpts): Promise<AgentRunUsage> {
-    const r = await this.agent(run, `Edit this video from the user's footage.${refs}`, FOOTAGE_GUIDE, o, "edit", undefined);
+    const r = await this.agent(run, `Edit this video from the user's footage.${refs}`, rolePrompt("footage"), o, "edit", undefined);
     run.summary = r.text;
     return usageFrom(r.result, "edit", o.model ?? null, o.effort ?? null);
   }
 
   private async single(run: Run, prompt: string, o: AgentOpts): Promise<AgentRunUsage> {
-    const r = await this.agent(run, prompt, AGENT_GUIDE, o, "", undefined);
+    const r = await this.agent(run, prompt, rolePrompt("agent"), o, "", undefined);
     run.summary = r.text;
     return usageFrom(r.result, "edit", o.model ?? null, o.effort ?? null);
   }
@@ -695,7 +476,7 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
     const t0 = Date.now();
     if (team.solo) return this.solo(run, refs, base, team, label, t0);
     this.push(run, GenerateEventKind.Phase, GeneratePhase.Plan);
-    const planned = await this.agent(run, `Plan this video from its brief.${refs}`, PLANNER_GUIDE, o, "plan", ROLE_TOOLS.planner);
+    const planned = await this.agent(run, `Plan this video from its brief.${refs}`, rolePrompt("planner", { max_beats: MAX_BEATS }), o, "plan", ROLE_TOOLS.planner);
     results.push(planned.result);
     const plan = parsePlan(planned.text);
     await this.projects.setBuildPlan(run.projectId!, { plan: { ...plan }, done: [] });
@@ -725,7 +506,7 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
       for (let beat = queue.shift(); beat && run.status === GenerateStatus.Running; beat = queue.shift()) {
         const reference = plan.reference ? `\nReference breakdown (match its techniques and rhythm):\n${plan.reference}` : "";
         const prompt = `Art direction: ${plan.direction}\nRecurring motif: ${plan.motif ?? "—"}${reference}\nWhole video:\n${overview}\n\nYOUR BEAT: group "${beat.group}", ${beat.start}-${beat.end}s, world region ${beat.region ?? "centered"}.\n${beat.brief}${energyNote(beat)}${voiceFor(run, beat)}\nCanvas ${o.size[0]}x${o.size[1]} px. Palette and font are already set (use the slot names). Build it now.`;
-        const r = await this.agent(run, prompt, BUILDER_GUIDE, crew, beat.group, ROLE_TOOLS.builder).catch((e: Error) => {
+        const r = await this.agent(run, prompt, rolePrompt("builder"), crew, beat.group, ROLE_TOOLS.builder).catch((e: Error) => {
           this.push(run, GenerateEventKind.Error, `${beat!.group}: ${e.message}`);
           return null;
         });
@@ -740,7 +521,7 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
     if (run.status !== GenerateStatus.Running) return sumUsage(results, t0, label);
 
     this.push(run, GenerateEventKind.Phase, GeneratePhase.Review);
-    const finished = await this.agent(run, `Review and polish the whole video. Canvas ${o.size[0]}x${o.size[1]} px. Groups: ${plan.beats.map((b) => `${b.group} ${b.start}-${b.end}s`).join(", ")}.${refs}`, FINISHER_GUIDE.replace("(max 2 rounds)", `(max ${team.reviewRounds} rounds)`), { ...base, ...team.review }, "review", ROLE_TOOLS.finisher);
+    const finished = await this.agent(run, `Review and polish the whole video. Canvas ${o.size[0]}x${o.size[1]} px. Groups: ${plan.beats.map((b) => `${b.group} ${b.start}-${b.end}s`).join(", ")}.${refs}`, rolePrompt("finisher", { review_rounds: team.reviewRounds }), { ...base, ...team.review }, "review", ROLE_TOOLS.finisher);
     results.push(finished.result);
     run.summary = finished.text;
     return sumUsage(results, t0, label);
@@ -752,8 +533,8 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
     this.push(run, GenerateEventKind.Phase, GeneratePhase.Build);
     const designer = await this.agent(
       run,
-      `This is a NEW video from scratch: first call apply_ops [{"op":"clear_layers"}] to drop any old cut. Canvas ${base.size[0]}x${base.size[1]} px.${refs}\n${SOLO_STEPS}`,
-      AGENT_GUIDE,
+      `This is a NEW video from scratch: first call apply_ops [{"op":"clear_layers"}] to drop any old cut. Canvas ${base.size[0]}x${base.size[1]} px.${refs}\n${rolePrompt("solo-steps")}`,
+      rolePrompt("agent"),
       { ...base, ...team.build },
       "design",
       undefined,
@@ -764,7 +545,7 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
     const finished = await this.agent(
       run,
       `Review and polish the whole video. Canvas ${base.size[0]}x${base.size[1]} px.${refs}`,
-      FINISHER_GUIDE.replace("(max 2 rounds)", `(max ${team.reviewRounds} rounds)`),
+      rolePrompt("finisher", { review_rounds: team.reviewRounds }),
       { ...base, ...team.review },
       "review",
       ROLE_TOOLS.finisher,

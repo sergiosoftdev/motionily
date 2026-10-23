@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { contrast, formatIssues, lintLayers, readableOn, resolveColor, type Layer, type Palette } from "../src/lint.js";
+import { contrast, formatIssues, lintLayers, readableOn, resolveColor, type Layer, type Palette, detachedChildren } from "../src/lint.js";
 import type { FrameLayout, LayoutRow } from "@motionily/protocol";
 
 const palette: Palette = { background: "#fbf7fb", surface: "#ffffff", primary: "#0f1733", accent: "#ffb347", text: "#0f1733" };
@@ -70,4 +70,14 @@ test("overlapping text merges across frames; place= to a missing layer is report
   const overlap = issues.find((i) => i.kind === "text_overlap")!;
   assert.deepEqual(overlap.times, [1, 2]);
   assert.ok(issues.some((i) => i.kind === "place_missing" && i.id === "c"));
+});
+
+test("a child written in scene coordinates is reported, a hand at the end of its arm is not", () => {
+  const arm = { id: "arm_l", type: "shape", w: 64, h: 230, x: -165, y: 150 };
+  const broken = detachedChildren([arm, { id: "hand_l", type: "shape", parent: "arm_l", w: 70, h: 70, x: -165, y: 275 }]);
+  assert.equal(broken.length, 1);
+  assert.match(broken[0]!.message, /relative to the parent's center/);
+  assert.equal(detachedChildren([arm, { id: "hand_l", type: "shape", parent: "arm_l", w: 70, h: 70, x: 0, y: 115 }]).length, 0);
+  // Camera and pivot nulls: children far from a 1 px parent are the point.
+  assert.equal(detachedChildren([{ id: "rig", type: "shape", w: 1, h: 1 }, { id: "far", type: "shape", parent: "rig", w: 100, h: 100, x: 900, y: 0 }]).length, 0);
 });

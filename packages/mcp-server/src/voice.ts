@@ -58,6 +58,43 @@ export function deadAir(words: Word[], longer: number): Pause[] {
   return out;
 }
 
+/** Silences measured in the file this close on the video are one pause (they meet at an earlier cut). */
+const JOIN_S = 0.02;
+
+/**
+ * The voice's real pauses on the video timeline: silences measured in its file (file seconds, from the API),
+ * placed through the track, longer than `longer`, between the first and last spoken words, named by the words
+ * around them. Word timings alone are ~0.2 s late at every word start, so they cannot place a cut.
+ */
+export function measuredPauses(scene: Record<string, unknown> | null, fileSilences: [number, number][], words: Word[], longer: number): Pause[] {
+  const track = (scene?.audio as Track | null | undefined) ?? {};
+  const spans: [number, number][] = [];
+  for (const [a, b] of fileSilences) {
+    for (const p of pieces(track)) {
+      const lo = Math.max(a, p.from);
+      const hi = Math.min(b, p.to);
+      if (hi > lo) spans.push([p.at + lo - p.from, p.at + hi - p.from]);
+    }
+  }
+  spans.sort((x, y) => x[0] - y[0]);
+  const merged: [number, number][] = [];
+  for (const sp of spans) {
+    const last = merged.at(-1);
+    if (last && sp[0] - last[1] <= JOIN_S) last[1] = Math.max(last[1], sp[1]);
+    else merged.push([...sp]);
+  }
+  const first = words[0]?.start ?? 0;
+  const end = words.at(-1)?.end ?? Infinity;
+  return merged
+    .filter(([from, to]) => to - from > longer && from > first && to < end)
+    .map(([from, to]) => ({
+      from,
+      to,
+      before: [...words].reverse().find((w) => w.start < from)?.text ?? "",
+      after: words.find((w) => w.end > to)?.text ?? "",
+    }));
+}
+
 const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9áéíóúüñ']/gi, "");
 
 /**

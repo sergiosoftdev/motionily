@@ -1,18 +1,19 @@
-MOTION DESIGN CRAFT (non-negotiable) — the engine is an After Effects; craft is knowing what NOT to use.
+## MOTION DESIGN CRAFT (non-negotiable) — the engine is an After Effects; craft is knowing what NOT to use.
 - Depth where it helps the story: a background (a photo, a texture, a map, a color field), the content, and at most
   one foreground layer. Real material beats decoration; a flat color is fine when the content is strong.
 - Type: hierarchy from size, weight and position; tight letter spacing (ls<0) on big type; every word whole inside
   the frame. Most lines appear on a cut or move as one block with the layout; per-word/per-character animators are
   for the one or two moments the voice stresses word by word (see AI TELLS), with a move chosen for this film.
 - Real surfaces: what the story is made of — photos and prints, footage, documents, the product's screens, maps,
-  logos as vectors; never an empty gradient where the story has something real to show.
+  logos as vectors, or a drawn world with a caricature protagonist when the story is playful; never an empty gradient
+  where the story has something real to show.
 - Graphic language: one motif that means something in this story (a route on a map, a bottle filling, a timeline),
   repeated with variations; connectors and diagrams only when they explain something.
 - Motion: everything eases (expo_out for UI and type, spring/back only for physical objects landing; brutalist and
   handmade genres may step with holds or 12 fps on purpose); secondary motion (what enters makes something react);
   parallax by parenting layers to invisible "camera" nulls; transitions chosen by the genre: match cuts and wipes for
   flowing genres, hard cuts on the beat for social, newsreel, brutalist and trailer genres. Stillness is a tool:
-  hold strong images.
+  hold strong images (on vertical, as SHORT-FORM ATTENTION CURVE says).
 - Rhythm: something meaningful changes on the voice's beats (≈0.5-2 s), with deliberate holds; uneven, not a metronome.
 - Composition: strong grid, generous margins (≥ 8% of the frame), max 2 type sizes per beat + 1 small label.
 - Finish like After Effects: motion blur (mblur) on anything that travels fast, shapes that morph into the next shape,
@@ -20,7 +21,7 @@ MOTION DESIGN CRAFT (non-negotiable) — the engine is an After Effects; craft i
 - Save tokens with expressions, repeaters, loops (time=(mod(t,P))) and layer references instead of many
   hand-made keyframes/layers.
 
-SHORT-FORM ATTENTION CURVE — always for 9:16, 4:5 and 1:1 (Reels, TikTok, Shorts); 16:9 keeps a classic arc.
+## SHORT-FORM ATTENTION CURVE — always for 9:16, 4:5 and 1:1 (Reels, TikTok, Shorts); 16:9 keeps a classic arc.
 Attention is a sawtooth, not an arc: start high, dip a little, re-hook, repeat, end on the highest peak.
 - Start at 70%: frame 0 already moving, in medias res on the most surprising result, conflict or image. No setup,
   no logo intro; context arrives later in small doses, only when the viewer needs it.
@@ -33,13 +34,12 @@ Attention is a sawtooth, not an arc: start high, dip a little, re-hook, repeat, 
 - Pay the hook in steps: the first concrete proof by ~6 s, the full answer not before ~60% of the video. Viewers leave
   the moment the question is answered (measured on a reel that went viral: average watch 23.9 s of 68, right where its
   hook was fully paid at ~20 s; 38% of viewers left between 20 and 44 s).
-- Peaks escalate (stakes, numbers, reveals), each bigger than the one before: the strongest twist lands around
-  50-60% and the last line tops it. Never save the best line for the last 20% (that reel's best line came at 58 s,
+- Peaks escalate (stakes, numbers, reveals), each bigger than the one before: a major twist lands around 50-60%,
+  and the payoff in the last line is the highest peak. Never save the best line for the last 20% (that reel's best line came at 58 s,
   when under 30% were still watching).
 - Length: 35-45 s for a vertical story or explainer; every second past that must bring a new surprise. Completion is
   what earns the next wave of distribution, and a 68 s reel finished by 5% does not get it.
-- Short sentences: about 14 words (~5 s) at most, and no unknown name without a picture that says who it is. No lists
-  of supporting reasons ("It didn't help that…", "Or that…"): each beat brings a new surprise or it goes.
+- Each beat brings a new surprise or it goes: no lists of supporting reasons ("It didn't help that…", "Or that…").
 - Pattern interrupt at ~30% (where viewers drop most): a twist ("but…") with a hard change of color, layout or
   camera and a sound hit.
 - Valleys still carry a new fact. On vertical a hold is a character reacting (blink, glance, gesture) or a slow push:
@@ -50,12 +50,33 @@ Attention is a sawtooth, not an arc: start high, dip a little, re-hook, repeat, 
   ("next time someone says…"): that is what gets a reel sent.
 - Devices: open loop, stakes up, twist, countdown, visual reveal, proof (real number or screen), direct question
   to the viewer, callback to the hook.
-- The voice tells ONE continuous story (connected sentences, cause and consequence, real names and stakes), never
-  choppy teaser lines: the re-hooks are turns of that story, and it makes sense heard without the picture.
 - In motion terms: a peak = beat change + camera move or whip + scale punch or color flip + impact sound; a valley =
   calmer drift and smaller type, never still. review_video measures this curve and flags flat stretches.
 
-AI TELLS — measured in 23 videos agents made here (3,644 layers). Each is a real device; repeated by default, stacked
+## VOICE-OVER SCRIPT — the video is built ON TOP of the voice, so the script comes first (ElevenLabs v3 format).
+- One tone tag on the first line only: [confident], [warm] or [playful].
+- ONE continuous story, the way a person tells it to a friend: every sentence follows from the one before (so, but,
+  because, which meant, until), with real names, places and stakes, building to the end; heard without the picture it
+  still makes complete sense. The re-hooks of the attention curve are turns of that story, never teaser filler ("But
+  wait…", "Here's the thing", "You won't believe…"), slogan fragments or three punchy fragments in a row. Natural
+  spoken language, irregular rhythm; never "Tuesday, ten a.m." openings.
+- EXPLAIN, do not tease. History, science, news or any educational topic: who, what, where, when and why, with the
+  concrete facts (names, places, dates, numbers, cause and consequence), so a viewer who knows nothing finishes
+  understanding the story. Only true claims; when historians disagree, say so ("one theory…").
+- Vertical: 100-130 words (35-45 s), every sentence a new fact or turn; cut supporting reasons and asides rather than
+  rushing. Never a slogan-length script.
+- Sentences of about 14 words at most (~5 s); a name the viewer does not know gets a picture or a two-word gloss.
+- Pace: ~2.7 words per second for [playful], ~2.3 for [warm] or [confident]. The script's length sets the video's.
+- Structure on vertical: each paragraph ends opening the question the next one answers; one "but…" twist around a
+  third of the way; the hook paid in steps (first proof by ~6 s, the full answer past ~60%); a major twist around
+  50-60%; the closing line is the payoff and echoes the first so the video loops.
+- Never name the brand inside the story ("This is X", "Here at X we…"). Story and explainer reels end on the payoff,
+  never "follow for more"; a product video's last sentence carries the CTA and the brand.
+- One paragraph per scene; between scenes exactly "[long pause] [long pause]" on its own line (cut later with
+  `cut pauses=true`); inside a paragraph only commas and periods. Numbers and times written in letters.
+- What is said mirrors the text that appears on screen.
+
+## AI TELLS — measured in 23 videos agents made here (3,644 layers). Each is a real device; repeated by default, stacked
 together and applied to every line, they make a video smell generated. Never reach for them out of habit. They win
 over briefs and brand notes: when a brief asks for one (a stamp, a censorship bar, a counter, a kicker per scene,
 interface screens), deliver the real thing instead (the photographed decree, the real newspaper page, the real map) or

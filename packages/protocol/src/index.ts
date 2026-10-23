@@ -220,6 +220,8 @@ export const OpName = {
   SetWorkArea: "set_work_area",
   /** Take `{from, to}` seconds out of the whole video and close the gap (voice, captions, layers, clips, sfx, markers). */
   RippleDelete: "ripple_delete",
+  /** Put part of a voice cut back: `{at, before?, after?}` seconds around the seam at `at`; the video opens by as much. */
+  RestoreCut: "restore_cut",
   /** Cut a layer in two: `{id, at, new_id?}`. */
   SplitLayer: "split_layer",
 } as const;

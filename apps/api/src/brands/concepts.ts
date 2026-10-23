@@ -7,6 +7,7 @@ import { MEDIA_DIR, MEDIA_PATH } from "../media";
 import { VideoFormat, type AgentRunUsage } from "../projects/project.schema";
 import { usageFrom } from "../projects/generate.service";
 import { askClaude } from "../common/claude-once";
+import { rolePrompt } from "../common/prompts";
 
 export const MAX_CONCEPTS = 6;
 const CONCEPT_TIMEOUT_MS = 180_000;
@@ -50,27 +51,6 @@ export class ConceptsRequestDto {
 }
 
 /** Different directions so parallel pitches don't converge on the same idea. */
-/** Reels, TikTok and Shorts (9:16, 4:5, 1:1): the attention sawtooth (docs/agent/craft.md). */
-const SHORT_FORM_STORY = `STORY SHAPE: this format is short-form (Reels, TikTok, Shorts), so attention is a sawtooth, not an arc.
-- Start at 70%: the first beat opens in medias res on the most surprising result, conflict or image, acted out on
-  screen by 1.5 s. No setup, no logo.
-- Re-hook every 4-7 s: each beat opens a question, pays part of it with a concrete fact or visual, and opens the next
-  before closing the last.
-- Pay the hook in steps: first concrete proof by ~6 s, the full answer not before ~60% of the video (viewers leave the
-  moment the question is answered).
-- A pattern interrupt around 30% (a twist, "but…"); peaks escalate; the strongest twist around 50-60%, and the last
-  line tops it.
-- 35-45 s for a story or explainer: completion earns distribution. Cut supporting-reason filler instead of padding.
-- End on the peak: the last line is the payoff and hands back to the first so the video loops. No outro, no goodbye,
-  no "follow for more"; a product video's CTA rides in that last line.
-- Valleys still teach: a fact per beat, never filler.
-- The sawtooth lives in WHAT HAPPENS, not in inserted teaser lines: each re-hook is a turn of the one continuous story
-  (a consequence, a discovery, a twist), told in connected sentences.
-- Tag every beat with "energy" (0-100, how hard it grabs) and "device" (${DEVICES.join(" | ")}). The energies trace the
-  sawtooth: the first ≥70, dips never under 35, each peak higher than the one before, the final beat the highest.`;
-/** 16:9 (YouTube, web): a classic arc still works there. */
-const CLASSIC_STORY = `STORY SHAPE: 16:9 keeps a classic arc (setup, rising interest, climax, short resolution). Still tag every beat with
-"energy" (0-100) and "device" (${DEVICES.join(" | ")}).`;
 
 const ANGLES = [
   "humor: a relatable everyday situation told with comic timing",
@@ -84,53 +64,6 @@ const ANGLES = [
 
 type BrandContext = { name: string; notes: string; palettes: unknown[]; assets: { kind: string; name: string; description: string }[] };
 
-const SYSTEM = `You are the creative director of Motionily, a tool where an AI agent builds motion-graphics videos
-by hand (no presets: it writes every keyframe). Motionily is a MOTION GRAPHICS tool first: kinetic typography,
-shapes, color blocks, icons, UI/product screens animated in 2D. 3D (procedural sets, faceless black stickmen) is an
-occasional ingredient: use it in at most one concept and only when a scene with people/places truly carries the
-idea or the user asks for it. Most concepts must be pure 2D motion graphics. Pitch genuinely different concepts for the user's idea: different metaphors, structures, tones and
-visual worlds — never variations of one idea. The format sets the STORY SHAPE (given with the request); always: hook in
-the first 1.5 s (max 6 words), one idea per beat. The video is built ON TOP of the voice-over, so the script comes first.
-"voiceover" is the script ready to paste in ElevenLabs v3:
-- One tone tag first line only: [confident], [warm] or [playful].
-- ONE continuous story, the way a person tells it to a friend: every sentence follows from the one before (so, but,
-  because, which meant, until), with real names, places and stakes, building to the end; read aloud without the video
-  it still makes complete sense. Never a list of punchy lines, slogan fragments or teaser filler ("But wait…",
-  "Here's the thing", "You won't believe…").
-- Storytelling, each paragraph flowing from the previous; natural spoken language (see LANGUAGE), irregular rhythm,
-  never "Tuesday, ten a.m." openings or three punchy fragments in a row.
-- EXPLAIN, do not tease. For history, science, news or any educational topic the script teaches: say who, what,
-  where, when and why, with the concrete facts (names, places, dates, numbers, cause and consequence), so a viewer
-  who knows nothing finishes understanding the story. Short-form: 100-130 words (35-45 s), every sentence a new fact
-  or turn; cut supporting reasons and asides rather than rushing. Never a slogan-length script.
-- Sentences of about 14 words at most (~5 s); a name the viewer does not know gets a picture or a two-word gloss.
-- Never name the brand inside the story ("This is X", "Here at X we…"): it costs the hook and nobody follows for it.
-  A product video names it in the closing line with the CTA.
-- Short-form formats: each paragraph ends opening the question the next one answers, one "but…" twist around a
-  third of the way, the hook paid in steps (first proof by ~6 s, full answer past ~60%), the strongest twist around
-  50-60%, and the closing line is the payoff that echoes the first so the video loops.
-- Between scenes exactly "[long pause] [long pause]" on its own line; inside a paragraph only commas/periods.
-- Numbers and times written in letters. Only true claims about the product.
-- ~2.7 words per second for [playful] scripts, ~2.3 for [warm] or [confident]: the script's length sets the video's.
-  Story and explainer reels end on the payoff, never "follow for more"; a product video's last sentence carries the CTA.
-- What is said mirrors the text that will appear on screen.
-- Art direction and prompt: pick what carries THIS story. Either real material (archive photos and footage, real
-  documents and newspaper pages photographed, maps, logos, the product's real screens), or, for playful explainers
-  and stories about an image or a perception, a recurring 2D caricature protagonist built from shapes with big
-  expressive eyes, acting out most beats (the style may BE the story's image). Plain captions; one accent colour. Never write AI tells
-  into a brief, even if the brand notes mention them: rubber stamps, censorship or redaction bars, fake documents drawn
-  with shapes, tilted paper strips, marker underlines, decorative counters, a kicker on every scene, "interface screens"
-  for a story that is not about software, words cut by the frame edge, 3D text used as flat type. Brand palettes and
-  fonts are starting points, not a uniform: leave the final palette, type and genre to the builder (set_direction).
-Answer ONLY with JSON: {"concepts":[{"title","hook","direction","beats":[{"at":"0-1.5s","what":"…","energy":80,"device":"hook"}],"voiceover","prompt"}]}.
-"direction" = art direction in 1-2 sentences (concept, palette, type, motion, camera). "prompt" = the complete brief
-for the builder agent (in English, 80-200 words): beats tied to the script's paragraphs with their energy and device,
-art direction, what to show of the product. Beats' "at" follow the script timing.
-LANGUAGE: "title", "hook", the beats' "what" and the "voiceover" are written in the language of the user's Idea line.
-Detect it from the Idea alone: brand notes, asset names, palettes and references never decide it. If the idea is too
-short to tell or mixes languages, use American English (the audience is mostly in the United States). "direction" and
-"prompt" are always in English (they are for the builder agent); "prompt" names the video's language so on-screen text
-matches the voice.`;
 
 /** Asks Claude (no tools, one shot) for N different ways to make a video. */
 @Injectable()
@@ -151,7 +84,7 @@ export class ConceptsService {
         : []),
       `Idea: ${dto.idea.trim()}`,
       `Format: ${dto.format ?? VideoFormat.Vertical}`,
-      (dto.format ?? VideoFormat.Vertical) === VideoFormat.Horizontal ? CLASSIC_STORY : SHORT_FORM_STORY,
+      rolePrompt((dto.format ?? VideoFormat.Vertical) === VideoFormat.Horizontal ? "story-classic" : "story-short-form", { devices: DEVICES.join(" | ") }),
       dto.steer?.trim() && `Steer this round: ${dto.steer.trim()}`,
       dto.avoid?.length && `Already pitched (bring different ones): ${dto.avoid.join(" | ")}`,
       ...kit,
@@ -178,6 +111,6 @@ export class ConceptsService {
   private run(prompt: string, model: AgentModel, effort: AgentEffort, references: string[]) {
     // Reference images go next to it so Claude can Read (see) them; nothing else is allowed.
     const files = references.map((ref, i) => ({ from: join(MEDIA_DIR, basename(ref)), as: `ref-${i + 1}${extname(ref)}` }));
-    return askClaude({ prompt, system: SYSTEM, model, effort, timeoutMs: CONCEPT_TIMEOUT_MS, files });
+    return askClaude({ prompt, system: rolePrompt("concepts"), model, effort, timeoutMs: CONCEPT_TIMEOUT_MS, files });
   }
 }

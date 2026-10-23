@@ -9,7 +9,7 @@ export type Palette = { background: string; surface: string; primary: string; ac
 export type Layer = Record<string, unknown>;
 export type Op = Record<string, unknown>;
 
-export type IssueKind = "off_frame" | "tiny_text" | "text_overlap" | "low_contrast" | "place_missing" | "cropped_text";
+export type IssueKind = "off_frame" | "tiny_text" | "text_overlap" | "low_contrast" | "place_missing" | "cropped_text" | "detached_child";
 export type Issue = { kind: IssueKind; id: string; times: number[]; message: string; fix?: Op[] };
 
 /** WCAG AA for normal text. */
@@ -26,6 +26,10 @@ const CROP_PERSIST = 0.5;
 const REFIT_SHARE = 0.86;
 /** Overlap of two text boxes, as a share of the smaller one, that reads as a collision. */
 const TEXT_OVERLAP = 0.08;
+/** A child this many times farther from its parent's center than their boxes reach has absolute x/y by mistake. */
+const DETACHED_REACH = 1.5;
+/** Parents smaller than this (px) are nulls (camera rigs, pivots): children far from them are intended. */
+const NULL_SIZE = 8;
 
 const SLOTS = ["background", "surface", "primary", "accent", "text"] as const;
 type Slot = (typeof SLOTS)[number];
@@ -85,6 +89,33 @@ function insideArea(row: LayoutRow, [w, h]: [number, number]): number {
 
 const fmtTimes = (ts: number[]) => ts.map((t) => `${+t.toFixed(2)}s`).join(",");
 
+const num = (v: unknown) => (typeof v === "number" ? v : null);
+
+/**
+ * Children drawn far from the parent they hang from: with parent=, x/y are relative to the parent's center, and an
+ * agent that writes scene coordinates there (a hand at the arm's absolute position) breaks the figure. Static
+ * check on the written values, so it also runs on a component's lines.
+ */
+export function detachedChildren(layers: Layer[]): Issue[] {
+  const byId = new Map(layers.map((l) => [String(l.id), l]));
+  const out: Issue[] = [];
+  for (const l of layers) {
+    const parent = typeof l.parent === "string" ? byId.get(l.parent) : undefined;
+    const [x, y, cw, ch, pw, ph] = [num(l.x), num(l.y), num(l.w), num(l.h), num(parent?.w), num(parent?.h)];
+    if (!parent || x === null || y === null || pw === null || ph === null || Math.max(pw, ph) < NULL_SIZE || parent.vis === 0) continue;
+    const reachX = (pw + (cw ?? 0)) / 2;
+    const reachY = (ph + (ch ?? 0)) / 2;
+    if (Math.abs(x) <= reachX * DETACHED_REACH && Math.abs(y) <= reachY * DETACHED_REACH) continue;
+    out.push({
+      kind: "detached_child",
+      id: String(l.id),
+      times: [],
+      message: `'${l.id}' sits at ${x},${y} from the center of its parent '${l.parent}' (${pw}×${ph}), far outside it: with parent=, x/y are relative to the parent's center, not the scene (a hand at the end of a ${ph}px arm is x=0 y=${Math.round(ph / 2)})`,
+    });
+  }
+  return out;
+}
+
 export type LintInput = { layers: Layer[]; frames: FrameLayout[]; palette: Palette; size: [number, number] };
 
 /** Issues for the given frames (layout at several instants). Repeated findings merge into one issue. */
@@ -102,6 +133,7 @@ export function lintLayers({ layers, frames, palette, size }: LintInput): Issue[
     issues.set(key, { ...issue, times: t === null ? [] : [t] });
   };
 
+  for (const issue of detachedChildren(layers)) issues.set(`detached:${issue.id}`, issue);
   for (const [id, { layer }] of byId) {
     const place = layer.place as { of?: string } | undefined;
     if (place?.of && !byId.has(place.of)) add(`place:${id}`, { kind: "place_missing", id, message: `'${id}' is placed relative to '${place.of}', which does not exist` }, null);

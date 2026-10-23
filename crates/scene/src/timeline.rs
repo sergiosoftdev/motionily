@@ -1,6 +1,6 @@
 //! Cutting time, like an editor's razor: `ripple_delete` takes a stretch out of the whole video
-//! (voice, captions, layers, clips, sound effects, markers) and closes the gap; `split_layer` cuts one
-//! layer in two at an instant. Keyframes are layer-local seconds, so they are moved with the cut;
+//! (voice, captions, layers, clips, sound effects, markers) and closes the gap; `restore_cut` puts part of
+//! a voice cut back and opens the video by as much; `split_layer` cuts one layer in two at an instant. Keyframes are layer-local seconds, so they are moved with the cut;
 //! clips get a real jump cut (their file time skips what was removed).
 use serde_json::Value;
 
@@ -18,6 +18,44 @@ fn after_cut(t: f32, from: f32, to: f32) -> f32 {
     } else {
         from
     }
+}
+
+/// A voice cut seam is found within this distance of the second asked for.
+const SEAM_TOLERANCE: f32 = 0.05;
+
+/// Where a scene time lands once `d` seconds open at `at` (from `at` on, everything moves later).
+fn after_open(t: f32, at: f32, d: f32) -> f32 {
+    if t >= at {
+        t + d
+    } else {
+        t
+    }
+}
+
+/// Re-time one key list from the old layer start `s` to the new start `s2`, opening `d` seconds at scene
+/// time `at`. The curve holds its value through the opening, so nothing moves in the restored pause.
+fn open_keys(keys: &mut Vec<Value>, s: f32, s2: f32, at: f32, d: f32) {
+    let hold = value_at(keys, at - s);
+    let splits = keys.iter().any(|k| s + key_t(k) < at) && keys.iter().any(|k| s + key_t(k) > at);
+    let mut out: Vec<Value> = Vec::with_capacity(keys.len() + 1);
+    for mut k in keys.drain(..) {
+        let scene_t = s + key_t(&k);
+        if splits && scene_t >= at && out.last().is_some_and(|p: &Value| s2 + key_t(p) < at) {
+            if let Some(v) = hold.clone() {
+                let mut b = k.clone();
+                if let Some(o) = b.as_object_mut() {
+                    o.insert("v".into(), v);
+                    o.remove("bezier");
+                }
+                set_t(&mut b, at - s2);
+                out.push(b);
+            }
+        }
+        set_t(&mut k, after_open(scene_t, at, d) - s2);
+        out.push(k);
+    }
+    out.dedup_by(|b, a| (key_t(a) - key_t(b)).abs() < 1e-4);
+    *keys = out;
 }
 
 /// Every keyframe list inside a layer's JSON: arrays of objects that all carry a numeric `t`.
@@ -249,6 +287,83 @@ impl Scene {
         Ok(())
     }
 
+    /// Put back `before` seconds of the voice cut whose seam plays at scene second `at` (from where the cut
+    /// began) and `after` seconds (up to where it ended): all of it when both are `None`. The video opens by
+    /// as much at the seam: everything from there on moves later, layers playing across it last longer and
+    /// hold their animation through the opening. The inverse of `ripple_delete` at a pause.
+    pub(crate) fn restore_cut(&mut self, at: f32, before: Option<f32>, after: Option<f32>) -> Result<(), OpError> {
+        let audio = self.audio.clone().unwrap_or_default();
+        let pieces = audio.pieces(f32::INFINITY);
+        let seams: Vec<(f32, f32, f32)> = pieces.windows(2).map(|w| (w[1].0, w[0].2, w[1].1)).collect();
+        let Some(&(seam, cut_from, cut_to)) = seams.iter().find(|(t, _, _)| (t - at).abs() <= SEAM_TOLERANCE) else {
+            let list = seams.iter().map(|(t, _, _)| format!("{t:.2}")).collect::<Vec<_>>().join(", ");
+            return Err(OpError::Field(format!(
+                "restore_cut: no voice cut at {at:.2} s; the voice's cuts are at {} s",
+                if list.is_empty() { "none".into() } else { list }
+            )));
+        };
+        let len = cut_to - cut_from;
+        let (b, a) = match (before, after) {
+            (None, None) => (len, 0.0),
+            (b, a) => (b.unwrap_or(0.0), a.unwrap_or(0.0)),
+        };
+        if !(b >= 0.0 && a >= 0.0 && b.is_finite() && a.is_finite()) {
+            return Err(OpError::Invalid("restore_cut needs before/after >= 0 (seconds)"));
+        }
+        let b = b.min(len);
+        let a = a.min(len - b);
+        let d = b + a;
+        if d < MIN_CUT {
+            return Ok(());
+        }
+        let mut track = audio;
+        track.cuts.retain(|c| !((c[0] - cut_from).abs() < 1e-4 && (c[1] - cut_to).abs() < 1e-4));
+        if len - d >= MIN_CUT {
+            track.cut(cut_from + b, cut_to - a);
+        }
+        self.audio = Some(track);
+
+        let mut next: Vec<Layer> = Vec::with_capacity(self.layers.len());
+        for l in &self.layers {
+            let (s, e) = (l.start, l.end);
+            if e.is_some_and(|e| e <= seam) {
+                next.push(l.clone());
+                continue;
+            }
+            let s2 = after_open(s, seam, d);
+            let mut v = to_value(l)?;
+            for_each_keys(&mut v, &mut |keys| open_keys(keys, s, s2, seam, d));
+            let mut l2 = from_value(v, &l.id)?;
+            l2.start = s2;
+            l2.end = e.map(|e| e + d);
+            if s < seam {
+                // Plays across the opening: a clip plays on for as long (no frame is skipped).
+                if let LayerContent::Video { clip } = &mut l2.content {
+                    clip.trim_out = clip.trim_out.map(|o| o + d * clip.speed);
+                }
+            }
+            next.push(self.checked_layer(l2)?);
+        }
+        self.layers = next;
+        if let Some(c) = &mut self.captions {
+            for w in &mut c.words {
+                w.start = after_open(w.start, seam, d);
+                w.end = after_open(w.end, seam, d);
+            }
+        }
+        if let Some(m) = &mut self.music {
+            m.start = after_open(m.start, seam, d);
+        }
+        self.sfx.iter_mut().for_each(|c| c.at = after_open(c.at, seam, d));
+        self.transitions.iter_mut().for_each(|t| t.at = after_open(t.at, seam, d));
+        self.markers.iter_mut().for_each(|m| m.t = after_open(m.t, seam, d));
+        if let Some([w0, w1]) = self.work_area {
+            self.work_area = Some([after_open(w0, seam, d), after_open(w1, seam, d)]);
+        }
+        self.duration += d;
+        Ok(())
+    }
+
     /// Cut a layer in two at scene time `at`: the original ends there, a copy (`new_id`, or
     /// `<id>_2`) carries on from there with its keys and clip time moved along.
     pub(crate) fn split_layer(&mut self, id: &str, at: f32, new_id: Option<&str>) -> Result<String, OpError> {
@@ -353,6 +468,31 @@ mod tests {
         let audio = s.audio.as_ref().expect("the default placement became a track with the cut");
         assert_eq!(audio.cuts, vec![[5.0, 10.0]]);
         assert_eq!(audio.to_file(6.0), Some(11.0), "voice and captions move up together");
+    }
+
+    #[test]
+    fn restore_cut_puts_part_of_a_voice_cut_back_and_opens_the_video() {
+        let mut s = scene();
+        s.apply(&Op::parse_list(r#"[{"op":"ripple_delete","from":5,"to":10}]"#).unwrap()).unwrap();
+        let (bg_x, late) = (s.layer("bg").unwrap().clone(), s.layer("late").unwrap().start);
+        // The seam plays at 5 s: give back 0.2 s of what came before the cut and 0.3 s of what came after.
+        s.apply(&Op::parse_list(r#"[{"op":"restore_cut","at":5.02,"before":0.2,"after":0.3}]"#).unwrap()).unwrap();
+        let audio = s.audio.as_ref().unwrap();
+        assert_eq!(audio.cuts, vec![[5.2, 9.7]]);
+        assert_eq!(audio.to_file(5.5), Some(10.0), "what followed the seam is heard 0.5 s later");
+        assert_eq!(audio.to_file(5.2), Some(9.7), "the restored 0.3 s plays right before it");
+        assert_eq!(s.duration, 15.5);
+        assert_eq!(s.layer("late").unwrap().start, late + 0.5);
+        assert_eq!(s.captions.as_ref().unwrap().words.last().unwrap().start, 6.5);
+        // A layer playing across the seam lasts 0.5 s longer and holds its value through the opening.
+        let bg = s.layer("bg").unwrap();
+        assert!(bg.end.is_none() && serde_json::to_string(bg).unwrap() != serde_json::to_string(&bg_x).unwrap());
+        // All of a cut back: the voice plays its whole file again.
+        s.apply(&Op::parse_list(r#"[{"op":"restore_cut","at":5.2}]"#).unwrap()).unwrap();
+        assert!(s.audio.as_ref().unwrap().cuts.is_empty());
+        assert_eq!(s.duration, 20.0);
+        let err = s.apply(&Op::parse_list(r#"[{"op":"restore_cut","at":3}]"#).unwrap()).unwrap_err();
+        assert!(err.1.to_string().contains("no voice cut at 3.00 s"), "{}", err.1);
     }
 
     #[test]

@@ -101,6 +101,9 @@ applied: fix it and resend the call.
                                                         // skips it (audio `cuts`), captions, layers (moved/trimmed; keys move
                                                         // with them), clips (a jump cut: split, the rest from what played at 15.1),
                                                         // sfx, transitions, markers; music plays on. The video is 2.7 s shorter.
+{"op":"restore_cut","at":12.4,"before":0.1,"after":0.2} // put back part of the voice cut whose seam plays at 12.4 s: 0.1 s of
+                                                        // what came before it, 0.2 s of what came after (both absent = all of
+                                                        // it); everything from the seam on moves later, layers across it hold
 {"op":"split_layer","id":"clip","at":6.2,"new_id":"clip_b"?}  // cut one layer in two at 6.2 s (clips keep their file time; keys move)
 {"op":"reorder","id":"card","index":0}                  // 0 = back (only matters without a camera or at equal depth)
 {"op":"define_anim","key":"my/rise","template":{"keys":{"opacity":[[0,0],[0.4,1]],"dy":[[0,60,"back"],[0.5,0]]}}}
@@ -137,12 +140,11 @@ Rejected on purpose: `set_size` (use `set_format`), `set_style`, `set_library`, 
 - **Music** is the user's (Edit view): scene `music` = `{src,start,trim_in,trim_out,gain,duck}`, shown in the summary as
   `music: …`. The editor lowers it to `gain × duck` around every caption word (or the voice's own speech when there are
   no captions). Leave it unless the user asks; `set_music` changes it (`{"op":"set_music","music":null}` removes it).
-- Only a voice script: ~2.3 words/s ([warm]/[confident]) or ~2.7 ([playful]), one paragraph per beat, `[long pause]` = beat change.
-- Dead air is never kept: once the voice exists, `cut pauses=true` takes every silence over 0.6 s down to a breath
-  (scene changes then come from the paragraphs). review_video reports any silence over 0.8 s left in the voice.
-- `set_voice_script`: ElevenLabs v3 — one tone tag like `[warm]` first, one paragraph per scene, `[long pause] [long pause]`
-  between scenes, numbers in letters. Story reels end on the payoff line that echoes the first (no "follow for more");
-  a product video's last sentence carries the CTA. Vertical: 100-130 words (craft: SHORT-FORM).
+- Only a voice script: beats follow its paragraphs (pace in craft: VOICE-OVER SCRIPT), `[long pause]` = beat change.
+- Dead air is never kept: once the voice exists, `cut pauses=true` takes every silence over 0.6 s down to 0.45 s of
+  real silence, measured in the voice's sound (scene changes then come from the paragraphs). A pause cut too tight:
+  `restore_cut` at its seam. review_video reports any silence over 0.8 s left in the voice.
+- `set_voice_script`: the script, written by craft: VOICE-OVER SCRIPT.
 - `list_sounds [category]`: `name | seconds | shape, peak, hits | description`. You cannot listen: pick by shape and
   name. `hit` = loudest at once (place at the moment) · `build` = peaks late (risers) · `swell` = passes through
   (start it a little before the move) · `steady` = loop or bed (ticking, static, typing). `peak`/`hits` are seconds

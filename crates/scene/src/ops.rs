@@ -131,6 +131,15 @@ pub enum Op {
     /// Take `[from, to]` seconds out of the whole video and close the gap: voice (its file skips
     /// that stretch), captions, layers (clips get a jump cut), sound effects, transitions, markers.
     RippleDelete { from: f32, to: f32 },
+    /// Put part of a voice cut back: `before`/`after` seconds on each side of the seam playing at scene
+    /// second `at` (all of it when both are absent); the video opens by as much there.
+    RestoreCut {
+        at: f32,
+        #[serde(default)]
+        before: Option<f32>,
+        #[serde(default)]
+        after: Option<f32>,
+    },
     /// Cut a layer in two at scene second `at` (`new_id` names the second half, default `<id>_2`).
     SplitLayer {
         id: String,
@@ -547,6 +556,7 @@ impl Scene {
                 self.markers = markers;
             }
             Op::RippleDelete { from, to } => self.ripple_delete(*from, *to)?,
+            Op::RestoreCut { at, before, after } => self.restore_cut(*at, *before, *after)?,
             Op::SplitLayer { id, at, new_id } => {
                 self.split_layer(id, *at, new_id.as_deref())?;
             }
