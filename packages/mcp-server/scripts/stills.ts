@@ -9,6 +9,7 @@ const times = process.argv.slice(2).map(Number);
 for (let i = 0; i < times.length; i += 6) {
   const res = (await client.callTool({ name: "render_frames", arguments: { times: times.slice(i, i + 6) } })) as { content: { type: string; text?: string; data?: string }[] };
   let n = i;
-  for (const c of res.content) if (c.type === "image") writeFileSync(`${process.env.E2E_OUT}/t${String(times[n++]).padStart(5, "0")}.jpg`, Buffer.from(c.data!, "base64"));
+  // Fixed-width names (t0003.5) so the files sort in time order.
+  for (const c of res.content) if (c.type === "image") writeFileSync(`${process.env.E2E_OUT}/t${times[n++]!.toFixed(1).padStart(6, "0")}.jpg`, Buffer.from(c.data!, "base64"));
 }
 await client.close();

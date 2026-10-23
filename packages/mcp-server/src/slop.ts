@@ -98,7 +98,9 @@ export function slopNotes(scene: { layers?: Layer[]; library?: { components?: Re
     const d = String(l.d ?? "");
     return !/[Zz]/.test(d) && texts.some((t) => Math.abs((num(t.x) ?? 1e9) - (num(l.x) ?? 0)) < 300 && (num(l.y) ?? 0) - (num(t.y) ?? 1e9) > 0 && (num(l.y) ?? 0) - (num(t.y) ?? 1e9) < 160);
   });
-  if (underlines.length > MAX_UNDERLINES) notes.push(`${underlines.length} marker strokes drawn under text (${ids(underlines)}): at most one, pointing at something real`);
+  // A motif split in layers (line, line_halo, line_hot) is one stroke, not three.
+  const motifs = new Set(underlines.map((l) => String(l.group ?? String(l.id).split("_")[0])));
+  if (motifs.size > MAX_UNDERLINES) notes.push(`${motifs.size} marker strokes drawn under text (${ids(underlines)}): at most one, pointing at something real`);
 
   // Fake documents: dark flat bars standing in for lines of text or censorship, with no text on them.
   const dark = (c: unknown) => {
