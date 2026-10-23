@@ -217,7 +217,7 @@ export class ProjectsService {
     if (dto.kind === FeedbackKind.Comment && !dto.text?.trim()) {
       throw new BadRequestException("a comment needs text");
     }
-    return this.feedback.create({ projectId: project._id, kind: dto.kind, text: dto.text?.trim(), at: dto.at, layerId: dto.layerId });
+    return this.feedback.create({ projectId: project._id, kind: dto.kind, text: dto.text?.trim(), at: dto.at, layerId: dto.layerId, references: dto.references });
   }
 
   listFeedback(projectId: Types.ObjectId) {

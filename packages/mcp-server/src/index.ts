@@ -1649,14 +1649,18 @@ function describeProject(p: Project): string {
 function feedbackLine(f: Feedback): string {
   switch (f.kind) {
     case FeedbackKind.Comment:
-      return f.layerId
-        ? `comment on layer '${f.layerId}' @${(f.at ?? 0).toFixed(1)}s: ${f.text} (inspect ${f.layerId} to see it)`
-        : f.at == null
-          ? `comment on the WHOLE video (apply it everywhere: font, background, palette, pace…): ${f.text}`
-          : `comment @${f.at.toFixed(1)}s: ${f.text}`;
+      return commentLine(f) + (f.references?.length ? ` [attached images; look at each with view_image: ${f.references.join(", ")}]` : "");
     case FeedbackKind.BrickChosen:
       return `user set ${f.slot} = ${JSON.stringify(f.value)}`;
   }
+}
+
+function commentLine(f: Feedback): string {
+  return f.layerId
+    ? `comment on layer '${f.layerId}' @${(f.at ?? 0).toFixed(1)}s: ${f.text} (inspect ${f.layerId} to see it)`
+    : f.at == null
+      ? `comment on the WHOLE video (apply it everywhere: font, background, palette, pace…): ${f.text}`
+      : `comment @${f.at.toFixed(1)}s: ${f.text}`;
 }
 
 const startProject = process.env.MOTIONILY_PROJECT;

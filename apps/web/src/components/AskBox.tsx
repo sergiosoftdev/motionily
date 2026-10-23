@@ -95,9 +95,10 @@ export function AskBox({
     if (g.running) {
       const at = target || moment ? time : undefined;
       const note = group ? `[group ${group}] ${t}` : t;
-      api.addComment(projectId, note, at, layer ?? undefined).catch((e: Error) => logActivity(ActivitySource.System, e.message));
+      api.addComment(projectId, note, at, layer ?? undefined, refs.refs).catch((e: Error) => logActivity(ActivitySource.System, e.message));
       logActivity(ActivitySource.Ask, `${target ?? (at === undefined ? "Whole video" : `@${at.toFixed(1)}s`)}: ${t}`);
       setText("");
+      refs.clear();
       return;
     }
     if (await g.start(scopedInstruction(t, time, group, layer, moment), refs.refs)) {

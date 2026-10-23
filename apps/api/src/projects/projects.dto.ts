@@ -77,6 +77,7 @@ export class CreateFeedbackDto {
   @IsOptional() @IsString() @MaxLength(2000) text?: string;
   @IsOptional() @IsNumber() @Min(0) at?: number;
   @IsOptional() @IsString() @MaxLength(80) layerId?: string;
+  @IsOptional() @IsArray() @ArrayMaxSize(MAX_REFERENCES) @Matches(MEDIA_PATH, { each: true }) references?: string[];
 }
 
 /** Claude model aliases accepted by `claude --model`. */

@@ -137,6 +137,8 @@ export class Feedback {
   @Prop() at?: number;
   /** Scene layer the comment is about (clicked in the preview). */
   @Prop() layerId?: string;
+  /** Images the user attached to the comment (/media/… paths). */
+  @Prop({ type: [String], default: undefined }) references?: string[];
   @Prop({ enum: BrickSlot, type: String }) slot?: BrickSlot;
   @Prop({ type: MongooseSchema.Types.Mixed }) value?: string | string[] | null;
   /** Set when the agent has read it. */

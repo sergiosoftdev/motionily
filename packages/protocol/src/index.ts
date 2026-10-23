@@ -46,6 +46,8 @@ export type Feedback = {
   at?: number;
   /** Scene layer the comment points at (clicked in the preview). */
   layerId?: string;
+  /** Images the user attached to the comment (/media/… paths). */
+  references?: string[];
   slot?: string;
   value?: string | string[] | null;
   createdAt: string;
