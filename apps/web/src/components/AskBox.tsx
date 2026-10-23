@@ -86,7 +86,7 @@ export function AskBox({
     if (first) {
       await onBrief(t);
       if (await g.start("", refs.refs)) {
-        logActivity(ActivitySource.Ask, `Brief: ${t}`);
+        logActivity(ActivitySource.Ask, `Brief: ${t}`, refs.refs);
         setText("");
         refs.clear();
       }
@@ -96,13 +96,13 @@ export function AskBox({
       const at = target || moment ? time : undefined;
       const note = group ? `[group ${group}] ${t}` : t;
       api.addComment(projectId, note, at, layer ?? undefined, refs.refs).catch((e: Error) => logActivity(ActivitySource.System, e.message));
-      logActivity(ActivitySource.Ask, `${target ?? (at === undefined ? "Whole video" : `@${at.toFixed(1)}s`)}: ${t}`);
+      logActivity(ActivitySource.Ask, `${target ?? (at === undefined ? "Whole video" : `@${at.toFixed(1)}s`)}: ${t}`, refs.refs);
       setText("");
       refs.clear();
       return;
     }
     if (await g.start(scopedInstruction(t, time, group, layer, moment), refs.refs)) {
-      logActivity(ActivitySource.Ask, `${target ?? (moment ? `@${time.toFixed(1)}s` : "Whole video")}: ${t}`);
+      logActivity(ActivitySource.Ask, `${target ?? (moment ? `@${time.toFixed(1)}s` : "Whole video")}: ${t}`, refs.refs);
       setText("");
       refs.clear();
     }

@@ -11,7 +11,8 @@ export const ActivitySource = {
 } as const;
 export type ActivitySource = (typeof ActivitySource)[keyof typeof ActivitySource];
 
-export type Activity = { id: number; source: ActivitySource; text: string; at: Date };
+/** `images`: what the user attached to an ask (/media/… paths), shown under the message. */
+export type Activity = { id: number; source: ActivitySource; text: string; at: Date; images?: string[] };
 
 export const EngineStatus = {
   Loading: "loading",
@@ -69,8 +70,8 @@ export const useEditor = create<EditorState>(() => ({
 /** Entries kept: enough for a session's asks and the agent's steps between them. */
 const MAX_ACTIVITY = 200;
 
-export function logActivity(source: ActivitySource, text: string) {
+export function logActivity(source: ActivitySource, text: string, images: string[] = []) {
   useEditor.setState((s) => ({
-    activity: [{ id: nextId++, source, text, at: new Date() }, ...s.activity].slice(0, MAX_ACTIVITY),
+    activity: [{ id: nextId++, source, text, at: new Date(), images: images.length ? images : undefined }, ...s.activity].slice(0, MAX_ACTIVITY),
   }));
 }

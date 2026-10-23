@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../../api/client";
 import { AskBox, AskVariant } from "../../components/AskBox";
 import { GenerateStatus } from "../../components/GeneratePanel";
+import { ReferenceThumbs } from "../../components/References";
 import { ActivitySource, useEditor, type Activity } from "../../store";
 import { AgentLine } from "../AgentLine";
 import type { EditorProps } from "../context";
@@ -132,6 +133,7 @@ function TurnView({ turn }: { turn: Turn }) {
         <div className="flex max-w-[88%] flex-col items-end gap-1 self-end">
           {scope && <span className="text-[10px] text-neutral-500">{scope}</span>}
           <p className="rounded-2xl rounded-br-md bg-neutral-800 px-3.5 py-2 text-sm whitespace-pre-wrap text-neutral-100">{text}</p>
+          {turn.ask.images && <ReferenceThumbs urls={turn.ask.images} />}
         </div>
       )}
       {turn.steps.length > 0 && (

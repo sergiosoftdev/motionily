@@ -143,11 +143,30 @@ export function ReferenceStrip({ r, compact = false }: { r: References; compact?
         }}
       />
       {r.error && <span className="text-xs text-red-400">{r.error}</span>}
-      {zoom && (
-        <div className="fixed inset-0 z-50 flex cursor-zoom-out items-center justify-center bg-black/80 p-10" onClick={() => setZoom(null)}>
-          <img src={zoom} alt="Referencia" className="max-h-full max-w-full rounded-lg shadow-2xl" />
-        </div>
-      )}
+      {zoom && <Zoom src={zoom} onClose={() => setZoom(null)} />}
+    </div>
+  );
+}
+
+/** The images sent with a message, under its bubble; click one to see it full size. */
+export function ReferenceThumbs({ urls }: { urls: string[] }) {
+  const [zoom, setZoom] = useState<string | null>(null);
+  return (
+    <div className="flex flex-wrap justify-end gap-1.5">
+      {urls.map((url) => (
+        <button key={url} type="button" onClick={() => setZoom(mediaUrl(url))} aria-label="View image" className="size-16 shrink-0 cursor-zoom-in overflow-hidden rounded-lg ring-1 ring-white/10">
+          <img src={mediaUrl(url)} alt="Referencia" className="size-full object-cover" />
+        </button>
+      ))}
+      {zoom && <Zoom src={zoom} onClose={() => setZoom(null)} />}
+    </div>
+  );
+}
+
+function Zoom({ src, onClose }: { src: string; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex cursor-zoom-out items-center justify-center bg-black/80 p-10" onClick={onClose}>
+      <img src={src} alt="Referencia" className="max-h-full max-w-full rounded-lg shadow-2xl" />
     </div>
   );
 }
