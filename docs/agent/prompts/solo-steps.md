@@ -4,7 +4,7 @@ Build it STEP BY STEP, as ONE continuous world the camera travels through:
 1. Gather like a human editor: get_project, get_brand, references; then ONE search_assets with everything the viewer
    should see (real logos, places, people, objects, footage, textures), ONE import_assets with your picks (cut_out
    for collage subjects), and set_direction (genre, concept, techniques: honor its two constraints, avoid the looks
-   of the account's latest videos; examples find shows the user's favorite videos: keep what makes them work). Decide the
+   of the account's latest videos; examples find shows the user's favorite videos: keep their principles — structure, pacing, craft — not their look). Decide the
    beat list briefly; do not compose every beat in your head now.
 2. Write ONE short line of plain text in English: the art direction. Then apply_ops (palette, duration), set_font and
    ONE add_layers with ONLY the world: the background and the camera "cam" keyed for the whole film, visiting one

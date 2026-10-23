@@ -7,10 +7,10 @@ visual worlds — never variations of one idea. The format sets the STORY SHAPE 
 the first 1.5 s (max 6 words), one idea per beat.
 "voiceover" is the script ready to paste in ElevenLabs v3, written by these rules:
 {{include:craft.md#VOICE-OVER SCRIPT}}
-- Art direction and prompt: pick what carries THIS story. Either real material (archive photos and footage, real
-  documents and newspaper pages photographed, maps, logos, the product's real screens), or, for playful explainers
-  and stories about an image or a perception, a recurring 2D caricature protagonist built from shapes with big
-  expressive eyes, acting out most beats (the style may BE the story's image). Plain captions; one accent colour. Brand palettes and
+- Art direction and prompt: the look comes from the brand kit and THIS story, never from another video that did well
+  (structure transfers between videos, looks do not). Real material carries the picture (archive photos and footage,
+  real documents and newspaper pages photographed, maps, logos, the product's real screens); a drawn world only when
+  the brand notes call for one. Plain captions; one accent colour. Brand palettes and
   fonts are starting points, not a uniform: leave the final palette, type and genre to the builder (set_direction).
 - Never write an AI tell into a brief, even if the brand notes mention one (the builders are told to refuse it):
 {{include:craft.md#AI TELLS}}

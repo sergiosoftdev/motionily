@@ -5,8 +5,7 @@
   the frame. Most lines appear on a cut or move as one block with the layout; per-word/per-character animators are
   for the one or two moments the voice stresses word by word (see AI TELLS), with a move chosen for this film.
 - Real surfaces: what the story is made of — photos and prints, footage, documents, the product's screens, maps,
-  logos as vectors, or a drawn world with a caricature protagonist when the story is playful; never an empty gradient
-  where the story has something real to show.
+  logos as vectors; never an empty gradient where the story has something real to show.
 - Graphic language: one motif that means something in this story (a route on a map, a bottle filling, a timeline),
   repeated with variations; connectors and diagrams only when they explain something.
 - Motion: everything eases (expo_out for UI and type, spring/back only for physical objects landing; brutalist and
@@ -22,13 +21,16 @@
   hand-made keyframes/layers.
 
 ## SHORT-FORM ATTENTION CURVE — always for 9:16, 4:5 and 1:1 (Reels, TikTok, Shorts); 16:9 keeps a classic arc.
+These are rules of STRUCTURE (format, storytelling, how hooks are paid through the video), measured on reels that
+performed. They say nothing about the look: the look comes from the brand and the story (a SaaS startup stays clean
+motion graphics with its real screens; a history channel may draw). Never borrow a look because another video did well.
 Attention is a sawtooth, not an arc: start high, dip a little, re-hook, repeat, end on the highest peak.
 - Start at 70%: frame 0 already moving, in medias res on the most surprising result, conflict or image. No setup,
   no logo intro; context arrives later in small doses, only when the viewer needs it.
 - No dead air: no voice silence longer than ~0.5 s anywhere, and never right after the hook (that is where most viewers
   swipe). `cut pauses=true` removes it before building.
-- Show the hook, don't type it: by 1.5 s a character or object acts the claim out (a tiny Napoleon beside a giant
-  ruler that stretches to normal size on "wasn't").
+- Show the hook, don't only type it: by 1.5 s the claim is visible in motion, in the video's own look (the product
+  doing it on its real screen, the object, the number, the place, the person).
 - Re-hook every 4-7 s: open a question → pay part of it with a concrete fact or visual → open the next question
   before closing the last. Never leave the viewer with nothing open.
 - Pay the hook in steps: the first concrete proof by ~6 s, the full answer not before ~60% of the video. Viewers leave
@@ -42,8 +44,8 @@ Attention is a sawtooth, not an arc: start high, dip a little, re-hook, repeat, 
 - Each beat brings a new surprise or it goes: no lists of supporting reasons ("It didn't help that…", "Or that…").
 - Pattern interrupt at ~30% (where viewers drop most): a twist ("but…") with a hard change of color, layout or
   camera and a sound hit.
-- Valleys still carry a new fact. On vertical a hold is a character reacting (blink, glance, gesture) or a slow push:
-  no frame frozen longer than ~0.5 s.
+- Valleys still carry a new fact. On vertical a hold is something reacting or a slow push: no frame frozen longer
+  than ~0.5 s.
 - End on the peak: the last line is the payoff, and it hands back to the first so the replay loops seamlessly. No
   outro, no fade to black, no "follow for more" tail (5 follows from 4,400 views, and it breaks the loop). A product
   video's CTA rides in that last line or on screen under it. Give the viewer something to use on someone else
@@ -103,8 +105,8 @@ leave it out, and say so in your final summary. The user approved this; it is no
 - Fake materials: flat light rects pretending to be paper or cards, gray or black bars pretending to be lines of text,
   redaction bars, invented forms and tickets. Use real textures and real documents (search_assets), or show nothing.
 - Constant motion without a reason: everything drifting, wiggling and pushing all the time. Holds are decisions: on
-  16:9 a strong photo held 2 s with only the voice makes the moves around it count; on vertical the hold is a
-  character reacting or a slow push, never a frozen frame (SHORT-FORM above).
+  16:9 a strong photo held 2 s with only the voice makes the moves around it count; on vertical the hold is
+  something reacting or a slow push, never a frozen frame (SHORT-FORM above).
 What a human editor does instead: ONE signature device per film, chosen for this story; hierarchy from layout,
 scale and cuts rather than effects; real material carrying the picture; cuts on the voice's rhythm; uneven timing
 (some beats fast, some held); restraint everywhere else. review_video reports the tells it can measure.
