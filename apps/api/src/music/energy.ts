@@ -31,8 +31,8 @@ const MAX_SHIFT = 15;
 /** A rise this far before the planned drop still counts as the drop. */
 const EARLY_DROP = 5;
 
-/** Loudness (dB RMS) of every half second of an audio file or URL, mono at 8 kHz. */
-export async function loudness(source: string): Promise<number[]> {
+/** Loudness (dB RMS) of every `window` seconds (half a second by default) of an audio file or URL, mono at 8 kHz. */
+export async function loudness(source: string, window = ENERGY_WINDOW): Promise<number[]> {
   const { stdout } = await run(
     FFMPEG,
     // Resample to mono 8 kHz inside the filter chain (output options would only apply after it), then
@@ -45,7 +45,7 @@ export async function loudness(source: string): Promise<number[]> {
       "-i",
       source,
       "-af",
-      `aresample=${RATE},aformat=channel_layouts=mono,asetnsamples=n=${RATE * ENERGY_WINDOW}:p=0,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-`,
+      `aresample=${RATE},aformat=channel_layouts=mono,asetnsamples=n=${Math.round(RATE * window)}:p=0,astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-`,
       "-f",
       "null",
       "-",

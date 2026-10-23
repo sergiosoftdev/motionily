@@ -1,5 +1,5 @@
 import { mediaUrl } from "../api/client";
-import type { SfxCue } from "../audio/sfxPlayer";
+import { playCue, type SfxCue } from "../audio/sfxPlayer";
 import { DUCK_RAMP, musicLevel, speechInFile, speechSpans, voiceOnTimeline, type MusicTrack, type SpeechSpan } from "../audio/ducking";
 import { DEFAULT_SFX_VOLUME } from "@motionily/protocol";
 import {
@@ -78,13 +78,7 @@ async function renderAudio(url: string | null, track: AudioTrack, cues: SfxCue[]
   for (const cue of cues) {
     if (!buffers.has(cue.src)) buffers.set(cue.src, await decode(mediaUrl(cue.src)).catch(() => null));
     const buf = buffers.get(cue.src);
-    if (!buf || cue.at >= duration) continue;
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    const g = ctx.createGain();
-    g.gain.value = cue.gain ?? 1;
-    src.connect(g).connect(ctx.destination);
-    src.start(cue.at);
+    if (buf && cue.at < duration) playCue(ctx, buf, cue, cue.at);
   }
   for (const clip of clips) {
     if (!buffers.has(clip.src)) buffers.set(clip.src, await decode(mediaUrl(clip.src)).catch(() => null));

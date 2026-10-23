@@ -132,8 +132,8 @@ const ROLE_TOOLS = {
     "get_component",
   ],
   builder: ["run", "add_layers", "edit_layers", "apply_ops", "get_layout", "render_frames", "view_asset", "view_image", "get_brand", "find_icons", "add_vector", "add_map", "cut_out", "cut", "define_component", "get_component"],
-  finisher: ["run", "get_feedback", "cut", "edit_layers", "review_video", "get_layout", "render_frames", "inspect", "add_layers", "apply_ops", "list_sounds", "make_sound", "add_sfx", "get_component", "set_font", "search_fonts"],
-  sound: ["get_project", "list_sounds", "make_sound", "add_sfx"],
+  finisher: ["run", "get_feedback", "cut", "edit_layers", "review_video", "get_layout", "render_frames", "inspect", "add_layers", "apply_ops", "list_sounds", "add_sfx", "get_component", "set_font", "search_fonts"],
+  sound: ["get_project", "list_sounds", "add_sfx"],
 } as const;
 
 /** The timed voice-over, phrase by phrase (the engine's own phrasing: a pause or 12 words starts a new line). */
@@ -222,21 +222,26 @@ function sceneMoments(scene: Record<string, unknown> | null): { moments: Moment[
 /** Last pass after the cut is built: sound effects always land on the timeline, whatever the builders did. */
 const SOUND_GUIDE = `You are Motionily's sound designer. The video is already built. You get its moments (exact times
 where something happens on screen or in the voice) and its brief, which sets the tone. Choose at most one sound per
-moment and place it there.
-1. list_sounds for the user's library. Then design this video's OWN sounds with make_sound: 2-4 that give it a
-   signature (its main transition whoosh, its reveal impact, a chime or riser in its tone), named after the video
-   and the moment; design every sound you need when the library is empty. Use library sounds for the rest.
+moment and place it there, from Motionily's sound library (real recorded and produced effects).
+1. list_sounds: every sound with its category, length, shape and where it hits. You cannot listen, so pick by those
+   numbers and the names: a "hit" sound is loudest at once (at = the moment); a "build" (risers) peaks late, so place
+   it with hit=MOMENT and its peak lands there; a "swell" passes through (start it a little before the move); a
+   "steady" sound is a loop or bed (ticking, static, typing): always give it len= and start it on one of its hits with
+   from=. A long recording with several hits (camera clicks, film winds) can give one hit: from=HIT len=0.4.
 2. Match the tone of the brief first.
-   - Upbeat, product or playful videos: enter → pop or whoosh_fast · animation → whoosh (start it ~0.1 s before the
-     moment) · exit → click or tick · voice → tick, very quiet · emphasis → impact or hit_dry, a little louder.
-   - Serious, documentary, historical or emotional videos: never pops, dings or other cheerful sounds. Soft whooshes
-     on moves, ticks and dry hits on entrances, low booms only on the heaviest moments; leaving a moment silent is fine.
+   - Upbeat, product or playful videos: whooshes and swooshes on moves and transitions, clean clicks and electronic
+     blips on entrances, a drop or impact on the hero moment.
+   - Serious, documentary, historical or emotional videos: nothing cheerful or synthetic. Soft whooshes on moves,
+     real mechanical sounds that fit the material (camera shutters, film winds, clock ticks, typing), low cinematic
+     impacts and drops only on the heaviest moments; leaving a moment silent is fine.
 3. Skip moments that do not need sound. Gains 0.3-0.6 under a voice, up to 0.8 without one. Never two cues in the
    same 0.25 s.
-3b. Vertical or square videos follow the attention sawtooth: a riser or whoosh leading into each beat change and
-   reveal, an impact on the reveals, and leave the half second before the final reveal silent so it lands harder.
+3b. Vertical or square videos follow the attention sawtooth: a riser (hit= on the reveal) or a whoosh leading into
+   each beat change, an impact on the reveals, and leave the half second before the final reveal silent so it lands
+   harder.
 4. Cues the team already placed stay: never remove or move them. Your ids start with "snd_" so they never replace one.
-5. ONE add_sfx with one line per cue: "id sound_name at [gain]", at = the moment's time. Change nothing else.
+5. ONE add_sfx with one line per cue: "id sound_name at [gain] [from=S] [len=S]" (or hit=T instead of at). Change
+   nothing else.
 Reply with one short sentence: how many cues and why you skipped the rest.`;
 
 /** A video made from the user's own clips: cut them by their transcript, then add graphics on top. */
@@ -338,8 +343,8 @@ mo.apply, mo.add) instead of one tool call per check.
 ${NO_PROBING} 3. Review again only if you
 changed a lot (max 2 rounds).
 4. SOUND DESIGN: list_sounds, then ONE add_sfx call with a cue on every key motion moment of the timings below
-   (whoosh on transitions, pop on entrances, impact on hero text, ticks on counters, riser before the reveal,
-   chime on the payoff). Design what the library lacks with make_sound (named after this video) and place it too.
+   (whoosh on transitions, a click on entrances, impact on hero text, ticks on counters, a riser with hit= on the
+   reveal). Library sounds only; leave a moment silent when nothing fits its tone.
 ${COMPACT_REF}
 Finish with a 2-3 sentence summary in English: the art direction and what the video shows.
 ${CRAFT}`;

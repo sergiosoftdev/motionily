@@ -569,7 +569,7 @@ export function ProTimeline({ scene: view, audioUrl }: { scene: SceneView | null
         at = Math.min(duration, Math.max(0, cue.at + dt));
         preview([{ op: OpName.PutSfx, cue: { ...cue, at } }]);
       },
-      (moved) => (moved ? commit(`Moves the effect ${cue.sound} to ${at.toFixed(2)} s`) : void sfxPlayer.preview(cue.src, cue.gain)),
+      (moved) => (moved ? commit(`Moves the effect ${cue.sound} to ${at.toFixed(2)} s`) : void sfxPlayer.preview(cue)),
     );
   };
 

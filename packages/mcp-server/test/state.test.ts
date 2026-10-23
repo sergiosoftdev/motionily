@@ -1,10 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { Checkpoints, diffScenes } from "../src/checkpoints.js";
-import { loadExamples, rankExamples, saveExample, techniques, describeExample } from "../src/examples.js";
+import { rankExamples, techniques, describeExample, type Example } from "../src/examples.js";
 import { nextSteps, type ProjectState } from "../src/nextstep.js";
 import { frameStats } from "../src/review.js";
 
@@ -29,8 +26,7 @@ test("diff names added, removed and changed layers and scene keys", () => {
   assert.deepEqual(diffScenes(a, a), ["no differences"]);
 });
 
-test("examples are saved, ranked by query words, and described by technique and layers", () => {
-  const dir = mkdtempSync(join(tmpdir(), "mx-ex-"));
+test("favorite examples are ranked by query words and described by technique and layers", () => {
   const scene = {
     width: 1080, height: 1920, duration: 6,
     layers: [
@@ -38,10 +34,16 @@ test("examples are saved, ranked by query words, and described by technique and 
       { id: "title", type: "text", animate: { by: "char" } },
     ],
   };
-  saveExample(dir, "Clinic booking reel", ["booking", "vertical"], scene);
-  saveExample(dir, "Pricing spot", ["pricing"], { width: 1920, height: 1080, duration: 8, layers: [] });
-  const all = loadExamples(dir);
-  assert.equal(all.length, 2);
+  const example = (label: string, tags: string[], scene: Record<string, unknown>): Example => ({
+    label,
+    tags,
+    savedAt: "2026-10-23",
+    width: Number(scene.width),
+    height: Number(scene.height),
+    duration: Number(scene.duration),
+    scene,
+  });
+  const all = [example("Pricing spot", ["pricing"], { width: 1920, height: 1080, duration: 8, layers: [] }), example("Clinic booking reel", ["booking", "vertical"], scene)];
   const ranked = rankExamples(all, "booking reel", 1080, 1920);
   assert.equal(ranked[0]!.label, "Clinic booking reel");
   const tech = techniques(ranked[0]!.scene);

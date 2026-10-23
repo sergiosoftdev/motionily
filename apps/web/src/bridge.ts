@@ -11,7 +11,6 @@ import {
 import { API_URL } from "./api/client";
 import { presetViolation, scenePresetViolation } from "./agentRules";
 import { engineHost } from "./engine/host";
-import { renderSound, toWav, type SoundRecipe } from "./audio/synth";
 import { useSession } from "./session";
 import { ActivitySource, logActivity, useEditor } from "./store";
 
@@ -108,16 +107,6 @@ class AgentBridge {
         this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, layouts });
         return;
       }
-      case ServerMessageType.RenderSound: {
-        // A sound the agent designed: render its recipe here (the synth needs Web Audio) and send it back as WAV.
-        void renderSound(msg.recipe as SoundRecipe)
-          .then(async (buf) => {
-            logActivity(ActivitySource.Agent, `Designs a sound effect (${buf.duration.toFixed(1)} s)`);
-            this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, sound: { wav: await dataUrl(toWav(buf)), duration: buf.duration } });
-          })
-          .catch((e: unknown) => this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error: `the recipe could not be rendered: ${String(e)}` }));
-        return;
-      }
       case ServerMessageType.RenderFrames: {
         const width = Math.min(MAX_FRAME_WIDTH, Math.max(MIN_FRAME_WIDTH, msg.width ?? MIN_FRAME_WIDTH));
         void engineHost.snapshots(msg.times.slice(0, 6), width).then((images) => {
@@ -175,13 +164,3 @@ export const agentBridge = new AgentBridge();
 // A hot update (development) builds a fresh bridge: close this one's socket first, or the hub sees two editors in one
 // tab and the stale one shows "open in another tab".
 import.meta.hot?.dispose(() => agentBridge.setProject(null));
-
-/** A blob as a data URL (rendered sounds travel to the agent inline). */
-function dataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
-}

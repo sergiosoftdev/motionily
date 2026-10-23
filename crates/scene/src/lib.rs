@@ -155,6 +155,16 @@ pub struct SfxCue {
     pub at: f32,
     #[serde(default = "unit_gain")]
     pub gain: f32,
+    /// Seconds into the file where it starts playing (a moment of a long recording).
+    #[serde(default, skip_serializing_if = "is_zero_secs")]
+    pub from: f32,
+    /// How long it plays, in seconds (it fades out there); the whole file when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub len: Option<f32>,
+}
+
+fn is_zero_secs(v: &f32) -> bool {
+    *v == 0.0
 }
 
 fn unit_gain() -> f32 {
@@ -1079,10 +1089,22 @@ mod tests {
     #[test]
     fn sfx_cues_replace_by_id_and_stay_sorted() {
         let mut scene = Scene::default();
-        let cue = |id: &str, at: f32| Op::PutSfx { cue: SfxCue { id: id.into(), sound: "pop".into(), src: "/media/x.wav".into(), at, gain: 1.0 } };
+        let cue = |id: &str, at: f32| Op::PutSfx { cue: SfxCue { id: id.into(), sound: "pop".into(), src: "/media/x.wav".into(), at, gain: 1.0, from: 0.0, len: None } };
         scene.apply(&[cue("a", 2.0), cue("b", 1.0), cue("a", 0.5)]).unwrap();
         assert_eq!(scene.sfx.iter().map(|c| (c.id.as_str(), c.at)).collect::<Vec<_>>(), [("a", 0.5), ("b", 1.0)]);
         assert!(scene.summary().contains("sfx=pop@0.50,pop@1.00"));
+    }
+
+    #[test]
+    fn sfx_cues_can_play_a_moment_of_a_long_file() {
+        let mut scene = Scene::default();
+        let json = r#"[{"op":"put_sfx","cue":{"id":"t","sound":"clock","src":"/sounds/clock/audio","at":1,"from":4.5,"len":2}}]"#;
+        scene.apply(&serde_json::from_str::<Vec<Op>>(json).unwrap()).unwrap();
+        assert_eq!((scene.sfx[0].from, scene.sfx[0].len), (4.5, Some(2.0)));
+        let plain = SfxCue { id: "p".into(), sound: "pop".into(), src: "/x".into(), at: 0.0, gain: 1.0, from: 0.0, len: None };
+        assert!(!serde_json::to_string(&plain).unwrap().contains("from"));
+        let bad = SfxCue { len: Some(0.0), ..plain };
+        assert!(scene.apply(&[Op::PutSfx { cue: bad }]).is_err());
     }
 
     #[test]

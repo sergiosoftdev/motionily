@@ -1,6 +1,5 @@
 import type { AgentRunUsage, AttentionDevice, Brick, BrickSlot, LibraryItem, Project, ProjectListItem, ProviderKey, ProviderStatus, SunoPrompt, User, VideoFormat, Voice, VoiceModel } from "@motionily/protocol";
 import { useSession } from "../session";
-import type { SoundRecipe } from "../audio/synth";
 import type { AgentPrefs, GenerateState } from "../components/GeneratePanel";
 
 export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3100";
@@ -53,7 +52,11 @@ export type ScheduledPost = {
   postedAt: string | null;
   due: boolean;
 };
-export type SoundRow = { name: string; category: string; description: string; duration: number; url: string; recipe: SoundRecipe };
+/** How a library sound moves in time (SoundShape in apps/api/src/sounds/library.ts). */
+export const SoundShape = { Hit: "hit", Build: "build", Swell: "swell", Steady: "steady" } as const;
+export type SoundShape = (typeof SoundShape)[keyof typeof SoundShape];
+/** A sound of Motionily's library: measured from its file (peak and hits are seconds into it). */
+export type SoundRow = { name: string; category: string; description: string; duration: number; peak: number; shape: SoundShape; hits: number[]; every: number | null; url: string };
 export type GoogleFont = { family: string; category: string; weights: number[]; popularity: number };
 
 export class ApiError extends Error {
@@ -153,16 +156,6 @@ export const api = {
   generate: (id: string, instruction?: string, prefs?: AgentPrefs, references: string[] = [], extra: { resume?: boolean; sfxOnly?: boolean } = {}) =>
     call<GenerateState>(HttpMethod.Post, `/projects/${id}/generate`, { instruction: instruction || undefined, ...prefs, references: references.length ? references : undefined, ...extra }),
   sounds: () => call<SoundRow[]>(HttpMethod.Get, "/sounds"),
-  saveSound: (s: { name: string; category: string; description: string; recipe: SoundRecipe; duration: number }, wav: Blob) =>
-    upload<SoundRow[]>("/sounds", new File([wav], `${s.name}.wav`, { type: "audio/wav" }), {
-      name: s.name,
-      category: s.category,
-      description: s.description,
-      recipe: JSON.stringify(s.recipe),
-      duration: String(s.duration),
-    }),
-  deleteSound: (name: string) => call<void>(HttpMethod.Delete, `/sounds/${name}`),
-  designSound: (description: string) => call<{ name: string; category: string; description: string; recipe: SoundRecipe }>(HttpMethod.Post, "/sounds/-/design", { description }),
   /** A reference image pasted into a prompt; returns its media path. */
   /** Images come back as themselves; films as contact sheets (`urls`) plus their shot timing. */
   uploadReference: (file: File) => upload<{ url: string; urls?: string[]; film?: string }>("/references", file),

@@ -1,7 +1,40 @@
 import { mediaUrl } from "../api/client";
 
-/** A sound effect on the timeline (mirrors SfxCue in crates/scene). */
-export type SfxCue = { id: string; sound: string; src: string; at: number; gain?: number };
+/**
+ * A sound effect on the timeline (mirrors SfxCue in crates/scene): `from` seconds into the file, for `len`
+ * seconds (the whole file when absent).
+ */
+export type SfxCue = { id: string; sound: string; src: string; at: number; gain?: number; from?: number; len?: number };
+
+/** Ramps where a cue starts inside a file or stops before its end, so it never clicks. */
+const CUE_FADE_IN = 0.005;
+const CUE_FADE_OUT = 0.04;
+
+/**
+ * Schedule `cue` on `ctx` at context time `when`, `into` seconds into the cue (a playhead past its start).
+ * Shared by the preview and the export so both sound the same. Null when the cue is already over.
+ */
+export function playCue(ctx: BaseAudioContext, buf: AudioBuffer, cue: SfxCue, when: number, into = 0): AudioBufferSourceNode | null {
+  const from = cue.from ?? 0;
+  const len = Math.min(cue.len ?? Infinity, buf.duration - from);
+  if (len <= 0 || into >= len) return null;
+  const level = cue.gain ?? 1;
+  const g = ctx.createGain();
+  if (from > 0 && into === 0) {
+    g.gain.setValueAtTime(0, when);
+    g.gain.linearRampToValueAtTime(level, when + CUE_FADE_IN);
+  } else g.gain.setValueAtTime(level, when);
+  if (cue.len !== undefined) {
+    const end = when + len - into;
+    g.gain.setValueAtTime(level, Math.max(when + CUE_FADE_IN, end - Math.min(CUE_FADE_OUT, len / 3)));
+    g.gain.linearRampToValueAtTime(0, end);
+  }
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.connect(g).connect(ctx.destination);
+  src.start(when, from + into, len - into);
+  return src;
+}
 
 /**
  * Plays the scene's sound effects in sync with the preview. Buffers are decoded once and
@@ -39,14 +72,8 @@ class SfxPlayer {
       const buf = await this.load(cue.src);
       if (!buf) continue;
       const offset = from - cue.at;
-      if (offset >= buf.duration) continue;
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      const g = ctx.createGain();
-      g.gain.value = cue.gain ?? 1;
-      src.connect(g).connect(ctx.destination);
-      src.start(t0 + Math.max(0, -offset), Math.max(0, offset));
-      this.playing.push(src);
+      const src = playCue(ctx, buf, cue, t0 + Math.max(0, -offset), Math.max(0, offset));
+      if (src) this.playing.push(src);
     }
   }
 
@@ -61,17 +88,12 @@ class SfxPlayer {
     this.playing = [];
   }
 
-  /** Preview one sound (timeline click). */
-  async preview(src: string, gain = 1) {
-    const buf = await this.load(src);
+  /** Preview one cue, or a whole library sound (timeline click, Sounds screen). */
+  async preview(cue: Pick<SfxCue, "src" | "gain" | "from" | "len">) {
+    const buf = await this.load(cue.src);
     if (!buf) return;
     const ctx = this.context();
-    const s = ctx.createBufferSource();
-    s.buffer = buf;
-    const g = ctx.createGain();
-    g.gain.value = gain;
-    s.connect(g).connect(ctx.destination);
-    s.start();
+    playCue(ctx, buf, { id: "", sound: "", at: 0, ...cue }, ctx.currentTime);
   }
 }
 

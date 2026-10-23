@@ -41,8 +41,8 @@ remain when you finish.
 8. `review_video` once: contact sheet + motion strips + automatic checks (and a variety check against the account's
    latest videos). Fix what it shows; `render_frames` (≤6 stills) to
    zoom into a moment. Max 3 review rounds.
-9. Sound: `list_sounds`, 2-4 sounds of this video's own with `make_sound` (its signature; everything when the library
-   is empty), then ONE `add_sfx`. Voice-over script: `set_voice_script` when the user wants one.
+9. Sound: `list_sounds` (Motionily's library of real effects; there is no sound synthesis), then ONE `add_sfx`.
+   Voice-over script: `set_voice_script` when the user wants one.
 10. `get_feedback`, apply it, and finish with a 2-3 sentence summary (in the user's language).
 
 Batch everything: one call with 30 lines beats 30 calls. To change what exists, `edit_layers` (only the keys you
@@ -78,7 +78,7 @@ applied: fix it and resend the call.
 | `get_layout` | where every layer lands on screen at given seconds (numbers) |
 | `render_frames` · `review_video` | look at stills / full self-review |
 | `list_prefabs` · `get_prefab` · `save_prefab` · `clone_prefab` | the user's 3D library |
-| `list_sounds` · `make_sound` · `add_sfx` | sound effects synced to motion; `make_sound` designs a new one (synth recipe) for this video |
+| `list_sounds` · `add_sfx` | sound effects from Motionily's library, synced to motion |
 | `set_format` · `set_voice_script` · `get_feedback` | frame format, voice script, user comments |
 | `list_projects` · `create_project` · `open_project` | only with an account token: the user's videos and brand kits, a new video (name, brief, format, optional voiceScript and brandId), or switch to another. Every other tool then works on the opened video; checkpoints and review state start fresh. Until one is open, they answer "No video is open yet" |
 
@@ -142,8 +142,15 @@ Rejected on purpose: `set_size` (use `set_format`), `set_style`, `set_library`, 
   (scene changes then come from the paragraphs). review_video reports any silence over 0.8 s left in the voice.
 - `set_voice_script`: ElevenLabs v3 — one tone tag like `[warm]` first, one paragraph per scene, `[long pause] [long pause]`
   between scenes, numbers in letters, last sentence = CTA.
-- `add_sfx` lines `id sound_name at [gain]` (gain default 0.45; 0.3-0.6 under a voice, never above 0.8 — the user also has an effects volume slider, shown as `sfx volume` in get_scene: never fight it): whoosh ~0.1 s before moves and transitions, pop on entrances, click/tick on UI
-  and counters, impact on hero text, riser before reveals, chime on the payoff; ≤ 2 at once.
+- `list_sounds [category]`: `name | seconds | shape, peak, hits | description`. You cannot listen: pick by shape and
+  name. `hit` = loudest at once (place at the moment) · `build` = peaks late (risers) · `swell` = passes through
+  (start it a little before the move) · `steady` = loop or bed (ticking, static, typing). `peak`/`hits` are seconds
+  into the file.
+- `add_sfx` lines `id sound_name at [gain] [from=S] [len=S]` (gain default 0.45; 0.3-0.6 under a voice, never above 0.8 — the user also has an effects volume slider, shown as `sfx volume` in get_scene: never fight it).
+  `hit=T` instead of `at` lands the sound's peak on second T (a riser into a reveal). `from=` starts inside the file
+  (one click of a long camera recording: `from=` one of its hits, `len=0.4`), `len=` plays that long and fades out:
+  always on steady sounds. Whoosh on moves and transitions, click on entrances and UI, ticks on counters, impact on
+  hero text, riser into reveals; ≤ 2 at once.
 
 ## Footage (the user's own clips)
 When `get_project` lists **Footage**, the video is an edit of clips the user uploaded (usually someone talking to camera).

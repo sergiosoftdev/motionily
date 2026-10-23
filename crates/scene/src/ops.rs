@@ -481,8 +481,8 @@ impl Scene {
                 self.render_style = *render_style;
             }
             Op::PutSfx { cue } => {
-                if !(0.0..=4.0).contains(&cue.gain) || cue.at < 0.0 {
-                    return Err(OpError::Invalid("sfx needs at >= 0 and gain in 0..4"));
+                if !(0.0..=4.0).contains(&cue.gain) || cue.at < 0.0 || cue.from < 0.0 || cue.len.is_some_and(|l| l <= 0.0) {
+                    return Err(OpError::Invalid("sfx needs at >= 0, gain in 0..4, from >= 0 and len > 0"));
                 }
                 self.sfx.retain(|c| c.id != cue.id);
                 self.sfx.push(cue.clone());

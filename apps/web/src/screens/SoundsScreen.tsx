@@ -1,203 +1,129 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, mediaUrl, type SoundRow } from "../api/client";
+import { api, mediaUrl, SoundShape, type SoundRow } from "../api/client";
 import { MotionilyLayout } from "../shell/MotionilyLayout";
-import { renderSound, toWav, playBuffer, type SoundRecipe } from "../audio/synth";
-import { CATEGORY_LABEL, STARTER_PACK, type SoundCategory } from "../audio/starterPack";
 
-type Draft = { name: string; category: string; description: string; recipe: SoundRecipe; buffer: AudioBuffer };
+/** What each shape means when you listen, for the tag next to a sound. */
+const SHAPE_LABEL: Record<SoundShape, string> = {
+  [SoundShape.Hit]: "Hit",
+  [SoundShape.Build]: "Build-up",
+  [SoundShape.Swell]: "Pass",
+  [SoundShape.Steady]: "Continuous",
+};
 
-/** The user's sound effects: synthesized once, reused in every video (the agent places them on the timeline). */
+/** Motionily's sound effect library: the same for every account; Claude picks from it for each video. */
 export function SoundsScreen() {
   const [sounds, setSounds] = useState<SoundRow[] | null>(null);
-  const [filter, setFilter] = useState<string | null>(null);
-  const [packProgress, setPackProgress] = useState<number | null>(null);
-  const [describe, setDescribe] = useState("");
-  const [designing, setDesigning] = useState(false);
-  const [draft, setDraft] = useState<Draft | null>(null);
+  const [category, setCategory] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [playing, setPlaying] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const audio = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
     api.sounds().then(setSounds, (e: Error) => setError(e.message));
+    return () => audio.current?.pause();
   }, []);
 
   const categories = useMemo(() => [...new Set((sounds ?? []).map((s) => s.category))], [sounds]);
-  const shown = (sounds ?? []).filter((s) => !filter || s.category === filter);
+  const groups = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const shown = (sounds ?? []).filter((s) => (!category || s.category === category) && (!q || `${s.name} ${s.description}`.toLowerCase().includes(q)));
+    return categories.map((c) => ({ category: c, sounds: shown.filter((s) => s.category === c) })).filter((g) => g.sounds.length);
+  }, [sounds, category, query, categories]);
 
-  /** Render every starter recipe in the browser and save it. */
-  const installPack = async () => {
-    setPackProgress(0);
-    try {
-      let rows = sounds ?? [];
-      for (const [i, s] of STARTER_PACK.entries()) {
-        if (rows.some((r) => r.name === s.name)) continue;
-        const buffer = await renderSound(s.recipe);
-        rows = await api.saveSound({ ...s, duration: +buffer.duration.toFixed(2) }, toWav(buffer));
-        setPackProgress((i + 1) / STARTER_PACK.length);
-      }
-      setSounds(rows);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setPackProgress(null);
-    }
-  };
-
-  const design = async () => {
-    if (!describe.trim()) return;
-    setDesigning(true);
-    setError(null);
-    try {
-      const d = await api.designSound(describe.trim());
-      const buffer = await renderSound(d.recipe);
-      setDraft({ ...d, buffer });
-      playBuffer(buffer);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setDesigning(false);
-    }
-  };
-
-  const saveDraft = async () => {
-    if (!draft) return;
-    const rows = await api.saveSound({ ...draft, duration: +draft.buffer.duration.toFixed(2) }, toWav(draft.buffer));
-    setSounds(rows);
-    setDraft(null);
-    setDescribe("");
+  /** One sound at a time; clicking the one playing stops it. */
+  const toggle = (s: SoundRow) => {
+    audio.current?.pause();
+    if (playing === s.name) return setPlaying(null);
+    const a = new Audio(mediaUrl(s.url));
+    a.onended = () => setPlaying((p) => (p === s.name ? null : p));
+    audio.current = a;
+    setPlaying(s.name);
+    void a.play().catch(() => setPlaying(null));
   };
 
   return (
-    <MotionilyLayout
-      title="Sounds"
-      description="Motion graphics sound effects synthesized in Motionily. They're saved to your library and Claude places them in your videos."
-      actions={
-        (sounds?.length ?? 0) < STARTER_PACK.length && (
-          <button
-            type="button"
-            disabled={packProgress !== null}
-            onClick={() => void installPack()}
-            className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-200 disabled:opacity-60"
-          >
-            {packProgress !== null ? `Sintetizando… ${Math.round(packProgress * 100)}%` : `Crear pack inicial (${STARTER_PACK.length})`}
-          </button>
-        )
-      }
-    >
-
-      <section className="flex flex-col gap-3">
-        <form
-          className="flex gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void design();
-          }}
-        >
-          <input
-            value={describe}
-            onChange={(e) => setDescribe(e.target.value)}
-            placeholder="Describe a sound: “metallic whoosh ending in a click”, “deep bubble pop”…"
-            className="flex-1 rounded-lg bg-neutral-900 px-4 py-2.5 text-sm placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-white/40"
-          />
-          <button type="submit" disabled={designing || !describe.trim()} className="rounded-lg bg-neutral-800 px-4 py-2.5 text-sm font-semibold hover:bg-neutral-700 disabled:opacity-50">
-            {designing ? "Designing…" : "Create with AI"}
-          </button>
-        </form>
-        {draft && (
-          <div className="flex items-center gap-3 rounded-xl bg-neutral-900 p-4 ring-1 ring-white/10">
-            <PlayButton onPlay={() => playBuffer(draft.buffer)} />
-            <div className="flex min-w-0 flex-1 flex-col">
-              <span className="font-mono text-sm">{draft.name}</span>
-              <span className="text-xs text-neutral-500">{draft.description}</span>
-            </div>
-            <Wave buffer={draft.buffer} />
-            <button type="button" onClick={() => void saveDraft()} className="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-neutral-900 hover:bg-neutral-200">
-              Save
-            </button>
-            <button type="button" onClick={() => setDraft(null)} className="text-xs text-neutral-500 hover:text-white">
-              Descartar
-            </button>
+    <MotionilyLayout title="Sounds" description="Motionily's sound effect library. Claude picks from it to sync effects to the motion of every video.">
+      <div className="flex flex-col gap-3">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search sounds: whoosh, shutter, riser…"
+          className="rounded-lg bg-neutral-900 px-4 py-2.5 text-sm placeholder:text-neutral-600 focus:outline-none focus:ring-1 focus:ring-white/40"
+        />
+        {categories.length > 1 && (
+          <div className="flex flex-wrap gap-1.5">
+            {[null, ...categories].map((c) => (
+              <button
+                key={c ?? "all"}
+                type="button"
+                onClick={() => setCategory(c)}
+                className={`rounded-full px-3 py-1 text-xs ${category === c ? "bg-white text-neutral-900" : "bg-neutral-900 text-neutral-400 hover:text-white"}`}
+              >
+                {c ?? `All (${sounds?.length ?? 0})`}
+              </button>
+            ))}
           </div>
         )}
-        {error && <p className="text-sm text-red-400">{error}</p>}
-      </section>
-
-      {categories.length > 1 && (
-        <div className="flex flex-wrap gap-1.5">
-          {[null, ...categories].map((c) => (
-            <button
-              key={c ?? "all"}
-              type="button"
-              onClick={() => setFilter(c)}
-              className={`rounded-full px-3 py-1 text-xs ${filter === c ? "bg-white text-neutral-900" : "bg-neutral-900 text-neutral-400 hover:text-white"}`}
-            >
-              {c ? (CATEGORY_LABEL[c as SoundCategory] ?? c) : "All"}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {sounds?.length === 0 && packProgress === null && (
-        <p className="rounded-xl border border-dashed border-neutral-800 p-10 text-center text-sm text-neutral-500">No sounds yet. Create the starter pack or describe one.</p>
-      )}
-
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {shown.map((s) => (
-          <SoundCard key={s.name} sound={s} onDelete={() => void api.deleteSound(s.name).then(() => setSounds((rows) => rows?.filter((r) => r.name !== s.name) ?? null))} />
-        ))}
       </div>
+
+      {error && <p className="text-sm text-red-400">{error}</p>}
+      {sounds === null && !error && <p className="text-sm text-neutral-500">Loading the library…</p>}
+      {sounds?.length === 0 && <p className="py-10 text-center text-sm text-neutral-500">The library is empty.</p>}
+      {sounds !== null && sounds.length > 0 && groups.length === 0 && <p className="py-10 text-center text-sm text-neutral-500">No sounds match “{query}”.</p>}
+
+      {groups.map((g) => (
+        <section key={g.category} className="flex flex-col gap-1">
+          <h2 className="mb-1 text-sm font-semibold text-neutral-300">
+            {g.category} <span className="font-normal text-neutral-600">{g.sounds.length}</span>
+          </h2>
+          {g.sounds.map((s) => (
+            <SoundRowView key={s.name} sound={s} playing={playing === s.name} onToggle={() => toggle(s)} />
+          ))}
+        </section>
+      ))}
     </MotionilyLayout>
   );
 }
 
-function SoundCard({ sound, onDelete }: { sound: SoundRow; onDelete: () => void }) {
-  const audio = useRef<HTMLAudioElement | null>(null);
-  const play = () => {
-    audio.current ??= new Audio(mediaUrl(sound.url));
-    audio.current.currentTime = 0;
-    void audio.current.play();
-  };
+function SoundRowView({ sound, playing, onToggle }: { sound: SoundRow; playing: boolean; onToggle: () => void }) {
   return (
-    <div className="group flex items-center gap-3 rounded-xl bg-neutral-900 p-3 ring-1 ring-white/5 hover:ring-white/15">
-      <PlayButton onPlay={play} />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate font-mono text-sm">{sound.name}</span>
-        <span className="truncate text-xs text-neutral-500">{sound.description}</span>
-      </div>
-      <span className="shrink-0 font-mono text-[10px] text-neutral-600">{sound.duration.toFixed(2)}s</span>
-      <button type="button" onClick={onDelete} className="text-[11px] text-neutral-600 opacity-0 group-hover:opacity-100 hover:text-red-400">
-        Delete
+    <div className="flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-white/[0.03]">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-label={playing ? "Stop" : "Listen"}
+        className={`flex size-8 shrink-0 items-center justify-center rounded-full transition hover:scale-105 ${playing ? "bg-white" : "bg-white/10 hover:bg-white/20"}`}
+      >
+        <svg viewBox="0 0 10 10" className={`size-3 ${playing ? "fill-neutral-900" : "ml-0.5 fill-white"}`}>
+          {playing ? <rect x="2" y="2" width="6" height="6" rx="0.5" /> : <path d="M1 0.5 L9 5 L1 9.5 Z" />}
+        </svg>
       </button>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate text-sm text-neutral-100">{sound.description}</span>
+        <span className="truncate font-mono text-[11px] text-neutral-600">{sound.name}</span>
+      </div>
+      <Shape sound={sound} />
+      <span className="w-16 shrink-0 text-xs text-neutral-500">{SHAPE_LABEL[sound.shape]}</span>
+      <span className="w-12 shrink-0 text-right font-mono text-[11px] text-neutral-500 tabular-nums">{formatLength(sound.duration)}</span>
     </div>
   );
 }
 
-function PlayButton({ onPlay }: { onPlay: () => void }) {
+/** The sound drawn from its measurements: its length, where it hits hardest and each separate hit. */
+function Shape({ sound }: { sound: SoundRow }) {
+  const x = (t: number) => `${Math.min(100, (t / Math.max(sound.duration, 0.01)) * 100)}%`;
   return (
-    <button type="button" onClick={onPlay} aria-label="Listen" className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/10 transition hover:scale-105 hover:bg-white/20">
-      <svg viewBox="0 0 10 10" className="ml-0.5 size-3 fill-white">
-        <path d="M1 0.5 L9 5 L1 9.5 Z" />
-      </svg>
-    </button>
+    <div className="relative hidden h-5 w-40 shrink-0 sm:block" aria-hidden>
+      <div className="absolute inset-x-0 top-1/2 h-px bg-white/10" />
+      {sound.hits.map((h) => (
+        <div key={h} className="absolute top-1/2 h-2.5 w-px -translate-y-1/2 bg-white/30" style={{ left: x(h) }} />
+      ))}
+      <div className="absolute top-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#4aa3f0]" style={{ left: x(sound.peak) }} />
+    </div>
   );
 }
 
-/** Tiny waveform of a rendered draft. */
-function Wave({ buffer }: { buffer: AudioBuffer }) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    const c = ref.current;
-    if (!c) return;
-    const g = c.getContext("2d")!;
-    const d = buffer.getChannelData(0);
-    const step = Math.ceil(d.length / c.width);
-    g.clearRect(0, 0, c.width, c.height);
-    g.fillStyle = "#34d399";
-    for (let x = 0; x < c.width; x++) {
-      let peak = 0;
-      for (let i = x * step; i < Math.min(d.length, (x + 1) * step); i++) peak = Math.max(peak, Math.abs(d[i]!));
-      const h = Math.max(1, peak * c.height);
-      g.fillRect(x, (c.height - h) / 2, 1, h);
-    }
-  }, [buffer]);
-  return <canvas ref={ref} width={160} height={32} className="h-8 w-40" />;
+function formatLength(s: number) {
+  return s < 60 ? `${s.toFixed(s < 10 ? 1 : 0)}s` : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
 }

@@ -85,8 +85,6 @@ export const ServerMessageType = {
   Review: "review",
   /** Where every layer lands on screen at some instants (numbers, no pixels). */
   Layout: "layout",
-  /** Render a synth recipe (a sound the agent designed) to a WAV file. */
-  RenderSound: "render_sound",
 } as const;
 export type ServerMessageType = (typeof ServerMessageType)[keyof typeof ServerMessageType];
 
@@ -99,8 +97,7 @@ export type ServerMessage =
   | { type: typeof ServerMessageType.ProjectChanged; projectId: string }
   | { type: typeof ServerMessageType.RenderFrames; requestId: string; projectId: string; times: number[]; width?: number }
   | { type: typeof ServerMessageType.Review; requestId: string; projectId: string; frames: number }
-  | { type: typeof ServerMessageType.Layout; requestId: string; projectId: string; times: number[] }
-  | { type: typeof ServerMessageType.RenderSound; requestId: string; projectId: string; recipe: Record<string, unknown> };
+  | { type: typeof ServerMessageType.Layout; requestId: string; projectId: string; times: number[] };
 
 /** One layer as it lands on screen (engine `Scene::layout`). */
 export type LayoutRow = {
@@ -171,8 +168,6 @@ export type EditorMessage =
       images?: string[];
       review?: ReviewReport;
       layouts?: FrameLayout[];
-      /** A rendered sound: WAV data URL and its length in seconds. */
-      sound?: { wav: string; duration: number };
     }
   | { type: typeof EditorMessageType.SceneChanged; projectId: string; scene: string; summary: string };
 

@@ -18,7 +18,6 @@ import { Brand, BrandAsset, BrandAssetSchema, BrandSchema } from "./brands/brand
 import { BrandsService } from "./brands/brands.service";
 import { BrandsController } from "./brands/brands.controller";
 import { SoundsController } from "./sounds/sounds.controller";
-import { Sound, SoundSchema } from "./sounds/sound.schema";
 import { ConceptsService } from "./brands/concepts";
 import { Prefab, PrefabSchema } from "./prefabs/prefab.schema";
 import { PrefabsService } from "./prefabs/prefabs.service";
@@ -50,7 +49,6 @@ import { SunoService } from "./music/suno";
       { name: Project.name, schema: ProjectSchema },
       { name: Feedback.name, schema: FeedbackSchema },
       { name: Prefab.name, schema: PrefabSchema },
-      { name: Sound.name, schema: SoundSchema },
       { name: Brand.name, schema: BrandSchema },
       { name: BrandAsset.name, schema: BrandAssetSchema },
       { name: Post.name, schema: PostSchema },

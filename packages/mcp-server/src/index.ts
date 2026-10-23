@@ -47,6 +47,7 @@ import { MapProjection, mapLines } from "./maps.js";
 import { varietyNotes } from "./variety.js";
 import { slopNotes } from "./slop.js";
 import { captionDrift, deadAir, voiceWords } from "./voice.js";
+import { formatSounds, parseCue } from "./sounds.js";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const doc = (name: string) => readFileSync(resolve(here, "../../../docs/agent", name), "utf8").trim();
@@ -771,41 +772,11 @@ server.registerTool(
 server.registerTool(
   "list_sounds",
   {
-    description: "The user's sound effect library (whooshes, pops, clicks, risers, impacts, chimes, glitches, UI, beds): name | category | seconds | description.",
-    inputSchema: {},
+    description:
+      "Motionily's sound effect library (real recorded and produced effects, the same for every video), grouped by category: name | seconds | shape, peak, hits | description. You cannot listen, so read the numbers: hit = loudest at once (place at the moment); build = peaks late (risers: use hit=T in add_sfx so the peak lands on T); swell = passes through; steady = a loop or bed (give it len=). `peak` and `hits` are seconds into the file.",
+    inputSchema: { category: z.string().optional().describe("only this category (e.g. Whooshs, Risers)") },
   },
-  guard(async () => {
-    const rows = await api.sounds();
-    return text(rows.map((s) => `${s.name} | ${s.category} | ${s.duration}s | ${s.description}`).join("\n") || "No sounds yet: design this video's own with make_sound.");
-  }),
-);
-
-/** Categories of the sound library (mirrors SoundCategory in apps/web/src/audio/starterPack.ts). */
-const SOUND_CATEGORIES = ["whoosh", "pop", "click", "riser", "impact", "chime", "glitch", "ui", "texture"] as const;
-/** snake_case, as the API stores sound names. */
-const SOUND_NAME = /^[a-z][a-z0-9_]{1,39}$/;
-
-server.registerTool(
-  "make_sound",
-  {
-    description: `Design a NEW sound effect for this video as a synth recipe; the editor renders it and it joins the user's library, so add_sfx can place it by name. Use it when the library has nothing that fits a moment (or is empty): a whoosh tuned to this video's camera moves, an impact for its reveal, a chime in its key… Name it after the video and moment (e.g. tordesillas_map_whoosh); taken names are refused.
-Recipe: {"duration":0.4,"reverb":0..1?,"drive":0..1?,"volume":0..1?,"voices":[{"wave":"sine|square|sawtooth|triangle|noise","freq":440 or [start,end] (exponential sweep; not for noise),"gain":0..1,"start":0,"length":s,"attack":s,"decay":s,"sustain":0..1,"release":s,"filter":{"kind":"lowpass|highpass|bandpass","freq":hz or [start,end],"q":1},"pan":-1..1,"wobble":{"rate":hz,"depth":hz}}]}.
-Techniques: whoosh = noise + bandpass sweep with a slow attack; pop = sine pitch drop with a 2 ms attack; impact = low sine drop + short noise; riser = saw or noise sweeping up with a long attack; chime = sines with long decay + reverb; glitch = short alternating square/noise bursts + drive. Max 8 s. Musical and clean, matched to the video's tone.`,
-    inputSchema: {
-      name: z.string().regex(SOUND_NAME).describe("snake_case, unique in the library"),
-      category: z.enum(SOUND_CATEGORIES),
-      description: z.string().min(3).max(300),
-      recipe: z.record(z.string(), z.unknown()),
-    },
-  },
-  guard(async ({ name, category, description, recipe }) => {
-    if ((await api.sounds()).some((s) => s.name === name)) return fail(`"${name}" is already in the user's library (never overwrite their sounds): pick another name`);
-    const res = await bridge.renderSound(recipe);
-    if (!res.ok || !res.sound) return fail(res.error ?? "the editor could not render this recipe");
-    const wav = Buffer.from(res.sound.wav.slice(res.sound.wav.indexOf(",") + 1), "base64");
-    await api.saveSound({ name, category, description, recipe, duration: res.sound.duration }, wav);
-    return text(`made ${name} (${res.sound.duration.toFixed(2)} s, ${category}); place it with add_sfx like any library sound`);
-  }),
+  guard(async ({ category }) => text(formatSounds(await api.sounds(), category))),
 );
 
 server.registerTool(
@@ -1087,20 +1058,21 @@ server.registerTool(
   "add_sfx",
   {
     description:
-      "Place sound effects on the timeline, one per line: `id sound_name at [gain]` (at = seconds from the video start, gain 0.1-1, default 0.45; keep 0.3-0.6 under a voice, never above 0.8 — the user has an effects volume slider). Same id moves/replaces it. Sync them to motion: whoosh/swipe on moves and transitions (start ~0.1 s before), pop on entrances, click/tick on UI and counters, impact on hero text landing, riser before reveals, chime on positive results. 1 sound per meaningful event; never stack more than 2 at once.",
+      "Place library sound effects on the timeline, one per line: `id sound_name at [gain] [from=S] [len=S]` (at = seconds from the video start; gain 0.1-1, default 0.45; keep 0.3-0.6 under a voice, never above 0.8 — the user has an effects volume slider). `hit=T` instead of at lands the sound's loudest moment on second T (risers into a reveal, a whoosh peaking on a cut). `from=S` starts that far into the file (one hit of a long recording: from= one of its hits), `len=S` plays only that long and fades out (always for steady loops and beds). Same id moves/replaces it. Sync them to motion: whoosh on moves and transitions, click on entrances and UI, impact on hero text landing, riser into reveals. 1 sound per meaningful event; never stack more than 2 at once.",
     inputSchema: { lines: z.string().min(1) },
   },
   guard(async ({ lines }) => {
     const library = new Map((await api.sounds()).map((s) => [s.name, s]));
     const ops: Op[] = [];
+    const warnings: string[] = [];
     for (const line of lines.split("\n").map((l) => l.trim()).filter(Boolean)) {
-      const [id, name, at, gain] = line.split(/\s+/);
-      const sound = library.get(name ?? "");
-      if (!id || !sound || !Number.isFinite(Number(at))) return fail(`bad line '${line}' (expected 'id sound_name at [gain]'; sounds: ${[...library.keys()].slice(0, 40).join(", ")})`);
-      ops.push({ op: "put_sfx", cue: { id, sound: sound.name, src: sound.url, at: Number(at), gain: gain ? Number(gain) : SFX_GAIN } } as Op);
+      const r = parseCue(line, library, SFX_GAIN);
+      if ("error" in r) return fail(`bad line '${line}': ${r.error} (expected 'id sound_name at [gain] [from=S] [len=S]' or 'id sound_name hit=T …'; list_sounds shows the library)`);
+      ops.push({ op: "put_sfx", cue: r.cue } as Op);
+      if (r.warning) warnings.push(r.warning);
     }
     const res = await bridge.applyOps(ops);
-    return res.ok ? text(`${ops.length} sounds placed`) : fail(res.error ?? "rejected");
+    return res.ok ? text([`${ops.length} sounds placed`, ...warnings].join("\n")) : fail(res.error ?? "rejected");
   }),
 );
 
@@ -1588,7 +1560,7 @@ const scriptApi: HostApi = {
     if (!scene) return null;
     return { curve: attentionSparkline(attentionCurve(scene).bins), issues: attentionIssues(scene) };
   },
-  sounds: async () => (await api.sounds()).map(({ name, category, duration, description }) => ({ name, category, duration, description })),
+  sounds: async () => (await api.sounds()).map(({ url: _url, ...s }) => s),
   tool: async (name, args) => {
     if (name === "run") throw new Error("run cannot call itself");
     const t = toolHandlers.get(String(name));
@@ -1610,7 +1582,7 @@ mo.add(lines) → {count, notes}: add_layers compact lines (placement + lint run
 mo.apply(ops) → {ok}: apply_ops · mo.scene() · mo.layer(id) · mo.layers(group?)
 mo.layout(times, ids?) → [{t, id, box:[x0,y0,x1,y1], visible}] in scene px
 mo.lint(ids?) → [{kind, id, message, fix?}] · mo.autofix(ids?) → {fixed, remaining}
-mo.attention() → {curve, issues} (vertical/square videos) · mo.sounds() → [{name, category, duration, description}]
+mo.attention() → {curve, issues} (vertical/square videos) · mo.sounds() → [{name, category, duration, peak, shape, hits, every, description}]
 mo.tool(name, args) → any other tool of yours as text (images left out: look with render_frames / review_video directly)
 Example: const r = mo.add(\`title text 0-3 x=540 y=420 size=96 "Hello"\`); const b = mo.layout([0.5], ["title"])[0].box; if (b[2] > 1040) mo.apply([{op:"patch", id:"title", fields:{size:80}}]); console.log(r.notes.join(" | "), b);
 Limits: ${RUN_CPU_MS / 1000} s of script time, 64 MB, no network or files; the log shows the first ${LOG_CHARS} characters.`,
