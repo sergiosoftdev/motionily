@@ -20,21 +20,24 @@ pub struct Layout {
     pub node: PathBuf,
     pub api_main: PathBuf,
     pub api_cwd: PathBuf,
-    /// `node <mcp_main>` starts the MCP server (bundled), or `tsx <mcp_main>` in the repo.
+    /// How agents start the MCP server: node running the bundled tsx CLI on its source, or the repo's tsx.
     pub mcp_command: PathBuf,
-    pub mcp_main: PathBuf,
+    pub mcp_args: Vec<PathBuf>,
+    /// The prompts and manual the API reads (docs/agent).
+    pub docs: PathBuf,
 }
 
 impl Layout {
     pub fn find(resources: Option<&Path>) -> Result<Self, String> {
         let node_override = std::env::var_os("MOTIONILY_NODE").map(PathBuf::from);
-        if let Some(runtime) = resources.map(|r| r.join("runtime")).filter(|r| r.join("api/main.js").exists()) {
+        if let Some(runtime) = resources.map(|r| r.join("runtime")).filter(|r| r.join("api/dist/main.js").exists()) {
             let node = node_override.unwrap_or_else(|| runtime.join(if cfg!(windows) { "node/node.exe" } else { "node/bin/node" }));
             return Ok(Self {
-                api_main: runtime.join("api/main.js"),
+                api_main: runtime.join("api/dist/main.js"),
                 api_cwd: runtime.join("api"),
                 mcp_command: node.clone(),
-                mcp_main: runtime.join("mcp/index.js"),
+                mcp_args: vec![runtime.join("mcp/node_modules/tsx/dist/cli.mjs"), runtime.join("mcp/src/index.ts")],
+                docs: runtime.join("docs/agent"),
                 node,
             });
         }
@@ -51,7 +54,8 @@ impl Layout {
             api_main: api.join("dist/main.js"),
             api_cwd: api,
             mcp_command: mcp.join("node_modules/.bin/tsx"),
-            mcp_main: mcp.join("src/index.ts"),
+            mcp_args: vec![mcp.join("src/index.ts")],
+            docs: repo.join("docs/agent"),
         })
     }
 }
@@ -121,11 +125,10 @@ impl Api {
             .stdin(Stdio::null())
             .stdout(log.try_clone().map_err(|e| e.to_string())?)
             .stderr(log);
-        if layout.mcp_command == layout.node {
-            cmd.env("MOTIONILY_MCP_BUNDLE", &layout.mcp_main);
-        } else {
-            cmd.env("MOTIONILY_MCP_DIR", layout.mcp_main.parent().and_then(Path::parent).unwrap_or(Path::new(".")));
-        }
+        let args: Vec<String> = layout.mcp_args.iter().map(|a| a.display().to_string()).collect();
+        cmd.env("MOTIONILY_MCP_COMMAND", &layout.mcp_command)
+            .env("MOTIONILY_MCP_ARGS", serde_json::to_string(&args).map_err(|e| e.to_string())?)
+            .env("MOTIONILY_DOCS_DIR", &layout.docs);
         let child = cmd.spawn().map_err(|e| format!("could not start the API with {}: {e}", layout.node.display()))?;
         let mut api = Self { child, url, port, session: serde_json::Value::Null };
         api.wait_ready(port, data)?;

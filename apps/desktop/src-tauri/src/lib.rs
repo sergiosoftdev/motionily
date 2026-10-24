@@ -316,7 +316,7 @@ fn desktop_script(api: Result<&runtime::Api, &str>, layout: Option<&runtime::Lay
             "apiUrl": api.url,
             "session": api.session,
             "platform": std::env::consts::OS,
-            "mcp": layout.map(|l| serde_json::json!({ "command": l.mcp_command, "args": [l.mcp_main] })),
+            "mcp": layout.map(|l| serde_json::json!({ "command": l.mcp_command, "args": l.mcp_args })),
         }),
         Err(e) => serde_json::json!({ "error": e, "platform": std::env::consts::OS }),
     };

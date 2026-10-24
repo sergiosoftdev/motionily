@@ -573,12 +573,13 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
   /** The Motionily MCP server as this run's agents start it (stdio, scoped to the project). */
   private mcpServer(projectId: string, token: string, tools?: readonly string[]): AgentMcp {
     const mcpDir = resolve(process.env.MOTIONILY_MCP_DIR ?? join(process.cwd(), "../../packages/mcp-server"));
-    // A bundled server (desktop app) runs on node itself; from the repo it runs the TypeScript with tsx.
-    const bundled = process.env.MOTIONILY_MCP_BUNDLE;
+    // The desktop app passes how its bundled server starts; from the repo it is the TypeScript run by tsx.
+    const command = process.env.MOTIONILY_MCP_COMMAND ?? join(mcpDir, "node_modules/.bin/tsx");
+    const args = process.env.MOTIONILY_MCP_ARGS ? (JSON.parse(process.env.MOTIONILY_MCP_ARGS) as string[]) : [join(mcpDir, "src/index.ts")];
     return {
       name: MCP_SERVER,
-      command: bundled ? process.execPath : join(mcpDir, "node_modules/.bin/tsx"),
-      args: [bundled ?? join(mcpDir, "src/index.ts")],
+      command,
+      args,
       env: { MOTIONILY_API: process.env.PUBLIC_API_URL ?? `http://localhost:${process.env.PORT ?? 3100}`, MOTIONILY_PROJECT: projectId, MOTIONILY_TOKEN: token, MOTIONILY_MANUAL: "0" },
       tools,
     };

@@ -95,7 +95,7 @@ engine WASM (Rust/wgpu)  ◀────── WebSocket (ops en vivo) ───
 5. ✅ **Texto y subtítulos** — cosmic-text + atlas, estilos de captions.
 6. ✅ **Render styles** — shaders toon/contorno, papel recortado, clay sobre 2D.
 7. ✅ **3D (2.5D procedural)** — glTF, escenarios y personajes con esqueleto, isométrico.
-8. **Producto** — Google OAuth real, export MP4, Tauri, pagos.
+8. **Producto** — Google OAuth real (para la versión servidor); ✅ export MP4 y app Tauri (ver abajo). Sin pagos: todo open source.
 
 ## Hecho: autorrevisión visual del agente (pedido y hecho 2026-10-19)
 El MCP debe poder revisar el vídeo solo, sin humano: Playwright headless abre el editor, renderiza
@@ -108,3 +108,52 @@ saltos, colisiones, cámara mal encuadrada) y corregirlos en bucle hasta que que
 - v1 hecha: `review_video` (hoja de contactos + checks: fuera de encuadre, texto solapado, tramos muertos,
   fotogramas vacíos), editor headless con Playwright cuando no hay editor abierto (token scope `editor`),
   bucle de revisión en la guía de Generar. Pendiente: checks 3D (personajes fuera de plano/cortados), clips cortos.
+
+## Editor profesional de escritorio, open source (planteado 2026-10-23; fase 1 hecha 2026-10-24)
+Motionily como editor completo y "agent-first": edición, motion graphics, color y todo lo que use un
+profesional, con estética CapCut. El MCP es una capa más: el agente puede hacer todo lo que hace el humano.
+
+**Principio fijo:** cada acción de la UI es una op del protocolo y una tool del MCP. No perseguir igualar
+CapCut/DaVinci en funciones: el 80/20 del short-form y, sobre todo, lo que el agente hace por ti (primer
+montaje por transcripción, quitar silencios y muletillas, subtítulos, reencuadre, igualar color entre clips,
+material de búsquedas, versiones por plataforma, títulos y hashtags).
+
+**Todo open source (decisión 2026-10-24).** Licencia MIT, sin funciones de pago ni comprobación de licencia en
+el código. Cada uno lo usa con su herramienta: cualquier cliente MCP desde fuera (Connect your agent) y, dentro de
+la app, el CLI que elija (Claude Code, Codex, Gemini CLI u OpenCode; `apps/api/src/common/agent-cli.ts`).
+Sustituye al modelo "gratis + funciones de pago" y al open core del 2026-10-23.
+
+**Todo en el PC del usuario.** Nada de footage en servidor.
+- App de escritorio con **Tauri 2** (`apps/desktop`): arranca la API en local (Node empaquetado, SQLite en la
+  carpeta de datos de la app, puerto estable 47310 en 127.0.0.1), cuenta local sin contraseña.
+- Motor wgpu **nativo**: export en GPU hasta 4K (H.264, HEVC 10 bits, ProRes 422 HQ) con ffmpeg; visor nativo
+  sobre Metal mientras se reproduce (una vista que deja pasar los clics encima del canvas; en pausa vuelve el
+  canvas WebGPU con sus gizmos). Windows/Linux: canvas WebGPU del webview de momento.
+- ffmpeg decodifica los clips (`-hwaccel auto`) y codifica.
+- SQLite sin Mongo: un driver de Mongoose sobre `node:sqlite` + mingo (`DATABASE_URL=sqlite:…`); los servicios no
+  cambian y la suite e2e pasa en las dos bases.
+- Proyecto como carpeta: Archivo › Save Video as Folder… / Open Project Folder… (`<nombre>.motionily/` con
+  `project.json` y `media/`).
+- El MCP stdio sigue igual: el agente y la app en la misma máquina.
+- Builds por SO en GitHub Actions (`.github/workflows/desktop.yml`); falta firma (Apple Developer + notarización,
+  certificado de Windows).
+
+**Fases**
+1. ✅ Base de escritorio: Tauri, motor nativo (export + visor macOS), ffmpeg, proyecto en carpeta, SQLite, agente a
+   elegir, open source (README, CONTRIBUTING, docs/agents.md, THIRD_PARTY.md, CI).
+2. Editor sólido (pedido por Sergio el 2026-10-24, rollo DaVinci Resolve con estética CapCut):
+   - **Panel de medios** único (Media Pool): vídeos, audio (mp3, wav…), imágenes; miniaturas, duración, arrastrar
+     al timeline. Sustituye a las pestañas Clips/Music del modo Edit.
+   - Pistas: cortar (split), mover entre pistas, recortar bordes, ripple, enlazar/desenlazar audio y vídeo, cortar
+     audio, fundidos, velocidad.
+   - Color: corrección por clip (exposición, contraste, temperatura, saturación…), LUTs y **presets** de look.
+   - Formato y resolución del proyecto: cambiar vertical/horizontal/cuadrado (reencuadre automático 16:9→9:16) y la
+     resolución de trabajo y de export.
+   - Subtítulos karaoke con estilos, audio (ruido y normalizar el volumen), atajos J/K/L-C-V, deshacer/rehacer,
+     autoguardado, export XML/OTIO.
+3. Agente editor: "graba y suéltalo" (cortes, material, motion, subtítulos, música, revisión) + publicar en redes.
+4. Color avanzado: scopes, nodos, igualar entre clips, gestión de color, HDR.
+5. Visor nativo en Windows (DX12) y Linux (Vulkan); MCP remoto (HTTP) para claude.ai web/móvil.
+
+**Pendiente:** decidir con el socio quién es dueño de la propiedad intelectual (hoy `LICENSE` MIT a nombre de
+Sergio) y revisar la cláusula del contrato de trabajo **antes de hacer público el repositorio**.
