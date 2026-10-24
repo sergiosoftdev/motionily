@@ -23,6 +23,10 @@ struct Params {
     h2: vec4<f32>,
     // Projected (tilted plane) passes: flat-space origin of the pass (xy).
     origin: vec4<f32>,
+    // Layer composite grading: exposure (stops), temperature (-1 cool .. 1 warm), tint (-1 green .. 1 magenta), vibrance.
+    grade: vec4<f32>,
+    // Layer composite grading: shadows, highlights (-1..1), vignette (0..1), unused.
+    tone: vec4<f32>,
 };
 
 @group(0) @binding(0) var src: texture_2d<f32>;
@@ -143,13 +147,26 @@ fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
         let b = sample_in(uv - vec2(p.warp.w, 0.0));
         c = vec4(r.r, c.g, b.b, max(c.a, max(r.a, b.a)));
     }
-    if (mode == 0 && (any(p.adj != vec4(0.0)) || p.grain.x > 0.0) && c.a > 0.0) {
+    if (mode == 0 && (any(p.adj != vec4(0.0)) || any(p.grade != vec4(0.0)) || any(p.tone != vec4(0.0)) || p.grain.x > 0.0) && c.a > 0.0) {
         var rgb = c.rgb / c.a;
+        // Exposure in stops, then white balance: warm lifts red and lowers blue, magenta lowers green.
+        rgb = rgb * exp2(p.grade.x);
+        rgb = rgb * vec3(1.0 + 0.2 * p.grade.y + 0.06 * p.grade.z, 1.0 - 0.12 * p.grade.z, 1.0 - 0.2 * p.grade.y + 0.06 * p.grade.z);
         rgb = rgb + p.adj.z;
         rgb = (rgb - 0.5) * (1.0 + p.adj.w) + 0.5;
+        // Shadows and highlights move only their end of the range (soft masks on luma).
+        let tone_luma = dot(clamp(rgb, vec3(0.0), vec3(1.0)), vec3(0.2126, 0.7152, 0.0722));
+        rgb = rgb + p.tone.x * 0.3 * (1.0 - smoothstep(0.0, 0.55, tone_luma));
+        rgb = rgb + p.tone.y * 0.3 * smoothstep(0.45, 1.0, tone_luma);
         let luma = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
         rgb = mix(vec3(luma), rgb, 1.0 + p.adj.y);
+        // Vibrance: dull colors (small max - min) get more of it than vivid ones.
+        let chroma = max(rgb.r, max(rgb.g, rgb.b)) - min(rgb.r, min(rgb.g, rgb.b));
+        rgb = mix(vec3(luma), rgb, 1.0 + p.grade.w * (1.0 - clamp(chroma, 0.0, 1.0)));
         rgb = rotate_hue(rgb, p.adj.x);
+        // Vignette from the frame's center (screen space, so a full-frame clip and an adjustment agree).
+        let d = length((in.uv - vec2(0.5)) * 1.41421);
+        rgb = rgb * (1.0 - p.tone.z * smoothstep(0.35, 1.05, d));
         rgb = rgb + (hash(floor(in.pos.xy) + p.grain.y) - 0.5) * p.grain.x;
         c = vec4(clamp(rgb, vec3(0.0), vec3(1.0)) * c.a, c.a);
     }

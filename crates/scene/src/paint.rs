@@ -341,8 +341,12 @@ pub enum Effect {
         #[serde(default = "shadow_opacity")]
         opacity: Animated,
     },
-    /// Color correction: hue shift (degrees), saturation (1 = unchanged, 0 = grey), brightness
-    /// (-1..1), contrast (1 = unchanged).
+    /// Color correction, applied in this order: `exposure` (stops, 0 = unchanged), white balance
+    /// (`temperature` -1 cool .. 1 warm, `tint` -1 green .. 1 magenta), `brightness` (-1..1, added),
+    /// `contrast` (1 = unchanged, around mid grey), `shadows` and `highlights` (-1..1: lift or crush the
+    /// darks, recover or push the brights), `saturation` (1 = unchanged, 0 = grey), `vibrance` (-1..1,
+    /// saturates the dull colors more than the vivid ones), `hue` shift (degrees) and `vignette`
+    /// (0..1, darkens the frame's corners). Every field is optional and animatable.
     Color {
         #[serde(default)]
         hue: Animated,
@@ -352,6 +356,20 @@ pub enum Effect {
         brightness: Animated,
         #[serde(default = "one")]
         contrast: Animated,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        exposure: Animated,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        temperature: Animated,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        tint: Animated,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        shadows: Animated,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        highlights: Animated,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        vibrance: Animated,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        vignette: Animated,
     },
     /// RGB split: red and blue shifted apart by `amount` px (glitch, lens edge).
     Chromatic { amount: Animated },
@@ -417,6 +435,11 @@ pub enum Effect {
     },
 }
 
+/// An effect field left at its neutral 0 is not written back (scenes stay as short as they were).
+fn is_zero(a: &Animated) -> bool {
+    matches!(a, Animated::Static(v) if *v == 0.0)
+}
+
 fn turbulence_size() -> Animated {
     Animated::Static(320.0)
 }
@@ -446,6 +469,31 @@ fn shadow_opacity() -> Animated {
     Animated::Static(0.25)
 }
 
+/// The grading half of `Effect::Color` for one frame (neutral = all zeros).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct ColorGrade {
+    pub exposure: f32,
+    pub temperature: f32,
+    pub tint: f32,
+    pub shadows: f32,
+    pub highlights: f32,
+    pub vibrance: f32,
+    pub vignette: f32,
+}
+
+impl ColorGrade {
+    /// Two effects in a stack add up (exposure, white balance, tone, vibrance), like stacked adjustments.
+    pub fn add(&mut self, o: &ColorGrade) {
+        self.exposure += o.exposure;
+        self.temperature += o.temperature;
+        self.tint += o.tint;
+        self.shadows += o.shadows;
+        self.highlights += o.highlights;
+        self.vibrance += o.vibrance;
+        self.vignette = (self.vignette + o.vignette).min(1.0);
+    }
+}
+
 /// Resolved effect for one frame.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DrawEffect {
@@ -454,7 +502,7 @@ pub enum DrawEffect {
     /// Liquid glass (see `Effect::Glass`); `shape` is the layer's own box, filled in when its pass is built.
     Glass { thickness: f32, bevel: f32, blur: f32, ior: f32, dispersion: f32, specular: f32, tint: Option<Rgba>, shape: Option<GlassShape> },
     Shadow { offset: [f32; 2], blur: f32, color: Rgba },
-    Color { hue: f32, saturation: f32, brightness: f32, contrast: f32 },
+    Color { hue: f32, saturation: f32, brightness: f32, contrast: f32, grade: ColorGrade },
     Chromatic { amount: f32 },
     /// `phase` in radians.
     Wave { amplitude: f32, wavelength: f32, phase: f32 },
@@ -522,11 +570,20 @@ impl Effect {
                 c.0[3] *= opacity.sample(t).clamp(0.0, 1.0);
                 DrawEffect::Shadow { offset: [x.sample(t), y.sample(t)], blur: blur.sample(t).max(0.0), color: c }
             }
-            Effect::Color { hue, saturation, brightness, contrast } => DrawEffect::Color {
+            Effect::Color { hue, saturation, brightness, contrast, exposure, temperature, tint, shadows, highlights, vibrance, vignette } => DrawEffect::Color {
                 hue: hue.sample(t),
                 saturation: saturation.sample(t).max(0.0),
                 brightness: brightness.sample(t),
                 contrast: contrast.sample(t).max(0.0),
+                grade: ColorGrade {
+                    exposure: exposure.sample(t).clamp(-5.0, 5.0),
+                    temperature: temperature.sample(t).clamp(-1.0, 1.0),
+                    tint: tint.sample(t).clamp(-1.0, 1.0),
+                    shadows: shadows.sample(t).clamp(-1.0, 1.0),
+                    highlights: highlights.sample(t).clamp(-1.0, 1.0),
+                    vibrance: vibrance.sample(t).clamp(-1.0, 1.0),
+                    vignette: vignette.sample(t).clamp(0.0, 1.0),
+                },
             },
             Effect::Chromatic { amount } => DrawEffect::Chromatic { amount: amount.sample(t) },
             Effect::Wave { amplitude, wavelength, speed } => DrawEffect::Wave {

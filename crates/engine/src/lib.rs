@@ -977,6 +977,7 @@ fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, glass: &mut GlassPass, s
     let mut plan = FxPlan { steps: Vec::new(), replace: 0, shadows: Vec::new(), layer: 0, glows: Vec::new(), copy: 0, average: 0, blend: 0 };
     // Color correction, distortion and grain all happen in the final layer composite.
     let (mut hue, mut sat, mut bright, mut contrast) = (0.0, 1.0, 0.0, 1.0);
+    let mut grade = scene::paint::ColorGrade::default();
     let mut warp = [0.0f32; 4];
     let mut grain = [0.0f32; 4];
     let mut turb = [0.0f32; 4];
@@ -1045,11 +1046,12 @@ fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, glass: &mut GlassPass, s
                 plan.glows.push((h, v, comp, thresh));
             }
             DrawEffect::Blur { .. } => {}
-            DrawEffect::Color { hue: h, saturation, brightness, contrast: k } => {
+            DrawEffect::Color { hue: h, saturation, brightness, contrast: k, grade: g } => {
                 hue += h.to_radians();
                 sat *= saturation;
                 bright += brightness;
                 contrast *= k;
+                grade.add(&g);
             }
             DrawEffect::Chromatic { amount } => warp[3] += amount / scene_w,
             DrawEffect::Wave { amplitude, wavelength, phase } => warp = [amplitude / scene_w, scene_h / wavelength, phase, warp[3]],
@@ -1059,7 +1061,7 @@ fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, glass: &mut GlassPass, s
     }
     // Warps pull pixels from around them: at the frame edge, repeat the edge instead of emptiness.
     let clamp_edges = if f.adjust || turb[0] != 0.0 { 1.0 } else { 0.0 };
-    plan.layer = fx.push(FxParams { a: [0.0, matte, 1.0, 0.0], b: [0.0, 0.0, clamp_edges, if f.adjust { 1.0 } else { 0.0 }], adj: [hue, sat - 1.0, bright, contrast - 1.0], warp, grain, turb, h0, h1, h2, origin, ..Default::default() });
+    plan.layer = fx.push(FxParams { a: [0.0, matte, 1.0, 0.0], b: [0.0, 0.0, clamp_edges, if f.adjust { 1.0 } else { 0.0 }], adj: [hue, sat - 1.0, bright, contrast - 1.0], warp, grain, turb, h0, h1, h2, origin, grade: [grade.exposure, grade.temperature, grade.tint, grade.vibrance], tone: [grade.shadows, grade.highlights, grade.vignette, 0.0], ..Default::default() });
     if f.adjust {
         plan.copy = fx.push(FxParams::default());
     }

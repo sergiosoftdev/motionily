@@ -44,7 +44,7 @@ id type start[-end] key=value… "text or path data" {optional JSON merged into 
 | `glow=RADIUS[,STRENGTH[,COLOR[,THRESHOLD]]]` | glow. THRESHOLD (0-1 luma) makes a bloom: only pixels brighter than it glow, so light reads as light instead of a haze over the whole layer (`glow=60,1,,0.7` on a white dot) |
 | `blur=PX` | gaussian blur. Effects (`shadow glow blur mblur color rgb wave grain turb fx`) run in the order written, like AE's effect stack |
 | `mblur=SHUTTER°,SAMPLES` | motion blur on fast movers (`mblur=180,8`) |
-| `color=HUE°,SAT,BRIGHT,CONTRAST` | color correction |
+| `color=HUE°,SAT,BRIGHT,CONTRAST` | color correction. The full grade is JSON: `{"fx":"color","exposure":0.3,"temperature":0.4,"tint":0,"contrast":1.1,"shadows":0.2,"highlights":-0.3,"saturation":1,"vibrance":0.3,"hue":0,"vignette":0.3}` — exposure in stops; temperature −1 cool..1 warm; tint −1 green..1 magenta; shadows/highlights/vibrance −1..1; vignette 0..1 (screen corners). Order: exposure, white balance, brightness, contrast, shadows, highlights, saturation, vibrance, hue, vignette. Every field optional and animatable; two color effects add up. On a clip it grades the clip; on `adj=1` the picture below |
 | `rgb=PX` | RGB split · `wave=AMP,WAVELENGTH,SPEED` warp · `grain=AMOUNT` |
 | `turb=AMOUNT,CELL_PX,SPEED` | turbulent displacement (on huge soft blobs = liquid/cloud backgrounds) |
 | `fx="WGSL" fx0=… fx7=` | custom shader effect (your own distortion/color/glitch; on `adj=1` a full-frame post effect or transition) — see Custom shaders |

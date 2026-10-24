@@ -25,6 +25,10 @@ pub struct FxParams {
     /// Tilted planes: the flat-space origin of the plane's pass (xy), so projected texels line up with
     /// the offset content.
     pub origin: [f32; 4],
+    /// Layer composite grading: exposure (stops), temperature, tint, vibrance.
+    pub grade: [f32; 4],
+    /// Layer composite grading: shadows, highlights, vignette, unused.
+    pub tone: [f32; 4],
 }
 
 /// Uniform slot stride (WebGPU's minimum dynamic-offset alignment).
