@@ -192,7 +192,7 @@ impl Clips {
 
 /// Output codecs the exporter offers.
 #[derive(Clone, Copy, Debug, serde::Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum Codec {
     /// H.264 in MP4: plays everywhere.
     H264,
@@ -200,14 +200,24 @@ pub enum Codec {
     Hevc,
     /// ProRes 422 HQ in MOV: for further editing.
     Prores,
+    /// ProRes 4444 in MOV, with alpha: what the scene does not draw stays transparent.
+    Prores4444,
+    /// VP9 in WebM, with alpha (for the web and overlays).
+    Vp9Alpha,
 }
 
 impl Codec {
     pub fn extension(self) -> &'static str {
         match self {
-            Codec::Prores => "mov",
+            Codec::Prores | Codec::Prores4444 => "mov",
+            Codec::Vp9Alpha => "webm",
             _ => "mp4",
         }
+    }
+
+    /// Codecs that keep the frame's transparency (the renderer then leaves the background out).
+    pub fn has_alpha(self) -> bool {
+        matches!(self, Codec::Prores4444 | Codec::Vp9Alpha)
     }
 
     /// ffmpeg arguments for the best encoder this ffmpeg has.
@@ -221,13 +231,16 @@ impl Codec {
             Codec::Hevc => vec!["-c:v", "hevc_videotoolbox", "-q:v", "70", "-pix_fmt", "p010le", "-tag:v", "hvc1", "-movflags", "+faststart"],
             Codec::Prores if has("prores_ks") => vec!["-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le"],
             Codec::Prores => vec!["-c:v", "prores_videotoolbox", "-profile:v", "hq"],
+            Codec::Prores4444 => vec!["-c:v", "prores_ks", "-profile:v", "4", "-pix_fmt", "yuva444p10le", "-alpha_bits", "16", "-vendor", "apl0"],
+            Codec::Vp9Alpha => vec!["-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-b:v", "0", "-crf", "24", "-row-mt", "1", "-auto-alt-ref", "0"],
         };
         v.into_iter().map(String::from).collect()
     }
 
     fn audio_args(self) -> Vec<String> {
         match self {
-            Codec::Prores => vec!["-c:a".into(), "pcm_s16le".into()],
+            Codec::Prores | Codec::Prores4444 => vec!["-c:a".into(), "pcm_s16le".into()],
+            Codec::Vp9Alpha => vec!["-c:a".into(), "libopus".into(), "-b:a".into(), "192k".into()],
             _ => vec!["-c:a".into(), "aac".into(), "-b:a".into(), "256k".into()],
         }
     }

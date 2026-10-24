@@ -128,6 +128,10 @@ pub enum Op {
     SetMarkers { markers: Vec<crate::Marker> },
     /// Preview loop range `[in, out]` seconds (`null` = the whole video). Export ignores it.
     SetWorkArea { work_area: Option<[f32; 2]> },
+    /// Export settings: `{"op":"set_output","output":{"short_side":2160,"codec":"prores","range":[2,8]}}` (`null` = defaults).
+    SetOutput { output: Option<crate::output::Output> },
+    /// Frame rate of the whole video (1..=120): `{"op":"set_fps","fps":24}`.
+    SetFps { fps: f32 },
     /// Take `[from, to]` seconds out of the whole video and close the gap: voice (its file skips
     /// that stretch), captions, layers (clips get a jump cut), sound effects, transitions, markers.
     RippleDelete { from: f32, to: f32 },
@@ -565,6 +569,18 @@ impl Scene {
                     return Err(OpError::Invalid("work_area is [in, out] seconds with 0 <= in < out (or null)"));
                 }
                 self.work_area = *work_area;
+            }
+            Op::SetOutput { output } => {
+                if let Some(o) = output {
+                    o.check(self.duration).map_err(OpError::Invalid)?;
+                }
+                self.output = output.clone();
+            }
+            Op::SetFps { fps } => {
+                if !(fps.is_finite() && (1.0..=120.0).contains(fps)) {
+                    return Err(OpError::Invalid("fps must be 1..=120"));
+                }
+                self.fps = *fps;
             }
         }
         Ok(())

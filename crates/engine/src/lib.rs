@@ -254,6 +254,8 @@ pub struct Renderer {
     /// double size and the post pass averages it down: every edge (shapes, text, strokes, 3D) is
     /// supersampled, whatever the layer type.
     supersample: u32,
+    /// Frames keep their transparency instead of sitting on the palette background (exports with alpha).
+    transparent: bool,
     pub adapter_info: String,
 }
 
@@ -401,6 +403,7 @@ impl Renderer {
             plane_globals: Vec::new(),
             plane_fx: None,
             supersample: 1,
+            transparent: false,
             device,
             queue,
             surface,
@@ -514,6 +517,11 @@ impl Renderer {
     }
 
     /// Supersampling: 1 (default) or 2. Takes effect on the next frame.
+    /// Render with a transparent background (straight alpha), for ProRes 4444 / VP9 alpha exports.
+    pub fn set_transparent(&mut self, on: bool) {
+        self.transparent = on;
+    }
+
     pub fn set_supersample(&mut self, factor: u32) {
         let factor = factor.clamp(1, 2);
         if factor != self.supersample {
@@ -651,6 +659,7 @@ impl Renderer {
             background: to_surface(palette.background),
             ink: to_surface(palette.text),
             shadow: to_surface(palette.text).map(|c| c * 0.35),
+            transparent: self.transparent,
         };
 
         // Plan every offscreen pass first: they share one uniform buffer written before submit.

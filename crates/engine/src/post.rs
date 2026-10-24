@@ -22,6 +22,8 @@ pub struct PostColors {
     pub background: [f32; 3],
     pub ink: [f32; 3],
     pub shadow: [f32; 3],
+    /// Leave the background out and keep the frame's alpha (exports with transparency).
+    pub transparent: bool,
 }
 
 fn style_id(kind: RenderKind) -> f32 {
@@ -188,7 +190,8 @@ impl PostPass {
         let style = style.unwrap_or(RenderStyle { kind: RenderKind::Flat, amount: 1.0 });
         let rgba = |c: [f32; 3]| [c[0], c[1], c[2], 1.0];
         let u = PostUniform {
-            background: rgba(colors.background),
+            // Alpha 0 tells the shader to skip the backdrop (see post.wgsl).
+            background: { let [r, g, b, _] = rgba(colors.background); [r, g, b, if colors.transparent { 0.0 } else { 1.0 }] },
             ink: rgba(colors.ink),
             shadow: rgba(colors.shadow),
             params: [self.size[0] as f32 / scene_width, style_id(style.kind), style.amount, time],

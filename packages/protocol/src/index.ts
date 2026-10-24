@@ -226,6 +226,11 @@ export const OpName = {
   RestoreCut: "restore_cut",
   /** Cut a layer in two: `{id, at, new_id?}`. */
   SplitLayer: "split_layer",
+  // delivery
+  /** Export settings: `{output: Output | null}` (resolution, codec, range). */
+  SetOutput: "set_output",
+  /** Frame rate of the whole video: `{fps}` (1..120). */
+  SetFps: "set_fps",
 } as const;
 export type OpName = (typeof OpName)[keyof typeof OpName];
 
@@ -235,6 +240,19 @@ export type Marker = { t: number; label: string; color?: string };
 export type WorkArea = [number, number] | null;
 export type SetMarkersOp = { op: typeof OpName.SetMarkers; markers: Marker[] };
 export type SetWorkAreaOp = { op: typeof OpName.SetWorkArea; work_area: WorkArea };
+/** Codecs the exporters write (scene `output.codec`). */
+export const OutputCodec = { H264: "h264", Hevc: "hevc", Prores: "prores", Prores4444: "prores4444", Vp9Alpha: "vp9_alpha" } as const;
+export type OutputCodec = (typeof OutputCodec)[keyof typeof OutputCodec];
+/** Short sides the exporters render at (height of a vertical/square video, width of a wide one). */
+export const OUTPUT_SHORT_SIDES = [720, 1080, 1440, 2160, 4320] as const;
+/** Frame rates the editor offers (set_fps takes any rate in 1..120). */
+export const FRAME_RATES = [23.976, 24, 25, 29.97, 30, 50, 60] as const;
+/** Scene `output`: how the video is exported. Missing = 1080, H.264, the whole video. */
+export type Output = { short_side: number; codec: OutputCodec; range?: [number, number] };
+export const DEFAULT_OUTPUT: Output = { short_side: 1080, codec: OutputCodec.H264 };
+export type SetOutputOp = { op: typeof OpName.SetOutput; output: Output | null };
+export type SetFpsOp = { op: typeof OpName.SetFps; fps: number };
+
 /** `id` is the new instance layer; it spans the layers' time range at the topmost one's stacking position. */
 export type PrecomposeOp = { op: typeof OpName.Precompose; ids: string[]; component: string; id: string };
 

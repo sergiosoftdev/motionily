@@ -118,6 +118,15 @@ export async function mixAudio(sceneJson: string, audioUrl: string | null, clips
   return renderAudio(audioUrl, scene.audio ?? { start: 0, trim_in: 0, trim_out: null }, sfxCues(scene), scene.duration, clips, scene.music ?? null, speech);
 }
 
+/** The `[in, out]` seconds of a mix (export of a range). */
+export function sliceAudio(buf: AudioBuffer, [from, to]: [number, number]): AudioBuffer {
+  const a = Math.max(0, Math.floor(from * buf.sampleRate));
+  const b = Math.min(buf.length, Math.ceil(to * buf.sampleRate));
+  const out = new AudioBuffer({ length: Math.max(1, b - a), numberOfChannels: buf.numberOfChannels, sampleRate: buf.sampleRate });
+  for (let c = 0; c < buf.numberOfChannels; c++) out.copyToChannel(buf.getChannelData(c).subarray(a, b), c);
+  return out;
+}
+
 /** 16-bit PCM WAV of a buffer (what ffmpeg muxes into native exports). */
 export function wavBytes(buf: AudioBuffer): Uint8Array {
   const channels = buf.numberOfChannels;
@@ -156,6 +165,8 @@ export async function exportVideo(opts: {
   sceneJson: string;
   /** Output height for vertical/square, width for horizontal: 1080 or 720. */
   shortSide: number;
+  /** Only `[in, out]` seconds (null = the whole video). */
+  range?: [number, number] | null;
   fonts: FontFile[];
   stage: { models: { key: string; bytes: Uint8Array }[]; textures: { pack: string; rgba: Uint8Array; width: number; height: number }[] };
   images: { src: string; rgba: Uint8Array; width: number; height: number }[];
@@ -196,19 +207,24 @@ export async function exportVideo(opts: {
     if (audio) output.addAudioTrack(audio);
     await output.start();
 
-    const frames = Math.max(1, Math.round(scene.duration * scene.fps));
+    // A range exports `[in, out]` only; its frames are timestamped from 0.
+    const [from, to] = opts.range ? [Math.max(0, opts.range[0]), Math.min(scene.duration, opts.range[1])] : [0, scene.duration];
+    const frames = Math.max(1, Math.round((to - from) * scene.fps));
     for (let i = 0; i < frames; i++) {
       if (opts.signal.aborted) {
         await output.cancel();
         throw new DOMException("Export cancelled", "AbortError");
       }
-      const t = i / scene.fps;
+      const t = from + i / scene.fps;
       await opts.videos?.prepare(engine, t, frameCache);
       engine.render(t);
-      await video.add(t, 1 / scene.fps);
+      await video.add(i / scene.fps, 1 / scene.fps);
       opts.onProgress((i + 1) / (frames + (audio ? frames * 0.1 : 0)));
     }
-    if (audio) await audio.add((await mixAudio(opts.sceneJson, opts.audioUrl, clipSounds(engine, scene.fps, scene.duration)))!);
+    if (audio) {
+      const mix = (await mixAudio(opts.sceneJson, opts.audioUrl, clipSounds(engine, scene.fps, scene.duration)))!;
+      await audio.add(opts.range ? sliceAudio(mix, [from, to]) : mix);
+    }
     await output.finalize();
     opts.onProgress(1);
     const buffer = output.target.buffer!;

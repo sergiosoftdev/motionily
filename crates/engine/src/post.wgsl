@@ -143,6 +143,10 @@ fn fs(in: VsOut) -> @location(0) vec4<f32> {
         bg = mix(bg, post.shadow.rgb, s * 0.3);
     }
 
+    // Transparent output (background alpha 0, exports with alpha): no backdrop, straight alpha.
+    if (post.background.a < 0.5) {
+        return vec4(select(vec3(0.0), c.rgb / c.a, c.a > 1e-5), c.a);
+    }
     // Dither: ±1 code value of noise so soft gradients never band.
     let dither = (hash(in.pos.xy) - 0.5) / 255.0 * 1.5;
     return vec4(over(bg, c) + vec3(dither), 1.0);

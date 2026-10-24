@@ -7,6 +7,7 @@
 
 mod anim;
 pub mod expr;
+pub mod output;
 pub mod glyphs;
 mod patch;
 mod hit;
@@ -115,6 +116,9 @@ pub struct Scene {
     /// Preview range `[in, out]` (seconds): playback loops inside it. Export ignores it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub work_area: Option<[f32; 2]>,
+    /// How the video is exported (resolution, codec, range). `None` = 1080 H.264, the whole video.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<output::Output>,
 }
 
 /// A named instant on the timeline: `{"t":1.2,"label":"drop","color":"#f5a623"}`.
@@ -197,6 +201,7 @@ impl Default for Scene {
             sfx_volume: DEFAULT_SFX_VOLUME,
             markers: Vec::new(),
             work_area: None,
+            output: None,
         }
     }
 }

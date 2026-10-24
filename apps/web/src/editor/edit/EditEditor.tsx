@@ -251,7 +251,7 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
             selection ? (
               <Inspector selection={selection} ops={ops} edits={edits} songLength={project?.music?.duration ?? null} clipIds={tracks?.clips.map((c) => c.id) ?? []} onClose={deselect} />
             ) : (
-              <ProjectInspector ed={ed} onFormat={(f) => void changeFormat(f)} />
+              <ProjectInspector ed={ed} scene={scene} edits={edits} onFormat={(f) => void changeFormat(f)} />
             )
           }
           agentPanel={<ClaudePanel ed={ed} hasScene={hasScene} hasFootage={!!tracks?.clips.length} selection={null} bare />}

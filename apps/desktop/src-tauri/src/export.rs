@@ -15,6 +15,9 @@ pub struct ExportRequest {
     /// Output height for vertical/square videos, width for horizontal ones: 720, 1080, 1440 or 2160.
     pub short_side: u32,
     pub codec: Codec,
+    /// Only `[in, out]` seconds of the video (its frames are timestamped from 0).
+    #[serde(default)]
+    pub range: Option<[f32; 2]>,
     /// Draw at 2x and average down: cleaner edges, slower.
     #[serde(default)]
     pub supersample: bool,
@@ -52,6 +55,7 @@ pub fn export(
     if req.supersample {
         renderer.set_supersample(2);
     }
+    renderer.set_transparent(req.codec.has_alpha());
     assets.load_into(&mut renderer);
     for src in scene.video_sources() {
         if let Ok(p) = clips.open(&src) {
@@ -60,14 +64,21 @@ pub fn export(
     }
 
     let mut encoder = Encoder::start(tools, &out, size, scene.fps as f32, req.codec, audio)?;
-    let frames = ((scene.duration * scene.fps as f32).round() as u32).max(1);
+    let (from, to) = match req.range {
+        Some([a, b]) => (a.max(0.0), b.min(scene.duration)),
+        None => (0.0, scene.duration),
+    };
+    if to <= from {
+        return Err("the export range is empty".into());
+    }
+    let frames = (((to - from) * scene.fps as f32).round() as u32).max(1);
     for i in 0..frames {
         if cancel.load(Ordering::Relaxed) {
             encoder.cancel();
             let _ = std::fs::remove_file(&out);
             return Err("cancelled".into());
         }
-        let t = i as f32 / scene.fps as f32;
+        let t = from + i as f32 / scene.fps as f32;
         let needs = scene.video_frames(t);
         for need in &needs {
             let (px, (w, h)) = clips.frame(&need.src, need.time as f64)?;
@@ -114,6 +125,35 @@ mod tests {
         a
     }
 
+    /// With an alpha codec, what the scene does not draw comes out transparent (the palette background is left out).
+    #[test]
+    fn alpha_codecs_keep_the_frame_transparent() {
+        let tools = Tools::find(None);
+        if std::process::Command::new(&tools.ffmpeg).arg("-version").output().is_err() {
+            return;
+        }
+        let scene = r##"{"width":720,"height":720,"fps":30,"duration":0.5,"layers":[{"id":"dot","type":"shape","shape":"rect","x":360,"y":360,"w":200,"h":200,"fill":"#ff0000"}]}"##;
+        let dir = std::env::temp_dir().join("motionily-alpha-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let out = dir.join("alpha.mov");
+        let req = ExportRequest { scene_json: scene.into(), short_side: 720, codec: Codec::Prores4444, range: None, supersample: false, path: None, name: None };
+        let mut clips = Clips::new(tools.clone(), Box::new(|s: &str| s.to_string()));
+        let file = export(req, out, &Assets::default(), None, &tools, &mut clips, Arc::new(AtomicBool::new(false)), |_| {}).unwrap();
+        // First frame back as RGBA: corner pixel and center pixel.
+        let px = std::process::Command::new(&tools.ffmpeg)
+            .args(["-v", "error", "-i"])
+            .arg(&file)
+            .args(["-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-"])
+            .output()
+            .unwrap()
+            .stdout;
+        assert_eq!(px.len(), 720 * 720 * 4);
+        let at = |x: usize, y: usize| &px[(y * 720 + x) * 4..(y * 720 + x) * 4 + 4];
+        assert!(at(5, 5)[3] < 8, "corner is transparent: {:?}", at(5, 5));
+        let c = at(360, 360);
+        assert!(c[3] > 240 && c[0] > 200 && c[1] < 40, "center is opaque red: {c:?}");
+    }
+
     /// One second of the demo scene through every codec, checked with ffprobe. Skips without ffmpeg.
     #[test]
     fn exports_every_codec() {
@@ -128,9 +168,9 @@ mod tests {
         let fps = scene["fps"].as_f64().unwrap_or(30.0);
         let dir = std::env::temp_dir().join("motionily-export-test");
         std::fs::create_dir_all(&dir).unwrap();
-        for codec in [Codec::H264, Codec::Hevc, Codec::Prores] {
+        for codec in [Codec::H264, Codec::Hevc, Codec::Prores, Codec::Prores4444, Codec::Vp9Alpha] {
             let out = dir.join(format!("demo.{}", codec.extension()));
-            let req = ExportRequest { scene_json: scene.to_string(), short_side: 720, codec, supersample: false, path: None, name: None };
+            let req = ExportRequest { scene_json: scene.to_string(), short_side: 720, codec, range: None, supersample: false, path: None, name: None };
             let mut clips = Clips::new(tools.clone(), Box::new(|s: &str| s.to_string()));
             let mut last = None;
             let file = export(req, out, &fonts(), None, &tools, &mut clips, Arc::new(AtomicBool::new(false)), |p| last = Some(p)).unwrap();

@@ -1,8 +1,11 @@
 import { useRef, useState } from "react";
+import { OpName, OutputCodec, type Output } from "@motionily/protocol";
+import { agentBridge } from "../bridge";
 import { desktop } from "../desktop";
-import { NativeCodec, exportNative, revealFile } from "./nativeExport";
+import { engineHost } from "../engine/host";
+import { exportNative, revealFile } from "./nativeExport";
 import { renderCurrentScene } from "./renderScene";
-import { RESOLUTIONS, projectResolution } from "./resolution";
+import { RESOLUTIONS, sceneOutput } from "./resolution";
 
 const Stage = { Idle: "idle", Rendering: "rendering", Done: "done", Error: "error" } as const;
 type Stage = (typeof Stage)[keyof typeof Stage];
@@ -14,24 +17,38 @@ const QUALITIES = [
 /** The desktop app renders natively: up to 4K, and pro codecs. */
 const NATIVE_QUALITIES = RESOLUTIONS;
 const NATIVE_CODECS = [
-  { codec: NativeCodec.H264, label: "MP4", hint: "H.264, plays everywhere" },
-  { codec: NativeCodec.Hevc, label: "HEVC", hint: "10-bit, smaller files" },
-  { codec: NativeCodec.Prores, label: "ProRes", hint: "422 HQ for editing" },
+  { codec: OutputCodec.H264, label: "MP4", hint: "H.264, plays everywhere" },
+  { codec: OutputCodec.Hevc, label: "HEVC", hint: "10-bit, smaller files" },
+  { codec: OutputCodec.Prores, label: "ProRes", hint: "422 HQ for editing" },
+  { codec: OutputCodec.Prores4444, label: "4444", hint: "ProRes 4444 with transparency" },
+  { codec: OutputCodec.Vp9Alpha, label: "VP9α", hint: "WebM with transparency" },
 ];
+
+/** What this exporter can render of the scene's settings (the browser: 720/1080 H.264). */
+function usable(o: Output): Output {
+  if (desktop) return o;
+  return { ...o, codec: OutputCodec.H264, short_side: QUALITIES.some((q) => q.shortSide === o.short_side) ? o.short_side : 1080 };
+}
 const OPTION_CLASS = (on: boolean) => `rounded-md py-1.5 text-xs ${on ? "bg-neutral-700 text-white" : "text-neutral-400 hover:text-white"}`;
 
 /** Export the current scene to a video file, rendered frame by frame on the GPU. */
-export function ExportButton({ projectId, name, audioUrl }: { projectId: string; name: string; audioUrl: string | null }) {
+export function ExportButton({ name, audioUrl }: { projectId: string; name: string; audioUrl: string | null }) {
   const [open, setOpen] = useState(false);
-  // The project's resolution (Project settings) where this exporter can render it.
-  const [shortSide, setShortSide] = useState(() => {
-    const wanted = projectResolution(projectId);
-    return desktop || QUALITIES.some((q) => q.shortSide === wanted) ? wanted : 1080;
-  });
+  // The scene's export settings (Project settings, set_output), as this exporter can render them.
+  const [output, setOutputState] = useState<Output>(() => usable(sceneOutput()));
+  const shortSide = output.short_side;
+  const codec = output.codec;
+  /** A choice made here is the project's setting from now on (the agent sees it too). */
+  const choose = (o: Partial<Output>) => {
+    setOutputState({ ...output, ...o });
+    engineHost.applyOps([{ op: OpName.SetOutput, output: { ...sceneOutput(), ...o } }]);
+    agentBridge.sceneChanged();
+  };
+  const setShortSide = (v: number) => choose({ short_side: v });
+  const setCodec = (v: OutputCodec) => choose({ codec: v });
   const [stage, setStage] = useState<Stage>(Stage.Idle);
   const [progress, setProgress] = useState(0);
   const [file, setFile] = useState<{ url: string; filename: string; size: number } | null>(null);
-  const [codec, setCodec] = useState<NativeCodec>(NativeCodec.H264);
   const [savedPath, setSavedPath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
@@ -43,11 +60,11 @@ export function ExportButton({ projectId, name, audioUrl }: { projectId: string;
     abort.current = new AbortController();
     try {
       if (desktop) {
-        setSavedPath(await exportNative({ name, shortSide, codec, supersample: shortSide <= 1080, audioUrl, onProgress: setProgress, signal: abort.current.signal }));
+        setSavedPath(await exportNative({ name, shortSide, codec, range: output.range ?? null, supersample: shortSide <= 1080, audioUrl, onProgress: setProgress, signal: abort.current.signal }));
         setStage(Stage.Done);
         return;
       }
-      const res = await renderCurrentScene({ shortSide, audioUrl, onProgress: setProgress, signal: abort.current.signal });
+      const res = await renderCurrentScene({ shortSide, range: output.range ?? null, audioUrl, onProgress: setProgress, signal: abort.current.signal });
       if (file) URL.revokeObjectURL(file.url);
       setFile({ url: URL.createObjectURL(res.blob), filename: `${name || "motionily"}.${res.extension}`, size: res.blob.size });
       setStage(Stage.Done);
@@ -63,8 +80,7 @@ export function ExportButton({ projectId, name, audioUrl }: { projectId: string;
       <button
         type="button"
         onClick={() => {
-          const wanted = projectResolution(projectId);
-          if (stage !== Stage.Rendering && (desktop || QUALITIES.some((q) => q.shortSide === wanted))) setShortSide(wanted);
+          if (stage !== Stage.Rendering) setOutputState(usable(sceneOutput()));
           setOpen(true);
         }}
         className="rounded-lg bg-neutral-800 px-3 py-1.5 text-xs font-semibold hover:bg-neutral-700"
@@ -78,7 +94,7 @@ export function ExportButton({ projectId, name, audioUrl }: { projectId: string;
               <h2 className="text-lg font-bold">Export video</h2>
               <p className="mt-1 text-sm text-neutral-400">Rendered frame by frame on your GPU, with the trimmed audio{desktop ? ", saved to Movies/Motionily" : ""}.</p>
             </div>
-            <div className={`grid gap-1 rounded-lg bg-neutral-950 p-1 ${desktop ? "grid-cols-4" : "grid-cols-2"}`}>
+            <div className={`grid gap-1 rounded-lg bg-neutral-950 p-1 ${desktop ? "grid-cols-5" : "grid-cols-2"}`}>
               {(desktop ? NATIVE_QUALITIES : QUALITIES).map((q) => (
                 <button key={q.shortSide} type="button" disabled={stage === Stage.Rendering} onClick={() => setShortSide(q.shortSide)} className={OPTION_CLASS(shortSide === q.shortSide)}>
                   {q.label}
@@ -87,7 +103,7 @@ export function ExportButton({ projectId, name, audioUrl }: { projectId: string;
             </div>
             {desktop && (
               <div className="flex flex-col gap-1.5">
-                <div className="grid grid-cols-3 gap-1 rounded-lg bg-neutral-950 p-1">
+                <div className="grid grid-cols-5 gap-1 rounded-lg bg-neutral-950 p-1">
                   {NATIVE_CODECS.map((c) => (
                     <button key={c.codec} type="button" disabled={stage === Stage.Rendering} onClick={() => setCodec(c.codec)} className={OPTION_CLASS(codec === c.codec)}>
                       {c.label}

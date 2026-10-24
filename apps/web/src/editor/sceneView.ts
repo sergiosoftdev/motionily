@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { Output, WorkArea } from "@motionily/protocol";
 import type { SfxCue } from "../audio/sfxPlayer";
 import type { MusicTrack } from "../audio/music";
 import { engineHost } from "../engine/host";
@@ -33,6 +34,9 @@ export type SceneView = {
   music?: MusicTrack | null;
   sfx?: SfxCue[];
   sfx_volume?: number;
+  output?: Partial<Output> | null;
+  work_area?: WorkArea;
+  markers?: { t: number; label: string; color?: string }[];
 };
 
 /** The engine's scene, re-read on every change (agent or user). */
