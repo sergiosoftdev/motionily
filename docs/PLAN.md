@@ -141,16 +141,18 @@ Sustituye al modelo "gratis + funciones de pago" y al open core del 2026-10-23.
 **Fases**
 1. ✅ Base de escritorio: Tauri, motor nativo (export + visor macOS), ffmpeg, proyecto en carpeta, SQLite, agente a
    elegir, open source (README, CONTRIBUTING, docs/agents.md, THIRD_PARTY.md, CI).
-2. Editor sólido (pedido por Sergio el 2026-10-24, rollo DaVinci Resolve con estética CapCut):
-   - **Panel de medios** único (Media Pool): vídeos, audio (mp3, wav…), imágenes; miniaturas, duración, arrastrar
-     al timeline. Sustituye a las pestañas Clips/Music del modo Edit.
-   - Pistas: cortar (split), mover entre pistas, recortar bordes, ripple, enlazar/desenlazar audio y vídeo, cortar
-     audio, fundidos, velocidad.
-   - Color: corrección por clip (exposición, contraste, temperatura, saturación…), LUTs y **presets** de look.
-   - Formato y resolución del proyecto: cambiar vertical/horizontal/cuadrado (reencuadre automático 16:9→9:16) y la
-     resolución de trabajo y de export.
-   - Subtítulos karaoke con estilos, audio (ruido y normalizar el volumen), atajos J/K/L-C-V, deshacer/rehacer,
-     autoguardado, export XML/OTIO.
+2. Editor sólido (pedido por Sergio el 2026-10-24, rollo DaVinci Resolve con estética CapCut). Hecho el 2026-10-24:
+   - ✅ **Media Pool** único (vídeos, audio, imágenes; filtros, importar, arrastrar al carril y segundo exactos, doble
+     clic = en el cabezal, "Use as music"), en lugar de las pestañas Clips/Music.
+   - ✅ Pistas de audio con clips de sonido (capa `audio` del motor): mover, recortar, cortar (S o ⌘B), volumen,
+     fundidos, velocidad; "Detach audio" de un clip de vídeo; fotos en la pista de vídeo con duración.
+   - ✅ Inspector con pestañas (Video: zoom, transform, velocidad · Audio · Color) y el agente en otra pestaña.
+   - ✅ Color por clip: exposición, contraste, luces, sombras, temperatura, tinte, saturación, vibrance, viñeta;
+     9 looks y "Apply to all clips" (efecto `color` ampliado en el motor, documentado para el agente).
+   - ✅ Project settings: formato (reencuadre local de los clips a pantalla completa) y resolución del export.
+   - Pendiente: LUTs (.cube, textura 3D en el motor), scopes, subtítulos karaoke con estilos, reducción de ruido y
+     normalizar audio, bloquear/silenciar pistas, J/K/L, autoguardado de versiones, export XML/OTIO, el Media Pool
+     visible para el agente en `get_project`.
 3. Agente editor: "graba y suéltalo" (cortes, material, motion, subtítulos, música, revisión) + publicar en redes.
 4. Color avanzado: scopes, nodos, igualar entre clips, gestión de color, HDR.
 5. Visor nativo en Windows (DX12) y Linux (Vulkan); MCP remoto (HTTP) para claude.ai web/móvil.
