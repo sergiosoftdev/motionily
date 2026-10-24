@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { desktop } from "../desktop";
 import { NativeCodec, exportNative, revealFile } from "./nativeExport";
 import { renderCurrentScene } from "./renderScene";
+import { RESOLUTIONS, projectResolution } from "./resolution";
 
 const Stage = { Idle: "idle", Rendering: "rendering", Done: "done", Error: "error" } as const;
 type Stage = (typeof Stage)[keyof typeof Stage];
@@ -11,12 +12,7 @@ const QUALITIES = [
   { shortSide: 720, label: "720p" },
 ];
 /** The desktop app renders natively: up to 4K, and pro codecs. */
-const NATIVE_QUALITIES = [
-  { shortSide: 720, label: "720p" },
-  { shortSide: 1080, label: "1080p" },
-  { shortSide: 1440, label: "1440p" },
-  { shortSide: 2160, label: "4K" },
-];
+const NATIVE_QUALITIES = RESOLUTIONS;
 const NATIVE_CODECS = [
   { codec: NativeCodec.H264, label: "MP4", hint: "H.264, plays everywhere" },
   { codec: NativeCodec.Hevc, label: "HEVC", hint: "10-bit, smaller files" },
@@ -25,9 +21,13 @@ const NATIVE_CODECS = [
 const OPTION_CLASS = (on: boolean) => `rounded-md py-1.5 text-xs ${on ? "bg-neutral-700 text-white" : "text-neutral-400 hover:text-white"}`;
 
 /** Export the current scene to a video file, rendered frame by frame on the GPU. */
-export function ExportButton({ name, audioUrl }: { name: string; audioUrl: string | null }) {
+export function ExportButton({ projectId, name, audioUrl }: { projectId: string; name: string; audioUrl: string | null }) {
   const [open, setOpen] = useState(false);
-  const [shortSide, setShortSide] = useState(1080);
+  // The project's resolution (Project settings) where this exporter can render it.
+  const [shortSide, setShortSide] = useState(() => {
+    const wanted = projectResolution(projectId);
+    return desktop || QUALITIES.some((q) => q.shortSide === wanted) ? wanted : 1080;
+  });
   const [stage, setStage] = useState<Stage>(Stage.Idle);
   const [progress, setProgress] = useState(0);
   const [file, setFile] = useState<{ url: string; filename: string; size: number } | null>(null);
@@ -60,7 +60,15 @@ export function ExportButton({ name, audioUrl }: { name: string; audioUrl: strin
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className="rounded-lg bg-neutral-800 px-3 py-1.5 text-xs font-semibold hover:bg-neutral-700">
+      <button
+        type="button"
+        onClick={() => {
+          const wanted = projectResolution(projectId);
+          if (stage !== Stage.Rendering && (desktop || QUALITIES.some((q) => q.shortSide === wanted))) setShortSide(wanted);
+          setOpen(true);
+        }}
+        className="rounded-lg bg-neutral-800 px-3 py-1.5 text-xs font-semibold hover:bg-neutral-700"
+      >
         Export
       </button>
       {open && (

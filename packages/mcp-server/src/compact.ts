@@ -94,9 +94,12 @@ export type ParamType = (typeof PARAM_TYPES)[number];
 export type ParamDef = { name: string; type: ParamType; default?: unknown };
 // ── end components ──
 const PARTICLES = "particles";
-const TYPES = [...SHAPES, "text", "image", "video", "path", "object", "text3d", PARTICLES, USE, SHADER];
+const TYPES = [...SHAPES, "text", "image", "video", "audio", "path", "object", "text3d", PARTICLES, USE, SHADER];
 // --- video clips: keys only `video` layers take (JSON names: in, out, speed, loop, volume) ---
 const VIDEO = "video";
+/** A sound clip on the timeline: the video clip's fields (src in out speed loop volume), never drawn. */
+const AUDIO = "audio";
+const isMedia = (type: string) => type === VIDEO || type === AUDIO;
 const VIDEO_NUM = ["in", "out", "speed", "volume"];
 const VIDEO_DEFAULTS: Record<string, number> = { in: 0, speed: 1, volume: 0 };
 // --- end video clips ---
@@ -605,7 +608,7 @@ export function parseLine(line: string, partial = false): Layer {
     else if (k === "g") layer.group = v;
     else if (PLAIN_NUM[k]) layer[PLAIN_NUM[k]] = plainNum(v, line);
     else if (VIDEO_NUM.includes(k) || k === "loop") {
-      if (type !== VIDEO) throw new Error(`'${k}=' is only for video layers: ${line}`);
+      if (!isMedia(type)) throw new Error(`'${k}=' is only for video and audio layers: ${line}`);
       if (k === "loop") layer.loop = v !== "0" && v !== "false";
       else layer[k] = num(v, line);
     }
@@ -749,7 +752,11 @@ export function parseLine(line: string, partial = false): Layer {
   if (keyLight) layer.lights = { key: keyLight, ...(layer.lights as Layer | undefined) };
   if (partial) return layer;
   if (type === PARTICLES) checkParticles(layer, line);
-  else if (type !== "path" && type !== USE && (layer.w === undefined || layer.h === undefined)) throw new Error(`w and h are required: ${line}`);
+  else if (type === AUDIO) {
+    // Never drawn: its box only needs to exist.
+    layer.w ??= 2;
+    layer.h ??= 2;
+  } else if (type !== "path" && type !== USE && (layer.w === undefined || layer.h === undefined)) throw new Error(`w and h are required: ${line}`);
   if (type === "path" && typeof layer.d !== "string") throw new Error(`path needs its "M… path data" in quotes (or ic=NAME:SIZE): ${line}`);
   if (type === SHADER && typeof layer.code !== "string") throw new Error(`shader needs its WGSL in quotes: "fn shade(uv: vec2f, px: vec2f) -> vec4f { … }": ${line}`);
   if (shaderFx && typeof shaderFx.code !== "string") throw new Error(`fx0..fx7 need the shader effect's code: fx="fn shade(uv: vec2f, px: vec2f) -> vec4f { … }": ${line}`);
@@ -1012,7 +1019,7 @@ export function formatLayer(l: Layer): string {
     }
     done.add("lights");
   }
-  if (type === VIDEO) {
+  if (isMedia(type)) {
     for (const k of VIDEO_NUM) {
       if (typeof l[k] === "number" && l[k] !== VIDEO_DEFAULTS[k]) parts.push(`${k}=${r3(l[k] as number)}`);
       if (typeof l[k] === "number") done.add(k);

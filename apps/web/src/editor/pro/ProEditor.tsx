@@ -121,7 +121,7 @@ export function ProEditor({ ed }: { ed: EditorProps }) {
         </nav>
         <ConnectAgent projectId={ed.id} />
         {project && <ScheduleButton ed={ed} />}
-        {project && <ExportButton name={project.name} audioUrl={project.audio ? mediaUrl(project.audio.url) : null} />}
+        {project && <ExportButton projectId={project.id} name={project.name} audioUrl={project.audio ? mediaUrl(project.audio.url) : null} />}
       </header>
 
       <div ref={body} className="flex min-h-0 flex-1 flex-col p-1">

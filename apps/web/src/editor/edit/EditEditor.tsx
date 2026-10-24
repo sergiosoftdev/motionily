@@ -114,7 +114,8 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
       const meta = e.metaKey || e.ctrlKey;
       let handled = true;
       if (meta && e.key.toLowerCase() === "z") (e.shiftKey ? ed2.redo() : ed2.undo());
-      else if (!meta && e.key.toLowerCase() === "s") o.split(sel?.kind === "clip" ? sel.clip : null);
+      // S, or ⌘B like Resolve's and Premiere's blade, cuts at the playhead.
+      else if ((!meta && e.key.toLowerCase() === "s") || (meta && e.key.toLowerCase() === "b")) o.split(sel?.kind === "clip" ? sel.clip : null);
       else if ((e.key === "Delete" || e.key === "Backspace") && sel) {
         o.remove(sel);
         setCue(null);
@@ -198,7 +199,7 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
         <ProjectTitle project={project} onRename={ed.rename} className="flex-1 rounded-md px-2 py-1 text-sm font-medium hover:bg-neutral-900 focus:bg-neutral-900" />
         <ModeSwitch mode={ed.mode} onChange={ed.setMode} className="bg-neutral-900" />
         {project && <ScheduleButton ed={ed} />}
-        {project && <ExportButton name={project.name} audioUrl={project.audio ? mediaUrl(project.audio.url) : null} />}
+        {project && <ExportButton projectId={project.id} name={project.name} audioUrl={project.audio ? mediaUrl(project.audio.url) : null} />}
       </header>
 
       <div className="flex min-h-0 flex-1 gap-3 px-3 pb-3">
@@ -212,10 +213,10 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
               <AttentionStrip g={ed.g} className="w-full max-w-xl" />
             </main>
           </div>
-          {/* As tall as its tracks, up to 40% of the screen: the preview keeps the rest. */}
-          <div className={`relative flex max-h-[40%] min-h-44 shrink-0 flex-col rounded-2xl ring-1 ring-white/[0.06] ${ModePiece.Timeline}`}>
+          {/* As tall as its tracks, up to 46% of the screen: the preview keeps the rest. */}
+          <div className={`relative flex max-h-[46%] min-h-52 shrink-0 flex-col rounded-2xl ring-1 ring-white/[0.06] ${ModePiece.Timeline}`}>
             <div className="flex items-center gap-1 px-3 py-1.5 text-xs">
-              <ToolButton label="Split" hint="S" onClick={() => ops.split(selection?.kind === "clip" ? selection.clip : null)} />
+              <ToolButton label="Split" hint="S · ⌘B" onClick={() => ops.split(selection?.kind === "clip" ? selection.clip : null)} />
               <ToolButton label="Delete" hint="⌫" disabled={!selection} onClick={() => selection && (ops.remove(selection), setCue(null), setMusicOn(false), setPicks(null))} />
               <ToolButton label="Undo" hint="⌘Z" disabled={!edits.canUndo} onClick={edits.undo} />
               <ToolButton label="Redo" hint="⇧⌘Z" disabled={!edits.canRedo} onClick={edits.redo} />

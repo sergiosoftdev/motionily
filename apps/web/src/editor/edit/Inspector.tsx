@@ -3,7 +3,8 @@ import { OpName } from "@motionily/protocol";
 import type { SfxCue } from "../../audio/sfxPlayer";
 import type { MusicTrack } from "../../audio/music";
 import type { EditSelection } from "./EditTimeline";
-import { ClipKind, type EditClip, type GraphicsBlock } from "./tracks";
+import { AUDIO_LAYER, ClipKind, freshId, type EditClip, type GraphicsBlock } from "./tracks";
+import { engineHost } from "../../engine/host";
 import type { EditActions } from "./useEditActions";
 import type { EditOps } from "./useEditOps";
 import { useAgentName } from "../../agentName";
@@ -172,6 +173,29 @@ function ClipInspector({ clip, ops, edits, clipIds }: { clip: EditClip; ops: Edi
               onChange={(v) => change([{ op: OpName.Patch, id: clip.id, fields: { volume: fadeKeys(v, len, fadeIn, fadeOut) } }])}
               onDone={() => done(`Volume of ${clip.id}`, true)}
             />
+          )}
+          {clip.kind === ClipKind.Video && (clip.volume > 0 || clip.volumeKeys) && (
+            <button
+              type="button"
+              onClick={() => {
+                // The sound goes to the audio track as its own clip (same window, speed and levels); the picture goes quiet.
+                const layers = (JSON.parse(engineHost.sceneJson()) as { layers: { id: string }[] }).layers;
+                const id = freshId(`${clip.id}_snd`, new Set(layers.map((l) => l.id)));
+                const [w, h] = engineHost.sceneSize();
+                const volume = clip.volumeKeys ?? clip.volume;
+                edits.apply(
+                  [
+                    { op: OpName.AddLayer, layer: { id, type: AUDIO_LAYER, src: clip.src, start: clip.start, end: clip.end, in: clip.in, ...(clip.out != null ? { out: clip.out } : {}), speed: clip.speed, volume, x: w / 2, y: h / 2, w: 2, h: 2 } },
+                    { op: OpName.Patch, id: clip.id, fields: { volume: 0 } },
+                  ],
+                  `Detaches the sound of ${clip.id}`,
+                  false,
+                );
+              }}
+              className="self-start rounded-md bg-neutral-800 px-2.5 py-1.5 text-xs hover:bg-neutral-700"
+            >
+              Detach audio to its own track
+            </button>
           )}
           <div className="grid grid-cols-2 gap-2">
             {([["Fade in", fadeIn, (v: number) => setFades(v, fadeOut)], ["Fade out", fadeOut, (v: number) => setFades(fadeIn, v)]] as const).map(([label, value, set]) => (

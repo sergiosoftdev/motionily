@@ -4,7 +4,7 @@
 id type start[-end] key=value… "text or path data" {optional JSON merged into the layer}
 ```
 - types: `rect | ellipse | text | image | video | path | object | text3d | particles | use | shader` (`use` = a component
-  instance, see Components; `shader` = custom WGSL, see Custom shaders; `video` = a clip, see Video clips). Scene pixels,
+  instance, see Components; `shader` = custom WGSL, see Custom shaders; `video` = a clip, see Video clips; `audio` = a sound clip, see Sound clips). Scene pixels,
   origin top-left, y down, x/y = the layer's CENTER.
   `w` and `h` are required (not for path). `end` defaults to the end of the video. Same id again = that layer is replaced.
 - frame size by format: 9:16 = 1080×1920 · 16:9 = 1920×1080 · 1:1 = 1080×1080 · 4:5 = 1080×1350.
@@ -263,6 +263,13 @@ badge shader .5 x=1500 y=300 w=320 h=320 s=0>1@0-.6:b fill=accent "fn shade(uv: 
   or `VIDEO failed to load: …`. `review_video` flags clips that fail to load, start past the file end, or run out and
   freeze while the layer is still on (fix: end the layer at `start + (out − in)/speed`, `loop=1`, or a lower speed).
 - Everything else works as on any layer: `rad`, effects, mattes (`matte=` a device screen), blend, camera, 3D planes.
+
+### Sound clips
+`id audio START-END src=/media/….mp3 in=S out=S speed=K loop=1 volume=V` — a sound on the timeline (music bed, a sound
+from the user's media pool, the detached sound of a video clip): the same `in`/`out`/`speed`/`loop`/`volume` (and volume
+keyframes) as a video clip, never drawn, no box needed. Like `video`, `volume` defaults to 0 = muted: write `volume=1`
+to hear it. It plays in the preview and the export mix; `ripple_delete` and splits cut it like a clip. Use
+`set_music` instead for one song under the whole video that ducks under the voice-over.
 
 ### Clip volume keyframes
 A video layer's `volume` also takes keyframes (seconds from the layer start, values 0..1, in time order), followed in the
