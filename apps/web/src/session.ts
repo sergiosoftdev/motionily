@@ -8,14 +8,14 @@ type Session = { token: string | null; user: User | null };
 type SessionStore = Session & { login: (s: { token: string; user: User }) => void; logout: () => void };
 
 function load(): Session {
-  // The desktop app signs its one local account in on every launch.
-  if (desktop?.session) return desktop.session;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw) as Session;
   } catch {
     // Storage blocked or corrupted: start logged out.
   }
+  // The desktop app signs its local account in until the user picks another (kept above across launches).
+  if (desktop?.session) return desktop.session;
   return { token: null, user: null };
 }
 
