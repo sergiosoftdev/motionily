@@ -9,6 +9,7 @@ import { EngineStatus, useEditor } from "../store";
 import { ClipSounds, VIDEO_LAYER, VideoLibrary, VideoStatus, clipSounds, type ClipSound, type ClipState, type FrameCache } from "./video";
 import { decodeMono, type AudioAnalysisInfo } from "./audioReactive";
 import { audioFileAt, type AudioTrack } from "../audio/track";
+import { nativeViewer } from "../native/viewer";
 
 /** A layer under the pointer (see `pickStack`). */
 export type PickHit = { id: string; cover: boolean };
@@ -496,10 +497,12 @@ class EngineHost {
     void sfxPlayer.start(useEditor.getState().time, this.sfxCues());
     this.lastTick = performance.now();
     this.raf = requestAnimationFrame(this.tick);
+    if (this.canvas) void nativeViewer.start(this.canvas, this.sceneJson(), this);
   }
 
   pause() {
     cancelAnimationFrame(this.raf);
+    nativeViewer.stop();
     this.audio?.pause();
     this.music.pause();
     this.sounds.stop();
@@ -535,7 +538,8 @@ class EngineHost {
       this.syncAudio(true);
       this.music.sync(from, true, this.speech);
       void sfxPlayer.start(from, this.sfxCues());
-      this.draw();
+      if (nativeViewer.active) nativeViewer.frame(from);
+      else this.draw();
       this.raf = requestAnimationFrame(this.tick);
       return;
     }
@@ -548,7 +552,9 @@ class EngineHost {
     useEditor.setState({ time: next });
     this.syncAudio(true);
     this.music.sync(next, true, this.speech);
-    this.draw();
+    // With the desktop app's native viewer on screen, it draws the frame instead of the canvas.
+    if (nativeViewer.active) nativeViewer.frame(next);
+    else this.draw();
     this.syncClipSounds(true);
     this.raf = requestAnimationFrame(this.tick);
   };

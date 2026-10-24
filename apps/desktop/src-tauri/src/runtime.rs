@@ -103,6 +103,7 @@ impl Api {
             .env("WEB_ORIGIN", web_origins)
             .env("PUBLIC_API_URL", &url)
             .env("MOTIONILY_DESKTOP", "1")
+            .env("MOTIONILY_PARENT_PID", std::process::id().to_string())
             .stdin(Stdio::null())
             .stdout(log.try_clone().map_err(|e| e.to_string())?)
             .stderr(log);

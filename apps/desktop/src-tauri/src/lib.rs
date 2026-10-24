@@ -5,6 +5,7 @@ mod assets;
 mod export;
 mod ffmpeg;
 mod runtime;
+mod viewer;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -137,6 +138,75 @@ fn export_cancel(native: tauri::State<'_, Native>) {
     native.cancel.store(true, Ordering::Relaxed);
 }
 
+thread_local! {
+    /// The playback viewer lives on the main thread (AppKit views are not Send); sync commands run there.
+    static VIEWER: std::cell::RefCell<Option<viewer::Viewer>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Whether this system has the native playback viewer (macOS for now).
+#[tauri::command]
+fn viewer_supported() -> bool {
+    viewer::Viewer::SUPPORTED
+}
+
+/// Puts the viewer over the preview canvas at `rect` with `scene_json` loaded; returns the GPU it draws on.
+#[tauri::command]
+#[allow(unused_variables)]
+fn viewer_show(window: tauri::WebviewWindow, native: tauri::State<'_, Native>, rect: viewer::Rect, scene_json: String) -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let assets = native.assets.lock().map_err(|e| e.to_string())?;
+        VIEWER.with(|v| {
+            let mut v = v.borrow_mut();
+            if v.is_none() {
+                let content = window.ns_view().map_err(|e| e.to_string())?;
+                *v = Some(viewer::Viewer::new(content, rect, ffmpeg::Clips::new(native.tools.clone(), native.resolver()))?);
+            }
+            let viewer = v.as_mut().expect("created above");
+            viewer.place(rect);
+            viewer.sync_assets(&assets);
+            viewer.load_scene(&scene_json)?;
+            viewer.set_hidden(false);
+            eprintln!("[motionily] native viewer on {} at {:.0}x{:.0}@{}x", viewer.adapter(), rect.width, rect.height, rect.scale);
+            Ok(viewer.adapter().to_string())
+        })
+    }
+    #[cfg(not(target_os = "macos"))]
+    Err("the native viewer is not available on this system".into())
+}
+
+/// Moves the viewer with the canvas.
+#[tauri::command]
+#[allow(unused_variables)]
+fn viewer_place(rect: viewer::Rect) {
+    #[cfg(target_os = "macos")]
+    VIEWER.with(|v| {
+        if let Some(v) = v.borrow_mut().as_mut() {
+            v.place(rect);
+        }
+    });
+}
+
+/// Draws the frame at `t` seconds.
+#[tauri::command]
+#[allow(unused_variables)]
+fn viewer_frame(t: f32) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    return VIEWER.with(|v| v.borrow_mut().as_mut().map_or(Ok(()), |v| v.render(t)));
+    #[cfg(not(target_os = "macos"))]
+    Ok(())
+}
+
+#[tauri::command]
+fn viewer_hide() {
+    #[cfg(target_os = "macos")]
+    VIEWER.with(|v| {
+        if let Some(v) = v.borrow().as_ref() {
+            v.set_hidden(true);
+        }
+    });
+}
+
 /// Shows a written file in Finder / Explorer / the file manager.
 #[tauri::command]
 fn reveal(path: String) -> Result<(), String> {
@@ -190,8 +260,17 @@ pub fn run() {
             let resources = app.path().resource_dir().ok();
             let layout = runtime::Layout::find(resources.as_deref());
             let api = layout.as_ref().map_err(String::clone).and_then(|l| runtime::Api::start(l, &data, WEB_ORIGINS));
-            let script = desktop_script(api.as_ref().map_err(String::as_str), layout.as_ref().ok());
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+            #[allow(unused_mut)]
+            let mut script = desktop_script(api.as_ref().map_err(String::as_str), layout.as_ref().ok());
+            // Development builds only: extra JS for automated checks (e.g. start playback and screenshot).
+            #[cfg(debug_assertions)]
+            if let Ok(js) = std::env::var("MOTIONILY_DEV_EVAL") {
+                script.push_str(&js);
+            }
+            // `--open /p/<id>` (or MOTIONILY_OPEN) starts on that screen of the editor.
+            let route = std::env::args().skip_while(|a| a != "--open").nth(1).or_else(|| std::env::var("MOTIONILY_OPEN").ok());
+            let page = route.map_or_else(|| "index.html".to_string(), |r| format!("index.html#{}", r.trim_start_matches('#')));
+            WebviewWindowBuilder::new(app, "main", WebviewUrl::App(page.into()))
                 .title("Motionily")
                 .inner_size(1440.0, 900.0)
                 .min_inner_size(1024.0, 680.0)
@@ -209,7 +288,7 @@ pub fn run() {
             app.manage(Runtime(Mutex::new(api.ok())));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![engine_add_asset, engine_missing_assets, engine_audio_analysis, export_audio, export_video, export_cancel, reveal])
+        .invoke_handler(tauri::generate_handler![engine_add_asset, engine_missing_assets, engine_audio_analysis, export_audio, export_video, export_cancel, reveal, viewer_supported, viewer_show, viewer_place, viewer_frame, viewer_hide])
         .build(tauri::generate_context!())
         .expect("error while building Motionily");
     app.run(|handle, event| {
