@@ -1,6 +1,7 @@
 import init, { Engine, analyzeAudio, captionStyles, checkSceneShaders, clearAudioAnalysis, stylePalettes, stylePresets } from "./pkg/engine_wasm.js";
 import type { Loudness, Mix } from "@motionily/protocol";
 import { audioBus } from "../audio/bus";
+import { VoicePlayer } from "../audio/voice";
 import { measureLoudness } from "../audio/loudness";
 import { mixAudio } from "../export/exportVideo";
 import { MusicPlayer, speechInFile, speechSpans, voiceOnTimeline, type MusicTrack, type SpeechSpan } from "../audio/music";
@@ -12,7 +13,7 @@ import { mediaUrl } from "../api/client";
 import { ActivitySource, EngineStatus, logActivity, useEditor } from "../store";
 import { ClipSounds, VIDEO_LAYER, VideoLibrary, VideoStatus, clipSounds, type ClipSound, type ClipState, type FrameCache } from "./video";
 import { decodeMono, type AudioAnalysisInfo } from "./audioReactive";
-import { audioFileAt, type AudioTrack } from "../audio/track";
+import type { AudioTrack } from "../audio/track";
 import { nativeViewer } from "../native/viewer";
 
 /** A layer under the pointer (see `pickStack`). */
@@ -87,8 +88,6 @@ type SceneMeta = {
   mix?: Mix | null;
 };
 
-/** Audio drift (s) tolerated before re-syncing it to the video clock. */
-const AUDIO_DRIFT = 0.15;
 
 /**
  * Owns the Rust engine and the playback loop, outside React. React only reads
@@ -118,7 +117,8 @@ class EngineHost {
   private imageCache = new Map<string, Promise<Pixels | null>>();
 
   /** Voice-over/music played in sync with the preview (not saved yet). */
-  private audio: HTMLAudioElement | null = null;
+  /** The voice-over, played through the mix bus from decoded audio. */
+  private voice = new VoicePlayer();
   private audioUrl: string | null = null;
   /** Analysis of `audioUrl` for audio-reactive expressions; resolves once installed in the engine. */
   private audioAnalysis: Promise<void> = Promise.resolve();
@@ -459,8 +459,7 @@ class EngineHost {
   setAudio(url: string | null): Promise<void> {
     if (url === this.audioUrl) return this.audioAnalysis;
     this.audioUrl = url;
-    this.audio?.pause();
-    this.audio = url ? audioBus.element(url) : null;
+    this.voice.load(url);
     this.audioInfo = null;
     this.audioAnalysis = this.analyzeAudio(url);
     return this.audioAnalysis;
@@ -575,7 +574,7 @@ class EngineHost {
   }
 
   private silence() {
-    this.audio?.pause();
+    this.voice.stop();
     this.music.pause();
     this.sounds.stop();
     sfxPlayer.stop();
@@ -602,7 +601,7 @@ class EngineHost {
     this.rate = 1;
     cancelAnimationFrame(this.raf);
     nativeViewer.stop();
-    this.audio?.pause();
+    this.voice.stop();
     this.music.pause();
     this.sounds.stop();
     sfxPlayer.stop();
@@ -674,20 +673,9 @@ class EngineHost {
     this.sounds.sync(JSON.parse(this.engine.videoClips(useEditor.getState().time)) as ClipState[], playing);
   }
 
-  /** Keep the audio element on the timeline: play inside its trimmed window, silent outside. */
+  /** Keep the voice-over on the timeline (scheduled from the playhead, rescheduled after a jump). */
   private syncAudio(playing: boolean) {
-    const a = this.audio;
-    if (!a) return;
-    const t = useEditor.getState().time;
-    // Cuts make the file jump: the drift check below seeks across them.
-    const fileTime = audioFileAt(this.audioTrack, t, Number.isFinite(a.duration) ? a.duration : Infinity);
-    if (fileTime === null) {
-      if (!a.paused) a.pause();
-      return;
-    }
-    if (Math.abs(a.currentTime - fileTime) > AUDIO_DRIFT) a.currentTime = fileTime;
-    if (playing && a.paused) void a.play();
-    if (!playing && !a.paused) a.pause();
+    this.voice.sync(useEditor.getState().time, playing, this.audioTrack);
   }
 
   /** Render the exact frame at `t` (video frames decoded, audio analysed) into the canvas. */
