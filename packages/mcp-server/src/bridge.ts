@@ -2,23 +2,14 @@ import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
 import type { HeadlessEditor } from "./headless.js";
 import { NO_PROJECT } from "./api.js";
-import {
-  BRIDGE_PATH,
-  BridgeClose,
-  BridgeRole,
-  EditorMessageType,
-  HubMessageType,
-  ServerMessageType,
-  type EditorMessage,
-  type HubMessage,
-  type Op,
-  type ServerMessage,
-} from "@motionily/protocol";
+import { BRIDGE_PATH, BridgeClose, BridgeRole, EditorMessageType, HubMessageType, ServerMessageType, type EditorMessage, type HubMessage, type Op, type ServerMessage, type Output } from "@motionily/protocol";
 
 const REQUEST_TIMEOUT_MS = 15_000;
 /** How long to wait for the headless editor to boot (wasm, fonts, models). */
 const HEADLESS_BOOT_MS = 40_000;
 const REVIEW_TIMEOUT_MS = 60_000;
+/** A long or 4K export can take a while. */
+const EXPORT_TIMEOUT_MS = 60 * 60_000;
 /** A page reload closes the editor for a few seconds: wait for it before opening our own. */
 const RELOAD_GRACE_MS = 10_000;
 const RECONNECT_MS = 2_000;
@@ -38,6 +29,18 @@ export class EditorBridge {
   private pending = new Map<string, Pending>();
   private summary = "";
   private scene: string | null = null;
+
+  /** The scene as the editor last reported it (null before any editor attached). */
+  get currentScene(): string | null {
+    return this.scene;
+  }
+
+  /** The editor's scene right now (waits for an editor, then asks it: an empty batch answers with the scene). */
+  async freshScene(): Promise<string> {
+    const res = await this.applyOps([]);
+    if (!res.ok) throw new Error(res.error ?? "the editor did not answer");
+    return this.scene ?? "{}";
+  }
 
   /** Opens an invisible editor when the user has none open; set by the server. */
   headless: HeadlessEditor | null = null;
@@ -96,6 +99,11 @@ export class EditorBridge {
 
   review(frames: number) {
     return this.request({ type: ServerMessageType.Review, requestId: randomUUID(), projectId: this.projectId, frames }, REVIEW_TIMEOUT_MS);
+  }
+
+  /** Export with the scene's output settings (and these overrides); the result carries `file` or `url`. */
+  exportVideo(output?: Partial<Output>) {
+    return this.request({ type: ServerMessageType.Export, requestId: randomUUID(), projectId: this.projectId, output }, EXPORT_TIMEOUT_MS);
   }
 
   layout(times: number[]) {

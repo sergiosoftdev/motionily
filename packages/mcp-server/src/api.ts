@@ -159,6 +159,11 @@ export class ProjectApi {
     return this.call<Feedback[]>("POST", "/feedback/consume");
   }
 
+  /** Any route of this video (`path` after /projects/:id): the editor-pro tools (studio.ts) use it. */
+  route<T>(method: string, path: string, body?: unknown): Promise<T> {
+    return this.call<T>(method, path, body);
+  }
+
   private call<T>(method: string, path: string, body?: unknown): Promise<T> {
     if (!this.projectId) return Promise.reject(new Error(NO_PROJECT));
     return request<T>(this.baseUrl, this.token, method, `/projects/${this.projectId}${path}`, body);

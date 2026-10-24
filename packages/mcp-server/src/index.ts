@@ -41,6 +41,7 @@ import { attentionReport } from "./attention.js";
 import { LOG_CHARS, runScript, type HostApi } from "./sandbox.js";
 import { attentionCurve, attentionIssues, attentionSparkline } from "@motionily/protocol";
 import { buildEdit, DEFAULT_EDIT, FOOTAGE_GROUP, footageLines, parseSegments, transcriptLines } from "./footage.js";
+import { mediaLines, registerStudioTools } from "./studio.js";
 import { svgToVector } from "./svg.js";
 import { vectorLines, VectorSplit } from "./vectorize.js";
 import { MapProjection, mapLines } from "./maps.js";
@@ -177,12 +178,25 @@ server.registerTool(
     inputSchema: {},
   },
   guard(async () => {
-    const project = describeProject(await api.project());
+    const p = await api.project();
+    // The media pool (clips, sounds, pictures) is part of what the agent can work with, as it is for the user.
+    const media = await api.route<import("@motionily/protocol").MediaItem[]>("GET", "/media").catch(() => []);
+    const project = `${describeProject(p)}\n\n${mediaLines(p, media, bridge.currentScene)}`;
     if (manualSent) return text(project);
     manualSent = true;
     return text(`${project}\n\n---\n\n${MANUAL}`);
   }),
 );
+
+// Editor-pro tools (media pool, export, project folders, looks): studio.ts.
+registerStudioTools(server as never, {
+  api: () => api,
+  bridge: () => bridge,
+  guard: guard as never,
+  text,
+  openVideo: account ? (id: string) => openVideo(id) : null,
+  accountCall: account ? <T,>(method: string, path: string, body?: unknown) => fetch(`${apiUrl}${path}`, { method, headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) }).then(async (r) => { const j = (await r.json().catch(() => ({}))) as T & { message?: string }; if (!r.ok) throw new Error(j.message ?? r.statusText); return j; }) : null,
+});
 
 const FormatEnum = z.enum(Object.values(VideoFormat) as [VideoFormat, ...VideoFormat[]]);
 const openedText = async (p: Project) => {

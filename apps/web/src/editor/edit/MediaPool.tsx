@@ -34,13 +34,14 @@ export function readPoolDrop(e: DragEvent): PoolDrop | null {
 }
 
 /** The video's sounds and pictures, kept in sync with the API. */
-export function useMediaPool(projectId: string | undefined) {
+export function useMediaPool(projectId: string | undefined, version?: string) {
   const [items, setItems] = useState<MediaItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     if (projectId) api.projectMedia(projectId).then(setItems, () => setItems([]));
-  }, [projectId]);
+    // `version` (the project's updatedAt) changes when an agent imports or removes media.
+  }, [projectId, version]);
   const upload = useCallback(
     async (files: File[]) => {
       if (!projectId || !files.length) return [];

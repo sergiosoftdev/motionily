@@ -5,6 +5,8 @@ import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
 import request from "supertest";
 import sharp from "sharp";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { testDatabase } from "./db";
 import { AppModule } from "../src/app.module";
 import { configureApp } from "../src/setup";
@@ -72,5 +74,30 @@ describe("media pool", () => {
     await http.delete(`${base}/m1`).set(auth).expect(200);
     assert.deepEqual((await http.get(base).set(auth).expect(200)).body.map((m: { id: string }) => m.id), ["m2"]);
     await http.delete(`${base}/m1`).set(auth).expect(404);
+  });
+
+  it("lets the video's agent import from a URL, and keeps account tokens out", async () => {
+    const login = await http.post("/auth/mock-google").send({ email: "pool-agent@motionily.local" }).expect(201);
+    const auth = { Authorization: `Bearer ${login.body.token as string}` };
+    const project = await http.post("/projects").set(auth).send({ name: "Agent pool", format: "square_1_1" }).expect(201);
+    const pid = project.body.id as string;
+    const agent = await http.post(`/projects/${pid}/agent-token`).set(auth).expect(201);
+    const asAgent = { Authorization: `Bearer ${agent.body.token as string}` };
+    const server = createServer((_req, res) => {
+      res.writeHead(200, { "content-type": "audio/wav" });
+      res.end(wav(1));
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    try {
+      const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/hit.wav`;
+      const item = await http.post(`/projects/${pid}/media/import`).set(asAgent).send({ source: url }).expect(201);
+      assert.deepEqual([item.body.kind, item.body.name], ["audio", "hit.wav"]);
+      await http.post(`/projects/${pid}/media/import`).set(asAgent).send({ source: "/etc/hosts" }).expect(400);
+      await http.post(`/projects/${pid}/media/import`).set(asAgent).send({ source: "ftp://x/y.wav" }).expect(400);
+      const account = await http.post("/auth/agent-token").set(auth).expect(201);
+      await http.get(`/projects/${pid}/media`).set({ Authorization: `Bearer ${account.body.token as string}` }).expect(403);
+    } finally {
+      server.close();
+    }
   });
 });

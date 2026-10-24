@@ -35,6 +35,8 @@ const ACCOUNT_ROUTES: { method: string; path: RegExp }[] = [
   { method: "POST", path: /^\/projects$/ },
   { method: "GET", path: /^\/brands$/ },
   { method: "POST", path: /^\/projects\/[^/]+\/agent-token$/ },
+  // Desktop app: open a project folder as a new video (the folder controller checks the rest).
+  { method: "POST", path: /^\/projects\/import-folder$/ },
 ];
 
 export type JwtPayload = { sub: string; email: string; scope?: TokenScope; projectId?: string };

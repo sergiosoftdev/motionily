@@ -1,13 +1,4 @@
-import {
-  BRIDGE_PATH,
-  BridgeClose,
-  BridgeRole,
-  HEADLESS_PARAM,
-  EditorMessageType,
-  ServerMessageType,
-  type EditorMessage,
-  type ServerMessage,
-} from "@motionily/protocol";
+import { BRIDGE_PATH, BridgeClose, BridgeRole, HEADLESS_PARAM, EditorMessageType, ServerMessageType, type EditorMessage, type ServerMessage, type Output } from "@motionily/protocol";
 import { API_URL } from "./api/client";
 import { presetViolation, scenePresetViolation } from "./agentRules";
 import { engineHost } from "./engine/host";
@@ -32,6 +23,8 @@ class AgentBridge {
   private retry: ReturnType<typeof setTimeout> | undefined;
   /** Called when the agent changes project settings, so the editor reloads them. */
   onProjectChanged: (() => void) | null = null;
+  /** The editor screen exports for an agent (it knows the project's name and audio). */
+  onExport: ((output: Partial<Output> | undefined) => Promise<{ file?: string; url?: string }>) | null = null;
 
   /** Connect for the project open in the editor (`null` disconnects). */
   setProject(id: string | null) {
@@ -102,6 +95,19 @@ class AgentBridge {
         }, (e: unknown) => this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error: String(e) }));
         return;
       }
+      case ServerMessageType.Export: {
+        const run = this.onExport;
+        if (!run) {
+          this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error: "This editor cannot export right now (open the video in the editor)." });
+          return;
+        }
+        logActivity(ActivitySource.Agent, "Exports the video");
+        void run(msg.output).then(
+          (r) => this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, ...r }),
+          (e: unknown) => this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error: e instanceof Error ? e.message : String(e) }),
+        );
+        return;
+      }
       case ServerMessageType.Layout: {
         const layouts = engineHost.layout(msg.times.slice(0, MAX_LAYOUT_TIMES));
         this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, layouts });
@@ -125,7 +131,8 @@ class AgentBridge {
             if (why) throw new Error(why);
           }
           engineHost.applyOps(msg.ops);
-          logActivity(ActivitySource.Agent, describeOps(msg.ops.map((o) => o.op)));
+          // An empty batch is an agent asking for the current scene: nothing to log.
+          if (msg.ops.length) logActivity(ActivitySource.Agent, describeOps(msg.ops.map((o) => o.op)));
           break;
         case ServerMessageType.LoadScene: {
           const why = scenePresetViolation(JSON.parse(msg.scene) as Record<string, unknown>);

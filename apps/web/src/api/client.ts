@@ -180,6 +180,7 @@ export const api = {
   /** Background music for the video (replaces the previous file). */
   uploadMusic: (id: string, file: File) => upload<Project>(`/projects/${id}/music`, file),
   /** The user's own clip to edit; `language` is what is spoken in it (ISO 639-1). */
+  uploadRender: (id: string, file: File) => upload<{ url: string; size: number }>(`/projects/${id}/renders`, file),
   projectMedia: (id: string) => call<MediaItem[]>(HttpMethod.Get, `/projects/${id}/media`),
   uploadMedia: (id: string, file: File) => upload<MediaItem>(`/projects/${id}/media`, file),
   removeMedia: (id: string, mediaId: string) => call<{ ok: true }>(HttpMethod.Delete, `/projects/${id}/media/${mediaId}`),

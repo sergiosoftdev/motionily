@@ -1,4 +1,4 @@
-import { OpName, type Op } from "@motionily/protocol";
+import { GRADE_NEUTRAL, LOOKS, OpName, effectsWithGrade, type Op } from "@motionily/protocol";
 
 /** The engine's color effect (`{"fx":"color", …}`, crates/scene/src/paint.rs). */
 export const COLOR_FX = "color";
@@ -18,6 +18,7 @@ export const GradeField = {
 export type GradeField = (typeof GradeField)[keyof typeof GradeField];
 
 export type Grade = Record<GradeField, number>;
+// The field names match GRADE_NEUTRAL in @motionily/protocol (shared with agents).
 
 type FieldSpec = { label: string; neutral: number; min: number; max: number; step: number; format: (v: number) => string };
 
@@ -43,20 +44,10 @@ export const GRADE_GROUPS: { title: string; fields: GradeField[] }[] = [
   { title: "Effects", fields: [GradeField.Vignette] },
 ];
 
-export const NEUTRAL_GRADE = Object.fromEntries(Object.entries(GRADE_FIELDS).map(([k, f]) => [k, f.neutral])) as Grade;
+export const NEUTRAL_GRADE: Grade = { ...GRADE_NEUTRAL };
 
-/** Looks, as plain grades: a preset is a starting point the sliders then refine. */
-export const GRADE_PRESETS: { name: string; grade: Partial<Grade> }[] = [
-  { name: "Natural", grade: {} },
-  { name: "Warm", grade: { temperature: 0.35, vibrance: 0.15, highlights: -0.1 } },
-  { name: "Cool", grade: { temperature: -0.35, tint: -0.05, contrast: 1.05 } },
-  { name: "Cinematic", grade: { contrast: 1.15, highlights: -0.25, shadows: -0.1, temperature: -0.12, saturation: 0.9, vignette: 0.3 } },
-  { name: "Punchy", grade: { contrast: 1.2, vibrance: 0.4, saturation: 1.1, shadows: -0.1 } },
-  { name: "Faded", grade: { contrast: 0.85, shadows: 0.3, saturation: 0.8, highlights: -0.15 } },
-  { name: "Vintage", grade: { temperature: 0.3, tint: 0.08, saturation: 0.75, contrast: 0.92, shadows: 0.2, vignette: 0.35 } },
-  { name: "Moody", grade: { exposure: -0.3, contrast: 1.15, saturation: 0.75, temperature: -0.15, vignette: 0.45 } },
-  { name: "B&W", grade: { saturation: 0, contrast: 1.2, vignette: 0.2 } },
-];
+/** Looks, shared with agents (`apply_look`) through @motionily/protocol. */
+export const GRADE_PRESETS = LOOKS;
 
 type Effect = Record<string, unknown> & { fx?: string };
 
@@ -75,10 +66,7 @@ export function readGrade(layer: Record<string, unknown> | undefined): { grade: 
 
 /** The layer's effects with its color effect set to `grade` (dropped when neutral); other effects stay. */
 export function withGrade(layer: Record<string, unknown> | undefined, grade: Grade): Effect[] {
-  const others = ((layer?.effects as Effect[] | undefined) ?? []).filter((e) => e.fx !== COLOR_FX);
-  const changed = Object.values(GradeField).filter((f) => Math.abs(grade[f] - GRADE_FIELDS[f].neutral) > 1e-4);
-  if (!changed.length) return others;
-  return [...others, { fx: COLOR_FX, ...Object.fromEntries(changed.map((f) => [f, Math.round(grade[f] * 1000) / 1000])) }];
+  return effectsWithGrade(layer?.effects as unknown[] | undefined, grade) as Effect[];
 }
 
 /** Ops that give each layer `grade`. */

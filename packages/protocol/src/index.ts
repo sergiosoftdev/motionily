@@ -87,6 +87,8 @@ export const ServerMessageType = {
   Review: "review",
   /** Where every layer lands on screen at some instants (numbers, no pixels). */
   Layout: "layout",
+  /** Export the video with the scene's output settings (overrides optional); answers with the file. */
+  Export: "export",
 } as const;
 export type ServerMessageType = (typeof ServerMessageType)[keyof typeof ServerMessageType];
 
@@ -99,7 +101,8 @@ export type ServerMessage =
   | { type: typeof ServerMessageType.ProjectChanged; projectId: string }
   | { type: typeof ServerMessageType.RenderFrames; requestId: string; projectId: string; times: number[]; width?: number }
   | { type: typeof ServerMessageType.Review; requestId: string; projectId: string; frames: number }
-  | { type: typeof ServerMessageType.Layout; requestId: string; projectId: string; times: number[] };
+  | { type: typeof ServerMessageType.Layout; requestId: string; projectId: string; times: number[] }
+  | { type: typeof ServerMessageType.Export; requestId: string; projectId: string; output?: Partial<Output> };
 
 /** One layer as it lands on screen (engine `Scene::layout`). */
 export type LayoutRow = {
@@ -170,6 +173,9 @@ export type EditorMessage =
       images?: string[];
       review?: ReviewReport;
       layouts?: FrameLayout[];
+      /** export: where the file was written (desktop app) or its /media URL (browser editor). */
+      file?: string;
+      url?: string;
     }
   | { type: typeof EditorMessageType.SceneChanged; projectId: string; scene: string; summary: string };
 
@@ -252,6 +258,32 @@ export type Output = { short_side: number; codec: OutputCodec; range?: [number, 
 export const DEFAULT_OUTPUT: Output = { short_side: 1080, codec: OutputCodec.H264 };
 export type SetOutputOp = { op: typeof OpName.SetOutput; output: Output | null };
 export type SetFpsOp = { op: typeof OpName.SetFps; fps: number };
+
+/** Grade fields of the engine's `color` effect the editor and agents set, with their neutral values. */
+export const GRADE_NEUTRAL = { exposure: 0, contrast: 1, highlights: 0, shadows: 0, temperature: 0, tint: 0, saturation: 1, vibrance: 0, vignette: 0 } as const;
+export type GradeField = keyof typeof GRADE_NEUTRAL;
+export type Grade = Record<GradeField, number>;
+
+/** Looks: plain grades that a person (Color tab) or an agent (`apply_look`) applies, then refines. */
+export const LOOKS: { name: string; grade: Partial<Grade> }[] = [
+  { name: "Natural", grade: {} },
+  { name: "Warm", grade: { temperature: 0.35, vibrance: 0.15, highlights: -0.1 } },
+  { name: "Cool", grade: { temperature: -0.35, tint: -0.05, contrast: 1.05 } },
+  { name: "Cinematic", grade: { contrast: 1.15, highlights: -0.25, shadows: -0.1, temperature: -0.12, saturation: 0.9, vignette: 0.3 } },
+  { name: "Punchy", grade: { contrast: 1.2, vibrance: 0.4, saturation: 1.1, shadows: -0.1 } },
+  { name: "Faded", grade: { contrast: 0.85, shadows: 0.3, saturation: 0.8, highlights: -0.15 } },
+  { name: "Vintage", grade: { temperature: 0.3, tint: 0.08, saturation: 0.75, contrast: 0.92, shadows: 0.2, vignette: 0.35 } },
+  { name: "Moody", grade: { exposure: -0.3, contrast: 1.15, saturation: 0.75, temperature: -0.15, vignette: 0.45 } },
+  { name: "B&W", grade: { saturation: 0, contrast: 1.2, vignette: 0.2 } },
+];
+
+/** A layer's `effects` with its color effect replaced by `grade` (dropped when neutral); other effects stay. */
+export function effectsWithGrade(effects: unknown[] | undefined, grade: Grade): Record<string, unknown>[] {
+  const others = ((effects ?? []) as Record<string, unknown>[]).filter((e) => e.fx !== "color");
+  const changed = (Object.keys(GRADE_NEUTRAL) as GradeField[]).filter((f) => Math.abs(grade[f] - GRADE_NEUTRAL[f]) > 1e-4);
+  if (!changed.length) return others;
+  return [...others, { fx: "color", ...Object.fromEntries(changed.map((f) => [f, Math.round(grade[f] * 1000) / 1000])) }];
+}
 
 /** `id` is the new instance layer; it spans the layers' time range at the topmost one's stacking position. */
 export type PrecomposeOp = { op: typeof OpName.Precompose; ids: string[]; component: string; id: string };

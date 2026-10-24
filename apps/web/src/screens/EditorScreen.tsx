@@ -1,3 +1,7 @@
+import { sceneOutput } from "../export/resolution";
+import { exportNative } from "../export/nativeExport";
+import { renderCurrentScene } from "../export/renderScene";
+import { desktop } from "../desktop";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FORMAT_SIZE, OpName, type VideoFormat, type Brick, type Build, type Op, type Project } from "@motionily/protocol";
 import { api, ApiError, mediaUrl } from "../api/client";
@@ -83,6 +87,32 @@ export function EditorScreen({ id }: { id: string }) {
       engineHost.unmount();
     };
   }, [id]);
+
+  // An agent asked for the finished file: the scene's output settings (with its overrides), rendered
+  // natively in the desktop app or in the browser (then uploaded so the agent gets a URL).
+  const latestProject = useRef(project);
+  latestProject.current = project;
+  useEffect(() => {
+    agentBridge.onExport = async (override) => {
+      const p = latestProject.current;
+      if (!p) throw new Error("the project is still loading");
+      const o = { ...sceneOutput(), ...(override ?? {}) };
+      const audioUrl = p.audio ? mediaUrl(p.audio.url) : null;
+      const signal = new AbortController().signal;
+      if (desktop) {
+        const file = await exportNative({ name: p.name, shortSide: o.short_side, codec: o.codec, range: o.range ?? null, supersample: o.short_side <= 1080, audioUrl, onProgress: () => undefined, signal });
+        logActivity(ActivitySource.Agent, `Exported ${file.split(/[\\/]/).pop()}`);
+        return { file };
+      }
+      const res = await renderCurrentScene({ shortSide: Math.min(o.short_side, 1080), range: o.range ?? null, audioUrl, onProgress: () => undefined, signal });
+      const up = await api.uploadRender(p.id, new File([res.blob], `${p.name || "motionily"}.${res.extension}`, { type: res.blob.type }));
+      logActivity(ActivitySource.Agent, "Exported the video");
+      return { url: mediaUrl(up.url) };
+    };
+    return () => {
+      agentBridge.onExport = null;
+    };
+  }, []);
 
   // The agent changed options or format: reload the project and re-apply them to the engine.
   useEffect(() => {

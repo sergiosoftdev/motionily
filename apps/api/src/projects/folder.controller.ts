@@ -42,16 +42,17 @@ export class ProjectFolderController {
     @InjectModel(Project.name) private readonly model: Model<Project>,
   ) {}
 
-  private guard(user: AuthUser, path: string) {
+  /** Desktop only, absolute paths; the user, the video's own agent (save) or an account agent (open) — never the headless editor. */
+  private guard(user: AuthUser, path: string, allowed: TokenScope[]) {
     if (process.env.MOTIONILY_DESKTOP !== "1") throw new ForbiddenException("project folders are available in the desktop app");
-    if (user.scope && user.scope !== TokenScope.User) throw new ForbiddenException("only the user can do this");
+    if (!allowed.includes(user.scope ?? TokenScope.User)) throw new ForbiddenException("this token cannot do that");
     if (!isAbsolute(path)) throw new BadRequestException("the folder must be an absolute path");
   }
 
   /** Writes the project into `<path>/<name>.motionily/` (numbered when taken); returns that folder. */
   @Post(":id/folder")
   async save(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: FolderDto) {
-    this.guard(user, dto.path);
+    this.guard(user, dto.path, [TokenScope.User, TokenScope.Agent]);
     const project = (await this.projects.get(user.id, id)).toObject();
     const kept = Object.fromEntries(KEPT_FIELDS.map((k) => [k, project[k]]));
     const safe = project.name.replace(/[\\/:*?"<>|]/g, "-").trim() || "Motionily video";
@@ -67,7 +68,7 @@ export class ProjectFolderController {
   /** Opens a `.motionily` folder as a new project in the user's default brand kit. */
   @Post("import-folder")
   async open(@CurrentUser() user: AuthUser, @Body() dto: FolderDto) {
-    this.guard(user, dto.path);
+    this.guard(user, dto.path, [TokenScope.User, TokenScope.Account]);
     const manifest = join(dto.path, MANIFEST);
     if (!existsSync(manifest)) throw new BadRequestException(`${basename(dto.path)} is not a Motionily project folder (no ${MANIFEST})`);
     let data: { motionily?: number; project?: Record<string, unknown> };
