@@ -20,10 +20,10 @@ import { ClaudePanel } from "./ClaudePanel";
 import { EditTimeline, EditTool, LaneTrack, pickCount, type EditSelection, type Picks } from "./EditTimeline";
 import { Inspector } from "./Inspector";
 import { mmss, useClipUpload, useMusicUpload } from "./MediaPanel";
-import { MediaPool, useMediaPool, type PoolDrop } from "./MediaPool";
+import { MediaPool, PoolEdit, useMediaPool, type PoolDrop } from "./MediaPool";
 import { ProjectInspector } from "./ProjectInspector";
 import { SidePanel } from "./SidePanel";
-import { AUDIO_LAYER, FOOTAGE_GROUP, appendClipOps, editTracks, freshId, placeMediaOps, reframeClipOps } from "./tracks";
+import { AUDIO_LAYER, ClipKind, FOOTAGE_GROUP, appendClipOps, clipLayer, editTracks, freshId, mediaLayer, placeMediaOps, reframeClipOps } from "./tracks";
 import { ActivitySource, logActivity } from "../../store";
 import { useEditActions } from "./useEditActions";
 import { useEditOps } from "./useEditOps";
@@ -107,15 +107,27 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
 
   // S splits, Delete removes (closing the gap on the main track), ⌘Z / ⇧⌘Z undo and redo. Captured
   // first, so the canvas selection's own Delete never runs on top of it.
-  const latest = useRef({ selection, ops, edits });
-  latest.current = { selection, ops, edits };
+  const latest = useRef({ selection, ops, edits, place: (_m: PoolEdit) => undefined as void });
+  latest.current = { selection, ops, edits, place: (m: PoolEdit) => placeFromPool(m) };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (typing(e.target)) return;
       const { selection: sel, ops: o, edits: ed2 } = latest.current;
       const meta = e.metaKey || e.ctrlKey;
       let handled = true;
+      const t = useEditor.getState().time;
+      const wa = (JSON.parse(engineHost.sceneJson()) as { work_area?: [number, number] | null }).work_area ?? null;
+      const dur = useEditor.getState().duration;
       if (meta && e.key.toLowerCase() === "z") (e.shiftKey ? ed2.redo() : ed2.undo());
+      else if (!meta && !e.altKey && e.key.toLowerCase() === "i") ed2.apply([{ op: OpName.SetWorkArea, work_area: [t, Math.max(wa?.[1] ?? dur, t + 0.1)] }], `Mark in at ${t.toFixed(2)} s`, false);
+      else if (!meta && !e.altKey && e.key.toLowerCase() === "o") ed2.apply([{ op: OpName.SetWorkArea, work_area: [Math.min(wa?.[0] ?? 0, Math.max(0, t - 0.1)), t] }], `Mark out at ${t.toFixed(2)} s`, false);
+      else if (!meta && !e.altKey && e.key.toLowerCase() === "m") {
+        const markers = (JSON.parse(engineHost.sceneJson()) as { markers?: { t: number; label: string; color?: string }[] }).markers ?? [];
+        ed2.apply([{ op: OpName.SetMarkers, markers: [...markers, { t, label: `Marker ${markers.length + 1}` }] }], `Marker at ${t.toFixed(2)} s`, false);
+      } else if (e.altKey && e.code === "KeyX") ed2.apply([{ op: OpName.SetWorkArea, work_area: null }], "Clears the in and out marks", false);
+      else if (e.key === "F9") latest.current.place(PoolEdit.Insert);
+      else if (e.key === "F10") latest.current.place(PoolEdit.Overwrite);
+      else if (e.key === "F11") latest.current.place(PoolEdit.Replace);
       else if (!meta && e.key.toLowerCase() === "a") setTool(EditTool.Select);
       else if (!meta && e.key.toLowerCase() === "t") setTool(EditTool.Trim);
       // S, or ⌘B like Resolve's and Premiere's blade, cuts at the playhead.
@@ -160,6 +172,41 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
     edits.apply(placeMediaOps(item, at, size, freshId(item.kind === MediaKind.Audio ? "snd" : "pic", taken), under), `Adds ${item.name} at ${at.toFixed(2)} s`, false);
   };
   const addAtPlayhead = (drop: PoolDrop) => addMedia(drop, useEditor.getState().time, null);
+
+  /** The pool tile picked for Insert / Overwrite / Replace. */
+  const [poolPick, setPoolPick] = useState<PoolDrop | null>(null);
+  /**
+   * NLE edits with the picked tile: at the I mark (or the playhead), as long as the I–O range (or its own
+   * length), on the first track of its kind. Replace swaps the selected clip's media, keeping its length.
+   */
+  const placeFromPool = (mode: PoolEdit) => {
+    if (!scene || !tracks || !poolPick) return;
+    const fc = poolPick.source === "footage" ? footage.find((c) => c.id === poolPick.id) : undefined;
+    const item = poolPick.source === "media" ? pool.items.find((m) => m.id === poolPick.id) : undefined;
+    if (!fc && !item) return;
+    const sound = item?.kind === MediaKind.Audio;
+    if (mode === PoolEdit.Replace) {
+      const c = selection?.kind === "clip" ? selection.clip : null;
+      const kind = fc ? ClipKind.Video : sound ? ClipKind.Audio : ClipKind.Image;
+      if (!c || c.kind !== kind) return logActivity(ActivitySource.System, "Replace: select a clip of the same kind on the timeline first");
+      const len = c.end - c.start;
+      const fields = kind === ClipKind.Image ? { src: item!.url } : { src: fc?.url ?? item!.url, in: 0, out: Math.round(len * c.speed * 1000) / 1000 };
+      edits.apply([{ op: OpName.Patch, id: c.id, fields }], `Replaces the media of ${c.id}`, true);
+      return;
+    }
+    const wa = scene.work_area;
+    const at = wa ? wa[0] : useEditor.getState().time;
+    const length = wa ? wa[1] - wa[0] : undefined;
+    const taken = new Set(scene.layers.map((l) => l.id));
+    const size = engineHost.sceneSize();
+    const hasTracks = !!scene.tracks?.length;
+    const track = hasTracks ? (sound ? tracks.audioTracks[0]?.id : tracks.videoTracks[0]?.id) : undefined;
+    const id = freshId(fc ? "ft" : sound ? "snd" : "pic", taken);
+    const layer = fc ? clipLayer(fc, at, size, id, length ?? fc.duration ?? 1, track) : mediaLayer(item!, at, size, id, length, track);
+    const under = scene.layers.filter((l) => l.type === VIDEO_LAYER || l.group === FOOTAGE_GROUP).length;
+    const ops = [{ op: OpName.PlaceClip, mode, layer }, ...(sound ? [] : [{ op: OpName.Reorder, id, index: under }])];
+    edits.apply(ops, `${mode === PoolEdit.Insert ? "Inserts" : "Overwrites with"} ${fc?.name ?? item!.name} at ${at.toFixed(2)} s`, true);
+  };
 
   /** Format change from Project settings: full-frame clips follow the new frame here; graphics go to the agent. */
   const changeFormat = async (format: VideoFormat) => {
@@ -209,7 +256,7 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
       <div className="flex min-h-0 flex-1 gap-3 px-3 pb-3">
         <div className="flex min-w-0 flex-1 flex-col gap-3">
           <div className="flex min-h-0 flex-1 gap-3">
-            <MediaPool ed={ed} scene={scene} clips={clips} music={music} pool={pool} onAdd={addAtPlayhead} />
+            <MediaPool ed={ed} scene={scene} clips={clips} music={music} pool={pool} onAdd={addAtPlayhead} picked={poolPick} onPick={setPoolPick} onPlace={placeFromPool} />
             {/* Any frame shape fits here: the viewer scales it to the space it gets. */}
             <main className="flex min-w-0 flex-1 flex-col items-center gap-2 py-1">
               <Viewer canvas={ed.canvas} error={ed.error} maxWidth={PREVIEW_MAX_WIDTH} canvasClass="rounded-xl shadow-2xl shadow-black/50" />

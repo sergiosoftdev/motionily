@@ -15,8 +15,8 @@ export function stepFrames(frames: number, fps: number) {
 }
 
 /**
- * AE's playback keys: Space plays or pauses; with `frames`, also Home/End (first/last frame) and
- * Page Up/Down or ⌘←/⌘→ (one frame back/forward). Never while typing.
+ * Playback keys: Space plays or pauses; with `frames`, also J/K/L (shuttle back, stop, forward;
+ * again = faster), Home/End (first/last frame) and Page Up/Down or ⌘←/⌘→ (one frame). Never while typing.
  */
 export function useTransportKeys(fps: number, frames: boolean) {
   useEffect(() => {
@@ -33,6 +33,16 @@ export function useTransportKeys(fps: number, frames: boolean) {
         return;
       }
       if (!frames) return;
+      // J/K/L shuttle: L forward (again = faster), J backwards (again = faster), K stops.
+      const k = !meta && !e.altKey ? e.key.toLowerCase() : "";
+      if (k === "l" || k === "j" || k === "k") {
+        e.preventDefault();
+        if (k === "k") return engineHost.pause();
+        const r = engineHost.shuttleRate;
+        if (k === "l") engineHost.shuttle(r >= 1 ? Math.min(4, r * 2) : 1);
+        else engineHost.shuttle(r <= -1 ? Math.max(-4, r * 2) : -1);
+        return;
+      }
       if (e.key === "Home") (engineHost.pause(), engineHost.seek(0));
       else if (e.key === "End") (engineHost.pause(), engineHost.seek(duration));
       else if (e.key === "PageUp" || (meta && e.key === "ArrowLeft")) stepFrames(-1, fps);

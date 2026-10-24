@@ -94,6 +94,8 @@ class EngineHost {
   private canvas: HTMLCanvasElement | null = null;
   private raf = 0;
   private lastTick = 0;
+  /** Shuttle speed (J/K/L): 1 plays normally; anything else scrubs silently, backwards when negative. */
+  private rate = 1;
   private listeners = new Set<() => void>();
 
   /** Font files already handed to the current engine, by url. */
@@ -486,7 +488,42 @@ class EngineHost {
     return a < duration ? [a, Math.min(b, duration)] : [0, duration];
   }
 
+  /**
+   * J/K/L shuttle: play at `rate` (−4…4; negative plays backwards). Away from 1× the sound is silent,
+   * like an editor's shuttle; 0 pauses.
+   */
+  shuttle(rate: number) {
+    if (rate === 0) return this.pause();
+    this.rate = rate;
+    if (useEditor.getState().playing) {
+      if (rate !== 1) this.silence();
+      else {
+        this.syncAudio(true);
+        this.music.sync(useEditor.getState().time, true, this.speech);
+      }
+      return;
+    }
+    if (rate === 1) return this.play();
+    useEditor.setState({ playing: true });
+    this.silence();
+    this.lastTick = performance.now();
+    this.raf = requestAnimationFrame(this.tick);
+  }
+
+  /** Current shuttle speed (1 = normal playback). */
+  get shuttleRate() {
+    return useEditor.getState().playing ? this.rate : 0;
+  }
+
+  private silence() {
+    this.audio?.pause();
+    this.music.pause();
+    this.sounds.stop();
+    sfxPlayer.stop();
+  }
+
   play() {
+    this.rate = 1;
     if (useEditor.getState().playing) return;
     const { time } = useEditor.getState();
     const [from, to] = this.playRange();
@@ -501,6 +538,7 @@ class EngineHost {
   }
 
   pause() {
+    this.rate = 1;
     cancelAnimationFrame(this.raf);
     nativeViewer.stop();
     this.audio?.pause();
@@ -529,9 +567,19 @@ class EngineHost {
 
   private tick = (now: number) => {
     const { time } = useEditor.getState();
-    const next = time + (now - this.lastTick) / 1000;
+    const next = time + ((now - this.lastTick) / 1000) * this.rate;
     this.lastTick = now;
     const [from, to] = this.playRange();
+    if (this.rate !== 1) {
+      // Shuttle: silent, stops at either end.
+      const t = Math.min(to, Math.max(from, next));
+      useEditor.setState({ time: t });
+      if (nativeViewer.active) nativeViewer.frame(t);
+      else this.draw();
+      if (t <= from || t >= to) return this.pause();
+      this.raf = requestAnimationFrame(this.tick);
+      return;
+    }
     // A work area always loops; the whole video only when `loop` is on.
     if (next >= to && (this.loop || this.range)) {
       useEditor.setState({ time: from });

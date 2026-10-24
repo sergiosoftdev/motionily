@@ -436,33 +436,42 @@ export function footageCaptions(clips: EditClip[]): CaptionWord[] {
 /** The video ends where its last clip does (an edit of footage is as long as its cut). */
 export const cutLength = (clips: EditClip[]) => round(Math.max(MIN_CLIP, ...clips.map((c) => c.end)));
 
+/** A footage clip as a full-frame video layer at `at`, `length` seconds of it (its whole length by default). */
+export function clipLayer(fc: FootageClip, at: number, size: [number, number], id: string, length = fc.duration ?? 1, track?: string): Record<string, unknown> {
+  const [w, h] = size;
+  return { id, type: VIDEO_LAYER, start: round(at), end: round(at + length), group: FOOTAGE_GROUP, x: w / 2, y: h / 2, w, h, src: fc.url, fit: "cover", in: 0, out: round(length), volume: 1, ...(track ? { track } : {}) };
+}
+
+/** A media pool sound or picture as a layer at `at` (a sound on the audio track, a picture full frame). */
+export function mediaLayer(item: MediaItem, at: number, size: [number, number], id: string, length?: number, track?: string): Record<string, unknown> {
+  const [w, h] = size;
+  const t = track ? { track } : {};
+  if (item.kind === MediaKind.Audio) {
+    const len = length ?? item.duration ?? IMAGE_SECONDS;
+    return { id, type: AUDIO_LAYER, start: round(at), end: round(at + len), x: w / 2, y: h / 2, w: 2, h: 2, src: item.url, in: 0, out: round(len), volume: 1, ...t };
+  }
+  return { id, type: IMAGE_LAYER, start: round(at), end: round(at + (length ?? IMAGE_SECONDS)), group: FOOTAGE_GROUP, x: w / 2, y: h / 2, w, h, src: item.url, fit: "cover", ...t };
+}
+
 /** Put a whole footage clip at the end of the main track (full frame, its own sound), under the graphics. */
 export function appendClipOps(fc: FootageClip, at: number, size: [number, number], id: string, under: number): Op[] {
-  const length = fc.duration ?? 1;
-  const [w, h] = size;
   return [
-    {
-      op: OpName.AddLayer,
-      layer: { id, type: VIDEO_LAYER, start: round(at), end: round(at + length), group: FOOTAGE_GROUP, x: w / 2, y: h / 2, w, h, src: fc.url, fit: "cover", in: 0, out: round(length), volume: 1 },
-    },
+    { op: OpName.AddLayer, layer: clipLayer(fc, at, size, id) },
     { op: OpName.Reorder, id, index: under },
   ];
 }
+
+/** NLE edits from the media pool onto the first track of the right kind. */
+export const PlaceMode = { Insert: "insert", Overwrite: "overwrite" } as const;
+export type PlaceMode = (typeof PlaceMode)[keyof typeof PlaceMode];
 
 /**
  * Put a media pool item on the timeline at `at`: a sound on the audio track (its whole length), a
  * picture on the video track for IMAGE_SECONDS, full frame. Overlaps go to another lane by themselves.
  */
 export function placeMediaOps(item: MediaItem, at: number, size: [number, number], id: string, under: number): Op[] {
-  const [w, h] = size;
-  if (item.kind === MediaKind.Audio) {
-    const length = item.duration ?? IMAGE_SECONDS;
-    return [{ op: OpName.AddLayer, layer: { id, type: AUDIO_LAYER, start: round(at), end: round(at + length), x: w / 2, y: h / 2, w: 2, h: 2, src: item.url, in: 0, out: round(length), volume: 1 } }];
-  }
-  return [
-    { op: OpName.AddLayer, layer: { id, type: IMAGE_LAYER, start: round(at), end: round(at + IMAGE_SECONDS), group: FOOTAGE_GROUP, x: w / 2, y: h / 2, w, h, src: item.url, fit: "cover" } },
-    { op: OpName.Reorder, id, index: under },
-  ];
+  const layer = mediaLayer(item, at, size, id);
+  return item.kind === MediaKind.Audio ? [{ op: OpName.AddLayer, layer }] : [{ op: OpName.AddLayer, layer }, { op: OpName.Reorder, id, index: under }];
 }
 
 /** Ops that fit every full-frame clip and picture of the video track to a new frame size (a format change). */

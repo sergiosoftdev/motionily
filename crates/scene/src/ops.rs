@@ -143,6 +143,8 @@ pub enum Op {
     SlipClip { id: String, #[serde(rename = "in")] file_in: f32 },
     /// Slide: the clip moves to `start`; its neighbours on the track give and take.
     SlideClip { id: String, start: f32 },
+    /// Lay a new clip on its track: `mode` "overwrite" (covers what is there) or "insert" (everything after moves later).
+    PlaceClip { layer: Layer, mode: crate::trim::PlaceMode },
     /// Take `[from, to]` seconds out of the whole video and close the gap: voice (its file skips
     /// that stretch), captions, layers (clips get a jump cut), sound effects, transitions, markers.
     RippleDelete { from: f32, to: f32 },
@@ -591,6 +593,7 @@ impl Scene {
             Op::RollEdit { id, to } => self.roll_edit(id, *to)?,
             Op::SlipClip { id, file_in } => self.slip_clip(id, *file_in)?,
             Op::SlideClip { id, start } => self.slide_clip(id, *start)?,
+            Op::PlaceClip { layer, mode } => self.place_clip(layer.clone(), *mode)?,
             Op::SetTracks { tracks } => {
                 crate::tracks::check(tracks).map_err(OpError::Invalid)?;
                 self.tracks = tracks.clone();

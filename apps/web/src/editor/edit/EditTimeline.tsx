@@ -683,6 +683,16 @@ export function EditTimeline({
               </button>
             </div>
             <div onPointerDown={scrub} className="relative flex-1 cursor-col-resize border-b border-neutral-800">
+              {scene.work_area && (
+                <span
+                  title={`In ${scene.work_area[0].toFixed(2)} s · out ${scene.work_area[1].toFixed(2)} s (I / O, Alt+X clears)`}
+                  className="pointer-events-none absolute inset-y-0 border-x-2 border-sky-400/80 bg-sky-400/15"
+                  style={{ left: px(scene.work_area[0]), width: Math.max(2, px(scene.work_area[1] - scene.work_area[0])) }}
+                />
+              )}
+              {(scene.markers ?? []).map((m, i) => (
+                <MarkerFlag key={`${m.t}-${i}`} marker={m} index={i} left={px(m.t)} markers={scene.markers!} edits={edits} />
+              ))}
               {ticks.map((t) => (
                 <span key={t} className={`absolute top-1 text-[10px] text-neutral-500 tabular-nums ${t > 0 ? "-translate-x-1/2" : "pl-1"}`} style={{ left: px(t) }}>
                   {t >= 60 ? `${Math.floor(t / 60)}:${String(Math.round(t % 60)).padStart(2, "0")}` : `${t}s`}
@@ -787,6 +797,46 @@ function TrackHeader({ track, tracks, onOps }: { track: { kind: TrackKind; lane:
           </button>
         );
       })}
+    </span>
+  );
+}
+
+type MarkerView = { t: number; label: string; color?: string };
+
+/** A timeline marker on the ruler: click jumps there, double-click renames it, Alt+click removes it. */
+function MarkerFlag({ marker, index, left, markers, edits }: { marker: MarkerView; index: number; left: number; markers: MarkerView[]; edits: EditActions }) {
+  const [editing, setEditing] = useState(false);
+  const set = (next: MarkerView[], what: string) => edits.apply([{ op: OpName.SetMarkers, markers: next }], what, false);
+  return (
+    <span className="absolute top-0 bottom-0 z-10" style={{ left }}>
+      <button
+        type="button"
+        title={`${marker.label || "Marker"} · ${marker.t.toFixed(2)} s (double-click renames, Alt+click removes)`}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          if (e.altKey) return set(markers.filter((_, i) => i !== index), `Removes the marker at ${marker.t.toFixed(2)} s`);
+          engineHost.pause();
+          engineHost.seek(marker.t);
+        }}
+        onDoubleClick={() => setEditing(true)}
+        className="absolute top-0 -left-1.5 size-3 rotate-45 rounded-[2px]"
+        style={{ background: marker.color ?? "#f5a623" }}
+      />
+      {editing ? (
+        <input
+          autoFocus
+          defaultValue={marker.label}
+          onPointerDown={(e) => e.stopPropagation()}
+          onBlur={(e) => {
+            setEditing(false);
+            if (e.target.value !== marker.label) set(markers.map((m, i) => (i === index ? { ...m, label: e.target.value } : m)), `Renames a marker: ${e.target.value}`);
+          }}
+          onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+          className="absolute top-3 left-1 z-20 w-24 rounded bg-neutral-900 px-1 text-[10px] text-white ring-1 ring-white/20 focus:outline-none"
+        />
+      ) : (
+        marker.label && <span className="pointer-events-none absolute top-3 left-1 max-w-24 truncate text-[9px] text-amber-200/80">{marker.label}</span>
+      )}
     </span>
   );
 }

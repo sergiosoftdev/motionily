@@ -247,6 +247,8 @@ export const OpName = {
   SlipClip: "slip_clip",
   /** Slide: `{id, start}` — the clip moves; its neighbours on the track give and take. */
   SlideClip: "slide_clip",
+  /** Lay a new clip on its track: `{layer, mode: "insert"|"overwrite"}` (insert moves everything after later). */
+  PlaceClip: "place_clip",
 } as const;
 export type OpName = (typeof OpName)[keyof typeof OpName];
 

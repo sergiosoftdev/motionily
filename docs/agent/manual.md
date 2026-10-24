@@ -120,6 +120,7 @@ applied: fix it and resend the call.
 {"op":"roll_edit","id":"ft2","to":4.2}     // the cut between ft2 and the next clip on its track moves to 4.2 s (length unchanged)
 {"op":"slip_clip","id":"ft2","in":7.5}      // same place, the clip now opens on file second 7.5
 {"op":"slide_clip","id":"ft2","start":3}    // ft2 moves to 3 s; the clip before ends there, the one after starts where it ends (both keep their content in place)
+{"op":"place_clip","mode":"insert","layer":{"id":"ft9","type":"video","src":"/media/….mp4","start":4,"end":6.5,"in":0,"out":2.5,"x":540,"y":960,"w":1080,"h":1920,"fit":"cover","group":"footage","volume":1,"track":"V1"}}  // NLE edits onto the layer's track: "insert" cuts what spans `start` and moves everything after later by the clip's length; "overwrite" covers [start,end] on that track (trims, splits or removes what was there). The user's I/O marks are the scene work_area (I/O keys) and markers (M key) are set_markers.
 {"op":"set_fps","fps":24}                              // frame rate of the whole video, 1..120 (offered: 23.976 24 25 29.97 30 50 60)
 {"op":"patch","id":"card","fields":{"solo":true}}       // solo/locked/shy are layer fields (false = off); solo changes the render
 3D stage: put_prop, remove_prop, set_camera, set_shots, set_stage, set_lights, define_prefab (below)

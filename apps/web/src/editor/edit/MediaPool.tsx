@@ -21,6 +21,10 @@ const FILTER_LABEL: Record<PoolFilter, string> = { all: "All", video: "Video", a
 
 /** What a tile stands for: one of the user's clips, or a sound / picture from the pool. */
 export type PoolEntry = { source: "footage"; clip: FootageClip } | { source: "media"; item: MediaItem };
+/** The NLE edits a picked tile makes on the timeline. */
+export const PoolEdit = { Insert: "insert", Overwrite: "overwrite", Replace: "replace" } as const;
+export type PoolEdit = (typeof PoolEdit)[keyof typeof PoolEdit];
+
 /** What travels when a tile is dragged to the timeline. */
 export type PoolDrop = { source: "footage" | "media"; id: string };
 
@@ -87,6 +91,9 @@ export function MediaPool({
   music,
   pool,
   onAdd,
+  picked,
+  onPick,
+  onPlace,
 }: {
   ed: EditorProps;
   scene: SceneView | null;
@@ -95,6 +102,10 @@ export function MediaPool({
   pool: MediaPoolState;
   /** Put a tile on the timeline at the playhead. */
   onAdd: (drop: PoolDrop) => void;
+  /** The tile picked for the NLE edits (Insert F9, Overwrite F10, Replace F11). */
+  picked: PoolDrop | null;
+  onPick: (drop: PoolDrop | null) => void;
+  onPlace: (mode: PoolEdit) => void;
 }) {
   const agent = useAgentName();
   const [filter, setFilter] = useState<PoolFilter>(PoolFilter.All);
@@ -149,10 +160,28 @@ export function MediaPool({
           <>
             <ul className="grid grid-cols-2 gap-2">
               {shown.map((e) => (
-                <Tile key={e.source === "footage" ? `f:${e.clip.id}` : `m:${e.item.id}`} entry={e} used={used} music={music} onAdd={onAdd} onRemove={e.source === "media" ? () => void pool.remove(e.item.id) : undefined} />
+                <Tile
+                  key={e.source === "footage" ? `f:${e.clip.id}` : `m:${e.item.id}`}
+                  entry={e}
+                  used={used}
+                  music={music}
+                  onAdd={onAdd}
+                  picked={!!picked && picked.source === e.source && picked.id === (e.source === "footage" ? e.clip.id : e.item.id)}
+                  onPick={onPick}
+                  onRemove={e.source === "media" ? () => void pool.remove(e.item.id) : undefined}
+                />
               ))}
             </ul>
             {!shown.length && <p className="px-1 text-xs text-neutral-500">Nothing of this kind yet.</p>}
+            {picked && (
+              <div className="grid grid-cols-3 gap-1 rounded-lg bg-neutral-950 p-1 text-[11px]">
+                {([[PoolEdit.Insert, "Insert", "F9", "At the playhead (or the I mark); everything after moves later"], [PoolEdit.Overwrite, "Overwrite", "F10", "Covers what is on the track there"], [PoolEdit.Replace, "Replace", "F11", "Swaps the selected clip's media, same length"]] as const).map(([m, label, key, hint]) => (
+                  <button key={m} type="button" title={hint} onClick={() => onPlace(m)} className="rounded-md py-1 text-neutral-300 hover:bg-neutral-800 hover:text-white">
+                    {label} <span className="text-neutral-600">{key}</span>
+                  </button>
+                ))}
+              </div>
+            )}
             <DropZone accept={POOL_ACCEPT} multiple busy={!!clips.progress || pool.busy} onFiles={(f) => void importFiles(f)}>
               <Icon d={ICON.plus} className="size-4" />
               <span className="text-xs font-medium">{pool.busy ? "Importing…" : "Import"}</span>
@@ -186,7 +215,7 @@ export function MediaPool({
   );
 }
 
-function Tile({ entry, used, music, onAdd, onRemove }: { entry: PoolEntry; used: Set<string>; music: MusicUpload; onAdd: (d: PoolDrop) => void; onRemove?: () => void }) {
+function Tile({ entry, used, music, onAdd, onRemove, picked, onPick }: { entry: PoolEntry; used: Set<string>; music: MusicUpload; onAdd: (d: PoolDrop) => void; onRemove?: () => void; picked: boolean; onPick: (d: PoolDrop | null) => void }) {
   const drop: PoolDrop = entry.source === "footage" ? { source: "footage", id: entry.clip.id } : { source: "media", id: entry.item.id };
   const url = entry.source === "footage" ? entry.clip.url : entry.item.url;
   const name = entry.source === "footage" ? entry.clip.name : entry.item.name;
@@ -201,8 +230,9 @@ function Tile({ entry, used, music, onAdd, onRemove }: { entry: PoolEntry; used:
         e.dataTransfer.effectAllowed = "copy";
       }}
       onDoubleClick={() => onAdd(drop)}
+      onClick={() => onPick(picked ? null : drop)}
       title={`${name} · drag to the timeline or double-click to add at the playhead`}
-      className="group relative flex cursor-grab flex-col gap-1 rounded-lg p-1 hover:bg-neutral-800/60 active:cursor-grabbing"
+      className={`group relative flex cursor-grab flex-col gap-1 rounded-lg p-1 active:cursor-grabbing ${picked ? "bg-neutral-800 ring-1 ring-white/40" : "hover:bg-neutral-800/60"}`}
     >
       <span className="relative aspect-video overflow-hidden rounded-md bg-neutral-800">
         {entry.source === "footage" ? (

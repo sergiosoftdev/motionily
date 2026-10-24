@@ -241,6 +241,98 @@ impl Scene {
     }
 }
 
+/// How `place_clip` lays a new clip on its track: over what is there, or pushing everything later.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlaceMode {
+    /// Covers its time on the track: what was there is trimmed, split or removed.
+    Overwrite,
+    /// Opens room at its start: everything from there on (all unlocked tracks) moves later by its length.
+    Insert,
+}
+
+impl Scene {
+    /// Clips of a track a new clip can cut into: media clips and pictures held on the video track.
+    fn is_track_clip(l: &Layer) -> bool {
+        l.content.media_clip().is_some() || (matches!(l.content, crate::LayerContent::Image { .. }) && l.group.as_deref() == Some("footage"))
+    }
+
+    /// Lay `layer` (with its start and end) on its track, overwriting or inserting (NLE 3-point edits).
+    pub(crate) fn place_clip(&mut self, layer: Layer, mode: PlaceMode) -> Result<(), OpError> {
+        let s = layer.start;
+        let e = layer.end.ok_or(OpError::Invalid("place_clip needs the clip's end"))?;
+        if !(e > s + MIN_LEN) {
+            return Err(OpError::Invalid("place_clip: the clip must last longer than 0.05 s"));
+        }
+        if self.layers.iter().any(|l| l.id == layer.id) {
+            return Err(OpError::DuplicateLayer(layer.id.clone()));
+        }
+        let on_track = |sc: &Scene| -> Vec<String> { sc.layers.iter().filter(|l| l.track == layer.track && Self::is_track_clip(l)).map(|l| l.id.clone()).collect() };
+        match mode {
+            PlaceMode::Insert => {
+                // A clip that spans the insert point is cut there, then everything after moves later.
+                for id in on_track(self) {
+                    let l = &self.layers[self.index_of(&id)?];
+                    if l.start < s - TOUCH && self.end_of(l) > s + TOUCH {
+                        self.split_layer(&id, s, None)?;
+                    }
+                }
+                self.ripple_from(s, e - s, &layer.id);
+            }
+            PlaceMode::Overwrite => {
+                for id in on_track(self) {
+                    let i = self.index_of(&id)?;
+                    let (ls, le) = (self.layers[i].start, self.end_of(&self.layers[i]));
+                    if le <= s + TOUCH || ls >= e - TOUCH {
+                        continue;
+                    }
+                    if ls >= s - TOUCH && le <= e + TOUCH {
+                        self.layers.remove(i);
+                        continue;
+                    }
+                    if ls < s && le > e {
+                        // Spans the whole new clip: keep both ends.
+                        let tail = self.split_layer(&id, e, None)?;
+                        let _ = tail;
+                        self.trim_end_to(&id, s)?;
+                        continue;
+                    }
+                    if ls < s {
+                        self.trim_end_to(&id, s)?;
+                    } else {
+                        let mut l = self.layers[i].clone();
+                        Self::shift_start_keep_content(&mut l, e - ls)?;
+                        l.end = Some(le);
+                        self.layers[i] = self.checked_layer(l)?;
+                    }
+                }
+            }
+        }
+        let layer = self.checked_layer(layer)?;
+        self.layers.push(layer);
+        if e > self.duration {
+            self.duration = e;
+        }
+        Ok(())
+    }
+
+    /// End a clip at scene second `t` (its file window follows).
+    fn trim_end_to(&mut self, id: &str, t: f32) -> Result<(), OpError> {
+        let i = self.index_of(id)?;
+        let start = self.layers[i].start;
+        let l = &mut self.layers[i];
+        l.end = Some(t);
+        if let Some(c) = l.content.media_clip_mut() {
+            if c.trim_out.is_some() {
+                c.trim_out = Some(c.trim_in + (t - start) * c.speed);
+            }
+        }
+        let l = self.layers[i].clone();
+        self.layers[i] = self.checked_layer(l)?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{Op, Scene};
@@ -275,6 +367,20 @@ mod tests {
         // Head trim: `a` keeps its start, loses 0.5 s of its head (in 1 → 1.5), the rest moves back.
         s.apply(&Op::parse_list(r#"[{"op":"ripple_trim","id":"a","edge":"in","to":0.5}]"#).unwrap()).unwrap();
         assert_eq!((l(&s, "a").0, l(&s, "a").1, l(&s, "a").2, l(&s, "b").0), (0.0, 1.5, 1.5, 1.5));
+    }
+
+    #[test]
+    fn place_clip_overwrites_or_inserts() {
+        let new = r#"{"id":"n","type":"video","src":"/media/b.mp4","x":0,"y":0,"w":10,"h":10,"start":2,"end":4}"#;
+        let mut s = scene();
+        s.apply(&Op::parse_list(&format!(r#"[{{"op":"place_clip","mode":"overwrite","layer":{new}}}]"#)).unwrap()).unwrap();
+        // a ends at 2, b now starts at 4 showing 1 s later in its file, c untouched, length unchanged.
+        assert_eq!((l(&s, "a").1, l(&s, "b").0, l(&s, "b").2, l(&s, "n").0, s.duration), (2.0, 4.0, 3.0, 2.0, 9.0));
+        let mut s = scene();
+        s.apply(&Op::parse_list(&format!(r#"[{{"op":"place_clip","mode":"insert","layer":{new}}}]"#)).unwrap()).unwrap();
+        // a is cut at 2 (its tail moves to 4), b and c move 2 s later, the marker too, the video grows.
+        let tail = s.layers.iter().find(|x| x.id.starts_with("a_")).unwrap();
+        assert_eq!((l(&s, "a").1, tail.start, l(&s, "b").0, l(&s, "c").0, s.markers[0].t, s.duration), (2.0, 4.0, 5.0, 8.0, 9.0, 11.0));
     }
 
     #[test]
