@@ -8,6 +8,7 @@ import { describeVideo, MAX_VIDEO_BYTES, VIDEO_TYPES } from "./video-asset";
 import { ProjectsService } from "../projects/projects.service";
 import { BrandsService } from "./brands.service";
 import { ConceptsRequestDto, ConceptsService } from "./concepts";
+import { AgentSettingsService } from "../users/agent-settings";
 import { GenerateService } from "../projects/generate.service";
 import { AssetMetaDto, CreateBrandDto, UpdateBrandDto } from "./brands.dto";
 
@@ -20,6 +21,7 @@ export class BrandsController {
     private readonly brands: BrandsService,
     private readonly projects: ProjectsService,
     private readonly concepts: ConceptsService,
+    private readonly agentSettings: AgentSettingsService,
     private readonly generator: GenerateService,
   ) {}
 
@@ -28,7 +30,7 @@ export class BrandsController {
   @HttpCode(200)
   async pitch(@CurrentUser() user: AuthUser, @Param("brandId") brandId: string, @Body() dto: ConceptsRequestDto) {
     const kit = await this.full(user, brandId);
-    return this.concepts.pitch(dto, kit);
+    return this.concepts.pitch(dto, kit, await this.agentSettings.forUser(user.id));
   }
 
   @Get()

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BadGatewayException } from "@nestjs/common";
 import type { AgentEffort, AgentModel } from "../projects/projects.dto";
-import { agentCli, modelFor, runAgent, type AgentUsage } from "./agent-cli";
+import { agentCli, modelFor, runAgent, type AgentChoice, type AgentUsage } from "./agent-cli";
 
 /**
  * One agent answer with no tools (pitches, captions), from whichever CLI the user runs: its own lean
@@ -17,14 +17,16 @@ export async function askAgent(o: {
   effort: AgentEffort;
   timeoutMs: number;
   files?: { from: string; as: string }[];
+  /** The user's agent (Settings); the server default when omitted. */
+  agent?: AgentChoice;
 }): Promise<{ text: string; usage: AgentUsage | null }> {
   const cwd = mkdtempSync(join(tmpdir(), "motionily-once-"));
   for (const f of o.files ?? []) copyFileSync(f.from, join(cwd, f.as));
-  const cli = agentCli();
+  const cli = o.agent?.cli ?? agentCli();
   try {
     const r = await runAgent(
       cli,
-      { prompt: o.prompt, system: o.system, cwd, readFiles: !!o.files?.length, model: modelFor(cli, o.model), effort: o.effort, stream: false },
+      { prompt: o.prompt, system: o.system, cwd, readFiles: !!o.files?.length, model: modelFor(cli, o.model, o.agent?.models), effort: o.effort, stream: false },
       { timeoutMs: o.timeoutMs },
     );
     return { text: r.text, usage: r.usage };

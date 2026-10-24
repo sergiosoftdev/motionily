@@ -68,20 +68,50 @@ export function newRead(): AgentRead {
   return { events: [], text: "", usage: emptyUsage(), done: false, failed: null };
 }
 
-/** Which CLI drives the agents: MOTIONILY_AGENT, falling back to Claude Code. */
-export function agentCli(): AgentCli {
-  const v = process.env.MOTIONILY_AGENT as AgentCli | undefined;
-  return v && Object.values(AgentCli).includes(v) ? v : AgentCli.Claude;
+/** A user's agent: the CLI and, for CLIs other than Claude Code, their tier → model map. */
+export type AgentChoice = { cli: AgentCli; models?: Record<string, string> };
+
+/** Which CLI drives the agents: the user's choice, else MOTIONILY_AGENT, else Claude Code. */
+export function agentCli(preferred?: AgentCli | null): AgentCli {
+  const valid = (v: unknown): v is AgentCli => Object.values(AgentCli).includes(v as AgentCli);
+  if (valid(preferred)) return preferred;
+  const env = process.env.MOTIONILY_AGENT;
+  return valid(env) ? env : AgentCli.Claude;
+}
+
+const VERSION_TIMEOUT_MS = 4000;
+const DETECT_TTL_MS = 60_000;
+let detected: { at: number; versions: Promise<Partial<Record<AgentCli, string>>> } | null = null;
+
+/** The version of every agent CLI installed on this machine (missing ones are left out); cached a minute. */
+export function detectClis(): Promise<Partial<Record<AgentCli, string>>> {
+  if (detected && Date.now() - detected.at < DETECT_TTL_MS) return detected.versions;
+  const one = (cli: AgentCli) =>
+    new Promise<[AgentCli, string | null]>((resolve) => {
+      const child = spawn(DRIVERS[cli].bin(), ["--version"], { stdio: ["ignore", "pipe", "ignore"] });
+      let out = "";
+      const timer = setTimeout(() => child.kill(), VERSION_TIMEOUT_MS);
+      child.stdout!.on("data", (d: Buffer) => (out += d.toString()));
+      child.on("error", () => resolve([cli, null]));
+      child.on("close", (code) => {
+        clearTimeout(timer);
+        resolve([cli, code === 0 ? (out.match(/\d+\.\d+[\w.-]*/)?.[0] ?? (out.trim() || "installed")) : null]);
+      });
+    });
+  const versions = Promise.all(Object.values(AgentCli).map(one)).then((r) => Object.fromEntries(r.filter(([, v]) => v)) as Partial<Record<AgentCli, string>>);
+  detected = { at: Date.now(), versions };
+  return versions;
 }
 
 /**
  * The model each CLI gets for a Motionily tier. Claude Code takes the tier alias itself; other CLIs read
- * MOTIONILY_AGENT_MODELS, a JSON map such as {"opus":"gpt-5.5","sonnet":"gpt-5.5-mini","*":"gpt-5.5"}.
+ * the user's map from Settings, then MOTIONILY_AGENT_MODELS, a JSON map such as {"opus":"gpt-5.5","sonnet":"gpt-5.5-mini","*":"gpt-5.5"}.
  * With no mapping the CLI's own default model runs.
  */
-export function modelFor(cli: AgentCli, tier: string | undefined): string | undefined {
+export function modelFor(cli: AgentCli, tier: string | undefined, userModels?: Record<string, string>): string | undefined {
   if (!tier) return undefined;
   if (cli === AgentCli.Claude) return tier;
+  if (userModels && (userModels[tier] || userModels["*"])) return userModels[tier] ?? userModels["*"];
   try {
     const map = JSON.parse(process.env.MOTIONILY_AGENT_MODELS ?? "{}") as Record<string, string>;
     return map[tier] ?? map["*"];

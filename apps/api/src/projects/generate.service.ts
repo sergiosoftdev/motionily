@@ -11,7 +11,8 @@ import { ProjectsService } from "./projects.service";
 import { AgentEffort, AgentModel, GenerateMode, type GenerateDto } from "./projects.dto";
 import { VideoFormat, type AgentRunUsage } from "./project.schema";
 import { filmNotes } from "../references/film";
-import { AgentEventKind, agentCli, bareTool, emptyUsage, modelFor, runAgent, type AgentCli, type AgentMcp, type AgentUsage } from "../common/agent-cli";
+import { AgentSettingsService } from "../users/agent-settings";
+import { AgentEventKind, bareTool, emptyUsage, modelFor, runAgent, type AgentCli, type AgentMcp, type AgentUsage } from "../common/agent-cli";
 
 export enum GenerateStatus {
   Idle = "idle",
@@ -279,6 +280,7 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
   constructor(
     private readonly projects: ProjectsService,
     private readonly jwt: JwtService,
+    private readonly agentSettings: AgentSettingsService,
   ) {}
 
   /** After a restart: agents a previous API process left behind are stopped and their runs marked interrupted. */
@@ -351,7 +353,8 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
     run.voice = voice;
     const voiceNote = voice.length ? `\nVoice-over, timed (what is said when; the video must show it at that moment):\n${voiceDuring(voice, 0, Infinity)}` : "";
     const refs = (await referencePrompt([...new Set([...(project.references ?? []), ...(references ?? [])])])) + voiceNote;
-    const opts: AgentOpts = { cli: agentCli(), mcp, model, effort, size: FORMAT_SIZE[project.format] ?? FORMAT_SIZE[VideoFormat.Vertical] };
+    const agent = await this.agentSettings.forUser(ownerId);
+    const opts: AgentOpts = { cli: agent.cli, models: agent.models, mcp, model, effort, size: FORMAT_SIZE[project.format] ?? FORMAT_SIZE[VideoFormat.Vertical] };
 
     // Callers without a mode (prefab workshop, older clients) keep their explicit model/effort.
     mode ??= model ? GenerateMode.Custom : GenerateMode.Balanced;
@@ -547,7 +550,7 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
     const tag = role ? `[${role}] ` : "";
     const r = await runAgent(
       o.cli,
-      { prompt, system: guide, cwd, mcp: o.mcp(tools), model: modelFor(o.cli, o.model), effort: o.effort, stream: true },
+      { prompt, system: guide, cwd, mcp: o.mcp(tools), model: modelFor(o.cli, o.model, o.models), effort: o.effort, stream: true },
       {
         onSpawn: (child) => {
           run.processes.add(child);
@@ -588,7 +591,7 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
 
 }
 
-type AgentOpts = { cli: AgentCli; mcp: (tools?: readonly string[]) => AgentMcp; model?: string; effort?: string; size: [number, number] };
+type AgentOpts = { cli: AgentCli; models?: Record<string, string>; mcp: (tools?: readonly string[]) => AgentMcp; model?: string; effort?: string; size: [number, number] };
 
 function parsePlan(text: string): Plan {
   try {

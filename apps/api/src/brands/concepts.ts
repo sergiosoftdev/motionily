@@ -7,6 +7,7 @@ import { MEDIA_DIR, MEDIA_PATH } from "../media";
 import { VideoFormat, type AgentRunUsage } from "../projects/project.schema";
 import { usageFrom } from "../projects/generate.service";
 import { askAgent } from "../common/agent-once";
+import type { AgentChoice } from "../common/agent-cli";
 import { rolePrompt } from "../common/prompts";
 
 export const MAX_CONCEPTS = 6;
@@ -68,7 +69,7 @@ type BrandContext = { name: string; notes: string; palettes: unknown[]; assets: 
 /** Asks Claude (no tools, one shot) for N different ways to make a video. */
 @Injectable()
 export class ConceptsService {
-  async pitch(dto: ConceptsRequestDto, brand: BrandContext): Promise<{ concepts: ConceptDto[]; usage: AgentRunUsage | null }> {
+  async pitch(dto: ConceptsRequestDto, brand: BrandContext, agent?: AgentChoice): Promise<{ concepts: ConceptDto[]; usage: AgentRunUsage | null }> {
     const kit = [
       `Brand/project: ${brand.name}`,
       brand.notes && `About the product: ${brand.notes}`,
@@ -98,7 +99,7 @@ export class ConceptsService {
     // Pitches should feel quick: Sonnet with low effort unless the user asks to think more.
     const model = dto.model ?? AgentModel.Sonnet;
     const effort = dto.effort ?? AgentEffort.Low;
-    const { text: out, usage } = await this.run(prompt, model, effort, dto.references ?? []);
+    const { text: out, usage } = await this.run(prompt, model, effort, dto.references ?? [], agent);
     const json = out.slice(out.indexOf("{"), out.lastIndexOf("}") + 1);
     try {
       const concepts = (JSON.parse(json) as { concepts: ConceptDto[] }).concepts;
@@ -108,9 +109,9 @@ export class ConceptsService {
     }
   }
 
-  private run(prompt: string, model: AgentModel, effort: AgentEffort, references: string[]) {
+  private run(prompt: string, model: AgentModel, effort: AgentEffort, references: string[], agent?: AgentChoice) {
     // Reference images go next to it so Claude can Read (see) them; nothing else is allowed.
     const files = references.map((ref, i) => ({ from: join(MEDIA_DIR, basename(ref)), as: `ref-${i + 1}${extname(ref)}` }));
-    return askAgent({ prompt, system: rolePrompt("concepts"), model, effort, timeoutMs: CONCEPT_TIMEOUT_MS, files });
+    return askAgent({ prompt, system: rolePrompt("concepts"), model, effort, timeoutMs: CONCEPT_TIMEOUT_MS, files, agent });
   }
 }

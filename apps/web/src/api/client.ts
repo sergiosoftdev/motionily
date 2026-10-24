@@ -5,6 +5,18 @@ import { desktop } from "../desktop";
 
 export const API_URL = desktop?.apiUrl ?? import.meta.env.VITE_API_URL ?? "http://localhost:3100";
 
+/** Agent CLIs Motionily drives (apps/api/src/common/agent-cli.ts). */
+export const AgentCli = { Claude: "claude", Codex: "codex", Gemini: "gemini", OpenCode: "opencode" } as const;
+export type AgentCli = (typeof AgentCli)[keyof typeof AgentCli];
+export type AgentSettings = {
+  cli: AgentCli;
+  defaultCli: AgentCli;
+  /** Motionily tier → the CLI's model id (CLIs other than Claude Code). */
+  models: Record<string, string>;
+  /** Every CLI, with its version when it is installed on the machine running the API. */
+  clis: { cli: AgentCli; name: string; version: string | null }[];
+};
+
 export const AssetKind = { Logo: "logo", Screenshot: "screenshot", Photo: "photo", Video: "video", Other: "other" } as const;
 export type AssetKind = (typeof AssetKind)[keyof typeof AssetKind];
 /** Whether the user connected their ElevenLabs key, and its last characters. */
@@ -180,6 +192,8 @@ export const api = {
   setFavorite: (id: string, favorite: boolean) => call<{ favorite: boolean }>(HttpMethod.Put, `/projects/${id}/favorite`, { favorite }),
   /** The user's own keys for asset sources (stock libraries, web image search, image generation). */
   providerKeys: () => call<ProviderStatus[]>(HttpMethod.Get, "/keys"),
+  agentSettings: () => call<AgentSettings>(HttpMethod.Get, "/settings/agent"),
+  saveAgentSettings: (cli: AgentCli, models: Record<string, string>) => call<AgentSettings>(HttpMethod.Put, "/settings/agent", { cli, models }),
   connectProviderKey: (provider: ProviderKey, apiKey: string) => call<ProviderStatus[]>(HttpMethod.Put, `/keys/${provider}`, { apiKey }),
   disconnectProviderKey: (provider: ProviderKey) => call<ProviderStatus[]>(HttpMethod.Delete, `/keys/${provider}`),
   /** Everything agents imported, cut out or generated, reusable in every video. */

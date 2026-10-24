@@ -2,6 +2,7 @@ import { BadGatewayException, Injectable } from "@nestjs/common";
 import type { Types } from "mongoose";
 import { IsOptional, IsString, MaxLength } from "class-validator";
 import { askAgent, jsonIn } from "../common/agent-once";
+import { AgentSettingsService } from "../users/agent-settings";
 import { AgentEffort, AgentModel } from "../projects/projects.dto";
 import { ProjectsService } from "../projects/projects.service";
 import type { SunoPrompt } from "../projects/project.schema";
@@ -63,7 +64,10 @@ export function videoTimeline(scene: SceneLike): string[] {
 /** Writes (and keeps with the video) the Suno prompt for its background music. */
 @Injectable()
 export class SunoService {
-  constructor(private readonly projects: ProjectsService) {}
+  constructor(
+    private readonly projects: ProjectsService,
+    private readonly agentSettings: AgentSettingsService,
+  ) {}
 
   async write(ownerId: Types.ObjectId, projectId: string, steer?: string): Promise<SunoPrompt> {
     const project = await this.projects.get(ownerId, projectId);
@@ -80,7 +84,7 @@ export class SunoService {
     ]
       .filter(Boolean)
       .join("\n\n");
-    const { text } = await askAgent({ prompt, system: rolePrompt("suno"), model: AgentModel.Sonnet, effort: AgentEffort.Low, timeoutMs: SUNO_TIMEOUT_MS });
+    const { text } = await askAgent({ prompt, system: rolePrompt("suno"), model: AgentModel.Sonnet, effort: AgentEffort.Low, timeoutMs: SUNO_TIMEOUT_MS, agent: await this.agentSettings.forUser(ownerId) });
     const a = jsonIn<{ title?: unknown; style?: unknown; structure?: unknown; drop_at?: unknown; notes?: unknown }>(text);
     if (typeof a?.style !== "string" || typeof a.structure !== "string") throw new BadGatewayException("Claude did not return a Suno prompt; try again");
     const dropAt = typeof a.drop_at === "number" && a.drop_at >= 0 ? Math.min(a.drop_at, duration || a.drop_at) : null;

@@ -1,6 +1,7 @@
 import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
 import { HydratedDocument, Schema as MongooseSchema } from "mongoose";
 import type { Sealed } from "../voice/secrets";
+import { AgentCli } from "../common/agent-cli";
 
 export enum AuthProvider {
   /** Simulated Google login for development. */
@@ -23,6 +24,10 @@ export class User {
   @Prop({ type: MongooseSchema.Types.Mixed, select: false }) providerKeys?: Record<string, Sealed>;
   /** Last characters of each connected key, shown in Settings. */
   @Prop({ type: MongooseSchema.Types.Mixed }) providerHints?: Record<string, string>;
+  /** The agent CLI this user runs in Motionily (null = the server default). */
+  @Prop({ enum: [...Object.values(AgentCli), null], type: String, default: null }) agentCli?: AgentCli | null;
+  /** Motionily tier → model id of that CLI (other CLIs than Claude Code). */
+  @Prop({ type: MongooseSchema.Types.Mixed, default: null }) agentModels?: Record<string, string> | null;
 }
 
 export type UserDocument = HydratedDocument<User>;
