@@ -56,10 +56,23 @@ impl Layout {
     }
 }
 
-/// A free local port for the API.
-fn free_port() -> Result<u16, String> {
+/// The API's usual port: agents registered with "Connect your agent" keep working across launches.
+const DEFAULT_PORT: u16 = 47_310;
+
+/// The install's API port: the one it used last (or the default) when free, else any free port, remembered.
+fn api_port(data: &Path) -> Result<u16, String> {
+    let file = data.join("port");
+    let saved = std::fs::read_to_string(&file).ok().and_then(|s| s.trim().parse::<u16>().ok());
+    for port in [saved.unwrap_or(DEFAULT_PORT), DEFAULT_PORT] {
+        if TcpListener::bind(("127.0.0.1", port)).is_ok() {
+            let _ = std::fs::write(&file, port.to_string());
+            return Ok(port);
+        }
+    }
     let l = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
-    Ok(l.local_addr().map_err(|e| e.to_string())?.port())
+    let port = l.local_addr().map_err(|e| e.to_string())?.port();
+    let _ = std::fs::write(&file, port.to_string());
+    Ok(port)
 }
 
 /// A per-install secret for the API's tokens and the encryption of the user's API keys.
@@ -85,10 +98,10 @@ pub struct Api {
 }
 
 impl Api {
-    /// Starts the API on a free port with its data in `data` and waits until it answers.
+    /// Starts the API on its port with its data in `data` and waits until it answers.
     pub fn start(layout: &Layout, data: &Path, web_origins: &str) -> Result<Self, String> {
         std::fs::create_dir_all(data).map_err(|e| e.to_string())?;
-        let port = free_port()?;
+        let port = api_port(data)?;
         let url = format!("http://127.0.0.1:{port}");
         let secret = install_secret(data)?;
         let log = std::fs::File::create(data.join("api.log")).map_err(|e| e.to_string())?;

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { ConnectAgent, ConnectAgentPlacement } from "../components/ConnectAgent";
 import { Logo } from "../components/Logo";
 import { href, RouteName, useRoute, type Route } from "../router";
 import { useSession } from "../session";
@@ -102,11 +103,14 @@ function AppNav() {
           );
         })}
       </nav>
-      <div className="mt-auto flex flex-col gap-1 px-3 text-xs text-neutral-500">
-        <span className="truncate">{user?.email}</span>
-        <button type="button" onClick={logout} className="self-start hover:text-white">
-          Sign out
-        </button>
+      <div className="mt-auto flex flex-col gap-4">
+        <ConnectAgent placement={ConnectAgentPlacement.Nav} />
+        <div className="flex flex-col gap-1 px-3 text-xs text-neutral-500">
+          <span className="truncate">{user?.email}</span>
+          <button type="button" onClick={logout} className="self-start hover:text-white">
+            Sign out
+          </button>
+        </div>
       </div>
     </aside>
   );
