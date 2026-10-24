@@ -4,6 +4,7 @@ import { OpName, WHEELS_NEUTRAL, effectsWithGrade, type Curves, type Wheels } fr
 import { GRADE_FIELDS, GRADE_GROUPS, GRADE_PRESETS, gradeOps, presetGrade, readGrade, type Grade, type GradeField } from "./colorGrade";
 import { ColorWheels } from "./ColorWheels";
 import { CurvesEditor } from "./CurvesEditor";
+import { Scopes } from "./ScopesPanel";
 import type { EditActions } from "./useEditActions";
 
 /**
@@ -67,6 +68,7 @@ export function ColorSection({ clipId, allClipIds, edits }: { clipId: string; al
           </button>
         )}
       </div>
+      <Scopes />
       <div className="flex flex-wrap gap-1">
         {GRADE_PRESETS.map((p) => (
           <button key={p.name} type="button" onClick={() => look(p.name, presetGrade(p.grade))} className="rounded-md bg-neutral-800/70 px-2 py-1 text-[11px] text-neutral-300 hover:bg-neutral-700 hover:text-white">

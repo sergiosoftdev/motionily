@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { GRADE_NEUTRAL, LOOKS, OpName, OutputCodec, OUTPUT_SHORT_SIDES, effectsWithGrade, type FootageClip, type Grade, type MediaItem, type Op, type Project } from "@motionily/protocol";
+import { GRADE_NEUTRAL, LOOKS, OpName, type ScopeStats, OutputCodec, OUTPUT_SHORT_SIDES, effectsWithGrade, type FootageClip, type Grade, type MediaItem, type Op, type Project } from "@motionily/protocol";
 import type { ProjectApi } from "./api.js";
 import type { EditorBridge } from "./bridge.js";
 
@@ -29,6 +29,18 @@ export function mediaLines(project: Pick<Project, "footage">, media: MediaItem[]
   const items = media.map((m) => `${m.id} | ${m.kind} | ${m.url} | ${m.name} | ${m.duration != null ? `${m.duration.toFixed(2)} s` : "-"} | ${m.width ? `${m.width}x${m.height}` : "-"}${used(m.url)}`);
   const rows = [...clips, ...items];
   return rows.length ? `Media pool (id | kind | src | name | length | size):\n${rows.join("\n")}` : "Media pool: empty (import_media brings files in).";
+}
+
+const rgb = (v: [number, number, number] | null) => (v ? v.join(" ") : "-");
+
+/** One line per measured frame, then what the columns mean. */
+export function scopeLines(rows: ScopeStats[]): string {
+  if (!rows.length) return "Nothing to measure (the video is empty).";
+  const lines = rows.map(
+    (s) =>
+      `t=${s.t} | luma p1 ${s.luma.p1} p5 ${s.luma.p5} p50 ${s.luma.p50} p95 ${s.luma.p95} p99 ${s.luma.p99} | crushed ${s.clipped.black} clipped ${s.clipped.white} | rgb ${rgb(s.rgb)} | shadows ${rgb(s.shadows)} | mids ${rgb(s.midtones)} | highs ${rgb(s.highlights)} | sat ${s.saturation.mean} (p95 ${s.saturation.p95}) | cast ${s.cast.hue} ${s.cast.strength}`,
+  );
+  return `Scopes (values 0..1, Rec.709 luma; band rgb = mean r g b):\n${lines.join("\n")}`;
 }
 
 const lookNames = LOOKS.map((l) => l.name) as [string, ...string[]];
@@ -162,6 +174,20 @@ export function registerStudioTools(server: Server, d: StudioDeps) {
       const res = await d.bridge().loadScene(JSON.stringify(v.scene));
       if (!res.ok) throw new Error(res.error ?? "the editor did not load it");
       return d.text(`Restored version ${id}${v.label ? ` "${v.label}"` : ""}.`);
+    }),
+  );
+
+  server.registerTool(
+    "color_scopes",
+    {
+      description:
+        "Read the color scopes of the rendered video (grade included) as numbers, like a colorist reads the waveform, parade, vectorscope and histogram in the Color tab. Without times it measures the middle of every clip. Per frame: luma percentiles, crushed/clipped share, mean RGB overall and in shadows/midtones/highlights, saturation, and the midtones' color cast. Use it before and after grading, and to match clips (docs: Color correction).",
+      inputSchema: { times: z.array(z.number().min(0)).max(8).optional() },
+    },
+    d.guard(async ({ times }: { times?: number[] }) => {
+      const res = await d.bridge().scopes(times);
+      if (!res.ok) throw new Error(res.error ?? "the editor did not measure the frames");
+      return d.text(scopeLines(res.scopes ?? []));
     }),
   );
 

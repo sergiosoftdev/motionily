@@ -89,6 +89,8 @@ export const ServerMessageType = {
   Layout: "layout",
   /** Export the video with the scene's output settings (overrides optional); answers with the file. */
   Export: "export",
+  /** Color scopes as numbers (luma percentiles, channel balance, saturation, cast) at some instants. */
+  Scopes: "scopes",
 } as const;
 export type ServerMessageType = (typeof ServerMessageType)[keyof typeof ServerMessageType];
 
@@ -102,7 +104,30 @@ export type ServerMessage =
   | { type: typeof ServerMessageType.RenderFrames; requestId: string; projectId: string; times: number[]; width?: number }
   | { type: typeof ServerMessageType.Review; requestId: string; projectId: string; frames: number }
   | { type: typeof ServerMessageType.Layout; requestId: string; projectId: string; times: number[] }
-  | { type: typeof ServerMessageType.Export; requestId: string; projectId: string; output?: Partial<Output> };
+  | { type: typeof ServerMessageType.Export; requestId: string; projectId: string; output?: Partial<Output> }
+  | { type: typeof ServerMessageType.Scopes; requestId: string; projectId: string; times?: number[] };
+
+type Rgb3 = [number, number, number];
+/**
+ * What a colorist reads off the scopes of one frame, as numbers (values 0..1, display-referred, Rec.709 luma).
+ * Measured on the rendered frame, so the grade is included.
+ */
+export type ScopeStats = {
+  t: number;
+  /** Luma percentiles and mean (waveform / histogram). */
+  luma: { p1: number; p5: number; p50: number; p95: number; p99: number; mean: number };
+  /** Share of pixels crushed (luma < 0.02) or clipped (> 0.98). */
+  clipped: { black: number; white: number };
+  /** Mean [r, g, b] of the frame and of its shadows (luma < 0.25), midtones and highlights (> 0.75); null when a band is empty (parade). */
+  rgb: Rgb3;
+  shadows: Rgb3 | null;
+  midtones: Rgb3 | null;
+  highlights: Rgb3 | null;
+  /** Chroma (largest minus smallest channel): mean and 95th percentile (vectorscope spread). */
+  saturation: { mean: number; p95: number };
+  /** Tint of the midtones: hue name ("neutral" below 0.01) and strength (largest channel offset from their mean). */
+  cast: { hue: string; strength: number };
+};
 
 /** One layer as it lands on screen (engine `Scene::layout`). */
 export type LayoutRow = {
@@ -173,6 +198,7 @@ export type EditorMessage =
       images?: string[];
       review?: ReviewReport;
       layouts?: FrameLayout[];
+      scopes?: ScopeStats[];
       /** export: where the file was written (desktop app) or its /media URL (browser editor). */
       file?: string;
       url?: string;

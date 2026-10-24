@@ -658,6 +658,43 @@ class EngineHost {
   }
 
   /**
+   * The frame's pixels, `width` px wide, for scopes: at each of `times` exactly (video frames decoded),
+   * or at the playhead as it is on screen when `times` is null. Restores the current frame.
+   */
+  async framePixels(times: number[] | null, width = 256): Promise<{ t: number; image: ImageData }[]> {
+    const canvas = this.canvas;
+    const engine = this.engine;
+    if (!canvas || !engine) return [];
+    const [sw, sh] = this.size;
+    const out = document.createElement("canvas");
+    out.width = width;
+    out.height = Math.max(1, Math.round((width * sh) / sw));
+    const g = out.getContext("2d", { willReadFrequently: true })!;
+    const frames: { t: number; image: ImageData }[] = [];
+    if (times) await this.mediaReady();
+    for (const t of times ?? [useEditor.getState().time]) {
+      if (times) await this.renderExact(t);
+      else engine.render(t);
+      // Same task as the render: a WebGPU canvas is cleared once presented.
+      g.drawImage(canvas, 0, 0, out.width, out.height);
+      frames.push({ t, image: g.getImageData(0, 0, out.width, out.height) });
+    }
+    if (times) this.draw();
+    return frames;
+  }
+
+  /** The middle of every video and picture clip, in timeline order (where scopes look by default). */
+  clipMidpoints(): number[] {
+    if (!this.engine) return [];
+    const duration = this.engine.duration();
+    const layers = JSON.parse(this.engine.flatLayers()) as { type: string; group?: string; start?: number; end?: number | null }[];
+    return layers
+      .filter((l) => l.type === "video" || (l.type === "image" && l.group === "footage"))
+      .map((l) => ((l.start ?? 0) + (l.end ?? duration)) / 2)
+      .sort((a, b) => a - b);
+  }
+
+  /**
    * Self-review for the agent: renders `frames` evenly spaced frames into one contact sheet
    * and flags visible problems (layers off frame, overlapping text, dead stretches, blank frames).
    */

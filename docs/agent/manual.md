@@ -77,6 +77,10 @@ applied: fix it and resend the call.
 | `examples` | the user's FAVORITE videos (starred in the editor): `find [QUERY]` (what each is about, its direction, techniques and first layers — learn why they work, never paste or clone), `save` stars this video (only when the user says they love it) |
 | `get_layout` | where every layer lands on screen at given seconds (numbers) |
 | `render_frames` · `review_video` | look at stills / full self-review |
+| `list_media` · `import_media` · `remove_media` | the media pool of Edit mode: clips (c1…), sounds and pictures (m1…) with src, length and size; import from a URL (or an absolute path in the desktop app); videos become clips |
+| `export_video` · `save_project_folder` · `open_project_folder` | render the finished video with the scene's `output` (or overrides: short_side, codec, range) to a file (desktop) or URL; a video as a `.motionily` folder and back (desktop) |
+| `list_versions` · `save_version` · `restore_version` | the video's version history (autosaved every minute of editing, plus named ones); restoring saves the current scene first |
+| `color_scopes` · `apply_look` | the Color tab for agents: the scopes as numbers per frame (default: the middle of every clip) — luma p1/p5/p50/p95/p99, crushed (luma < 0.02) and clipped (> 0.98) share, mean rgb overall and in shadows (luma < 0.25) / mids / highlights (> 0.75), saturation (max − min channel) mean and p95, midtone cast (hue, strength = largest channel offset); a look by name on clips. Typical targets for footage: p1 0.02–0.08, p99 0.85–0.97, crushed and clipped under 0.01, mids cast under 0.02 unless the look wants it. Fix a cast with the wheels (`gain`/`gamma` against it), match two clips by bringing their p5/p50/p95 and band rgb together |
 | `list_prefabs` · `get_prefab` · `save_prefab` · `clone_prefab` | the user's 3D library |
 | `list_sounds` · `add_sfx` | sound effects from Motionily's library, synced to motion |
 | `set_format` · `set_voice_script` · `get_feedback` | frame format, voice script, user comments |

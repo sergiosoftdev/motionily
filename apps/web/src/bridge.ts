@@ -2,6 +2,7 @@ import { BRIDGE_PATH, BridgeClose, BridgeRole, HEADLESS_PARAM, EditorMessageType
 import { API_URL } from "./api/client";
 import { presetViolation, scenePresetViolation } from "./agentRules";
 import { engineHost } from "./engine/host";
+import { scopeStats } from "./editor/edit/colorScopes";
 import { useSession } from "./session";
 import { ActivitySource, logActivity, useEditor } from "./store";
 
@@ -10,6 +11,9 @@ const MIN_FRAME_WIDTH = 360;
 const MAX_FRAME_WIDTH = 1280;
 /** Instants per layout request (it is cheap: numbers, no rendering). */
 const MAX_LAYOUT_TIMES = 12;
+/** Instants per scopes request, and the frame width they are measured at. */
+const MAX_SCOPE_TIMES = 8;
+const SCOPE_WIDTH = 320;
 
 const RECONNECT_MS = 2000;
 
@@ -106,6 +110,15 @@ class AgentBridge {
           (r) => this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, ...r }),
           (e: unknown) => this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error: e instanceof Error ? e.message : String(e) }),
         );
+        return;
+      }
+      case ServerMessageType.Scopes: {
+        // Default: the middle of every clip (what a colorist checks shot by shot), else the playhead.
+        const times = (msg.times?.length ? msg.times : engineHost.clipMidpoints()).slice(0, MAX_SCOPE_TIMES);
+        void engineHost.framePixels(times.length ? times : null, SCOPE_WIDTH).then((frames) => {
+          logActivity(ActivitySource.Agent, `Reads the color scopes (${frames.length} ${frames.length === 1 ? "frame" : "frames"})`);
+          this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, scopes: frames.map((f) => scopeStats(f.image, f.t)) });
+        }, (e: unknown) => this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error: String(e) }));
         return;
       }
       case ServerMessageType.Layout: {

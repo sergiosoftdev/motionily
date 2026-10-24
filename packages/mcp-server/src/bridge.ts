@@ -106,6 +106,10 @@ export class EditorBridge {
     return this.request({ type: ServerMessageType.Export, requestId: randomUUID(), projectId: this.projectId, output }, EXPORT_TIMEOUT_MS);
   }
 
+  scopes(times?: number[]) {
+    return this.request({ type: ServerMessageType.Scopes, requestId: randomUUID(), projectId: this.projectId, times });
+  }
+
   layout(times: number[]) {
     return this.request({ type: ServerMessageType.Layout, requestId: randomUUID(), projectId: this.projectId, times });
   }

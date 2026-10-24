@@ -77,4 +77,12 @@ hacer el agente** (cualquier cliente MCP).
 terminarlo, con su commit.
 
 ## Estado
-(se rellena al avanzar)
+- [x] 0.1–0.4 salida en la escena, media pool, export y carpetas para el agente (95ae7c4, b3808ad)
+- [x] 0.5 looks compartidos y `apply_look` (b3808ad)
+- [x] 5.4 versiones (0802cba)
+- [x] 1.1 pistas (4edea67)
+- [x] 1.2 ripple/roll/slip/slide (f5797c4)
+- [x] 1.3–1.4 I/O, insert/overwrite/replace, J/K/L, marcadores (a951f11)
+- [x] 4.2 transparencia, 4.3 fps, 4.6 tramo (95ae7c4)
+- [x] 2.2 ruedas y curvas (f2744ed)
+- [x] 2.1 scopes y `color_scopes`
