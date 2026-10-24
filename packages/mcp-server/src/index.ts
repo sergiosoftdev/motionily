@@ -358,6 +358,11 @@ server.registerTool(
     const b = await api.brand();
     const lines = [`Brand: ${b.name}`, `About: ${b.notes.trim() || "(no notes)"}`];
     for (const p of b.palettes) lines.push(`Palette "${p.name}": bg ${p.background}, surface ${p.surface}, primary ${p.primary}, accent ${p.accent}, text ${p.text}`);
+    // A half-filled kit must not leave the agent guessing: say what is missing and how to fill it.
+    if (!b.palettes.length)
+      lines.push("No brand palette in the kit: view_asset the logos (and a screenshot) first and take the palette from their real colors (set_palette); never invent brand colors.");
+    const misfiled = b.assets.filter((a) => a.kind !== "logo" && /logo|wordmark|\bmark\b|icon|isotipo|imagotipo/i.test(a.name));
+    if (misfiled.length) lines.push(`These look like logos although filed as ${[...new Set(misfiled.map((a) => a.kind))].join("/")}: ${misfiled.map((a) => a.name).join(", ")}. Treat them as the brand's logos.`);
     for (const a of b.assets)
       lines.push(`Asset ${a.id} | ${a.kind} | ${a.name} | src "${a.url}"${a.kind === VIDEO_ASSET ? ` | ${clipFacts(a)}` : ""} | ${a.description || "(no description)"}`);
     if (!b.assets.length) lines.push("No images yet.");
