@@ -1,8 +1,9 @@
 import type { AgentRunUsage, AttentionDevice, Brick, BrickSlot, LibraryItem, Project, ProjectListItem, ProviderKey, ProviderStatus, SunoPrompt, User, VideoFormat, Voice, VoiceModel } from "@motionily/protocol";
 import { useSession } from "../session";
 import type { AgentPrefs, GenerateState } from "../components/GeneratePanel";
+import { desktop } from "../desktop";
 
-export const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3100";
+export const API_URL = desktop?.apiUrl ?? import.meta.env.VITE_API_URL ?? "http://localhost:3100";
 
 export const AssetKind = { Logo: "logo", Screenshot: "screenshot", Photo: "photo", Video: "video", Other: "other" } as const;
 export type AssetKind = (typeof AssetKind)[keyof typeof AssetKind];

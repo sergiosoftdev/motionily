@@ -1,0 +1,22 @@
+[package]
+name = "motionily-desktop"
+version = "0.1.0"
+description = "Motionily desktop: the editor, its API and the native engine on your own machine"
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "motionily_desktop"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["macos-private-api"] }
+serde.workspace = true
+serde_json.workspace = true
+getrandom = "0.3"
+engine.workspace = true
+scene.workspace = true
+pollster = "0.4"

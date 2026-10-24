@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { User } from "@motionily/protocol";
+import { desktop } from "./desktop";
 
 const STORAGE_KEY = "motionily.session";
 
@@ -7,6 +8,8 @@ type Session = { token: string | null; user: User | null };
 type SessionStore = Session & { login: (s: { token: string; user: User }) => void; logout: () => void };
 
 function load(): Session {
+  // The desktop app signs its one local account in on every launch.
+  if (desktop?.session) return desktop.session;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw) as Session;

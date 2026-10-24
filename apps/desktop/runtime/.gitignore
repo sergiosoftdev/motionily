@@ -1,0 +1,3 @@
+# Filled by scripts/bundle-runtime.sh before packaging: node, the API, the MCP server, fonts.
+*
+!.gitignore

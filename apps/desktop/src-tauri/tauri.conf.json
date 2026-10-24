@@ -1,0 +1,29 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Motionily",
+  "version": "0.1.0",
+  "identifier": "app.motionily.desktop",
+  "build": {
+    "beforeDevCommand": "pnpm --dir ../.. dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "pnpm --dir ../.. wasm && pnpm --dir ../.. --filter @motionily/web build && bash ../scripts/bundle-runtime.sh",
+    "frontendDist": "../../web/dist"
+  },
+  "app": {
+    "windows": [],
+    "macOSPrivateApi": true,
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Video",
+    "shortDescription": "Agent-first motion graphics editor",
+    "longDescription": "Motionily is an open-source, agent-first video editor: any MCP agent (Claude Code, Codex, Gemini CLI, OpenCode…) builds motion graphics and edits that render live on your GPU.",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "resources": { "../runtime/": "runtime/" },
+    "licenseFile": "../../../LICENSE"
+  }
+}
