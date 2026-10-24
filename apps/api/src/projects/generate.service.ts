@@ -1,5 +1,5 @@
-import { ChildProcess, execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { ChildProcess, execFileSync } from "node:child_process";
+import { mkdtempSync } from "node:fs";
 import { checkPrompts, rolePrompt } from "../common/prompts";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -11,6 +11,7 @@ import { ProjectsService } from "./projects.service";
 import { AgentEffort, AgentModel, GenerateMode, type GenerateDto } from "./projects.dto";
 import { VideoFormat, type AgentRunUsage } from "./project.schema";
 import { filmNotes } from "../references/film";
+import { AgentEventKind, agentCli, bareTool, emptyUsage, modelFor, runAgent, type AgentCli, type AgentMcp, type AgentUsage } from "../common/agent-cli";
 
 export enum GenerateStatus {
   Idle = "idle",
@@ -50,28 +51,8 @@ type VoiceLine = { start: number; end: number; text: string };
 
 type Run = { voice?: VoiceLine[]; projectId?: string; processes: Set<ChildProcess>; status: GenerateStatus; events: GenerateEvent[]; summary: string | null; usage: AgentRunUsage | null };
 
-/** The fields of claude's final `result` line we care about. */
-type ResultLine = {
-  total_cost_usd?: number;
-  num_turns?: number;
-  duration_ms?: number;
-  usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
-};
-
-export function usageFrom(r: ResultLine, kind: string, model: string | null, effort: string | null): AgentRunUsage {
-  return {
-    at: new Date().toISOString(),
-    kind,
-    model,
-    effort,
-    costUsd: r.total_cost_usd ?? 0,
-    inputTokens: r.usage?.input_tokens ?? 0,
-    outputTokens: r.usage?.output_tokens ?? 0,
-    cacheReadTokens: r.usage?.cache_read_input_tokens ?? 0,
-    cacheWriteTokens: r.usage?.cache_creation_input_tokens ?? 0,
-    turns: r.num_turns ?? 0,
-    durationMs: r.duration_ms ?? 0,
-  };
+export function usageFrom(r: AgentUsage, kind: string, model: string | null, effort: string | null): AgentRunUsage {
+  return { at: new Date().toISOString(), kind, model, effort, ...r };
 }
 
 const MAX_EVENTS = 200;
@@ -275,6 +256,7 @@ type Plan = { direction: string; motif?: string; reference?: string; beats: Beat
  * Requests on top of an existing video use a single agent.
  */
 /** Is this pid a live claude process (and not some unrelated process that reused the pid)? */
+/** A live agent CLI process (any of the CLIs Motionily drives), not a reused pid. */
 function isClaude(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -282,7 +264,8 @@ function isClaude(pid: number): boolean {
     return false;
   }
   try {
-    return execFileSync("ps", ["-p", String(pid), "-o", "command="]).toString().includes("claude");
+    const cmd = execFileSync("ps", ["-p", String(pid), "-o", "command="]).toString();
+    return /claude|codex|gemini|opencode/.test(cmd);
   } catch {
     return false;
   }
@@ -358,7 +341,7 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
     }
     const payload: JwtPayload = { sub: ownerId.toString(), email, scope: TokenScope.Agent, projectId: project.id };
     const token = await this.jwt.signAsync(payload, { expiresIn: "2h" });
-    const config = (tools?: readonly string[]) => this.mcpConfig(project.id, token, tools);
+    const mcp = (tools?: readonly string[]) => this.mcpServer(project.id, token, tools);
 
     const run: Run = { processes: new Set(), status: GenerateStatus.Running, events: [], summary: null, usage: null };
     this.runs.set(project.id, run);
@@ -368,7 +351,7 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
     run.voice = voice;
     const voiceNote = voice.length ? `\nVoice-over, timed (what is said when; the video must show it at that moment):\n${voiceDuring(voice, 0, Infinity)}` : "";
     const refs = (await referencePrompt([...new Set([...(project.references ?? []), ...(references ?? [])])])) + voiceNote;
-    const opts: AgentOpts = { config, model, effort, size: FORMAT_SIZE[project.format] ?? FORMAT_SIZE[VideoFormat.Vertical] };
+    const opts: AgentOpts = { cli: agentCli(), mcp, model, effort, size: FORMAT_SIZE[project.format] ?? FORMAT_SIZE[VideoFormat.Vertical] };
 
     // Callers without a mode (prefab workshop, older clients) keep their explicit model/effort.
     mode ??= model ? GenerateMode.Custom : GenerateMode.Balanced;
@@ -428,7 +411,7 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
   /** A failed sound pass never fails the video: the cut is already done, so it only leaves a note. */
   private async soundPass(run: Run, o: AgentOpts): Promise<AgentRunUsage> {
     const t0 = Date.now();
-    const results: ResultLine[] = [];
+    const results: AgentUsage[] = [];
     this.push(run, GenerateEventKind.Phase, GeneratePhase.Sound);
     try {
       const { scene, brief } = await this.projects.soundInputOf(run.projectId!);
@@ -474,7 +457,7 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
     // The cost log names the mode rather than one model (each role may run a different one).
     const label: AgentOpts = { ...base, model: `${mode} mode`, effort: undefined };
     const o: AgentOpts = { ...base, ...team.plan };
-    const results: ResultLine[] = [];
+    const results: AgentUsage[] = [];
     const t0 = Date.now();
     if (team.solo) return this.solo(run, refs, base, team, label, t0);
     this.push(run, GenerateEventKind.Phase, GeneratePhase.Plan);
@@ -496,7 +479,7 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
   }
 
   /** Builders write the given beats in parallel, then the finisher reviews the whole cut. */
-  private async buildFrom(run: Run, plan: Plan, beats: Beat[], refs: string, base: AgentOpts, team: TeamSetup, results: ResultLine[], label: AgentOpts, t0: number): Promise<AgentRunUsage> {
+  private async buildFrom(run: Run, plan: Plan, beats: Beat[], refs: string, base: AgentOpts, team: TeamSetup, results: AgentUsage[], label: AgentOpts, t0: number): Promise<AgentRunUsage> {
     const o = base;
     this.push(run, GenerateEventKind.Phase, GeneratePhase.Build);
 
@@ -531,7 +514,7 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
 
 /** Premium: one designer builds the whole film as one continuous world, then a reviewer polishes it. */
   private async solo(run: Run, refs: string, base: AgentOpts, team: TeamSetup, label: AgentOpts, t0: number): Promise<AgentRunUsage> {
-    const results: ResultLine[] = [];
+    const results: AgentUsage[] = [];
     this.push(run, GenerateEventKind.Phase, GeneratePhase.Build);
     const designer = await this.agent(
       run,
@@ -557,74 +540,45 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
     return sumUsage(results, t0, label);
   }
 
-  /** One claude process; events are tagged with its role so the UI can show who is doing what. */
-  private agent(run: Run, prompt: string, guide: string, o: AgentOpts, role: string, tools: readonly string[] | undefined): Promise<{ text: string; result: ResultLine }> {
-    // Fresh empty folder: the agent must not pick up any repo's CLAUDE.md or files.
+  /** One agent process (Claude Code, Codex, Gemini CLI or OpenCode); events are tagged with its role so the UI can show who is doing what. */
+  private async agent(run: Run, prompt: string, guide: string, o: AgentOpts, role: string, tools: readonly string[] | undefined): Promise<{ text: string; result: AgentUsage }> {
+    // Fresh empty folder: the agent must not pick up any repo's instructions or files.
     const cwd = mkdtempSync(join(tmpdir(), "motionily-agent-"));
-    const child = spawn(
-      process.env.CLAUDE_BIN ?? "claude",
-      [
-        "-p",
-        prompt,
-        // Our own lean system prompt and no built-in tools: ~5k tokens of base context instead of ~27k, on every turn.
-        "--system-prompt",
-        guide,
-        "--tools",
-        "",
-        "--mcp-config",
-        o.config(tools),
-        "--strict-mcp-config",
-        "--allowedTools",
-        `mcp__${MCP_SERVER}`,
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        ...(o.model ? ["--model", o.model] : []),
-        ...(o.effort ? ["--effort", o.effort] : []),
-      ],
-      { cwd, stdio: ["ignore", "pipe", "pipe"], env: process.env },
-    );
-    run.processes.add(child);
-    if (child.pid && run.projectId) void this.projects.trackPid(run.projectId, child.pid, true);
     const tag = role ? `[${role}] ` : "";
-    return new Promise((resolvePromise, reject) => {
-      let buffered = "";
-      let final: (ResultLine & { result?: string }) | null = null;
-      child.stdout!.on("data", (chunk: Buffer) => {
-        buffered += chunk.toString();
-        const lines = buffered.split("\n");
-        buffered = lines.pop() ?? "";
-        for (const line of lines) final = this.onLine(line, run, tag) ?? final;
-      });
-      let stderr = "";
-      child.stderr!.on("data", (c: Buffer) => (stderr = (stderr + c.toString()).slice(-2000)));
-      child.on("error", (e) => reject(new Error(`Could not start Claude Code: ${e.message}`)));
-      child.on("close", (code) => {
-        run.processes.delete(child);
-        if (child.pid && run.projectId) void this.projects.trackPid(run.projectId, child.pid, false);
-        if (code === 0 && final) return resolvePromise({ text: final.result?.trim() ?? "", result: final });
-        reject(new Error(stderr.trim().split("\n").slice(-3).join(" ") || `claude exited with code ${code}`));
-      });
-    });
+    const r = await runAgent(
+      o.cli,
+      { prompt, system: guide, cwd, mcp: o.mcp(tools), model: modelFor(o.cli, o.model), effort: o.effort, stream: true },
+      {
+        onSpawn: (child) => {
+          run.processes.add(child);
+          if (child.pid && run.projectId) void this.projects.trackPid(run.projectId, child.pid, true);
+        },
+        onExit: (child) => {
+          run.processes.delete(child);
+          if (child.pid && run.projectId) void this.projects.trackPid(run.projectId, child.pid, false);
+        },
+        onEvent: (e) => {
+          if (e.kind === AgentEventKind.Tool) this.push(run, GenerateEventKind.Tool, `${tag}${bareTool(e.text, MCP_SERVER)}`);
+          if (e.kind === AgentEventKind.Text && !tag.startsWith("[plan")) this.push(run, GenerateEventKind.Text, `${tag}${e.text}`);
+          if (e.kind === AgentEventKind.Error) this.push(run, GenerateEventKind.Error, `${tag}${e.text}`);
+        },
+      },
+    );
+    return { text: r.text.trim(), result: r.usage };
   }
 
-  private mcpConfig(projectId: string, token: string, tools?: readonly string[]) {
+  /** The Motionily MCP server as this run's agents start it (stdio, scoped to the project). */
+  private mcpServer(projectId: string, token: string, tools?: readonly string[]): AgentMcp {
     const mcpDir = resolve(process.env.MOTIONILY_MCP_DIR ?? join(process.cwd(), "../../packages/mcp-server"));
-    const dir = mkdtempSync(join(tmpdir(), "motionily-mcp-"));
-    const config = join(dir, "mcp.json");
-    writeFileSync(
-      config,
-      JSON.stringify({
-        mcpServers: {
-          [MCP_SERVER]: {
-            command: join(mcpDir, "node_modules/.bin/tsx"),
-            args: [join(mcpDir, "src/index.ts")],
-            env: { MOTIONILY_API: process.env.PUBLIC_API_URL ?? `http://localhost:${process.env.PORT ?? 3100}`, MOTIONILY_PROJECT: projectId, MOTIONILY_TOKEN: token, MOTIONILY_MANUAL: "0", ...(tools ? { MOTIONILY_TOOLS: tools.join(",") } : {}) },
-          },
-        },
-      }),
-    );
-    return config;
+    // A bundled server (desktop app) runs on node itself; from the repo it runs the TypeScript with tsx.
+    const bundled = process.env.MOTIONILY_MCP_BUNDLE;
+    return {
+      name: MCP_SERVER,
+      command: bundled ? process.execPath : join(mcpDir, "node_modules/.bin/tsx"),
+      args: [bundled ?? join(mcpDir, "src/index.ts")],
+      env: { MOTIONILY_API: process.env.PUBLIC_API_URL ?? `http://localhost:${process.env.PORT ?? 3100}`, MOTIONILY_PROJECT: projectId, MOTIONILY_TOKEN: token, MOTIONILY_MANUAL: "0" },
+      tools,
+    };
   }
 
   private push(run: Run, kind: GenerateEventKind, text: string) {
@@ -632,29 +586,9 @@ export class GenerateService implements OnModuleInit, OnApplicationShutdown {
     if (run.events.length > MAX_EVENTS) run.events.shift();
   }
 
-  /** One stream-json line from claude: keep tool calls and text the user can follow. Returns the final result. */
-  private onLine(line: string, run: Run, tag: string): (ResultLine & { result?: string }) | null {
-    let msg: ResultLine & { type?: string; subtype?: string; result?: string; message?: { content?: { type: string; text?: string; name?: string }[] } };
-    try {
-      msg = JSON.parse(line);
-    } catch {
-      return null;
-    }
-    if (msg.type === "assistant") {
-      for (const c of msg.message?.content ?? []) {
-        if (c.type === "tool_use" && c.name) this.push(run, GenerateEventKind.Tool, `${tag}${c.name.replace(`mcp__${MCP_SERVER}__`, "")}`);
-        if (c.type === "text" && c.text?.trim() && !tag.startsWith("[plan")) this.push(run, GenerateEventKind.Text, `${tag}${c.text.trim()}`);
-      }
-    }
-    if (msg.type === "result") {
-      if (msg.subtype && msg.subtype !== "success") this.push(run, GenerateEventKind.Error, `${tag}${msg.subtype}`);
-      return msg;
-    }
-    return null;
-  }
 }
 
-type AgentOpts = { config: (tools?: readonly string[]) => string; model?: string; effort?: string; size: [number, number] };
+type AgentOpts = { cli: AgentCli; mcp: (tools?: readonly string[]) => AgentMcp; model?: string; effort?: string; size: [number, number] };
 
 function parsePlan(text: string): Plan {
   try {
@@ -679,16 +613,16 @@ async function referencePrompt(paths: string[]): Promise<string> {
 }
 
 /** One usage row for the whole team (wall time, not the sum of each agent's time). */
-function sumUsage(results: ResultLine[], t0: number, o: AgentOpts): AgentRunUsage {
-  const total: ResultLine = { total_cost_usd: 0, num_turns: 0, duration_ms: Date.now() - t0, usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } };
+function sumUsage(results: AgentUsage[], t0: number, o: AgentOpts): AgentRunUsage {
+  const total = emptyUsage();
   for (const r of results) {
-    total.total_cost_usd! += r.total_cost_usd ?? 0;
-    total.num_turns! += r.num_turns ?? 0;
-    const u = total.usage!;
-    u.input_tokens! += r.usage?.input_tokens ?? 0;
-    u.output_tokens! += r.usage?.output_tokens ?? 0;
-    u.cache_read_input_tokens! += r.usage?.cache_read_input_tokens ?? 0;
-    u.cache_creation_input_tokens! += r.usage?.cache_creation_input_tokens ?? 0;
+    total.costUsd += r.costUsd;
+    total.turns += r.turns;
+    total.inputTokens += r.inputTokens;
+    total.outputTokens += r.outputTokens;
+    total.cacheReadTokens += r.cacheReadTokens;
+    total.cacheWriteTokens += r.cacheWriteTokens;
   }
+  total.durationMs = Date.now() - t0;
   return usageFrom(total, "generate", o.model ?? null, o.effort ?? null);
 }

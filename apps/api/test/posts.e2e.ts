@@ -19,12 +19,12 @@ const FAKE_CLAUDE = `#!/usr/bin/env node
 const prompt = process.argv[process.argv.indexOf("-p") + 1];
 if (prompt.includes("Timeline:")) {
   const suno = { title: "Dead Man's Drop", style: "dark cinematic orchestral, tense strings, 90 bpm, instrumental, no vocals", structure: "[Intro: low drone]\\n[Drop: full orchestra hit]", drop_at: 3, notes: prompt.includes("Change: darker") ? "darker" : "Turn Instrumental on." };
-  process.stdout.write(JSON.stringify({ result: JSON.stringify(suno), total_cost_usd: 0 }));
+  process.stdout.write(JSON.stringify({ type: "result", subtype: "success", result: JSON.stringify(suno), total_cost_usd: 0 }));
   process.exit(0);
 }
 const platforms = /Platforms: (.*)/.exec(prompt)[1].split(", ");
 const copy = platforms.map((platform) => ({ platform, caption: "A dead man fooled Hitler. " + platform, hashtags: ["#History", "history", "WW2!", ""] }));
-process.stdout.write(JSON.stringify({ result: "Here you go: " + JSON.stringify({ copy }), total_cost_usd: 0 }));
+process.stdout.write(JSON.stringify({ type: "result", subtype: "success", result: "Here you go: " + JSON.stringify({ copy }), total_cost_usd: 0 }));
 `;
 
 let mongo: MongoMemoryServer;

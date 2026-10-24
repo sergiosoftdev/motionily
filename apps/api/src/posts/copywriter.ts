@@ -1,6 +1,6 @@
 import { BadGatewayException, Injectable } from "@nestjs/common";
 import type { Types } from "mongoose";
-import { askClaude, jsonIn } from "../common/claude-once";
+import { askAgent, jsonIn } from "../common/agent-once";
 import { AgentEffort, AgentModel } from "../projects/projects.dto";
 import { ProjectsService } from "../projects/projects.service";
 import { BrandsService } from "../brands/brands.service";
@@ -37,7 +37,7 @@ export class CopywriterService {
     ]
       .filter(Boolean)
       .join("\n\n");
-    const { text } = await askClaude({ prompt, system: rolePrompt("copywriter"), model: AgentModel.Sonnet, effort: AgentEffort.Low, timeoutMs: COPY_TIMEOUT_MS });
+    const { text } = await askAgent({ prompt, system: rolePrompt("copywriter"), model: AgentModel.Sonnet, effort: AgentEffort.Low, timeoutMs: COPY_TIMEOUT_MS });
     const answer = jsonIn<{ copy?: { platform?: string; caption?: unknown; hashtags?: unknown }[] }>(text);
     const copy = dto.platforms.map((platform) => {
       const c = answer?.copy?.find((x) => x.platform === platform);

@@ -6,7 +6,7 @@ import { AgentEffort, AgentModel, MAX_REFERENCES } from "../projects/projects.dt
 import { MEDIA_DIR, MEDIA_PATH } from "../media";
 import { VideoFormat, type AgentRunUsage } from "../projects/project.schema";
 import { usageFrom } from "../projects/generate.service";
-import { askClaude } from "../common/claude-once";
+import { askAgent } from "../common/agent-once";
 import { rolePrompt } from "../common/prompts";
 
 export const MAX_CONCEPTS = 6;
@@ -111,6 +111,6 @@ export class ConceptsService {
   private run(prompt: string, model: AgentModel, effort: AgentEffort, references: string[]) {
     // Reference images go next to it so Claude can Read (see) them; nothing else is allowed.
     const files = references.map((ref, i) => ({ from: join(MEDIA_DIR, basename(ref)), as: `ref-${i + 1}${extname(ref)}` }));
-    return askClaude({ prompt, system: rolePrompt("concepts"), model, effort, timeoutMs: CONCEPT_TIMEOUT_MS, files });
+    return askAgent({ prompt, system: rolePrompt("concepts"), model, effort, timeoutMs: CONCEPT_TIMEOUT_MS, files });
   }
 }
