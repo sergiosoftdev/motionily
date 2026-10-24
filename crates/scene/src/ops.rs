@@ -134,6 +134,15 @@ pub enum Op {
     SetFps { fps: f32 },
     /// Replace the editing tracks: `{"op":"set_tracks","tracks":[{"id":"V1","kind":"video"},{"id":"A1","kind":"audio","muted":true}]}`.
     SetTracks { tracks: Vec<crate::tracks::Track> },
+    // ── trim tools (one track; targets are absolute, so drags can re-send them) ──
+    /// Ripple: the clip's `edge` (in|out) goes to scene second `to` and everything after follows (locked tracks stay).
+    RippleTrim { id: String, edge: crate::trim::Edge, to: f32 },
+    /// Roll: the cut between this clip and the next on its track moves to scene second `to`.
+    RollEdit { id: String, to: f32 },
+    /// Slip: same place, another part of the file (`in` = file second the clip opens on).
+    SlipClip { id: String, #[serde(rename = "in")] file_in: f32 },
+    /// Slide: the clip moves to `start`; its neighbours on the track give and take.
+    SlideClip { id: String, start: f32 },
     /// Take `[from, to]` seconds out of the whole video and close the gap: voice (its file skips
     /// that stretch), captions, layers (clips get a jump cut), sound effects, transitions, markers.
     RippleDelete { from: f32, to: f32 },
@@ -578,6 +587,10 @@ impl Scene {
                 }
                 self.output = output.clone();
             }
+            Op::RippleTrim { id, edge, to } => self.ripple_trim(id, *edge, *to)?,
+            Op::RollEdit { id, to } => self.roll_edit(id, *to)?,
+            Op::SlipClip { id, file_in } => self.slip_clip(id, *file_in)?,
+            Op::SlideClip { id, start } => self.slide_clip(id, *start)?,
             Op::SetTracks { tracks } => {
                 crate::tracks::check(tracks).map_err(OpError::Invalid)?;
                 self.tracks = tracks.clone();

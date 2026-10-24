@@ -141,7 +141,7 @@ fn cut_keys(keys: &mut Vec<Value>, s: f32, s2: f32, from: f32, to: f32) {
 
 /// Shift every key list of a layer JSON by `dt` seconds (layer-local), dropping keys before 0 but
 /// keeping the value there.
-fn shift_keys(v: &mut Value, dt: f32) {
+pub(crate) fn shift_keys(v: &mut Value, dt: f32) {
     for_each_keys(v, &mut |keys| {
         let at0 = value_at(keys, -dt);
         let mut out: Vec<Value> = Vec::new();
@@ -169,11 +169,11 @@ fn shift_keys(v: &mut Value, dt: f32) {
     });
 }
 
-fn to_value(l: &Layer) -> Result<Value, OpError> {
+pub(crate) fn to_value(l: &Layer) -> Result<Value, OpError> {
     serde_json::to_value(l).map_err(|e| OpError::Field(e.to_string()))
 }
 
-fn from_value(v: Value, id: &str) -> Result<Layer, OpError> {
+pub(crate) fn from_value(v: Value, id: &str) -> Result<Layer, OpError> {
     serde_json::from_value(v).map_err(|e| OpError::Field(format!("layer '{id}': {e}")))
 }
 

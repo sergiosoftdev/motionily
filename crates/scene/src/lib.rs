@@ -9,6 +9,7 @@ mod anim;
 pub mod expr;
 pub mod output;
 pub mod tracks;
+pub mod trim;
 pub mod glyphs;
 mod patch;
 mod hit;

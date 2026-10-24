@@ -46,6 +46,10 @@ const MUSIC_WAVE = "rgba(252,231,243,0.8)";
 const SOUND_WAVE = "rgba(167,243,208,0.9)";
 const MUTED_SOUND_WAVE = "rgba(167,243,208,0.35)";
 
+/** The timeline's tools: Select moves and trims one clip; Trim is the NLE trim mode (ripple, roll, slip, slide). */
+export const EditTool = { Select: "select", Trim: "trim" } as const;
+export type EditTool = (typeof EditTool)[keyof typeof EditTool];
+
 /** Which track a lane belongs to, for drops from the media pool. */
 export const LaneTrack = { Video: "video", Audio: "audio" } as const;
 export type LaneTrack = (typeof LaneTrack)[keyof typeof LaneTrack];
@@ -105,6 +109,7 @@ export function EditTimeline({
   onSelectMusic,
   onPick,
   onDropMedia,
+  tool = EditTool.Select,
   edits,
 }: {
   scene: SceneView;
@@ -118,6 +123,7 @@ export function EditTimeline({
   onPick: (picks: Picks | null) => void;
   /** A media pool tile dropped on a lane at scene second `at`. */
   onDropMedia: (drop: PoolDrop, at: number, track: LaneTrack) => void;
+  tool?: EditTool;
   edits: EditActions;
 }) {
   const [dropLane, setDropLane] = useState<string | null>(null);
@@ -323,7 +329,20 @@ export function EditTimeline({
     const width = Math.max(4, px(to - from));
     const vis = visible(left, width);
     const fc = c.footage;
-    const edge = (kind: "in" | "out") => (e: ReactPointerEvent) =>
+    const trimMode = tool === EditTool.Trim;
+    const prevOnTrack = (kind: ClipKind) => (kind === ClipKind.Audio ? tracks.audio : tracks.clips).find((x) => x.lane === c.lane && x.id !== c.id && Math.abs(x.end - c.start) < 0.02);
+    const edge = (kind: "in" | "out") => (e: ReactPointerEvent) => {
+      // Trim mode: an edge ripples (everything after follows); with Alt it rolls the cut with the neighbour.
+      if (trimMode && e.altKey) {
+        const left = kind === "in" ? prevOnTrack(c.kind) : c;
+        if (!left) return;
+        drag(e, kind, () => selectClip(c), (dt) => [{ op: OpName.RollEdit, id: left.id, to: snap((kind === "in" ? c.start : c.end) + dt, [time]) }], () => `Rolls the cut of ${left.id}`, true);
+        return;
+      }
+      if (trimMode) {
+        drag(e, kind, () => selectClip(c), (dt) => [{ op: OpName.RippleTrim, id: c.id, edge: kind, to: kind === "in" ? c.start + dt : snap(c.end + dt, [time]) }], () => `Ripple trims ${c.id}`, true);
+        return;
+      }
       drag(
         e,
         kind,
@@ -332,6 +351,7 @@ export function EditTimeline({
         () => `Trims ${c.id}`,
         true,
       );
+    };
     return (
       <div
         key={c.id}
@@ -343,6 +363,10 @@ export function EditTimeline({
             ? (e.stopPropagation(), togglePick(PickKind.Clip, c.id))
             : locked
               ? (e.stopPropagation(), selectClip(c))
+              : trimMode && c.kind !== ClipKind.Image
+                ? e.altKey
+                  ? drag(e, "move", () => selectClip(c), (dt) => [{ op: OpName.SlideClip, id: c.id, start: c.start + dt }], () => `Slides ${c.id}`, true)
+                  : drag(e, "move", () => selectClip(c), (dt) => [{ op: OpName.SlipClip, id: c.id, in: Math.max(0, c.in - dt * c.speed) }], () => `Slips ${c.id}`, true)
               : drag(
             e,
             "move",

@@ -116,6 +116,10 @@ applied: fix it and resend the call.
 {"op":"set_work_area","work_area":[2,5]}                // preview loops 2-5 s; null = whole video (export: see output.range)
 {"op":"set_output","output":{"short_side":2160,"codec":"prores","range":[2,8]}}  // export settings (the user's Project settings): short_side 720|1080|1440|2160|4320; codec h264|hevc|prores|prores4444|vp9_alpha (the last two keep transparency: nothing drawn = alpha 0); range [in,out] s optional; null = 1080 h264 whole video
 {"op":"set_tracks","tracks":[{"id":"V1","kind":"video","name":"Main"},{"id":"V2","kind":"video","hidden":true},{"id":"A1","kind":"audio","solo":true},{"id":"A2","kind":"audio","muted":true,"locked":true}]}  // the editor's tracks (replaces all); a layer joins one with `track` (line key `track=V2`, or patch fields {"track":"V2"}); hidden = not drawn nor heard, muted = not heard, while any track is solo only solo tracks are heard; locked = the user cannot move it in the editor (respect it). V1 is the main video lane, A1 the first audio lane.
+{"op":"ripple_trim","id":"ft2","edge":"out","to":4.2}  // trim tools on one track (targets absolute): ripple = the edge goes to scene second `to` and everything after (other tracks too, sfx, markers, captions; not locked tracks) follows; edge "in" keeps the clip's start and cuts its head up to `to`
+{"op":"roll_edit","id":"ft2","to":4.2}     // the cut between ft2 and the next clip on its track moves to 4.2 s (length unchanged)
+{"op":"slip_clip","id":"ft2","in":7.5}      // same place, the clip now opens on file second 7.5
+{"op":"slide_clip","id":"ft2","start":3}    // ft2 moves to 3 s; the clip before ends there, the one after starts where it ends (both keep their content in place)
 {"op":"set_fps","fps":24}                              // frame rate of the whole video, 1..120 (offered: 23.976 24 25 29.97 30 50 60)
 {"op":"patch","id":"card","fields":{"solo":true}}       // solo/locked/shy are layer fields (false = off); solo changes the render
 3D stage: put_prop, remove_prop, set_camera, set_shots, set_stage, set_lights, define_prefab (below)

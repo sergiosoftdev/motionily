@@ -17,7 +17,7 @@ import { useTransportKeys } from "../transportKeys";
 import { Viewer } from "../Viewer";
 import { AttentionStrip } from "../AttentionStrip";
 import { ClaudePanel } from "./ClaudePanel";
-import { EditTimeline, LaneTrack, pickCount, type EditSelection, type Picks } from "./EditTimeline";
+import { EditTimeline, EditTool, LaneTrack, pickCount, type EditSelection, type Picks } from "./EditTimeline";
 import { Inspector } from "./Inspector";
 import { mmss, useClipUpload, useMusicUpload } from "./MediaPanel";
 import { MediaPool, useMediaPool, type PoolDrop } from "./MediaPool";
@@ -56,6 +56,8 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
   const [musicOn, setMusicOn] = useState(false);
   /** Several pieces picked with the marquee or Shift-click (the editor's selection holds one). */
   const [picks, setPicks] = useState<Picks | null>(null);
+  /** Select (A) or Trim (T): ripple / roll / slip / slide. */
+  const [tool, setTool] = useState<EditTool>(EditTool.Select);
   const clips = useClipUpload(ed, edits);
   const music = useMusicUpload(ed, edits);
   const selectedLayer = useEditor((s) => s.selectedLayerId);
@@ -114,6 +116,8 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
       const meta = e.metaKey || e.ctrlKey;
       let handled = true;
       if (meta && e.key.toLowerCase() === "z") (e.shiftKey ? ed2.redo() : ed2.undo());
+      else if (!meta && e.key.toLowerCase() === "a") setTool(EditTool.Select);
+      else if (!meta && e.key.toLowerCase() === "t") setTool(EditTool.Trim);
       // S, or ⌘B like Resolve's and Premiere's blade, cuts at the playhead.
       else if ((!meta && e.key.toLowerCase() === "s") || (meta && e.key.toLowerCase() === "b")) o.split(sel?.kind === "clip" ? sel.clip : null);
       else if ((e.key === "Delete" || e.key === "Backspace") && sel) {
@@ -216,11 +220,26 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
           {/* As tall as its tracks, up to 46% of the screen: the preview keeps the rest. */}
           <div className={`relative flex max-h-[46%] min-h-52 shrink-0 flex-col rounded-2xl ring-1 ring-white/[0.06] ${ModePiece.Timeline}`}>
             <div className="flex items-center gap-1 px-3 py-1.5 text-xs">
+              <span className="mr-1 flex rounded-md bg-neutral-950 p-0.5">
+                {([[EditTool.Select, "Select", "A"], [EditTool.Trim, "Trim", "T"]] as const).map(([t, label, key]) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setTool(t)}
+                    title={t === EditTool.Trim ? "Trim: drag an edge to ripple, Alt+edge to roll, drag a clip to slip, Alt+drag to slide" : "Select: move and trim one clip"}
+                    className={`rounded px-2 py-0.5 ${tool === t ? "bg-neutral-700 text-white" : "text-neutral-500 hover:text-white"}`}
+                  >
+                    {label} <span className="text-neutral-500">{key}</span>
+                  </button>
+                ))}
+              </span>
               <ToolButton label="Split" hint="S · ⌘B" onClick={() => ops.split(selection?.kind === "clip" ? selection.clip : null)} />
               <ToolButton label="Delete" hint="⌫" disabled={!selection} onClick={() => selection && (ops.remove(selection), setCue(null), setMusicOn(false), setPicks(null))} />
               <ToolButton label="Undo" hint="⌘Z" disabled={!edits.canUndo} onClick={edits.undo} />
               <ToolButton label="Redo" hint="⇧⌘Z" disabled={!edits.canRedo} onClick={edits.redo} />
-              <span className="ml-auto truncate pl-3 text-neutral-600">Drag to move, edges to trim · click a cut for a transition · ⌘ + wheel zooms</span>
+              <span className="ml-auto truncate pl-3 text-neutral-600">
+                {tool === EditTool.Trim ? "Edge: ripple · Alt+edge: roll · drag: slip · Alt+drag: slide" : "Drag to move, edges to trim · click a cut for a transition · ⌘ + wheel zooms"}
+              </span>
             </div>
             {scene && tracks ? (
               <EditTimeline
@@ -232,6 +251,7 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
                 onSelectMusic={setMusicOn}
                 onPick={setPicks}
                 onDropMedia={addMedia}
+                tool={tool}
                 edits={edits}
               />
             ) : (

@@ -239,6 +239,14 @@ export const OpName = {
   SetFps: "set_fps",
   /** Editing tracks: `{tracks: Track[]}` (replaces them all). Layers join one with their `track` field. */
   SetTracks: "set_tracks",
+  /** Ripple trim: `{id, edge: "in"|"out", to}` — the edge goes to scene second `to`, everything after follows. */
+  RippleTrim: "ripple_trim",
+  /** Roll edit: `{id, to}` — the cut between the clip and the next on its track moves to `to`. */
+  RollEdit: "roll_edit",
+  /** Slip: `{id, in}` — same place, another part of the file. */
+  SlipClip: "slip_clip",
+  /** Slide: `{id, start}` — the clip moves; its neighbours on the track give and take. */
+  SlideClip: "slide_clip",
 } as const;
 export type OpName = (typeof OpName)[keyof typeof OpName];
 
