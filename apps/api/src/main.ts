@@ -31,6 +31,9 @@ async function bootstrap() {
     }, PARENT_CHECK_MS).unref();
   }
   new BridgeHub(app.getHttpServer(), app.get(JwtService), app.get(ProjectsService));
-  await app.listen(Number(process.env.PORT ?? 3100));
+  // The desktop app's API answers this machine only (its local account signs in without a password).
+  const host = process.env.HOST ?? (process.env.MOTIONILY_DESKTOP === "1" ? "127.0.0.1" : undefined);
+  const port = Number(process.env.PORT ?? 3100);
+  await (host ? app.listen(port, host) : app.listen(port));
 }
 void bootstrap();

@@ -80,6 +80,7 @@ fn install_secret(data: &Path) -> Result<String, String> {
 pub struct Api {
     child: Child,
     pub url: String,
+    port: u16,
     pub session: serde_json::Value,
 }
 
@@ -113,7 +114,7 @@ impl Api {
             cmd.env("MOTIONILY_MCP_DIR", layout.mcp_main.parent().and_then(Path::parent).unwrap_or(Path::new(".")));
         }
         let child = cmd.spawn().map_err(|e| format!("could not start the API with {}: {e}", layout.node.display()))?;
-        let mut api = Self { child, url, session: serde_json::Value::Null };
+        let mut api = Self { child, url, port, session: serde_json::Value::Null };
         api.wait_ready(port, data)?;
         api.session = api.local_session(port)?;
         Ok(api)
@@ -127,7 +128,7 @@ impl Api {
                 let tail: String = log.lines().rev().take(12).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
                 return Err(format!("the API exited ({status}):\n{tail}"));
             }
-            if http(port, "GET", "/bricks?slot=palette", None).map(|(code, _)| code == 200).unwrap_or(false) {
+            if http(port, "GET", "/bricks?slot=palette", None, None).map(|(code, _)| code == 200).unwrap_or(false) {
                 return Ok(());
             }
             std::thread::sleep(POLL);
@@ -138,11 +139,23 @@ impl Api {
     /// The single local account, signed in.
     fn local_session(&self, port: u16) -> Result<serde_json::Value, String> {
         let body = serde_json::json!({ "email": LOCAL_EMAIL, "name": LOCAL_NAME }).to_string();
-        let (code, text) = http(port, "POST", "/auth/mock-google", Some(&body))?;
+        let (code, text) = http(port, "POST", "/auth/mock-google", Some(&body), None)?;
         if code != 201 && code != 200 {
             return Err(format!("local sign-in failed ({code}): {text}"));
         }
         serde_json::from_str(&text).map_err(|e| e.to_string())
+    }
+
+    /// A call to the API as the local account; the JSON answer, or the API's error message.
+    pub fn call(&self, method: &str, path: &str, body: &serde_json::Value) -> Result<serde_json::Value, String> {
+        let token = self.session["token"].as_str().unwrap_or_default();
+        let (code, text) = http(self.port, method, path, Some(&body.to_string()), Some(token))?;
+        let json: serde_json::Value = serde_json::from_str(&text).unwrap_or(serde_json::Value::Null);
+        if (200..300).contains(&code) {
+            Ok(json)
+        } else {
+            Err(json["message"].as_str().map(String::from).unwrap_or_else(|| format!("the API answered {code}")))
+        }
     }
 
     pub fn stop(&mut self) {
@@ -158,12 +171,13 @@ impl Drop for Api {
 }
 
 /// A tiny blocking HTTP/1.1 call to the local API (no client crate needed for two requests).
-fn http(port: u16, method: &str, path: &str, body: Option<&str>) -> Result<(u16, String), String> {
+fn http(port: u16, method: &str, path: &str, body: Option<&str>, token: Option<&str>) -> Result<(u16, String), String> {
     let mut s = TcpStream::connect(("127.0.0.1", port)).map_err(|e| e.to_string())?;
-    s.set_read_timeout(Some(Duration::from_secs(10))).ok();
+    s.set_read_timeout(Some(Duration::from_secs(120))).ok();
     let body = body.unwrap_or("");
+    let auth = token.map(|t| format!("Authorization: Bearer {t}\r\n")).unwrap_or_default();
     let req = format!(
-        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nContent-Type: application/json\r\n{auth}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
     s.write_all(req.as_bytes()).map_err(|e| e.to_string())?;

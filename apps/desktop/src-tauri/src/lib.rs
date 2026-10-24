@@ -10,12 +10,82 @@ mod viewer;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
 /// Origins the editor's webview loads from: Vite in development, Tauri's own scheme once packaged.
 const WEB_ORIGINS: &str = "http://localhost:5173,tauri://localhost,http://tauri.localhost,https://tauri.localhost";
 
 struct Runtime(Mutex<Option<runtime::Api>>);
+
+/// The video open in the editor (the web app reports it), for "Save Video as Folder…".
+struct OpenProject(Mutex<Option<String>>);
+
+const MENU_OPEN_FOLDER: &str = "open-folder";
+const MENU_SAVE_FOLDER: &str = "save-folder";
+
+/// The standard menus plus Motionily's file commands at the top of File.
+fn app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let menu = Menu::default(app)?;
+    let open = MenuItem::with_id(app, MENU_OPEN_FOLDER, "Open Project Folder…", true, Some("CmdOrCtrl+O"))?;
+    let save = MenuItem::with_id(app, MENU_SAVE_FOLDER, "Save Video as Folder…", true, Some("CmdOrCtrl+Shift+S"))?;
+    let file = menu.items()?.into_iter().filter_map(|i| i.as_submenu().cloned()).find(|s| s.text().map(|t| t == "File").unwrap_or(false));
+    match file {
+        Some(file) => {
+            file.insert_items(&[&open, &save, &PredefinedMenuItem::separator(app)?], 0)?;
+        }
+        None => menu.append(&Submenu::with_items(app, "File", true, &[&open, &save])?)?,
+    }
+    Ok(menu)
+}
+
+/// File menu commands: pick a folder, call the API as the local account, say how it went.
+fn on_menu(app: &tauri::AppHandle, id: &str) {
+    let app = app.clone();
+    let id = id.to_string();
+    // Dialogs block: never on the main thread.
+    std::thread::spawn(move || {
+        let project = app.state::<OpenProject>().0.lock().ok().and_then(|p| p.clone());
+        if id == MENU_SAVE_FOLDER && project.is_none() {
+            app.dialog().message("Open a video first, then save it as a folder.").title("No video open").blocking_show();
+            return;
+        }
+        let title = if id == MENU_OPEN_FOLDER { "Open a .motionily project folder" } else { "Where to save the video's folder" };
+        let Some(path) = app.dialog().file().set_title(title).blocking_pick_folder() else { return };
+        let Ok(path) = path.into_path() else { return };
+        let runtime = app.state::<Runtime>();
+        let guard = runtime.0.lock();
+        let Some(api) = guard.as_ref().ok().and_then(|g| g.as_ref()) else { return };
+        let body = serde_json::json!({ "path": path });
+        let result = if id == MENU_OPEN_FOLDER {
+            api.call("POST", "/projects/import-folder", &body).map(|r| {
+                let _ = app.emit("desktop-navigate", format!("/p/{}", r["id"].as_str().unwrap_or_default()));
+                None
+            })
+        } else {
+            api.call("POST", &format!("/projects/{}/folder", project.unwrap_or_default()), &body).map(|r| Some(r["folder"].as_str().unwrap_or_default().to_string()))
+        };
+        drop(guard);
+        match result {
+            Ok(Some(folder)) => {
+                let _ = reveal(folder);
+            }
+            Ok(None) => {}
+            Err(e) => {
+                app.dialog().message(e).title("Motionily").kind(MessageDialogKind::Error).blocking_show();
+            }
+        }
+    });
+}
+
+/// The editor reports which video is open (none on other screens).
+#[tauri::command]
+fn desktop_route(state: tauri::State<'_, OpenProject>, project: Option<String>) {
+    if let Ok(mut p) = state.0.lock() {
+        *p = project;
+    }
+}
 
 /// The native engine's state shared by the commands: assets mirrored from the editor, the staged
 /// export audio and the running export's cancel flag.
@@ -255,6 +325,10 @@ fn desktop_script(api: Result<&runtime::Api, &str>, layout: Option<&runtime::Lay
 
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .manage(OpenProject(Mutex::new(None)))
+        .menu(app_menu)
+        .on_menu_event(|app, e| on_menu(app, e.id().as_ref()))
         .setup(|app| {
             let data = app.path().app_data_dir()?;
             let resources = app.path().resource_dir().ok();
@@ -288,7 +362,7 @@ pub fn run() {
             app.manage(Runtime(Mutex::new(api.ok())));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![engine_add_asset, engine_missing_assets, engine_audio_analysis, export_audio, export_video, export_cancel, reveal, viewer_supported, viewer_show, viewer_place, viewer_frame, viewer_hide])
+        .invoke_handler(tauri::generate_handler![engine_add_asset, engine_missing_assets, engine_audio_analysis, export_audio, export_video, export_cancel, reveal, viewer_supported, viewer_show, viewer_place, viewer_frame, viewer_hide, desktop_route])
         .build(tauri::generate_context!())
         .expect("error while building Motionily");
     app.run(|handle, event| {

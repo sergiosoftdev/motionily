@@ -36,6 +36,7 @@ import { PostsService } from "./posts/posts.service";
 import { PostsController } from "./posts/posts.controller";
 import { CopywriterService } from "./posts/copywriter";
 import { SunoService } from "./music/suno";
+import { ProjectFolderController } from "./projects/folder.controller";
 
 @Module({
   imports: [
@@ -69,7 +70,7 @@ import { SunoService } from "./music/suno";
       }),
     }),
   ],
-  controllers: [AuthController, BricksController, ProjectsController, MediaController, ReferencesController, FontsController, BrandsController, PrefabsController, SoundsController, AssetsController, LibraryController, ProviderKeysController, DirectionController, VoiceController, PostsController],
+  controllers: [AuthController, BricksController, ProjectFolderController, ProjectsController, MediaController, ReferencesController, FontsController, BrandsController, PrefabsController, SoundsController, AssetsController, LibraryController, ProviderKeysController, DirectionController, VoiceController, PostsController],
   providers: [BricksService, ProjectsService, GenerateService, PrefabsService, BrandsService, ConceptsService, VoiceService, PostsService, CopywriterService, SunoService, AssetsService, LibraryService, ProviderKeysService, DirectionService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
 })
 export class AppModule {}

@@ -10,6 +10,7 @@ import { SoundsScreen } from "./screens/SoundsScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { CalendarScreen } from "./screens/CalendarScreen";
 import { DueReminders } from "./posts/DueReminders";
+import { DesktopBridge } from "./native/DesktopBridge";
 
 export function App() {
   const token = useSession((s) => s.token);
@@ -21,6 +22,7 @@ export function App() {
     <>
       <Screen />
       <DueReminders />
+      <DesktopBridge />
     </>
   );
 }
