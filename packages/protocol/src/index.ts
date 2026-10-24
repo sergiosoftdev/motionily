@@ -95,6 +95,8 @@ export const ServerMessageType = {
   Loudness: "loudness",
   /** A subtitle or timeline file of the video (SideFile); the desktop app also saves it next to the exports. */
   SideFile: "side_file",
+  /** Track a color window over its clip from an instant: keys its x / y (answers with a summary in `text`). */
+  TrackWindow: "track_window",
 } as const;
 export type ServerMessageType = (typeof ServerMessageType)[keyof typeof ServerMessageType];
 
@@ -111,7 +113,8 @@ export type ServerMessage =
   | { type: typeof ServerMessageType.Export; requestId: string; projectId: string; output?: Partial<Output> }
   | { type: typeof ServerMessageType.Scopes; requestId: string; projectId: string; times?: number[] }
   | { type: typeof ServerMessageType.Loudness; requestId: string; projectId: string }
-  | { type: typeof ServerMessageType.SideFile; requestId: string; projectId: string; kind: SideFile };
+  | { type: typeof ServerMessageType.SideFile; requestId: string; projectId: string; kind: SideFile }
+  | { type: typeof ServerMessageType.TrackWindow; requestId: string; projectId: string; id: string; at?: number };
 
 /** Files exported beside the video: subtitles, and the Edit timeline for other editors. */
 export const SideFile = { Srt: "srt", Vtt: "vtt", Fcpxml: "fcpxml", Otio: "otio", Edl: "edl" } as const;

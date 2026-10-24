@@ -652,7 +652,7 @@ impl Scene {
         let lt = child.local_time(inside.ct);
         let effects: Vec<paint::DrawEffect> = child.live_effects().filter_map(|e| e.resolve(lt, ctx.palette)).collect();
         let fx = if child.adjustment {
-            paint::DrawFx { items: Vec::new(), effects, blend: child.blend, matte: Some((drawn, paint::MatteMode::Alpha)), samples: Vec::new(), adjust: true, perspective: None, plane_origin: [0.0; 2] }
+            paint::DrawFx { items: Vec::new(), effects, blend: child.blend, matte: Some((drawn, if child.invert { paint::MatteMode::AlphaInverted } else { paint::MatteMode::Alpha })), samples: Vec::new(), adjust: true, perspective: None, plane_origin: [0.0; 2] }
         } else {
             let matte = child.matte.as_ref().and_then(|m| {
                 let src = inside.sibling(&m.layer)?;

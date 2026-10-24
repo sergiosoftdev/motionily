@@ -361,8 +361,9 @@ impl Scene {
                             *shape = geom;
                         }
                     }
-                    // The layer's own shape bounds the adjustment.
-                    paint::DrawFx { items: Vec::new(), effects, blend: l.blend, matte: Some((std::mem::take(&mut drawn), paint::MatteMode::Alpha)), samples: Vec::new(), adjust: true, perspective: None, plane_origin: [0.0; 2] }
+                    // The layer's own shape bounds the adjustment (or, inverted, everything but it).
+                    let mode = if l.invert { paint::MatteMode::AlphaInverted } else { paint::MatteMode::Alpha };
+                    paint::DrawFx { items: Vec::new(), effects, blend: l.blend, matte: Some((std::mem::take(&mut drawn), mode)), samples: Vec::new(), adjust: true, perspective: None, plane_origin: [0.0; 2] }
                 } else {
                     paint::DrawFx { items: std::mem::take(&mut drawn), effects, blend: l.blend, matte, samples, adjust: false, perspective: None, plane_origin: [0.0; 2] }
                 };

@@ -296,8 +296,24 @@ impl Scene {
         for (i, op) in ops.iter().enumerate() {
             next.apply_one(op).map_err(|e| (i, e))?;
         }
+        next.sync_attached();
         *self = next;
         Ok(())
+    }
+
+    /// Windows follow their clip's time span; a window whose clip is gone goes too.
+    fn sync_attached(&mut self) {
+        if !self.layers.iter().any(|l| l.attach.is_some()) {
+            return;
+        }
+        let spans: std::collections::HashMap<String, (f32, Option<f32>)> = self.layers.iter().map(|l| (l.id.clone(), (l.start, l.end))).collect();
+        self.layers.retain(|l| l.attach.as_ref().is_none_or(|id| spans.contains_key(id)));
+        for l in &mut self.layers {
+            if let Some((start, end)) = l.attach.as_ref().and_then(|id| spans.get(id)) {
+                l.start = *start;
+                l.end = *end;
+            }
+        }
     }
 
     fn apply_one(&mut self, op: &Op) -> Result<(), OpError> {

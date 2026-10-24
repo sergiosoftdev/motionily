@@ -176,6 +176,8 @@ export function editTracks(scene: SceneView, footage: FootageClip[], media: Medi
   const loose: SceneLayerView[] = [];
   for (const l of scene.layers) {
     if (l.type === VIDEO_LAYER || l.type === AUDIO_LAYER || isPictureClip(l)) continue;
+    // A clip's color windows live in its Color tab, not among the graphics.
+    if ((l as { attach?: string }).attach) continue;
     const start = l.start ?? 0;
     const end = endOf(l, duration);
     if (end - start >= duration * FULL_LENGTH) {

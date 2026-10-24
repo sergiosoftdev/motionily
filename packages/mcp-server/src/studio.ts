@@ -212,6 +212,20 @@ export function registerStudioTools(server: Server, d: StudioDeps) {
   );
 
   server.registerTool(
+    "track_window",
+    {
+      description:
+        "Make a color window follow the picture, like the Color tab's Track button: from second `at` (default the playhead) forward and back across its clip, the detail under the window's center is followed frame by frame and the window's x / y are keyed on it (15 keys a second, linear). Put the window on the subject at `at` first (a patch of its x / y). Windows are adjustment shapes attached to a clip (docs: Color correction › Windows).",
+      inputSchema: { id: z.string().min(1), at: z.number().min(0).optional() },
+    },
+    d.guard(async ({ id, at }: { id: string; at?: number }) => {
+      const res = await d.bridge().trackWindow(id, at);
+      if (!res.ok) throw new Error(res.error ?? "the editor did not track it");
+      return d.text(res.text ?? "Tracked.");
+    }),
+  );
+
+  server.registerTool(
     "normalize_loudness",
     {
       description: `Measure the whole mix as it exports (voice, music, effects, clips; ITU-R BS.1770 integrated loudness and sample peak, master at 0 dB) and set the master level (set_mix) so it lands on \`target_lufs\` (default ${DEFAULT_TARGET_LUFS}: Reels, TikTok, YouTube; -16 podcasts; -23 broadcast) with peaks under ${PEAK_CEILING_DB} dBFS. \`apply=false\` only measures. Run it last, after the sound is final.`,

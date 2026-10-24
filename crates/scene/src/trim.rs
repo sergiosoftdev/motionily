@@ -396,3 +396,22 @@ mod tests {
         assert_eq!(s.duration, 9.0);
     }
 }
+
+#[cfg(test)]
+mod attach_tests {
+    use crate::{Op, Scene};
+
+    #[test]
+    fn windows_follow_their_clip_and_go_with_it() {
+        let mut s: Scene = serde_json::from_str(r#"{"width":100,"height":100,"fps":30,"duration":10,"layers":[
+            {"id":"c","type":"video","src":"/media/a.mp4","start":1,"end":4},
+            {"id":"w","type":"shape","shape":"ellipse","adjustment":true,"attach":"c","x":50,"y":50,"w":20,"h":20,"start":0,"end":10}]}"#).unwrap();
+        let ops: Vec<Op> = serde_json::from_str(r#"[{"op":"patch","id":"c","fields":{"start":2,"end":6}}]"#).unwrap();
+        s.apply(&ops).unwrap();
+        let w = s.layers.iter().find(|l| l.id == "w").unwrap();
+        assert_eq!((w.start, w.end), (2.0, Some(6.0)));
+        let ops: Vec<Op> = serde_json::from_str(r#"[{"op":"remove_layer","id":"c"}]"#).unwrap();
+        s.apply(&ops).unwrap();
+        assert!(s.layers.is_empty(), "the window went with its clip");
+    }
+}

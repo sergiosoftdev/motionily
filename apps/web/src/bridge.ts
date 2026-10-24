@@ -3,6 +3,7 @@ import { API_URL } from "./api/client";
 import { presetViolation, scenePresetViolation } from "./agentRules";
 import { engineHost } from "./engine/host";
 import { scopeStats } from "./editor/edit/colorScopes";
+import { trackWindow } from "./editor/edit/windowTrack";
 import { useSession } from "./session";
 import { ActivitySource, logActivity, useEditor } from "./store";
 
@@ -133,6 +134,18 @@ class AgentBridge {
           (r) => {
             logActivity(ActivitySource.Agent, `Exports ${SIDE_FILE_LABEL[msg.kind]}`);
             this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, ...r });
+          },
+          (e: unknown) => this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error: e instanceof Error ? e.message : String(e) }),
+        );
+        return;
+      }
+      case ServerMessageType.TrackWindow: {
+        void trackWindow(msg.id, msg.at ?? useEditor.getState().time).then(
+          (r) => {
+            engineHost.applyOps(r.ops);
+            logActivity(ActivitySource.Agent, `Tracks ${msg.id}`);
+            const text = `Tracked ${msg.id}: ${r.samples} points from ${r.from.toFixed(2)} to ${r.to.toFixed(2)} s, keyed on x and y${r.lost ? " (the detail was lost at the ends of that range: move the window there and track again)" : ""}.`;
+            this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, text, scene: engineHost.sceneJson(), summary: engineHost.summary() });
           },
           (e: unknown) => this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error: e instanceof Error ? e.message : String(e) }),
         );

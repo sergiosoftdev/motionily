@@ -12,6 +12,8 @@ const REVIEW_TIMEOUT_MS = 60_000;
 const EXPORT_TIMEOUT_MS = 60 * 60_000;
 /** Mixing the whole soundtrack to measure it decodes every file. */
 const LOUDNESS_TIMEOUT_MS = 5 * 60_000;
+/** Tracking renders and searches every sampled frame of the clip. */
+const TRACK_TIMEOUT_MS = 10 * 60_000;
 /** A page reload closes the editor for a few seconds: wait for it before opening our own. */
 const RELOAD_GRACE_MS = 10_000;
 const RECONNECT_MS = 2_000;
@@ -114,6 +116,10 @@ export class EditorBridge {
 
   sideFile(kind: SideFile) {
     return this.request({ type: ServerMessageType.SideFile, requestId: randomUUID(), projectId: this.projectId, kind });
+  }
+
+  trackWindow(id: string, at?: number) {
+    return this.request({ type: ServerMessageType.TrackWindow, requestId: randomUUID(), projectId: this.projectId, id, at }, TRACK_TIMEOUT_MS);
   }
 
   loudness() {

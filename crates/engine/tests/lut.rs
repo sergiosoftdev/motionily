@@ -30,3 +30,26 @@ fn a_lut_maps_its_layer_and_mixes() {
         assert!(renderer.add_lut("/media/bad.cube", "LUT_3D_SIZE 3\n0 0 0\n").is_err());
     });
 }
+
+/// A soft ellipse adjustment layer grades inside its shape; `invert` grades everything but it.
+#[test]
+fn windows_grade_inside_or_outside_their_shape() {
+    pollster::block_on(async {
+        let mut renderer = Renderer::new_headless(200, 200).await.expect("a GPU adapter");
+        let scene = |invert: bool| {
+            let json = format!(
+                r##"{{"width":200,"height":200,"fps":30,"duration":1,"layers":[
+                {{"id":"bg","type":"shape","shape":"rect","x":100,"y":100,"w":200,"h":200,"fill":"#808080"}},
+                {{"id":"win","type":"shape","shape":"ellipse","adjustment":true,"invert":{invert},"x":100,"y":100,"w":80,"h":80,"soft":6,"effects":[{{"fx":"color","exposure":1}}]}}]}}"##
+            );
+            Scene::from_json(&json).expect("scene parses")
+        };
+        let at = |rgba: &[u8], x: usize, y: usize| rgba[(y * 200 + x) * 4];
+        let inside = renderer.render_rgba(&scene(false), 0.5);
+        assert!(at(&inside, 100, 100) > 200, "brighter inside: {}", at(&inside, 100, 100));
+        assert!((120..140).contains(&at(&inside, 10, 10)), "untouched outside: {}", at(&inside, 10, 10));
+        let outside = renderer.render_rgba(&scene(true), 0.5);
+        assert!((120..140).contains(&at(&outside, 100, 100)), "inverted: untouched inside {}", at(&outside, 100, 100));
+        assert!(at(&outside, 10, 10) > 200, "inverted: brighter outside {}", at(&outside, 10, 10));
+    });
+}

@@ -9,7 +9,7 @@ import { engineHost } from "../../engine/host";
 import type { EditActions } from "./useEditActions";
 import type { EditOps } from "./useEditOps";
 import { useAgentName } from "../../agentName";
-import { ColorSection } from "./ColorSection";
+import { ColorTab } from "./ColorTab";
 
 /** Range of the song-start slider when the song's length is unknown (s). */
 const DEFAULT_SONG_RANGE = 180;
@@ -277,7 +277,7 @@ function ClipInspector({ clip, ops, edits, clipIds, luts }: { clip: EditClip; op
           </select>
         </label>
       )}
-      {tab === ClipTab.Color && <ColorSection clipId={clip.id} allClipIds={clipIds.filter((id) => id !== clip.id).concat(clip.id)} edits={edits} luts={luts} />}
+      {tab === ClipTab.Color && <ColorTab clipId={clip.id} allClipIds={clipIds.filter((id) => id !== clip.id).concat(clip.id)} edits={edits} luts={luts} />}
       <div className="flex gap-2">
         <button type="button" onClick={() => ops.split(clip)} className="flex-1 rounded-md bg-neutral-800 px-2 py-1.5 text-xs font-semibold hover:bg-neutral-700">
           Split at playhead

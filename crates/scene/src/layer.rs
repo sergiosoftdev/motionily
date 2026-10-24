@@ -498,6 +498,13 @@ pub struct Layer {
     /// (a full-frame rect for the whole picture).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub adjustment: bool,
+    /// A window on a clip (Color tab): the layer takes that clip's start and end after every edit, so it
+    /// moves and trims with it (its keyframes, relative to its start, follow too). Gone with the clip.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attach: Option<String>,
+    /// Adjustment layers: work outside the shape instead of inside (a colorist's inverted window).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub invert: bool,
     /// Time remap: the layer's own clock as a function of the time since it started, like AE's
     /// time remapping (`"t*0.5"` slow motion, `"mod(t, 2)"` loop, keys to freeze or reverse).
     #[serde(default, skip_serializing_if = "Option::is_none")]
