@@ -29,10 +29,19 @@ pub struct FxParams {
     pub grade: [f32; 4],
     /// Layer composite grading: shadows, highlights, vignette, unused.
     pub tone: [f32; 4],
+    /// Color wheels (rgb, w unused): lift, gamma − 1, gain − 1, offset (so all-zero is neutral).
+    pub lift: [f32; 4],
+    pub gamma: [f32; 4],
+    pub gain: [f32; 4],
+    pub offset: [f32; 4],
+    /// Points per curve: master, red, green, blue.
+    pub curve_n: [f32; 4],
+    /// Curve points, 3 vec4 per curve (x0 y0 x1 y1 …), master then red, green, blue.
+    pub curve: [[f32; 4]; 12],
 }
 
 /// Uniform slot stride (WebGPU's minimum dynamic-offset alignment).
-const SLOT: u64 = 256;
+const SLOT: u64 = 512;
 const INITIAL_SLOTS: u64 = 64;
 
 /// Which offscreen texture a pass reads.

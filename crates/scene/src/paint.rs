@@ -370,6 +370,20 @@ pub enum Effect {
         vibrance: Animated,
         #[serde(default, skip_serializing_if = "is_zero")]
         vignette: Animated,
+        /// Color wheels per channel [r, g, b], as a colorist's lift/gamma/gain/offset:
+        /// `out = (gain · (in + lift · (1 − in)))^(1/gamma) + offset`. Neutral: lift 0, gamma 1, gain 1, offset 0.
+        #[serde(default, skip_serializing_if = "is_zero3")]
+        lift: [f32; 3],
+        #[serde(default = "ones3", skip_serializing_if = "is_one3")]
+        gamma: [f32; 3],
+        #[serde(default = "ones3", skip_serializing_if = "is_one3")]
+        gain: [f32; 3],
+        #[serde(default, skip_serializing_if = "is_zero3")]
+        offset: [f32; 3],
+        /// Curves (points `[x, y]` in 0..1, up to 6 each, straight between them): `master` on every channel, then
+        /// `red`, `green`, `blue`. Applied last, before the vignette.
+        #[serde(default, skip_serializing_if = "Curves::is_empty")]
+        curves: Curves,
     },
     /// RGB split: red and blue shifted apart by `amount` px (glitch, lens edge).
     Chromatic { amount: Animated },
@@ -435,6 +449,54 @@ pub enum Effect {
     },
 }
 
+/// Points of a colorist's curves (see `Effect::Color`).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Curves {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub master: Vec<[f32; 2]>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub red: Vec<[f32; 2]>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub green: Vec<[f32; 2]>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blue: Vec<[f32; 2]>,
+}
+
+/// Points per curve the renderer reads.
+pub const CURVE_POINTS: usize = 6;
+
+impl Curves {
+    pub fn is_empty(&self) -> bool {
+        self.master.is_empty() && self.red.is_empty() && self.green.is_empty() && self.blue.is_empty()
+    }
+
+    /// Each curve as sorted, clamped points (at most CURVE_POINTS) and its count.
+    fn resolved(&self) -> ([[[f32; 2]; CURVE_POINTS]; 4], [u32; 4]) {
+        let mut out = [[[0.0; 2]; CURVE_POINTS]; 4];
+        let mut n = [0u32; 4];
+        for (i, pts) in [&self.master, &self.red, &self.green, &self.blue].into_iter().enumerate() {
+            let mut p: Vec<[f32; 2]> = pts.iter().map(|[x, y]| [x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)]).collect();
+            p.sort_by(|a, b| a[0].total_cmp(&b[0]));
+            p.truncate(CURVE_POINTS);
+            for (j, q) in p.iter().enumerate() {
+                out[i][j] = *q;
+            }
+            n[i] = p.len() as u32;
+        }
+        (out, n)
+    }
+}
+
+fn is_zero3(v: &[f32; 3]) -> bool {
+    *v == [0.0; 3]
+}
+fn is_one3(v: &[f32; 3]) -> bool {
+    *v == [1.0; 3]
+}
+fn ones3() -> [f32; 3] {
+    [1.0; 3]
+}
+
 /// An effect field left at its neutral 0 is not written back (scenes stay as short as they were).
 fn is_zero(a: &Animated) -> bool {
     matches!(a, Animated::Static(v) if *v == 0.0)
@@ -470,7 +532,7 @@ fn shadow_opacity() -> Animated {
 }
 
 /// The grading half of `Effect::Color` for one frame (neutral = all zeros).
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ColorGrade {
     pub exposure: f32,
     pub temperature: f32,
@@ -479,6 +541,33 @@ pub struct ColorGrade {
     pub highlights: f32,
     pub vibrance: f32,
     pub vignette: f32,
+    pub lift: [f32; 3],
+    pub gamma: [f32; 3],
+    pub gain: [f32; 3],
+    pub offset: [f32; 3],
+    /// Curves (master, red, green, blue) and how many points each has (0 = none).
+    pub curves: [[[f32; 2]; CURVE_POINTS]; 4],
+    pub curve_points: [u32; 4],
+}
+
+impl Default for ColorGrade {
+    fn default() -> Self {
+        Self {
+            exposure: 0.0,
+            temperature: 0.0,
+            tint: 0.0,
+            shadows: 0.0,
+            highlights: 0.0,
+            vibrance: 0.0,
+            vignette: 0.0,
+            lift: [0.0; 3],
+            gamma: [1.0; 3],
+            gain: [1.0; 3],
+            offset: [0.0; 3],
+            curves: [[[0.0; 2]; CURVE_POINTS]; 4],
+            curve_points: [0; 4],
+        }
+    }
 }
 
 impl ColorGrade {
@@ -491,6 +580,19 @@ impl ColorGrade {
         self.highlights += o.highlights;
         self.vibrance += o.vibrance;
         self.vignette = (self.vignette + o.vignette).min(1.0);
+        for c in 0..3 {
+            self.lift[c] += o.lift[c];
+            self.gamma[c] *= o.gamma[c];
+            self.gain[c] *= o.gain[c];
+            self.offset[c] += o.offset[c];
+        }
+        // Curves do not add up: the last effect with a curve wins for that curve.
+        for i in 0..4 {
+            if o.curve_points[i] > 0 {
+                self.curves[i] = o.curves[i];
+                self.curve_points[i] = o.curve_points[i];
+            }
+        }
     }
 }
 
@@ -570,7 +672,7 @@ impl Effect {
                 c.0[3] *= opacity.sample(t).clamp(0.0, 1.0);
                 DrawEffect::Shadow { offset: [x.sample(t), y.sample(t)], blur: blur.sample(t).max(0.0), color: c }
             }
-            Effect::Color { hue, saturation, brightness, contrast, exposure, temperature, tint, shadows, highlights, vibrance, vignette } => DrawEffect::Color {
+            Effect::Color { hue, saturation, brightness, contrast, exposure, temperature, tint, shadows, highlights, vibrance, vignette, lift, gamma, gain, offset, curves } => DrawEffect::Color {
                 hue: hue.sample(t),
                 saturation: saturation.sample(t).max(0.0),
                 brightness: brightness.sample(t),
@@ -583,6 +685,12 @@ impl Effect {
                     highlights: highlights.sample(t).clamp(-1.0, 1.0),
                     vibrance: vibrance.sample(t).clamp(-1.0, 1.0),
                     vignette: vignette.sample(t).clamp(0.0, 1.0),
+                    lift: lift.map(|v| v.clamp(-1.0, 1.0)),
+                    gamma: gamma.map(|v| v.clamp(0.1, 10.0)),
+                    gain: gain.map(|v| v.clamp(0.0, 4.0)),
+                    offset: offset.map(|v| v.clamp(-1.0, 1.0)),
+                    curves: curves.resolved().0,
+                    curve_points: curves.resolved().1,
                 },
             },
             Effect::Chromatic { amount } => DrawEffect::Chromatic { amount: amount.sample(t) },

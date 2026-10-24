@@ -27,6 +27,14 @@ struct Params {
     grade: vec4<f32>,
     // Layer composite grading: shadows, highlights (-1..1), vignette (0..1), unused.
     tone: vec4<f32>,
+    // Color wheels (rgb): lift, gamma - 1, gain - 1, offset (all zero = neutral).
+    lift: vec4<f32>,
+    gamma: vec4<f32>,
+    gain: vec4<f32>,
+    offset: vec4<f32>,
+    // Points per curve (master, red, green, blue) and the points, 3 vec4 per curve (x0 y0 x1 y1 ...).
+    curve_n: vec4<f32>,
+    curve: array<vec4<f32>, 12>,
 };
 
 @group(0) @binding(0) var src: texture_2d<f32>;
@@ -110,6 +118,35 @@ fn rotate_hue(c: vec3<f32>, angle: f32) -> vec3<f32> {
     return c * cs + cross(k, c) * sin(angle) + k * dot(k, c) * (1.0 - cs);
 }
 
+/// One point of curve `k` (0 master, 1 red, 2 green, 3 blue).
+fn curve_point(k: i32, i: i32) -> vec2<f32> {
+    let v = p.curve[k * 3 + i / 2];
+    return select(v.zw, v.xy, i % 2 == 0);
+}
+
+/// Curve `k` at `x`: straight between its points, flat past the ends; the identity without points.
+fn curve_at(k: i32, x: f32) -> f32 {
+    let n = i32(p.curve_n[k] + 0.5);
+    if (n < 1) {
+        return x;
+    }
+    var prev = curve_point(k, 0);
+    if (x <= prev.x) {
+        return prev.y;
+    }
+    for (var i = 1; i < 6; i++) {
+        if (i >= n) {
+            break;
+        }
+        let q = curve_point(k, i);
+        if (x <= q.x) {
+            return mix(prev.y, q.y, (x - prev.x) / max(q.x - prev.x, 1e-5));
+        }
+        prev = q;
+    }
+    return prev.y;
+}
+
 /// Luma of a premultiplied color (un-premultiplied first; 0 where the pixel is empty).
 fn lum_of(c: vec4<f32>) -> f32 {
     return dot(select(vec3(0.0), c.rgb / c.a, c.a > 1e-5), vec3(0.2126, 0.7152, 0.0722));
@@ -147,11 +184,18 @@ fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
         let b = sample_in(uv - vec2(p.warp.w, 0.0));
         c = vec4(r.r, c.g, b.b, max(c.a, max(r.a, b.a)));
     }
-    if (mode == 0 && (any(p.adj != vec4(0.0)) || any(p.grade != vec4(0.0)) || any(p.tone != vec4(0.0)) || p.grain.x > 0.0) && c.a > 0.0) {
+    let wheels = any(p.lift != vec4(0.0)) || any(p.gamma != vec4(0.0)) || any(p.gain != vec4(0.0)) || any(p.offset != vec4(0.0));
+    let curves = any(p.curve_n != vec4(0.0));
+    if (mode == 0 && (any(p.adj != vec4(0.0)) || any(p.grade != vec4(0.0)) || any(p.tone != vec4(0.0)) || wheels || curves || p.grain.x > 0.0) && c.a > 0.0) {
         var rgb = c.rgb / c.a;
         // Exposure in stops, then white balance: warm lifts red and lowers blue, magenta lowers green.
         rgb = rgb * exp2(p.grade.x);
         rgb = rgb * vec3(1.0 + 0.2 * p.grade.y + 0.06 * p.grade.z, 1.0 - 0.12 * p.grade.z, 1.0 - 0.2 * p.grade.y + 0.06 * p.grade.z);
+        if (wheels) {
+            // Lift / gamma / gain / offset, per channel (Resolve's primaries).
+            let lifted = (1.0 + p.gain.rgb) * (rgb + p.lift.rgb * (1.0 - rgb));
+            rgb = pow(max(lifted, vec3(0.0)), 1.0 / max(1.0 + p.gamma.rgb, vec3(0.1))) + p.offset.rgb;
+        }
         rgb = rgb + p.adj.z;
         rgb = (rgb - 0.5) * (1.0 + p.adj.w) + 0.5;
         // Shadows and highlights move only their end of the range (soft masks on luma).
@@ -164,6 +208,11 @@ fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
         let chroma = max(rgb.r, max(rgb.g, rgb.b)) - min(rgb.r, min(rgb.g, rgb.b));
         rgb = mix(vec3(luma), rgb, 1.0 + p.grade.w * (1.0 - clamp(chroma, 0.0, 1.0)));
         rgb = rotate_hue(rgb, p.adj.x);
+        if (curves) {
+            let m = clamp(rgb, vec3(0.0), vec3(1.0));
+            let mm = vec3(curve_at(0, m.r), curve_at(0, m.g), curve_at(0, m.b));
+            rgb = vec3(curve_at(1, mm.r), curve_at(2, mm.g), curve_at(3, mm.b));
+        }
         // Vignette from the frame's center (screen space, so a full-frame clip and an adjustment agree).
         let d = length((in.uv - vec2(0.5)) * 1.41421);
         rgb = rgb * (1.0 - p.tone.z * smoothstep(0.35, 1.05, d));

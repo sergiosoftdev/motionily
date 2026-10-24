@@ -168,7 +168,7 @@ export function registerStudioTools(server: Server, d: StudioDeps) {
   server.registerTool(
     "apply_look",
     {
-      description: `Grade clips with one of the editor's looks (the same values as the Color tab): ${LOOKS.map((l) => l.name).join(", ")}. Without ids it grades every video clip and picture clip. It replaces each layer's color effect (other effects stay); refine with a patch of the color effect after (docs: Color correction).`,
+      description: `Grade clips with one of the editor's looks (the same values as the Color tab): ${LOOKS.map((l) => l.name).join(", ")}. Without ids it grades every video clip and picture clip. It sets the grade's sliders on each layer's color effect (its wheels, curves and other effects stay); refine with a patch of the color effect after (docs: Color correction).`,
       inputSchema: { look: z.enum(lookNames), ids: z.array(z.string()).optional() },
     },
     d.guard(async ({ look, ids }: { look: string; ids?: string[] }) => {

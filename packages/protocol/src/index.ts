@@ -297,12 +297,32 @@ export const LOOKS: { name: string; grade: Partial<Grade> }[] = [
   { name: "B&W", grade: { saturation: 0, contrast: 1.2, vignette: 0.2 } },
 ];
 
-/** A layer's `effects` with its color effect replaced by `grade` (dropped when neutral); other effects stay. */
-export function effectsWithGrade(effects: unknown[] | undefined, grade: Grade): Record<string, unknown>[] {
-  const others = ((effects ?? []) as Record<string, unknown>[]).filter((e) => e.fx !== "color");
-  const changed = (Object.keys(GRADE_NEUTRAL) as GradeField[]).filter((f) => Math.abs(grade[f] - GRADE_NEUTRAL[f]) > 1e-4);
-  if (!changed.length) return others;
-  return [...others, { fx: "color", ...Object.fromEntries(changed.map((f) => [f, Math.round(grade[f] * 1000) / 1000])) }];
+/** Color wheels of the `color` effect, per channel [r, g, b] (lift/gamma/gain/offset, Resolve's primaries). */
+export type Wheels = { lift: [number, number, number]; gamma: [number, number, number]; gain: [number, number, number]; offset: [number, number, number] };
+export const WHEELS_NEUTRAL: Wheels = { lift: [0, 0, 0], gamma: [1, 1, 1], gain: [1, 1, 1], offset: [0, 0, 0] };
+/** Curves of the `color` effect: up to 6 points `[x, y]` (0..1) each. */
+export type Curves = { master?: [number, number][]; red?: [number, number][]; green?: [number, number][]; blue?: [number, number][] };
+export const CURVE_CHANNELS = ["master", "red", "green", "blue"] as const;
+export type CurveChannel = (typeof CURVE_CHANNELS)[number];
+
+/**
+ * A layer's `effects` with its color effect set to `grade` (and `wheels` / `curves` when given; the old
+ * ones stay otherwise). Neutral values are left out, and a fully neutral effect is dropped. Other effects stay.
+ */
+export function effectsWithGrade(effects: unknown[] | undefined, grade: Grade, extra: { wheels?: Wheels; curves?: Curves } = {}): Record<string, unknown>[] {
+  const list = (effects ?? []) as Record<string, unknown>[];
+  const old = list.find((e) => e.fx === "color") ?? {};
+  const others = list.filter((e) => e.fx !== "color");
+  const out: Record<string, unknown> = { fx: "color" };
+  for (const f of Object.keys(GRADE_NEUTRAL) as GradeField[]) if (Math.abs(grade[f] - GRADE_NEUTRAL[f]) > 1e-4) out[f] = Math.round(grade[f] * 1000) / 1000;
+  const wheels = extra.wheels ?? (old as Partial<Wheels>);
+  for (const k of ["lift", "gamma", "gain", "offset"] as const) {
+    const v = wheels[k];
+    if (v && v.some((x, i) => Math.abs(x - WHEELS_NEUTRAL[k][i]!) > 1e-4)) out[k] = v.map((x) => Math.round(x * 1000) / 1000);
+  }
+  const curves = extra.curves ?? (old.curves as Curves | undefined);
+  if (curves && CURVE_CHANNELS.some((c) => curves[c]?.length)) out.curves = Object.fromEntries(CURVE_CHANNELS.filter((c) => curves[c]?.length).map((c) => [c, curves[c]]));
+  return Object.keys(out).length > 1 ? [...others, out] : others;
 }
 
 /** `id` is the new instance layer; it spans the layers' time range at the topmost one's stacking position. */

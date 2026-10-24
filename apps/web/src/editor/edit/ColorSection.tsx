@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { engineHost } from "../../engine/host";
+import { OpName, WHEELS_NEUTRAL, effectsWithGrade, type Curves, type Wheels } from "@motionily/protocol";
 import { GRADE_FIELDS, GRADE_GROUPS, GRADE_PRESETS, gradeOps, presetGrade, readGrade, type Grade, type GradeField } from "./colorGrade";
+import { ColorWheels } from "./ColorWheels";
+import { CurvesEditor } from "./CurvesEditor";
 import type { EditActions } from "./useEditActions";
 
 /**
@@ -10,8 +13,31 @@ import type { EditActions } from "./useEditActions";
 export function ColorSection({ clipId, allClipIds, edits }: { clipId: string; allClipIds: string[]; edits: EditActions }) {
   const [{ grade, animated }, setState] = useState(() => readGrade(engineHost.layer(clipId)));
   const dragging = useRef(false);
+  // Wheels and curves are read from the layer, so a gesture re-renders to show where it is.
+  const [, redraw] = useState(0);
 
   useEffect(() => setState(readGrade(engineHost.layer(clipId))), [clipId]);
+  const colorFx = () => ((engineHost.layer(clipId)?.effects as Record<string, unknown>[] | undefined) ?? []).find((e) => e.fx === "color") ?? {};
+  const fx = colorFx();
+  const wheels: Wheels = {
+    lift: (fx.lift as Wheels["lift"]) ?? [...WHEELS_NEUTRAL.lift],
+    gamma: (fx.gamma as Wheels["gamma"]) ?? [...WHEELS_NEUTRAL.gamma],
+    gain: (fx.gain as Wheels["gain"]) ?? [...WHEELS_NEUTRAL.gain],
+    offset: (fx.offset as Wheels["offset"]) ?? [...WHEELS_NEUTRAL.offset],
+  };
+  const curves = (fx.curves as Curves | undefined) ?? {};
+  /** Wheels or curves changed live (one undo step per gesture). */
+  const extra = (x: { wheels?: Wheels; curves?: Curves }) => {
+    if (!dragging.current) edits.begin();
+    dragging.current = true;
+    edits.preview([{ op: OpName.Patch, id: clipId, fields: { effects: effectsWithGrade(engineHost.layer(clipId)?.effects as unknown[] | undefined, grade, x) } }]);
+    redraw((n) => n + 1);
+  };
+  const extraDone = (what: string) => {
+    if (!dragging.current) return;
+    dragging.current = false;
+    edits.end(`${what} of ${clipId}`, false);
+  };
 
   const ops = (ids: string[], g: Grade) => gradeOps(ids.map((id) => ({ id, layer: engineHost.layer(id) })), g);
   const set = (field: GradeField, v: number) => {
@@ -79,6 +105,14 @@ export function ColorSection({ clipId, allClipIds, edits }: { clipId: string; al
           })}
         </div>
       ))}
+      <div className="flex flex-col gap-2">
+        <span className="text-[11px] text-neutral-500">Wheels</span>
+        <ColorWheels wheels={wheels} onChange={(w) => extra({ wheels: w })} onDone={extraDone} />
+      </div>
+      <div className="flex flex-col gap-2">
+        <span className="text-[11px] text-neutral-500">Curves</span>
+        <CurvesEditor curves={curves} onChange={(c) => extra({ curves: c })} onDone={extraDone} />
+      </div>
     </div>
   );
 }

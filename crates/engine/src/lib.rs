@@ -1070,7 +1070,7 @@ fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, glass: &mut GlassPass, s
     }
     // Warps pull pixels from around them: at the frame edge, repeat the edge instead of emptiness.
     let clamp_edges = if f.adjust || turb[0] != 0.0 { 1.0 } else { 0.0 };
-    plan.layer = fx.push(FxParams { a: [0.0, matte, 1.0, 0.0], b: [0.0, 0.0, clamp_edges, if f.adjust { 1.0 } else { 0.0 }], adj: [hue, sat - 1.0, bright, contrast - 1.0], warp, grain, turb, h0, h1, h2, origin, grade: [grade.exposure, grade.temperature, grade.tint, grade.vibrance], tone: [grade.shadows, grade.highlights, grade.vignette, 0.0], ..Default::default() });
+    plan.layer = fx.push(FxParams { a: [0.0, matte, 1.0, 0.0], b: [0.0, 0.0, clamp_edges, if f.adjust { 1.0 } else { 0.0 }], adj: [hue, sat - 1.0, bright, contrast - 1.0], warp, grain, turb, h0, h1, h2, origin, grade: [grade.exposure, grade.temperature, grade.tint, grade.vibrance], tone: [grade.shadows, grade.highlights, grade.vignette, 0.0], lift: wheel(grade.lift, 0.0), gamma: wheel(grade.gamma, 1.0), gain: wheel(grade.gain, 1.0), offset: wheel(grade.offset, 0.0), curve_n: grade.curve_points.map(|n| n as f32), curve: curve_vecs(&grade.curves), ..Default::default() });
     if f.adjust {
         plan.copy = fx.push(FxParams::default());
     }
@@ -1085,4 +1085,22 @@ fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, glass: &mut GlassPass, s
 
 fn srgb_to_linear(c: f32) -> f32 {
     if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+}
+
+/// A color wheel as the shader reads it: each channel minus its neutral value (so zero is neutral).
+fn wheel(v: [f32; 3], neutral: f32) -> [f32; 4] {
+    [v[0] - neutral, v[1] - neutral, v[2] - neutral, 0.0]
+}
+
+/// Curve points packed two per vec4, three vec4 per curve (master, red, green, blue).
+fn curve_vecs(curves: &[[[f32; 2]; scene::paint::CURVE_POINTS]; 4]) -> [[f32; 4]; 12] {
+    let mut out = [[0.0; 4]; 12];
+    for (k, pts) in curves.iter().enumerate() {
+        for (i, [x, y]) in pts.iter().enumerate() {
+            let v = &mut out[k * 3 + i / 2];
+            v[(i % 2) * 2] = *x;
+            v[(i % 2) * 2 + 1] = *y;
+        }
+    }
+    out
 }
