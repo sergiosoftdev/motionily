@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { engineHost } from "../../engine/host";
-import { OpName, WHEELS_NEUTRAL, effectsWithGrade, type Curves, type Wheels } from "@motionily/protocol";
+import { OpName, WHEELS_NEUTRAL, effectsWithGrade, type Curves, type GradeLut, type MediaItem, type Wheels } from "@motionily/protocol";
 import { GRADE_FIELDS, GRADE_GROUPS, GRADE_PRESETS, gradeOps, presetGrade, readGrade, type Grade, type GradeField } from "./colorGrade";
 import { ColorWheels } from "./ColorWheels";
 import { CurvesEditor } from "./CurvesEditor";
@@ -11,7 +11,7 @@ import type { EditActions } from "./useEditActions";
  * Color grading of a clip, as in a grading panel: looks to start from, then light, color and vignette
  * sliders. It writes the clip's color effect, the same one the agent edits, so either can refine it.
  */
-export function ColorSection({ clipId, allClipIds, edits }: { clipId: string; allClipIds: string[]; edits: EditActions }) {
+export function ColorSection({ clipId, allClipIds, edits, luts }: { clipId: string; allClipIds: string[]; edits: EditActions; luts: MediaItem[] }) {
   const [{ grade, animated }, setState] = useState(() => readGrade(engineHost.layer(clipId)));
   const dragging = useRef(false);
   // Wheels and curves are read from the layer, so a gesture re-renders to show where it is.
@@ -27,8 +27,11 @@ export function ColorSection({ clipId, allClipIds, edits }: { clipId: string; al
     offset: (fx.offset as Wheels["offset"]) ?? [...WHEELS_NEUTRAL.offset],
   };
   const curves = (fx.curves as Curves | undefined) ?? {};
-  /** Wheels or curves changed live (one undo step per gesture). */
-  const extra = (x: { wheels?: Wheels; curves?: Curves }) => {
+  const lut: GradeLut | null = typeof fx.lut === "string" ? { src: fx.lut, mix: typeof fx.lut_mix === "number" ? fx.lut_mix : 1 } : null;
+  const setLut = (next: GradeLut | null, what: string) =>
+    edits.apply([{ op: OpName.Patch, id: clipId, fields: { effects: effectsWithGrade(engineHost.layer(clipId)?.effects as unknown[] | undefined, grade, { lut: next }) } }], `${what} on ${clipId}`, false);
+  /** Wheels, curves or the LUT mix changed live (one undo step per gesture). */
+  const extra = (x: { wheels?: Wheels; curves?: Curves; lut?: GradeLut | null }) => {
     if (!dragging.current) edits.begin();
     dragging.current = true;
     edits.preview([{ op: OpName.Patch, id: clipId, fields: { effects: effectsWithGrade(engineHost.layer(clipId)?.effects as unknown[] | undefined, grade, x) } }]);
@@ -107,6 +110,32 @@ export function ColorSection({ clipId, allClipIds, edits }: { clipId: string; al
           })}
         </div>
       ))}
+      <div className="flex flex-col gap-2">
+        <span className="text-[11px] text-neutral-500">LUT</span>
+        <select
+          value={lut?.src ?? ""}
+          onChange={(e) => setLut(e.target.value ? { src: e.target.value, mix: lut?.mix ?? 1 } : null, e.target.value ? `LUT ${luts.find((l) => l.url === e.target.value)?.name ?? ""}` : "No LUT")}
+          className="rounded-md bg-neutral-900 px-2 py-1.5 text-xs text-neutral-200"
+        >
+          <option value="">None</option>
+          {luts.map((l) => (
+            <option key={l.id} value={l.url}>
+              {l.name}
+            </option>
+          ))}
+          {lut && !luts.some((l) => l.url === lut.src) && <option value={lut.src}>{lut.src.split("/").pop()}</option>}
+        </select>
+        {!luts.length && !lut && <p className="text-[11px] text-neutral-500">Import a .cube file into the media pool to use it here.</p>}
+        {lut && (
+          <label className="flex flex-col gap-1 text-xs text-neutral-400">
+            <span className="flex justify-between">
+              Amount
+              <span className="text-neutral-200 tabular-nums">{Math.round(lut.mix * 100)}%</span>
+            </span>
+            <input type="range" min={0} max={1} step={0.01} value={lut.mix} onChange={(e) => extra({ lut: { src: lut.src, mix: Number(e.target.value) } })} onPointerUp={() => extraDone("LUT amount")} onKeyUp={() => extraDone("LUT amount")} className="accent-white" />
+          </label>
+        )}
+      </div>
       <div className="flex flex-col gap-2">
         <span className="text-[11px] text-neutral-500">Wheels</span>
         <ColorWheels wheels={wheels} onChange={(w) => extra({ wheels: w })} onDone={extraDone} />

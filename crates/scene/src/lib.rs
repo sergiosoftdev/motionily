@@ -11,6 +11,7 @@ pub mod output;
 pub mod mix;
 pub mod subtitles;
 pub mod interchange;
+pub mod lut;
 pub mod tracks;
 pub mod trim;
 pub mod glyphs;
@@ -765,6 +766,14 @@ impl Scene {
             })
             .collect();
         self.inner_images(&mut v);
+        v.sort();
+        v.dedup();
+        v
+    }
+
+    /// Every LUT (`.cube` src) a color effect names, for the engine to load.
+    pub fn lut_sources(&self) -> Vec<String> {
+        let mut v: Vec<String> = self.layers.iter().flat_map(|l| l.effects.iter()).filter_map(|s| s.effect.lut_src().map(str::to_string)).collect();
         v.sort();
         v.dedup();
         v

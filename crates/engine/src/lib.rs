@@ -241,6 +241,8 @@ pub struct Renderer {
     objects: Vec<StageRenderer>,
     post: PostPass,
     fx: FxPass,
+    /// `.cube` LUTs of the color effects.
+    luts: fx::Luts,
     /// Agent-written shader layers and effects.
     custom: CustomShaders,
     /// Liquid glass: refracts and blurs the backdrop inside a glass shape.
@@ -384,7 +386,8 @@ impl Renderer {
         let custom = CustomShaders::new(&ctx);
         let internal = [config.width, config.height];
         let post = PostPass::new(&device, config.format, internal[0], internal[1]);
-        let fx = FxPass::new(&device, config.format, internal[0], internal[1]);
+        let luts = fx::Luts::new(&device, &queue);
+        let fx = FxPass::new(&device, config.format, internal[0], internal[1], &luts);
         let stage = StageRenderer::new(&device, &queue, config.format, internal);
         let glass = GlassPass::new(&device, config.format);
 
@@ -398,6 +401,7 @@ impl Renderer {
             objects: Vec::new(),
             post,
             fx,
+            luts,
             custom,
             glass,
             plane_globals: Vec::new(),
@@ -442,6 +446,17 @@ impl Renderer {
     }
 
     /// Register an image (RGBA8) for image layers under its source key.
+    /// Load a `.cube` LUT the color effects name by `src`.
+    pub fn add_lut(&mut self, src: &str, cube: &str) -> Result<(), String> {
+        let lut = scene::lut::Lut::parse_cube(cube)?;
+        self.luts.add(&self.device, &self.queue, scene::lut::lut_key(src), &lut);
+        Ok(())
+    }
+
+    pub fn has_lut(&self, src: &str) -> bool {
+        self.luts.has(scene::lut::lut_key(src))
+    }
+
     pub fn add_image(&mut self, key: &str, rgba: &[u8], width: u32, height: u32) {
         self.images.add_image(&self.device, &self.queue, key, rgba, width, height);
     }
@@ -675,7 +690,7 @@ impl Renderer {
         if !planes {
             self.plane_fx = None;
         } else if self.plane_fx.as_ref().is_none_or(|p| p.size() != [window[0] as u32, window[1] as u32]) {
-            self.plane_fx = Some(FxPass::new(&self.device, self.config.format, window[0] as u32, window[1] as u32));
+            self.plane_fx = Some(FxPass::new(&self.device, self.config.format, window[0] as u32, window[1] as u32, &self.luts));
         }
         let mut plane_fx = self.plane_fx.take();
         if let Some(p) = plane_fx.as_mut() {
@@ -869,7 +884,7 @@ impl Renderer {
             // The scene so far becomes the layer; compositing it back replaces what is below.
             drop(FxPass::clear_pass(encoder, &fx.layer, "fx adjust"));
             let scene = fx.group_for(&self.device, self.post.target());
-            fx.composite_group(encoder, &scene, &fx.layer, scene::paint::BlendMode::Normal, plan.copy);
+            fx.composite_group(encoder, &scene, &fx.layer, scene::paint::BlendMode::Normal, plan.copy, None);
         } else if f.samples.is_empty() {
             self.draw_offscreen(encoder, &fx.layer, &f.runs, globals);
         } else {
@@ -917,10 +932,10 @@ impl Renderer {
             // The layer alone, then blended over a copy of the scene so far.
             // The layer draws from its own pass into the scene's scratch, then blends over the scene's copy.
             drop(FxPass::clear_pass(encoder, &self.fx.scratch, "fx blend source"));
-            fx.composite(encoder, Tex::Layer, &self.fx.scratch, scene::paint::BlendMode::Normal, plan.layer);
+            fx.composite_lut(encoder, Tex::Layer, &self.fx.scratch, scene::paint::BlendMode::Normal, plan.layer, self.luts.group(plan.lut));
             self.fx.blend_over(&self.device, encoder, self.post.texture(), target, plan.blend);
         } else {
-            fx.composite(encoder, Tex::Layer, target, f.blend, plan.layer);
+            fx.composite_lut(encoder, Tex::Layer, target, f.blend, plan.layer, self.luts.group(plan.lut));
         }
         for (h, v, comp, thresh) in &plan.glows {
             match thresh {
@@ -964,6 +979,8 @@ struct FxPlan {
     average: u32,
     /// Uniform slot holding a backdrop blend's mode id (unused for fixed-function modes).
     blend: u32,
+    /// `scene::lut::lut_key` of the color effect's LUT (0 = none).
+    lut: u64,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -983,7 +1000,7 @@ fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, glass: &mut GlassPass, s
         let [r, g, b, a] = c.0;
         if linear { [srgb_to_linear(r), srgb_to_linear(g), srgb_to_linear(b), a] } else { [r, g, b, a] }
     };
-    let mut plan = FxPlan { steps: Vec::new(), replace: 0, shadows: Vec::new(), layer: 0, glows: Vec::new(), copy: 0, average: 0, blend: 0 };
+    let mut plan = FxPlan { steps: Vec::new(), replace: 0, shadows: Vec::new(), layer: 0, glows: Vec::new(), copy: 0, average: 0, lut: 0, blend: 0 };
     // Color correction, distortion and grain all happen in the final layer composite.
     let (mut hue, mut sat, mut bright, mut contrast) = (0.0, 1.0, 0.0, 1.0);
     let mut grade = scene::paint::ColorGrade::default();
@@ -1070,7 +1087,8 @@ fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, glass: &mut GlassPass, s
     }
     // Warps pull pixels from around them: at the frame edge, repeat the edge instead of emptiness.
     let clamp_edges = if f.adjust || turb[0] != 0.0 { 1.0 } else { 0.0 };
-    plan.layer = fx.push(FxParams { a: [0.0, matte, 1.0, 0.0], b: [0.0, 0.0, clamp_edges, if f.adjust { 1.0 } else { 0.0 }], adj: [hue, sat - 1.0, bright, contrast - 1.0], warp, grain, turb, h0, h1, h2, origin, grade: [grade.exposure, grade.temperature, grade.tint, grade.vibrance], tone: [grade.shadows, grade.highlights, grade.vignette, 0.0], lift: wheel(grade.lift, 0.0), gamma: wheel(grade.gamma, 1.0), gain: wheel(grade.gain, 1.0), offset: wheel(grade.offset, 0.0), curve_n: grade.curve_points.map(|n| n as f32), curve: curve_vecs(&grade.curves), ..Default::default() });
+    plan.layer = fx.push(FxParams { a: [0.0, matte, 1.0, 0.0], b: [0.0, 0.0, clamp_edges, if f.adjust { 1.0 } else { 0.0 }], adj: [hue, sat - 1.0, bright, contrast - 1.0], warp, grain, turb, h0, h1, h2, origin, grade: [grade.exposure, grade.temperature, grade.tint, grade.vibrance], tone: [grade.shadows, grade.highlights, grade.vignette, 0.0], lift: wheel(grade.lift, 0.0), gamma: wheel(grade.gamma, 1.0), gain: wheel(grade.gain, 1.0), offset: wheel(grade.offset, 0.0), curve_n: grade.curve_points.map(|n| n as f32), curve: curve_vecs(&grade.curves), lut: [grade.lut_mix, 0.0, 0.0, 0.0], ..Default::default() });
+    plan.lut = grade.lut;
     if f.adjust {
         plan.copy = fx.push(FxParams::default());
     }

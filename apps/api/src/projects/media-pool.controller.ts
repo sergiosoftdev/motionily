@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { copyFile, stat, writeFile } from "node:fs/promises";
+import { copyFile, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, extname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, NotFoundException, Param, Post, UploadedFile, UseInterceptors } from "@nestjs/common";
@@ -19,6 +19,10 @@ import { BridgeHub } from "../bridge-hub";
 const FFPROBE = process.env.FFPROBE_PATH ?? "ffprobe";
 const run = promisify(execFile);
 
+/** `.cube` files have no registered type; the pool names them this. */
+const LUT_MIME = "application/x-cube-lut";
+const isCube = (name: string) => extname(name).toLowerCase() === ".cube";
+
 /** What the media pool takes besides video clips (those go to /footage, which transcribes them). */
 const KIND_OF: Record<string, MediaKind> = {
   "audio/mpeg": MediaKind.Audio,
@@ -36,6 +40,7 @@ const KIND_OF: Record<string, MediaKind> = {
   "image/jpeg": MediaKind.Image,
   "image/webp": MediaKind.Image,
   "image/gif": MediaKind.Image,
+  [LUT_MIME]: MediaKind.Lut,
 };
 const MAX_MEDIA_BYTES = 200 * 1024 * 1024;
 /** Rendered videos the browser editor hands back for an agent's export. */
@@ -46,6 +51,7 @@ const BY_EXT: Record<string, string> = {
   ".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4", ".aac": "audio/aac", ".ogg": "audio/ogg", ".flac": "audio/flac",
   ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif",
   ".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm",
+  ".cube": LUT_MIME,
 };
 
 class ImportMediaDto {
@@ -91,14 +97,14 @@ export class MediaPoolController {
     FileInterceptor("file", {
       storage: diskStorage({ destination: MEDIA_DIR, filename: (_req, f, cb) => cb(null, mediaName(f.originalname || "media.bin")) }),
       limits: { fileSize: MAX_MEDIA_BYTES },
-      fileFilter: (_req, f, cb) => cb(null, f.mimetype in KIND_OF),
+      fileFilter: (_req, f, cb) => cb(null, f.mimetype in KIND_OF || isCube(f.originalname)),
     }),
   )
   async upload(@CurrentUser() user: AuthUser, @Param("id") id: string, @UploadedFile() file?: Express.Multer.File) {
     poolWriter(user);
-    if (!file) throw new BadRequestException("send a sound (mp3, wav, m4a, ogg, flac) or an image (png, jpg, webp, gif) in 'file'; videos go to /footage");
+    if (!file) throw new BadRequestException("send a sound (mp3, wav, m4a, ogg, flac), an image (png, jpg, webp, gif) or a LUT (.cube) in 'file'; videos go to /footage");
     try {
-      return await this.add(user, id, file.filename, file.originalname, file.mimetype, file.size);
+      return await this.add(user, id, file.filename, file.originalname, isCube(file.originalname) ? LUT_MIME : file.mimetype, file.size);
     } catch (e) {
       await removeMedia(file.filename);
       throw e;
@@ -120,7 +126,11 @@ export class MediaPoolController {
       return { footage: p.footage.at(-1)!.id };
     }
     const kind = KIND_OF[mime];
-    if (!kind) throw new BadRequestException(`${name}: not a sound, picture or video Motionily takes`);
+    if (!kind) throw new BadRequestException(`${name}: not a sound, picture, LUT or video Motionily takes`);
+    if (kind === MediaKind.Lut) {
+      const head = (await readFile(path, "utf8")).slice(0, 65536);
+      if (!/^\s*LUT_(3D|1D)_SIZE\s+\d+/m.test(head)) throw new BadRequestException(`${name}: not a .cube LUT (no LUT_3D_SIZE line)`);
+    }
     const meta = kind === MediaKind.Image ? await sharp(path).metadata().catch(() => null) : null;
     const taken = (project.media ?? []).map((m) => Number(m.id.slice(1)) || 0);
     const item: MediaItem = {

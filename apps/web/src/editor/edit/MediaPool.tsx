@@ -11,13 +11,13 @@ import { DropZone, ICON, Icon, ProgressLine, SUNO_LOGO, THUMB_AT, mmss, type Cli
 import { SunoDialog } from "./SunoDialog";
 
 /** Everything the pool takes: clips (transcribed), sounds and pictures. */
-export const POOL_ACCEPT = "video/mp4,video/quicktime,video/webm,audio/*,image/png,image/jpeg,image/webp,image/gif";
+export const POOL_ACCEPT = "video/mp4,video/quicktime,video/webm,audio/*,image/png,image/jpeg,image/webp,image/gif,.cube";
 /** Drag payload from a pool tile to the timeline. */
 export const POOL_DRAG = "application/x-motionily-media";
 
-export const PoolFilter = { All: "all", Video: "video", Audio: "audio", Images: "images" } as const;
+export const PoolFilter = { All: "all", Video: "video", Audio: "audio", Images: "images", Luts: "luts" } as const;
 type PoolFilter = (typeof PoolFilter)[keyof typeof PoolFilter];
-const FILTER_LABEL: Record<PoolFilter, string> = { all: "All", video: "Video", audio: "Audio", images: "Images" };
+const FILTER_LABEL: Record<PoolFilter, string> = { all: "All", video: "Video", audio: "Audio", images: "Images", luts: "LUTs" };
 
 /** What a tile stands for: one of the user's clips, or a sound / picture from the pool. */
 export type PoolEntry = { source: "footage"; clip: FootageClip } | { source: "media"; item: MediaItem };
@@ -116,7 +116,7 @@ export function MediaPool({
   const shown = entries.filter((e) => {
     if (filter === PoolFilter.All) return true;
     if (e.source === "footage") return filter === PoolFilter.Video;
-    return filter === (e.item.kind === MediaKind.Audio ? PoolFilter.Audio : PoolFilter.Images);
+    return filter === (e.item.kind === MediaKind.Audio ? PoolFilter.Audio : e.item.kind === MediaKind.Lut ? PoolFilter.Luts : PoolFilter.Images);
   });
 
   const importFiles = async (files: File[]) => {
@@ -135,7 +135,7 @@ export function MediaPool({
         <span className="text-sm font-semibold">Media</span>
         <span className="text-[11px] text-neutral-500">{entries.length ? `${entries.length} items` : ""}</span>
       </div>
-      <div className="grid grid-cols-4 gap-1 rounded-lg bg-neutral-950 p-1" role="tablist" aria-label="Media filter">
+      <div className="grid grid-cols-5 gap-1 rounded-lg bg-neutral-950 p-1" role="tablist" aria-label="Media filter">
         {Object.values(PoolFilter).map((f) => (
           <button
             key={f}
@@ -221,6 +221,7 @@ function Tile({ entry, used, music, onAdd, onRemove, picked, onPick }: { entry: 
   const name = entry.source === "footage" ? entry.clip.name : entry.item.name;
   const duration = entry.source === "footage" ? entry.clip.duration : entry.item.duration;
   const isAudio = entry.source === "media" && entry.item.kind === MediaKind.Audio;
+  const isLut = entry.source === "media" && entry.item.kind === MediaKind.Lut;
   const inEdit = used.has(url);
   return (
     <li
@@ -231,12 +232,14 @@ function Tile({ entry, used, music, onAdd, onRemove, picked, onPick }: { entry: 
       }}
       onDoubleClick={() => onAdd(drop)}
       onClick={() => onPick(picked ? null : drop)}
-      title={`${name} · drag to the timeline or double-click to add at the playhead`}
+      title={isLut ? `${name} · double-click to grade the selected clip with it` : `${name} · drag to the timeline or double-click to add at the playhead`}
       className={`group relative flex cursor-grab flex-col gap-1 rounded-lg p-1 active:cursor-grabbing ${picked ? "bg-neutral-800 ring-1 ring-white/40" : "hover:bg-neutral-800/60"}`}
     >
       <span className="relative aspect-video overflow-hidden rounded-md bg-neutral-800">
         {entry.source === "footage" ? (
           <video src={`${mediaUrl(url)}#t=${THUMB_AT}`} preload="metadata" muted playsInline className="pointer-events-none size-full object-cover" />
+        ) : isLut ? (
+          <span className="flex size-full items-center justify-center bg-gradient-to-br from-orange-500/50 via-neutral-800 to-teal-500/50 text-[11px] font-semibold text-white">LUT</span>
         ) : isAudio ? (
           <span className="flex size-full items-center justify-center bg-gradient-to-br from-emerald-900/60 to-neutral-900 text-emerald-200">
             <Icon d={ICON.note} className="size-6" />

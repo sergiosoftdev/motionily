@@ -50,7 +50,7 @@ after(async () => {
 });
 
 describe("media pool", () => {
-  it("keeps sounds and pictures with their length and size, refuses videos, and removes them", async () => {
+  it("keeps sounds, pictures and LUTs with their length and size, refuses videos, and removes them", async () => {
     const login = await http.post("/auth/mock-google").send({ email: "pool@motionily.local" }).expect(201);
     const auth = { Authorization: `Bearer ${login.body.token as string}` };
     const project = await http.post("/projects").set(auth).send({ name: "Pool", format: "square_1_1" }).expect(201);
@@ -69,10 +69,17 @@ describe("media pool", () => {
 
     await http.post(base).set(auth).attach("file", Buffer.from("x"), { filename: "clip.mp4", contentType: "video/mp4" }).expect(400);
 
+    // LUTs come with no registered type; the extension says it, the contents must be a .cube.
+    const cube = "TITLE \"warm\"\nLUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n";
+    const lut = await http.post(base).set(auth).attach("file", Buffer.from(cube), { filename: "warm.cube", contentType: "application/octet-stream" }).expect(201);
+    assert.deepEqual([lut.body.kind, lut.body.name], ["lut", "warm.cube"]);
+    assert.match(lut.body.url, /^\/media\/[a-f0-9-]{36}\.cube$/);
+    await http.post(base).set(auth).attach("file", Buffer.from("hello"), { filename: "fake.cube", contentType: "application/octet-stream" }).expect(400);
+
     const list = await http.get(base).set(auth).expect(200);
-    assert.deepEqual(list.body.map((m: { id: string }) => m.id), ["m1", "m2"]);
+    assert.deepEqual(list.body.map((m: { id: string }) => m.id), ["m1", "m2", "m3"]);
     await http.delete(`${base}/m1`).set(auth).expect(200);
-    assert.deepEqual((await http.get(base).set(auth).expect(200)).body.map((m: { id: string }) => m.id), ["m2"]);
+    assert.deepEqual((await http.get(base).set(auth).expect(200)).body.map((m: { id: string }) => m.id), ["m2", "m3"]);
     await http.delete(`${base}/m1`).set(auth).expect(404);
   });
 

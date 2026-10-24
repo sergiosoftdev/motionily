@@ -9,7 +9,7 @@ import { DEFAULT_SFX_VOLUME, type CaptionStyle, type FrameLayout, type Marker, t
 import { DEFAULT_FONT_FAMILY, fontFilesFor, text3dFonts } from "./fonts";
 import { decodeBytes, decodePng, modelFileUrl, modelUrl, packOf, packTextureUrl, type Pixels } from "./models";
 import { mediaUrl } from "../api/client";
-import { EngineStatus, useEditor } from "../store";
+import { ActivitySource, EngineStatus, logActivity, useEditor } from "../store";
 import { ClipSounds, VIDEO_LAYER, VideoLibrary, VideoStatus, clipSounds, type ClipSound, type ClipState, type FrameCache } from "./video";
 import { decodeMono, type AudioAnalysisInfo } from "./audioReactive";
 import { audioFileAt, type AudioTrack } from "../audio/track";
@@ -112,6 +112,9 @@ class EngineHost {
   private loadingModels = new Set<string>();
   private loadingTextures = new Set<string>();
   private loadingImages = new Set<string>();
+  /** `.cube` files the color effects use, as loaded (export engines get them too). */
+  private lutTexts = new Map<string, string>();
+  private lutsLoading: Promise<void> = Promise.resolve();
   private imageCache = new Map<string, Promise<Pixels | null>>();
 
   /** Voice-over/music played in sync with the preview (not saved yet). */
@@ -353,6 +356,37 @@ class EngineHost {
     this.draw();
   }
 
+  /** Load the LUTs the color effects name and the engine does not have yet. */
+  ensureLuts(): Promise<void> {
+    const engine = this.engine;
+    if (!engine) return this.lutsLoading;
+    const missing = engine.missingLuts();
+    if (!missing.length) return this.lutsLoading;
+    this.lutsLoading = Promise.all(
+      missing.map(async (src) => {
+        const text = this.lutTexts.get(src) ?? (await fetch(mediaUrl(src)).then((r) => (r.ok ? r.text() : null)).catch(() => null));
+        if (text == null || engine !== this.engine) return;
+        try {
+          engine.addLut(src, text);
+          this.lutTexts.set(src, text);
+        } catch (e) {
+          logActivity(ActivitySource.System, `LUT ${src.split("/").pop()} not loaded: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }),
+    ).then(() => this.draw());
+    return this.lutsLoading;
+  }
+
+  /** The scene's LUTs as `.cube` text, for another engine (export, the desktop app's native one). */
+  async lutAssets(): Promise<{ src: string; text: string }[]> {
+    await this.ensureLuts();
+    const srcs = this.engine?.lutSources() ?? [];
+    return srcs.flatMap((src) => {
+      const text = this.lutTexts.get(src);
+      return text == null ? [] : [{ src, text }];
+    });
+  }
+
   /** Decoded images for another engine (export). */
   async imageAssets(): Promise<({ src: string } & Pixels)[]> {
     // Also the images inside component instances.
@@ -462,6 +496,7 @@ class EngineHost {
   /** Resolves once the audio is analysed and every video file is open: export and agent renders wait for it. */
   async mediaReady() {
     await this.audioAnalysis;
+    await this.ensureLuts();
     if (this.engine) await this.videos.ready(this.engine);
   }
 
@@ -470,7 +505,6 @@ class EngineHost {
     return this.videos;
   }
 
-  /** What the video clips play and how loud, over the whole video (the native exporter mixes it in). */
   /** The Edit timeline as FCPXML, OTIO or EDL, sources under `mediaRoot`, with the voice-over as a clip. */
   timelineFile(format: "fcpxml" | "otio" | "edl", name: string, mediaRoot: string): string {
     const voice = this.audioUrl ? new URL(this.audioUrl, location.href).pathname : undefined;
@@ -490,6 +524,7 @@ class EngineHost {
     return measureLoudness(Array.from({ length: mix.numberOfChannels }, (_, c) => mix.getChannelData(c)), mix.sampleRate);
   }
 
+  /** What the video clips play and how loud, over the whole video (the native exporter mixes it in). */
   clipSounds(): ClipSound[] {
     const scene = JSON.parse(this.sceneJson()) as { fps: number; duration: number };
     return this.engine ? clipSounds(this.engine, scene.fps, scene.duration) : [];
@@ -1087,6 +1122,7 @@ class EngineHost {
     this.draw();
     void this.ensureModels();
     void this.ensureImages();
+    void this.ensureLuts();
     this.listeners.forEach((fn) => fn());
   }
 

@@ -385,7 +385,10 @@ export type CurveChannel = (typeof CURVE_CHANNELS)[number];
  * A layer's `effects` with its color effect set to `grade` (and `wheels` / `curves` when given; the old
  * ones stay otherwise). Neutral values are left out, and a fully neutral effect is dropped. Other effects stay.
  */
-export function effectsWithGrade(effects: unknown[] | undefined, grade: Grade, extra: { wheels?: Wheels; curves?: Curves } = {}): Record<string, unknown>[] {
+/** A color effect's LUT: a `.cube` from the media pool and how much of it shows. */
+export type GradeLut = { src: string; mix: number };
+
+export function effectsWithGrade(effects: unknown[] | undefined, grade: Grade, extra: { wheels?: Wheels; curves?: Curves; lut?: GradeLut | null } = {}): Record<string, unknown>[] {
   const list = (effects ?? []) as Record<string, unknown>[];
   const old = list.find((e) => e.fx === "color") ?? {};
   const others = list.filter((e) => e.fx !== "color");
@@ -398,6 +401,11 @@ export function effectsWithGrade(effects: unknown[] | undefined, grade: Grade, e
   }
   const curves = extra.curves ?? (old.curves as Curves | undefined);
   if (curves && CURVE_CHANNELS.some((c) => curves[c]?.length)) out.curves = Object.fromEntries(CURVE_CHANNELS.filter((c) => curves[c]?.length).map((c) => [c, curves[c]]));
+  const lut = extra.lut !== undefined ? extra.lut : typeof old.lut === "string" ? { src: old.lut, mix: typeof old.lut_mix === "number" ? old.lut_mix : 1 } : null;
+  if (lut) {
+    out.lut = lut.src;
+    if (Math.abs(lut.mix - 1) > 1e-4) out.lut_mix = Math.round(lut.mix * 1000) / 1000;
+  }
   return Object.keys(out).length > 1 ? [...others, out] : others;
 }
 
@@ -658,7 +666,7 @@ export type SunoPrompt = { title: string; style: string; structure: string; drop
 
 /** A clip uploaded to be edited. `words` (file seconds) once the editor transcribed it; `poster` = a 4×3 contact sheet. */
 /** Kinds of file in a video's media pool besides its clips (apps/api media-pool). */
-export const MediaKind = { Audio: "audio", Image: "image" } as const;
+export const MediaKind = { Audio: "audio", Image: "image", Lut: "lut" } as const;
 export type MediaKind = (typeof MediaKind)[keyof typeof MediaKind];
 
 /** A sound or picture in a video's media pool (GET /projects/:id/media). */

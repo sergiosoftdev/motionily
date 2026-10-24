@@ -87,4 +87,5 @@ terminarlo, con su commit.
 - [x] 2.2 ruedas y curvas (f2744ed)
 - [x] 2.1 scopes y `color_scopes` (a4886f6)
 - [x] 3.4 bus de mezcla con master (`set_mix`) y `normalize_loudness` (BS.1770, medido igual que ffmpeg ebur128) (a6baab0)
-- [x] 4.4 SRT/VTT y 4.5 FCPXML/OTIO/EDL (`export_file`; OTIO validado con opentimelineio, FCPXML con xmllint)
+- [x] 4.4 SRT/VTT y 4.5 FCPXML/OTIO/EDL (`export_file`; OTIO validado con opentimelineio, FCPXML con xmllint) (dae2456)
+- [x] 2.3 LUTs `.cube` (pool, textura 3D en motor web y nativo, `lut`/`lut_mix`)

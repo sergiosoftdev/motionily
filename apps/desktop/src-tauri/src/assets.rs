@@ -10,6 +10,8 @@ pub struct Assets {
     pub models: HashMap<String, Vec<u8>>,
     pub textures: HashMap<String, (Vec<u8>, u32, u32)>,
     pub images: HashMap<String, (Vec<u8>, u32, u32)>,
+    /// `.cube` LUT files by src.
+    pub luts: HashMap<String, String>,
 }
 
 /// The kinds the editor sends, named by the `x-kind` header of `engine_add_asset`.
@@ -19,6 +21,7 @@ pub enum AssetKind {
     Model,
     Texture,
     Image,
+    Lut,
 }
 
 impl AssetKind {
@@ -28,6 +31,7 @@ impl AssetKind {
             "model" => Self::Model,
             "texture" => Self::Texture,
             "image" => Self::Image,
+            "lut" => Self::Lut,
             _ => return None,
         })
     }
@@ -50,6 +54,9 @@ impl Assets {
             AssetKind::Image => {
                 self.images.insert(key.to_string(), (bytes, a, b));
             }
+            AssetKind::Lut => {
+                self.luts.insert(key.to_string(), String::from_utf8_lossy(&bytes).into_owned());
+            }
         }
     }
 
@@ -59,6 +66,7 @@ impl Assets {
             AssetKind::Model => self.models.contains_key(key),
             AssetKind::Texture => self.textures.contains_key(key),
             AssetKind::Image => self.images.contains_key(key),
+            AssetKind::Lut => self.luts.contains_key(key),
         }
     }
 
@@ -75,6 +83,9 @@ impl Assets {
         }
         for (key, (rgba, w, h)) in &self.images {
             r.add_image(key, rgba, *w, *h);
+        }
+        for (key, cube) in &self.luts {
+            let _ = r.add_lut(key, cube);
         }
     }
 }

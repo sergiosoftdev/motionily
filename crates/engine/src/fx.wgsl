@@ -35,12 +35,16 @@ struct Params {
     // Points per curve (master, red, green, blue) and the points, 3 vec4 per curve (x0 y0 x1 y1 ...).
     curve_n: vec4<f32>,
     curve: array<vec4<f32>, 12>,
+    // LUT mix (x; 0 = none). The cube is group 1.
+    lut: vec4<f32>,
 };
 
 @group(0) @binding(0) var src: texture_2d<f32>;
 @group(0) @binding(1) var matte: texture_2d<f32>;
 @group(0) @binding(2) var samp: sampler;
 @group(0) @binding(3) var<uniform> p: Params;
+@group(1) @binding(0) var lut_tex: texture_3d<f32>;
+@group(1) @binding(1) var lut_samp: sampler;
 
 struct VsOut {
     @builtin(position) pos: vec4<f32>,
@@ -186,7 +190,8 @@ fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
     }
     let wheels = any(p.lift != vec4(0.0)) || any(p.gamma != vec4(0.0)) || any(p.gain != vec4(0.0)) || any(p.offset != vec4(0.0));
     let curves = any(p.curve_n != vec4(0.0));
-    if (mode == 0 && (any(p.adj != vec4(0.0)) || any(p.grade != vec4(0.0)) || any(p.tone != vec4(0.0)) || wheels || curves || p.grain.x > 0.0) && c.a > 0.0) {
+    let graded_lut = p.lut.x > 0.0;
+    if (mode == 0 && (any(p.adj != vec4(0.0)) || any(p.grade != vec4(0.0)) || any(p.tone != vec4(0.0)) || wheels || curves || graded_lut || p.grain.x > 0.0) && c.a > 0.0) {
         var rgb = c.rgb / c.a;
         // Exposure in stops, then white balance: warm lifts red and lowers blue, magenta lowers green.
         rgb = rgb * exp2(p.grade.x);
@@ -212,6 +217,12 @@ fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
             let m = clamp(rgb, vec3(0.0), vec3(1.0));
             let mm = vec3(curve_at(0, m.r), curve_at(0, m.g), curve_at(0, m.b));
             rgb = vec3(curve_at(1, mm.r), curve_at(2, mm.g), curve_at(3, mm.b));
+        }
+        if (graded_lut) {
+            // Texel centers: input 0 and 1 land on the cube's first and last entries.
+            let n = f32(textureDimensions(lut_tex).x);
+            let uvw = clamp(rgb, vec3(0.0), vec3(1.0)) * ((n - 1.0) / n) + 0.5 / n;
+            rgb = mix(rgb, textureSampleLevel(lut_tex, lut_samp, uvw, 0.0).rgb, p.lut.x);
         }
         // Vignette from the frame's center (screen space, so a full-frame clip and an adjustment agree).
         let d = length((in.uv - vec2(0.5)) * 1.41421);

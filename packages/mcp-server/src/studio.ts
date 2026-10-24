@@ -51,7 +51,7 @@ export function registerStudioTools(server: Server, d: StudioDeps) {
     "list_media",
     {
       description:
-        "The video's media pool, as the user sees it in Edit mode: their clips (ids c1…, use them in video layers or edit_footage) and the sounds and pictures they imported (ids m1…). `src` is what a layer's src takes.",
+        "The video's media pool, as the user sees it in Edit mode: their clips (ids c1…, use them in video layers or edit_footage) and the sounds, pictures and LUTs they imported (ids m1…). `src` is what a layer's src takes.",
       inputSchema: {},
     },
     d.guard(async () => {
@@ -65,7 +65,7 @@ export function registerStudioTools(server: Server, d: StudioDeps) {
     "import_media",
     {
       description:
-        "Bring a file into the media pool from an http(s) URL (or, in the desktop app, an absolute path on this machine): sounds (mp3, wav, m4a, ogg, flac) and pictures (png, jpg, webp, gif) join the pool, videos (mp4, mov, webm) become the user's clips. Returns its id and src; then place it with add_layers (`id audio START-END src=… volume=1`, an image layer, or a video layer).",
+        "Bring a file into the media pool from an http(s) URL (or, in the desktop app, an absolute path on this machine): sounds (mp3, wav, m4a, ogg, flac), pictures (png, jpg, webp, gif) and LUTs (.cube, for the color effect's `lut`) join the pool, videos (mp4, mov, webm) become the user's clips. Returns its id and src; then place it with add_layers (`id audio START-END src=… volume=1`, an image layer, or a video layer), or grade with a LUT: a patch of the clip's color effect with `\"lut\":src`.",
       inputSchema: { source: z.string().min(1), name: z.string().max(200).optional() },
     },
     d.guard(async ({ source, name }: { source: string; name?: string }) => {

@@ -96,6 +96,9 @@ fn center() -> [f32; 2] {
 fn one() -> Animated {
     Animated::Static(1.0)
 }
+fn is_one(v: &Animated) -> bool {
+    matches!(v, Animated::Static(x) if *x == 1.0)
+}
 
 /// Resolved gradient for the GPU (layer-local box space).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -384,6 +387,11 @@ pub enum Effect {
         /// `red`, `green`, `blue`. Applied last, before the vignette.
         #[serde(default, skip_serializing_if = "Curves::is_empty")]
         curves: Curves,
+        /// A `.cube` LUT from the media pool (`/media/…`), applied after the curves; `lut_mix` 0..1 blends it in.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lut: Option<String>,
+        #[serde(default = "one", skip_serializing_if = "is_one")]
+        lut_mix: Animated,
     },
     /// RGB split: red and blue shifted apart by `amount` px (glitch, lens edge).
     Chromatic { amount: Animated },
@@ -548,6 +556,9 @@ pub struct ColorGrade {
     /// Curves (master, red, green, blue) and how many points each has (0 = none).
     pub curves: [[[f32; 2]; CURVE_POINTS]; 4],
     pub curve_points: [u32; 4],
+    /// `lut_key` of the LUT (0 = none) and how much of it shows.
+    pub lut: u64,
+    pub lut_mix: f32,
 }
 
 impl Default for ColorGrade {
@@ -566,6 +577,8 @@ impl Default for ColorGrade {
             offset: [0.0; 3],
             curves: [[[0.0; 2]; CURVE_POINTS]; 4],
             curve_points: [0; 4],
+            lut: 0,
+            lut_mix: 0.0,
         }
     }
 }
@@ -585,6 +598,11 @@ impl ColorGrade {
             self.gamma[c] *= o.gamma[c];
             self.gain[c] *= o.gain[c];
             self.offset[c] += o.offset[c];
+        }
+        // One LUT per layer: the last effect that has one.
+        if o.lut != 0 {
+            self.lut = o.lut;
+            self.lut_mix = o.lut_mix;
         }
         // Curves do not add up: the last effect with a curve wins for that curve.
         for i in 0..4 {
@@ -647,6 +665,14 @@ impl DrawEffect {
 }
 
 impl Effect {
+    /// The `.cube` file a color effect maps through.
+    pub fn lut_src(&self) -> Option<&str> {
+        match self {
+            Effect::Color { lut, .. } => lut.as_deref(),
+            _ => None,
+        }
+    }
+
     /// The effect at layer time `t`; `None` for motion blur, which the scene applies itself.
     pub fn resolve(&self, t: f32, palette: &Palette) -> Option<DrawEffect> {
         Some(match self {
@@ -672,7 +698,7 @@ impl Effect {
                 c.0[3] *= opacity.sample(t).clamp(0.0, 1.0);
                 DrawEffect::Shadow { offset: [x.sample(t), y.sample(t)], blur: blur.sample(t).max(0.0), color: c }
             }
-            Effect::Color { hue, saturation, brightness, contrast, exposure, temperature, tint, shadows, highlights, vibrance, vignette, lift, gamma, gain, offset, curves } => DrawEffect::Color {
+            Effect::Color { hue, saturation, brightness, contrast, exposure, temperature, tint, shadows, highlights, vibrance, vignette, lift, gamma, gain, offset, curves, lut, lut_mix } => DrawEffect::Color {
                 hue: hue.sample(t),
                 saturation: saturation.sample(t).max(0.0),
                 brightness: brightness.sample(t),
@@ -691,6 +717,8 @@ impl Effect {
                     offset: offset.map(|v| v.clamp(-1.0, 1.0)),
                     curves: curves.resolved().0,
                     curve_points: curves.resolved().1,
+                    lut: lut.as_deref().map_or(0, crate::lut::lut_key),
+                    lut_mix: if lut.is_some() { lut_mix.sample(t).clamp(0.0, 1.0) } else { 0.0 },
                 },
             },
             Effect::Chromatic { amount } => DrawEffect::Chromatic { amount: amount.sample(t) },

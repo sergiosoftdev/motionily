@@ -38,6 +38,88 @@ pub struct FxParams {
     pub curve_n: [f32; 4],
     /// Curve points, 3 vec4 per curve (x0 y0 x1 y1 …), master then red, green, blue.
     pub curve: [[f32; 4]; 12],
+    /// LUT: how much of it shows (x; 0 = off), the rest unused. The LUT itself is bind group 1.
+    pub lut: [f32; 4],
+}
+
+/// The `.cube` LUTs the color effects use, as 3D textures (bind group 1 of every fx pipeline), shared by
+/// the scene's pass and the tilted planes' ones. Unknown or absent LUTs bind an identity cube.
+pub struct Luts {
+    pub layout: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
+    identity: wgpu::BindGroup,
+    map: std::collections::HashMap<u64, wgpu::BindGroup>,
+}
+
+impl Luts {
+    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("fx lut"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D3, multisampled: false },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry { binding: 1, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
+            ],
+        });
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("fx lut"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            ..Default::default()
+        });
+        let identity_lut = scene::lut::Lut { size: 2, data: (0..8).map(|i| [(i & 1) as f32, ((i >> 1) & 1) as f32, ((i >> 2) & 1) as f32]).collect() };
+        let identity = Self::make(device, queue, &layout, &sampler, &identity_lut);
+        Luts { layout, sampler, identity, map: Default::default() }
+    }
+
+    fn make(device: &wgpu::Device, queue: &wgpu::Queue, layout: &wgpu::BindGroupLayout, sampler: &wgpu::Sampler, lut: &scene::lut::Lut) -> wgpu::BindGroup {
+        let n = lut.size;
+        let size = wgpu::Extent3d { width: n, height: n, depth_or_array_layers: n };
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("lut"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D3,
+            format: wgpu::TextureFormat::Rgba16Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let texels = lut.rgba_f16();
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo { texture: &texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            bytemuck::cast_slice(&texels),
+            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(n * 8), rows_per_image: Some(n) },
+            size,
+        );
+        let view = texture.create_view(&wgpu::TextureViewDescriptor { dimension: Some(wgpu::TextureViewDimension::D3), ..Default::default() });
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("lut"),
+            layout,
+            entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(sampler) }],
+        })
+    }
+
+    pub fn add(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, key: u64, lut: &scene::lut::Lut) {
+        let group = Self::make(device, queue, &self.layout, &self.sampler, lut);
+        self.map.insert(key, group);
+    }
+
+    pub fn has(&self, key: u64) -> bool {
+        self.map.contains_key(&key)
+    }
+
+    /// The LUT under `key` (identity when 0 or not loaded yet).
+    pub fn group(&self, key: u64) -> &wgpu::BindGroup {
+        self.map.get(&key).unwrap_or(&self.identity)
+    }
 }
 
 /// Uniform slot stride (WebGPU's minimum dynamic-offset alignment).
@@ -75,6 +157,8 @@ pub struct FxPass {
     blend_pipeline: wgpu::RenderPipeline,
     /// Bind groups reading layer / temp / copy / accum (each with the matte).
     groups: Vec<wgpu::BindGroup>,
+    /// Identity LUT for passes that do not grade (bind group 1 is always set).
+    no_lut: wgpu::BindGroup,
     size: [u32; 2],
     params: Vec<FxParams>,
 }
@@ -95,7 +179,7 @@ fn blend_state(mode: BlendMode) -> wgpu::BlendState {
 }
 
 impl FxPass {
-    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat, width: u32, height: u32) -> Self {
+    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat, width: u32, height: u32, luts: &Luts) -> Self {
         let tex = |binding: u32| wgpu::BindGroupLayoutEntry {
             binding,
             visibility: wgpu::ShaderStages::FRAGMENT,
@@ -131,7 +215,7 @@ impl FxPass {
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("fx"),
-            bind_group_layouts: &[Some(&layout)],
+            bind_group_layouts: &[Some(&layout), Some(&luts.layout)],
             ..Default::default()
         });
         let shader = device.create_shader_module(wgpu::include_wgsl!("fx.wgsl"));
@@ -188,6 +272,7 @@ impl FxPass {
             backdrop,
             blend_pipeline,
             groups: Vec::new(),
+            no_lut: luts.group(0).clone(),
             size: [width, height],
             params: Vec::new(),
         };
@@ -310,6 +395,7 @@ impl FxPass {
         });
         pass.set_pipeline(&self.blend_pipeline);
         pass.set_bind_group(0, &group, &[offset]);
+        pass.set_bind_group(1, &self.no_lut, &[]);
         pass.draw(0..3, 0..1);
     }
 
@@ -318,16 +404,22 @@ impl FxPass {
         let mut pass = Self::clear_pass(encoder, to, "fx blur");
         pass.set_pipeline(&self.blur_pipeline);
         pass.set_bind_group(0, &self.groups[from as usize], &[offset]);
+        pass.set_bind_group(1, &self.no_lut, &[]);
         pass.draw(0..3, 0..1);
     }
 
     /// Composite `from` onto `target` (loaded, not cleared).
     pub fn composite(&self, encoder: &mut wgpu::CommandEncoder, from: Tex, target: &wgpu::TextureView, blend: BlendMode, offset: u32) {
-        self.composite_group(encoder, &self.groups[from as usize], target, blend, offset);
+        self.composite_group(encoder, &self.groups[from as usize], target, blend, offset, None);
+    }
+
+    /// Composite `from` graded through `lut` (the layer's color effect LUT).
+    pub fn composite_lut(&self, encoder: &mut wgpu::CommandEncoder, from: Tex, target: &wgpu::TextureView, blend: BlendMode, offset: u32, lut: &wgpu::BindGroup) {
+        self.composite_group(encoder, &self.groups[from as usize], target, blend, offset, Some(lut));
     }
 
     /// Composite whatever `group` reads onto `target`.
-    pub fn composite_group(&self, encoder: &mut wgpu::CommandEncoder, group: &wgpu::BindGroup, target: &wgpu::TextureView, blend: BlendMode, offset: u32) {
+    pub fn composite_group(&self, encoder: &mut wgpu::CommandEncoder, group: &wgpu::BindGroup, target: &wgpu::TextureView, blend: BlendMode, offset: u32, lut: Option<&wgpu::BindGroup>) {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("fx composite"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -347,6 +439,7 @@ impl FxPass {
         };
         pass.set_pipeline(&self.composite[index]);
         pass.set_bind_group(0, group, &[offset]);
+        pass.set_bind_group(1, lut.unwrap_or(&self.no_lut), &[]);
         pass.draw(0..3, 0..1);
     }
 }

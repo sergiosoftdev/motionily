@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
-import { FORMAT_SIZE, MediaKind, OpName, type VideoFormat } from "@motionily/protocol";
+import { FORMAT_SIZE, MediaKind, OpName, effectsWithGrade, type VideoFormat } from "@motionily/protocol";
+import { readGrade } from "./colorGrade";
 import { VIDEO_LAYER } from "../../engine/video";
 import { mediaUrl } from "../../api/client";
 import type { SfxCue } from "../../audio/sfxPlayer";
@@ -169,6 +170,15 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
     }
     const item = pool.items.find((m) => m.id === drop.id);
     if (!item) return;
+    if (item.kind === MediaKind.Lut) {
+      // A LUT grades a clip instead of going on the timeline: the selected one.
+      const c = selection?.kind === "clip" ? selection.clip : null;
+      if (!c) return logActivity(ActivitySource.System, `Select a clip to grade it with ${item.name}`);
+      const layer = engineHost.layer(c.id);
+      const { grade } = readGrade(layer);
+      edits.apply([{ op: OpName.Patch, id: c.id, fields: { effects: effectsWithGrade(layer?.effects as unknown[] | undefined, grade, { lut: { src: item.url, mix: 1 } }) } }], `LUT ${item.name} on ${c.id}`, false);
+      return;
+    }
     edits.apply(placeMediaOps(item, at, size, freshId(item.kind === MediaKind.Audio ? "snd" : "pic", taken), under), `Adds ${item.name} at ${at.toFixed(2)} s`, false);
   };
   const addAtPlayhead = (drop: PoolDrop) => addMedia(drop, useEditor.getState().time, null);
@@ -184,6 +194,7 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
     const fc = poolPick.source === "footage" ? footage.find((c) => c.id === poolPick.id) : undefined;
     const item = poolPick.source === "media" ? pool.items.find((m) => m.id === poolPick.id) : undefined;
     if (!fc && !item) return;
+    if (item?.kind === MediaKind.Lut) return addMedia(poolPick, useEditor.getState().time, null);
     const sound = item?.kind === MediaKind.Audio;
     if (mode === PoolEdit.Replace) {
       const c = selection?.kind === "clip" ? selection.clip : null;
@@ -316,7 +327,7 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
           running={ed.g.running}
           inspector={
             selection ? (
-              <Inspector selection={selection} ops={ops} edits={edits} songLength={project?.music?.duration ?? null} clipIds={tracks?.clips.map((c) => c.id) ?? []} onClose={deselect} />
+              <Inspector selection={selection} ops={ops} edits={edits} songLength={project?.music?.duration ?? null} clipIds={tracks?.clips.map((c) => c.id) ?? []} luts={pool.items.filter((m) => m.kind === MediaKind.Lut)} onClose={deselect} />
             ) : (
               <ProjectInspector ed={ed} scene={scene} edits={edits} onFormat={(f) => void changeFormat(f)} />
             )

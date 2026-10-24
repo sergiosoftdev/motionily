@@ -179,6 +179,8 @@ export async function exportVideo(opts: {
   fonts: FontFile[];
   stage: { models: { key: string; bytes: Uint8Array }[]; textures: { pack: string; rgba: Uint8Array; width: number; height: number }[] };
   images: { src: string; rgba: Uint8Array; width: number; height: number }[];
+  /** `.cube` LUTs the color effects use. */
+  luts: { src: string; text: string }[];
   audioUrl: string | null;
   /** Decoders of the scene's video layers (each frame is decoded exactly before it renders). */
   videos?: VideoLibrary;
@@ -206,6 +208,7 @@ export async function exportVideo(opts: {
     for (const m of opts.stage.models) engine.addModel(m.key, m.bytes);
     for (const t of opts.stage.textures) engine.addTexture(t.pack, t.rgba, t.width, t.height);
     for (const i of opts.images) engine.addImage(i.src, i.rgba, i.width, i.height);
+    for (const l of opts.luts) engine.addLut(l.src, l.text);
     engine.loadScene(opts.sceneJson);
     const frameCache = new Map<string, boolean>();
 

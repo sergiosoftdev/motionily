@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { MediaItem } from "@motionily/protocol";
 import { OpName } from "@motionily/protocol";
 import type { SfxCue } from "../../audio/sfxPlayer";
 import type { MusicTrack } from "../../audio/music";
@@ -16,7 +17,7 @@ const DEFAULT_SONG_RANGE = 180;
 const KIND_LABEL: Record<NonNullable<EditSelection>["kind"], string> = { clip: "Clip", block: "Motion graphics", cue: "Sound effect", music: "Music", many: "Selection" };
 
 /** Settings of what is selected in the timeline, as a card on top of the Claude panel (nothing when nothing is selected). */
-export function Inspector({ selection, ops, edits, songLength, clipIds, onClose }: { selection: EditSelection; ops: EditOps; edits: EditActions; songLength: number | null; clipIds: string[]; onClose: () => void }) {
+export function Inspector({ selection, ops, edits, songLength, clipIds, luts, onClose }: { selection: EditSelection; ops: EditOps; edits: EditActions; songLength: number | null; clipIds: string[]; luts: MediaItem[]; onClose: () => void }) {
   if (!selection) return null;
   return (
     <div className="flex flex-col gap-3 text-sm">
@@ -27,7 +28,7 @@ export function Inspector({ selection, ops, edits, songLength, clipIds, onClose 
         </button>
       </div>
       {selection.kind === "clip" ? (
-        <ClipInspector clip={selection.clip} ops={ops} edits={edits} clipIds={clipIds} />
+        <ClipInspector clip={selection.clip} ops={ops} edits={edits} clipIds={clipIds} luts={luts} />
       ) : selection.kind === "block" ? (
         <BlockInspector block={selection.block} ops={ops} />
       ) : selection.kind === "cue" ? (
@@ -126,7 +127,7 @@ function fadeKeys(level: number, len: number, fadeIn: number, fadeOut: number): 
   ];
 }
 
-function ClipInspector({ clip, ops, edits, clipIds }: { clip: EditClip; ops: EditOps; edits: EditActions; clipIds: string[] }) {
+function ClipInspector({ clip, ops, edits, clipIds, luts }: { clip: EditClip; ops: EditOps; edits: EditActions; clipIds: string[]; luts: MediaItem[] }) {
   const tabs = TABS_OF[clip.kind];
   const [tab, setTab] = useState<ClipTab>(tabs[0]!);
   useEffect(() => {
@@ -276,7 +277,7 @@ function ClipInspector({ clip, ops, edits, clipIds }: { clip: EditClip; ops: Edi
           </select>
         </label>
       )}
-      {tab === ClipTab.Color && <ColorSection clipId={clip.id} allClipIds={clipIds.filter((id) => id !== clip.id).concat(clip.id)} edits={edits} />}
+      {tab === ClipTab.Color && <ColorSection clipId={clip.id} allClipIds={clipIds.filter((id) => id !== clip.id).concat(clip.id)} edits={edits} luts={luts} />}
       <div className="flex gap-2">
         <button type="button" onClick={() => ops.split(clip)} className="flex-1 rounded-md bg-neutral-800 px-2 py-1.5 text-xs font-semibold hover:bg-neutral-700">
           Split at playhead

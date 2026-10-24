@@ -53,6 +53,8 @@ export type PostCopyDraft = { platform: string; caption: string; hashtags: strin
 export enum MediaKind {
   Audio = "audio",
   Image = "image",
+  /** A `.cube` color lookup table for the color effect's `lut`. */
+  Lut = "lut",
 }
 
 /** A sound or picture the user brought into the video's media pool. */

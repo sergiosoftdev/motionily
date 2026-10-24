@@ -13,6 +13,7 @@ export async function renderCurrentScene(o: { shortSide: number; range?: [number
     fonts: await engineHost.loadedFontFiles(),
     stage: await engineHost.stageAssets(),
     images: await engineHost.imageAssets(),
+    luts: await engineHost.lutAssets(),
     audioUrl: o.audioUrl,
     videos: engineHost.videoLibrary(),
     onProgress: o.onProgress,

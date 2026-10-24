@@ -228,6 +228,24 @@ impl Engine {
         self.renderer.add_image(key, rgba, width, height);
     }
 
+    /// Load a `.cube` LUT a color effect names by `src` (errors say what is wrong with the file).
+    #[wasm_bindgen(js_name = addLut)]
+    pub fn add_lut(&mut self, src: &str, cube: &str) -> Result<(), JsError> {
+        self.renderer.add_lut(src, cube).map_err(|e| JsError::new(&e))
+    }
+
+    /// LUTs the color effects use (loaded or not).
+    #[wasm_bindgen(js_name = lutSources)]
+    pub fn lut_sources(&self) -> Vec<String> {
+        self.scene.lut_sources()
+    }
+
+    /// LUTs the color effects use that are not loaded yet.
+    #[wasm_bindgen(js_name = missingLuts)]
+    pub fn missing_luts(&self) -> Vec<String> {
+        self.scene.lut_sources().into_iter().filter(|s| !self.renderer.has_lut(s)).collect()
+    }
+
     /// Image sources the layers use that are not loaded yet.
     #[wasm_bindgen(js_name = missingImages)]
     pub fn missing_images(&self) -> Vec<String> {
