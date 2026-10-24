@@ -96,3 +96,50 @@ pub fn default_path(movies: &Path, name: &str, codec: Codec) -> PathBuf {
     }
     path
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ffmpeg::Probe;
+
+    /// Bundled fonts the web editor ships (apps/web/public/fonts), enough for the example scenes.
+    fn fonts() -> Assets {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web/public/fonts");
+        let mut a = Assets::default();
+        for (family, weight, file) in [("Inter", 500, "Inter-500.ttf"), ("Inter", 700, "Inter-700.ttf"), ("Space Grotesk", 700, "SpaceGrotesk-700.ttf"), ("Plus Jakarta Sans", 700, "PlusJakartaSans-700.ttf")] {
+            if let Ok(bytes) = std::fs::read(dir.join(file)) {
+                a.add(crate::assets::AssetKind::Font, family, bytes, weight, 0);
+            }
+        }
+        a
+    }
+
+    /// One second of the demo scene through every codec, checked with ffprobe. Skips without ffmpeg.
+    #[test]
+    fn exports_every_codec() {
+        let tools = Tools::find(None);
+        if std::process::Command::new(&tools.ffmpeg).arg("-version").output().is_err() {
+            eprintln!("ffmpeg not found: skipped");
+            return;
+        }
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../examples/demo.scene.json");
+        let mut scene: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        scene["duration"] = 1.0.into();
+        let fps = scene["fps"].as_f64().unwrap_or(30.0);
+        let dir = std::env::temp_dir().join("motionily-export-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        for codec in [Codec::H264, Codec::Hevc, Codec::Prores] {
+            let out = dir.join(format!("demo.{}", codec.extension()));
+            let req = ExportRequest { scene_json: scene.to_string(), short_side: 720, codec, supersample: false, path: None, name: None };
+            let mut clips = Clips::new(tools.clone(), Box::new(|s: &str| s.to_string()));
+            let mut last = None;
+            let file = export(req, out, &fonts(), None, &tools, &mut clips, Arc::new(AtomicBool::new(false)), |p| last = Some(p)).unwrap();
+            let p: Probe = tools.probe(&file.display().to_string()).unwrap();
+            assert_eq!(p.width.min(p.height), 720, "{codec:?} size {}x{}", p.width, p.height);
+            assert!((p.duration - 1.0).abs() < 0.1, "{codec:?} lasts {}", p.duration);
+            let last = last.unwrap();
+            assert_eq!(last.frame, last.frames);
+            assert_eq!(last.frames as f64, fps);
+        }
+    }
+}

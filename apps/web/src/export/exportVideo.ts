@@ -98,6 +98,56 @@ async function renderAudio(url: string | null, track: AudioTrack, cues: SfxCue[]
   return ctx.startRendering();
 }
 
+/** Every effect cue at the user's master effects level. */
+function sfxCues(scene: SceneInfo) {
+  return (scene.sfx ?? []).map((c) => ({ ...c, gain: (c.gain ?? 1) * (scene.sfx_volume ?? DEFAULT_SFX_VOLUME) }));
+}
+
+/** Whether the video has any sound at all (voice, music, effects or clips with their own sound). */
+export function sceneHasAudio(sceneJson: string, audioUrl: string | null): boolean {
+  const scene = JSON.parse(sceneJson) as SceneInfo;
+  const hasClipSound = (scene.layers ?? []).some((l) => l.type === VIDEO_LAYER && hasSound(l.volume));
+  return !!audioUrl || !!scene.music || sfxCues(scene).length > 0 || hasClipSound;
+}
+
+/** The video's whole soundtrack mixed into one buffer, or null when it is silent. Shared by the browser and native exporters. */
+export async function mixAudio(sceneJson: string, audioUrl: string | null, clips: ClipSound[]): Promise<AudioBuffer | null> {
+  if (!sceneHasAudio(sceneJson, audioUrl)) return null;
+  const scene = JSON.parse(sceneJson) as SceneInfo;
+  const speech = speechSpans(scene.captions?.words ?? []);
+  return renderAudio(audioUrl, scene.audio ?? { start: 0, trim_in: 0, trim_out: null }, sfxCues(scene), scene.duration, clips, scene.music ?? null, speech);
+}
+
+/** 16-bit PCM WAV of a buffer (what ffmpeg muxes into native exports). */
+export function wavBytes(buf: AudioBuffer): Uint8Array {
+  const channels = buf.numberOfChannels;
+  const frames = buf.length;
+  const out = new DataView(new ArrayBuffer(44 + frames * channels * 2));
+  const text = (at: number, s: string) => [...s].forEach((c, i) => out.setUint8(at + i, c.charCodeAt(0)));
+  text(0, "RIFF");
+  out.setUint32(4, 36 + frames * channels * 2, true);
+  text(8, "WAVEfmt ");
+  out.setUint32(16, 16, true);
+  out.setUint16(20, 1, true);
+  out.setUint16(22, channels, true);
+  out.setUint32(24, buf.sampleRate, true);
+  out.setUint32(28, buf.sampleRate * channels * 2, true);
+  out.setUint16(32, channels * 2, true);
+  out.setUint16(34, 16, true);
+  text(36, "data");
+  out.setUint32(40, frames * channels * 2, true);
+  const data = Array.from({ length: channels }, (_, c) => buf.getChannelData(c));
+  let at = 44;
+  for (let i = 0; i < frames; i++) {
+    for (let c = 0; c < channels; c++) {
+      const v = Math.max(-1, Math.min(1, data[c]![i]!));
+      out.setInt16(at, v < 0 ? v * 0x8000 : v * 0x7fff, true);
+      at += 2;
+    }
+  }
+  return new Uint8Array(out.buffer);
+}
+
 /**
  * Render every frame deterministically with a dedicated engine at export size,
  * encode with WebCodecs (H.264/AAC in MP4, or VP9/Opus in WebM) and mux it.
@@ -124,9 +174,7 @@ export async function exportVideo(opts: {
   const mp4 = await canEncodeVideo("avc", { width, height });
   const videoCodec = mp4 ? "avc" : "vp9";
   const audioCodec = mp4 ? "aac" : "opus";
-  const cues = (scene.sfx ?? []).map((c) => ({ ...c, gain: (c.gain ?? 1) * (scene.sfx_volume ?? DEFAULT_SFX_VOLUME) }));
-  const hasClipSound = (scene.layers ?? []).some((l) => l.type === VIDEO_LAYER && hasSound(l.volume));
-  const withAudio = (!!opts.audioUrl || !!scene.music || cues.length > 0 || hasClipSound) && (await canEncodeAudio(audioCodec));
+  const withAudio = sceneHasAudio(opts.sceneJson, opts.audioUrl) && (await canEncodeAudio(audioCodec));
 
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -160,11 +208,7 @@ export async function exportVideo(opts: {
       await video.add(t, 1 / scene.fps);
       opts.onProgress((i + 1) / (frames + (audio ? frames * 0.1 : 0)));
     }
-    if (audio) {
-      const clips = clipSounds(engine, scene.fps, scene.duration);
-      const speech = speechSpans(scene.captions?.words ?? []);
-      await audio.add(await renderAudio(opts.audioUrl, scene.audio ?? { start: 0, trim_in: 0, trim_out: null }, cues, scene.duration, clips, scene.music ?? null, speech));
-    }
+    if (audio) await audio.add((await mixAudio(opts.sceneJson, opts.audioUrl, clipSounds(engine, scene.fps, scene.duration)))!);
     await output.finalize();
     opts.onProgress(1);
     const buffer = output.target.buffer!;

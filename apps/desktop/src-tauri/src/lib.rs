@@ -75,6 +75,20 @@ fn engine_missing_assets(native: tauri::State<'_, Native>, kind: String, keys: V
     Ok(keys.into_iter().filter(|k| !a.has(kind, k)).collect())
 }
 
+/// The voice-over's mono samples (f32, `x-rate` Hz) for audio-reactive expressions; empty clears them.
+#[tauri::command]
+fn engine_audio_analysis(request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let body = raw_body(&request)?;
+    let rate = header(&request, "x-rate").and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.0);
+    if body.len() < 4 || rate <= 0.0 {
+        scene::reactive::set_analysis(None);
+        return Ok(());
+    }
+    let samples: Vec<f32> = body.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect();
+    scene::reactive::set_analysis(Some(scene::reactive::analyze(&samples, rate)));
+    Ok(())
+}
+
 /// The export's audio mix (a WAV the editor rendered), or an empty body for a silent video.
 #[tauri::command]
 fn export_audio(native: tauri::State<'_, Native>, request: tauri::ipc::Request<'_>) -> Result<(), String> {
@@ -195,7 +209,7 @@ pub fn run() {
             app.manage(Runtime(Mutex::new(api.ok())));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![engine_add_asset, engine_missing_assets, export_audio, export_video, export_cancel, reveal])
+        .invoke_handler(tauri::generate_handler![engine_add_asset, engine_missing_assets, engine_audio_analysis, export_audio, export_video, export_cancel, reveal])
         .build(tauri::generate_context!())
         .expect("error while building Motionily");
     app.run(|handle, event| {

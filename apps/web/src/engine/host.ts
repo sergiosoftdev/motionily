@@ -6,7 +6,7 @@ import { DEFAULT_FONT_FAMILY, fontFilesFor, text3dFonts } from "./fonts";
 import { decodeBytes, decodePng, modelFileUrl, modelUrl, packOf, packTextureUrl, type Pixels } from "./models";
 import { mediaUrl } from "../api/client";
 import { EngineStatus, useEditor } from "../store";
-import { ClipSounds, VIDEO_LAYER, VideoLibrary, VideoStatus, type ClipState, type FrameCache } from "./video";
+import { ClipSounds, VIDEO_LAYER, VideoLibrary, VideoStatus, clipSounds, type ClipSound, type ClipState, type FrameCache } from "./video";
 import { decodeMono, type AudioAnalysisInfo } from "./audioReactive";
 import { audioFileAt, type AudioTrack } from "../audio/track";
 
@@ -460,6 +460,12 @@ class EngineHost {
   /** Video decoders, for export engines. */
   videoLibrary(): VideoLibrary {
     return this.videos;
+  }
+
+  /** What the video clips play and how loud, over the whole video (the native exporter mixes it in). */
+  clipSounds(): ClipSound[] {
+    const scene = JSON.parse(this.sceneJson()) as { fps: number; duration: number };
+    return this.engine ? clipSounds(this.engine, scene.fps, scene.duration) : [];
   }
 
   /** Scene `work_area` `[in, out]` (null = the whole video): playback loops inside it. */

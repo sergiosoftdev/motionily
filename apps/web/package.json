@@ -12,6 +12,7 @@
   "dependencies": {
     "@huggingface/transformers": "4.3.1",
     "@motionily/protocol": "workspace:*",
+    "@tauri-apps/api": "2.12.4",
     "mediabunny": "1.61.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
