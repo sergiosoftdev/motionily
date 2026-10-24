@@ -3,14 +3,14 @@ import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
-import { MongoMemoryServer } from "mongodb-memory-server";
+import { testDatabase } from "./db";
 import request from "supertest";
 import { AppModule } from "../src/app.module";
 import { configureApp } from "../src/setup";
 import { BrickSlot } from "../src/bricks/brick.enums";
 import { CATALOG } from "../src/bricks/seed/catalog";
 
-let mongo: MongoMemoryServer;
+let db: Awaited<ReturnType<typeof testDatabase>>;
 let app: INestApplication;
 let http: ReturnType<typeof request>;
 
@@ -20,8 +20,7 @@ async function login(email: string) {
 }
 
 before(async () => {
-  mongo = await MongoMemoryServer.create();
-  process.env.MONGO_URI = mongo.getUri("motionily-test");
+  db = await testDatabase("motionily-test");
   process.env.JWT_SECRET = "test-secret";
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
   app = moduleRef.createNestApplication();
@@ -32,7 +31,7 @@ before(async () => {
 
 after(async () => {
   await app?.close();
-  await mongo?.stop();
+  await db?.stop();
 });
 
 describe("auth (simulated Google)", () => {

@@ -3,7 +3,7 @@ import { after, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
-import { MongoMemoryServer } from "mongodb-memory-server";
+import { testDatabase } from "./db";
 import request from "supertest";
 import { AppModule } from "../src/app.module";
 import { configureApp } from "../src/setup";
@@ -11,13 +11,12 @@ import { configureApp } from "../src/setup";
 /** Not a real video: ffmpeg cannot read it, so the clip has no length or contact sheet (the editor still gets it). */
 const CLIP = Buffer.from("not really an mp4");
 
-let mongo: MongoMemoryServer;
+let db: Awaited<ReturnType<typeof testDatabase>>;
 let app: INestApplication;
 let http: ReturnType<typeof request>;
 
 before(async () => {
-  mongo = await MongoMemoryServer.create();
-  process.env.MONGO_URI = mongo.getUri("motionily-footage-test");
+  db = await testDatabase("motionily-footage-test");
   process.env.JWT_SECRET = "test-secret";
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
   app = moduleRef.createNestApplication();
@@ -28,7 +27,7 @@ before(async () => {
 
 after(async () => {
   await app?.close();
-  await mongo?.stop();
+  await db?.stop();
 });
 
 async function login(email: string) {

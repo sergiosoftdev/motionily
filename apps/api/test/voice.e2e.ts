@@ -5,7 +5,7 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { Test } from "@nestjs/testing";
 import type { INestApplication } from "@nestjs/common";
-import { MongoMemoryServer } from "mongodb-memory-server";
+import { testDatabase } from "./db";
 import request from "supertest";
 import { AppModule } from "../src/app.module";
 import { configureApp } from "../src/setup";
@@ -32,7 +32,7 @@ function alignmentOf(text: string) {
 let fake: Server;
 const spoken: { text: string; model_id: string }[] = [];
 
-let mongo: MongoMemoryServer;
+let db: Awaited<ReturnType<typeof testDatabase>>;
 let app: INestApplication;
 let http: ReturnType<typeof request>;
 
@@ -62,8 +62,7 @@ before(async () => {
   await new Promise<void>((resolve) => fake.listen(0, "127.0.0.1", resolve));
   process.env.ELEVENLABS_API_URL = `http://127.0.0.1:${(fake.address() as AddressInfo).port}`;
 
-  mongo = await MongoMemoryServer.create();
-  process.env.MONGO_URI = mongo.getUri("motionily-voice-test");
+  db = await testDatabase("motionily-voice-test");
   process.env.JWT_SECRET = "test-secret";
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
   app = moduleRef.createNestApplication();
@@ -74,7 +73,7 @@ before(async () => {
 
 after(async () => {
   await app?.close();
-  await mongo?.stop();
+  await db?.stop();
   fake?.close();
 });
 

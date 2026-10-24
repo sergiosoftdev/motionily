@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from "@nestjs/config";
 import { APP_GUARD } from "@nestjs/core";
 import { JwtModule } from "@nestjs/jwt";
 import { MongooseModule } from "@nestjs/mongoose";
+import { isSqliteUri, useSqliteDriver } from "./common/sqlite-driver";
 import { AuthController } from "./auth/auth.controller";
 import { JwtAuthGuard } from "./auth/auth";
 import { User, UserSchema } from "./users/user.schema";
@@ -41,7 +42,12 @@ import { SunoService } from "./music/suno";
     ConfigModule.forRoot({ isGlobal: true }),
     MongooseModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (c: ConfigService) => ({ uri: c.get("MONGO_URI", "mongodb://127.0.0.1:27017/motionily") }),
+      // MongoDB, or one SQLite file (`sqlite:/path/motionily.db`) for the desktop app and zero-setup installs.
+      useFactory: (c: ConfigService) => {
+        const uri = c.get<string>("DATABASE_URL") ?? c.get("MONGO_URI", "mongodb://127.0.0.1:27017/motionily");
+        if (isSqliteUri(uri)) useSqliteDriver();
+        return { uri };
+      },
     }),
     MongooseModule.forFeature([
       { name: User.name, schema: UserSchema },

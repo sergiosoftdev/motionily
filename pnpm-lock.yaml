@@ -34,6 +34,9 @@ importers:
       class-validator:
         specifier: ^0.15.1
         version: 0.15.1
+      mingo:
+        specifier: ^7.2.5
+        version: 7.2.5
       mongoose:
         specifier: ^9.11.2
         version: 9.11.2
@@ -1788,6 +1791,9 @@ packages:
     resolution: {integrity: sha512-USPkMeET31rOMiarsBNIHZKLGgvKc/LrjofAnBlOttf5ajRvqiRA8QsenbcooctK6d6Ts6aqZXBA+XbkKthiQg==}
     engines: {node: '>=4.0.0'}
     hasBin: true
+
+  mingo@7.2.5:
+    resolution: {integrity: sha512-lZR31XnwGQuDHebGyLTlW095BI19qfaYE/IAcVkmBDRyn7DnEwYLQFMfnwFVr+bmc+42a3elhOB2ZBL73i782A==}
 
   mongodb-connection-string-url@7.0.2:
     resolution: {integrity: sha512-ZoS07RoFqpKYQwAk59qmrx8+jJHNHU30UjlU96QktiGn1ltvDr+vCznLX5DiUBLEpMAHatHNWV1nM/74ul66kA==}
@@ -3667,6 +3673,8 @@ snapshots:
       mime-db: 1.54.0
 
   mime@2.6.0: {}
+
+  mingo@7.2.5: {}
 
   mongodb-connection-string-url@7.0.2:
     dependencies:
