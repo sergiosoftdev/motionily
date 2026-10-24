@@ -209,7 +209,7 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
           ed={ed}
           hasScene={hasScene}
           hasFootage={!!tracks?.clips.length}
-          selection={selection && <Inspector selection={selection} ops={ops} edits={edits} songLength={project?.music?.duration ?? null} onClose={deselect} />}
+          selection={selection && <Inspector selection={selection} ops={ops} edits={edits} songLength={project?.music?.duration ?? null} clipIds={tracks?.clips.map((c) => c.id) ?? []} onClose={deselect} />}
         />
       </div>
 

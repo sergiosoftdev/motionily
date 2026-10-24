@@ -7,6 +7,7 @@ import type { EditClip, GraphicsBlock } from "./tracks";
 import type { EditActions } from "./useEditActions";
 import type { EditOps } from "./useEditOps";
 import { useAgentName } from "../../agentName";
+import { ColorSection } from "./ColorSection";
 
 /** Range of the song-start slider when the song's length is unknown (s). */
 const DEFAULT_SONG_RANGE = 180;
@@ -14,7 +15,7 @@ const DEFAULT_SONG_RANGE = 180;
 const KIND_LABEL: Record<NonNullable<EditSelection>["kind"], string> = { clip: "Clip", block: "Motion graphics", cue: "Sound effect", music: "Music", many: "Selection" };
 
 /** Settings of what is selected in the timeline, as a card on top of the Claude panel (nothing when nothing is selected). */
-export function Inspector({ selection, ops, edits, songLength, onClose }: { selection: EditSelection; ops: EditOps; edits: EditActions; songLength: number | null; onClose: () => void }) {
+export function Inspector({ selection, ops, edits, songLength, clipIds, onClose }: { selection: EditSelection; ops: EditOps; edits: EditActions; songLength: number | null; clipIds: string[]; onClose: () => void }) {
   if (!selection) return null;
   return (
     <div className="flex flex-col gap-3 text-sm">
@@ -25,7 +26,7 @@ export function Inspector({ selection, ops, edits, songLength, onClose }: { sele
         </button>
       </div>
       {selection.kind === "clip" ? (
-        <ClipInspector clip={selection.clip} ops={ops} edits={edits} />
+        <ClipInspector clip={selection.clip} ops={ops} edits={edits} clipIds={clipIds} />
       ) : selection.kind === "block" ? (
         <BlockInspector block={selection.block} ops={ops} />
       ) : selection.kind === "cue" ? (
@@ -50,7 +51,7 @@ function Slider({ label, value, min, max, step, format, onChange, onDone }: { la
   );
 }
 
-function ClipInspector({ clip, ops, edits }: { clip: EditClip; ops: EditOps; edits: EditActions }) {
+function ClipInspector({ clip, ops, edits, clipIds }: { clip: EditClip; ops: EditOps; edits: EditActions; clipIds: string[] }) {
   const live = (o: Parameters<EditActions["preview"]>[0]) => edits.preview(o);
   const started = useRef(false);
   const change = (o: Parameters<EditActions["preview"]>[0]) => {
@@ -117,6 +118,7 @@ function ClipInspector({ clip, ops, edits }: { clip: EditClip; ops: EditOps; edi
           Delete
         </button>
       </div>
+      <ColorSection clipId={clip.id} allClipIds={clipIds} edits={edits} />
     </div>
   );
 }
