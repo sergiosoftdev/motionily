@@ -52,6 +52,48 @@ function Slider({ label, value, min, max, step, format, onChange, onDone }: { la
   );
 }
 
+/**
+ * Position, rotation and opacity of a clip or picture (picture in picture, overlays). Animated values
+ * are left alone: they live on the keyframes, which Pro mode edits.
+ */
+function TransformControls({ clipId, change, done }: { clipId: string; change: (o: Parameters<EditActions["preview"]>[0]) => void; done: (what: string) => void }) {
+  const layer = engineHost.layer(clipId) ?? {};
+  const [w, h] = engineHost.sceneSize();
+  const n = (k: string, d: number) => (typeof layer[k] === "number" ? (layer[k] as number) : layer[k] === undefined ? d : null);
+  const x = n("x", w / 2);
+  const y = n("y", h / 2);
+  const rotation = n("rotation", 0);
+  const opacity = n("opacity", 1);
+  const prop = (p: string, v: number) => change([{ op: OpName.SetProp, id: clipId, prop: p, value: Math.round(v * 100) / 100 }]);
+  return (
+    <div className="flex flex-col gap-3">
+      <span className="flex items-center justify-between text-[11px] text-neutral-500">
+        Transform
+        {(x !== w / 2 || y !== h / 2) && x !== null && y !== null && (
+          <button
+            type="button"
+            onClick={() => {
+              change([
+                { op: OpName.SetProp, id: clipId, prop: "x", value: w / 2 },
+                { op: OpName.SetProp, id: clipId, prop: "y", value: h / 2 },
+              ]);
+              done(`Centers ${clipId}`);
+            }}
+            className="text-neutral-400 hover:text-white"
+          >
+            Center
+          </button>
+        )}
+      </span>
+      {x !== null && <Slider label="Position X" value={x} min={-w / 2} max={w * 1.5} step={1} format={(v) => `${Math.round(v)} px`} onChange={(v) => prop("x", v)} onDone={() => done(`Position of ${clipId}`)} />}
+      {y !== null && <Slider label="Position Y" value={y} min={-h / 2} max={h * 1.5} step={1} format={(v) => `${Math.round(v)} px`} onChange={(v) => prop("y", v)} onDone={() => done(`Position of ${clipId}`)} />}
+      {rotation !== null && <Slider label="Rotation" value={rotation} min={-180} max={180} step={0.5} format={(v) => `${v.toFixed(1)}°`} onChange={(v) => prop("rotation", v)} onDone={() => done(`Rotation of ${clipId}`)} />}
+      {opacity !== null && <Slider label="Opacity" value={opacity} min={0} max={1} step={0.01} format={(v) => `${Math.round(v * 100)}%`} onChange={(v) => prop("opacity", v)} onDone={() => done(`Opacity of ${clipId}`)} />}
+      {[x, y, rotation, opacity].includes(null) && <p className="text-[11px] text-neutral-500">Animated values are keyframed: edit them in Pro mode.</p>}
+    </div>
+  );
+}
+
 /** Sections of a clip's inspector, like CapCut's: what it shows, what it sounds like, its color. */
 const ClipTab = { Video: "video", Audio: "audio", Color: "color" } as const;
 type ClipTab = (typeof ClipTab)[keyof typeof ClipTab];
@@ -131,6 +173,7 @@ function ClipInspector({ clip, ops, edits, clipIds }: { clip: EditClip; ops: Edi
       {tab === ClipTab.Video && (
         <>
           <Slider label="Zoom" value={clip.scale} min={1} max={1.6} step={0.01} format={(v) => `${Math.round(v * 100)}%`} onChange={(v) => change([{ op: OpName.SetProp, id: clip.id, prop: "scale", value: v }])} onDone={() => done(`Zoom of ${clip.id}`)} />
+          <TransformControls clipId={clip.id} change={change} done={done} />
           {still && (
             <Slider
               label="Duration"
