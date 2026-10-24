@@ -29,6 +29,7 @@ type SceneInfo = {
   layers?: { type: string; volume?: unknown }[];
   music?: MusicTrack | null;
   captions?: { words?: { start: number; end: number }[] } | null;
+  mix?: { master_db?: number } | null;
 };
 
 export type ExportResult = { blob: Blob; extension: "mp4" | "webm" };
@@ -42,10 +43,14 @@ const ENVELOPE_STEP = 0.02;
  * Mix the voice-over (with its trim and offset), the music (ducked under speech), every sound effect
  * and the video clips' own sound into one buffer the length of the video.
  */
-async function renderAudio(url: string | null, track: AudioTrack, cues: SfxCue[], duration: number, clips: ClipSound[], music: MusicTrack | null, speech: SpeechSpan[]): Promise<AudioBuffer> {
+async function renderAudio(url: string | null, track: AudioTrack, cues: SfxCue[], duration: number, clips: ClipSound[], music: MusicTrack | null, speech: SpeechSpan[], master: number): Promise<AudioBuffer> {
   const decodeCtx = new AudioContext();
   const decode = async (u: string) => decodeCtx.decodeAudioData(await (await fetch(u)).arrayBuffer());
   const ctx = new OfflineAudioContext(2, Math.ceil(duration * AUDIO_RATE), AUDIO_RATE);
+  // The mix bus: everything below plays into it, at the scene's master level.
+  const bus = ctx.createGain();
+  bus.gain.value = master;
+  bus.connect(ctx.destination);
   if (url) {
     const file = await decode(url);
     // No caption words to duck under: the voice file says where the speech is.
@@ -54,7 +59,7 @@ async function renderAudio(url: string | null, track: AudioTrack, cues: SfxCue[]
     for (const p of audioPieces(track, file.duration)) {
       const src = ctx.createBufferSource();
       src.buffer = file;
-      src.connect(ctx.destination);
+      src.connect(bus);
       src.start(p.at, p.from, p.to - p.from);
     }
   }
@@ -69,7 +74,7 @@ async function renderAudio(url: string | null, track: AudioTrack, cues: SfxCue[]
       if (music.envelope?.length) for (let t = music.start; t < duration; t += ENVELOPE_STEP) times.push(t);
       g.gain.setValueAtTime(musicLevel(music, speech, 0), 0);
       for (const t of times.filter((x) => x > 0 && x < duration).sort((a, b) => a - b)) g.gain.linearRampToValueAtTime(musicLevel(music, speech, t), t);
-      src.connect(g).connect(ctx.destination);
+      src.connect(g).connect(bus);
       const end = music.trim_out ?? file.duration;
       src.start(music.start, music.trim_in, Math.max(0, end - music.trim_in));
     }
@@ -78,7 +83,7 @@ async function renderAudio(url: string | null, track: AudioTrack, cues: SfxCue[]
   for (const cue of cues) {
     if (!buffers.has(cue.src)) buffers.set(cue.src, await decode(mediaUrl(cue.src)).catch(() => null));
     const buf = buffers.get(cue.src);
-    if (buf && cue.at < duration) playCue(ctx, buf, cue, cue.at);
+    if (buf && cue.at < duration) playCue(ctx, buf, cue, cue.at, 0, bus);
   }
   for (const clip of clips) {
     if (!buffers.has(clip.src)) buffers.set(clip.src, await decode(mediaUrl(clip.src)).catch(() => null));
@@ -90,7 +95,7 @@ async function renderAudio(url: string | null, track: AudioTrack, cues: SfxCue[]
     const g = ctx.createGain();
     g.gain.setValueAtTime(clip.volume, clip.at);
     for (const [t, v] of clip.levels) g.gain.linearRampToValueAtTime(v, t);
-    src.connect(g).connect(ctx.destination);
+    src.connect(g).connect(bus);
     // `seconds` of video play `seconds × rate` of the file.
     src.start(clip.at, clip.offset, clip.seconds * clip.rate);
   }
@@ -110,12 +115,16 @@ export function sceneHasAudio(sceneJson: string, audioUrl: string | null): boole
   return !!audioUrl || !!scene.music || sfxCues(scene).length > 0 || hasClipSound;
 }
 
-/** The video's whole soundtrack mixed into one buffer, or null when it is silent. Shared by the browser and native exporters. */
-export async function mixAudio(sceneJson: string, audioUrl: string | null, clips: ClipSound[]): Promise<AudioBuffer | null> {
+/**
+ * The video's whole soundtrack mixed into one buffer, or null when it is silent. Shared by the browser and
+ * native exporters; `master: false` leaves the master level out (what loudness normalization measures).
+ */
+export async function mixAudio(sceneJson: string, audioUrl: string | null, clips: ClipSound[], o: { master?: boolean } = {}): Promise<AudioBuffer | null> {
   if (!sceneHasAudio(sceneJson, audioUrl)) return null;
   const scene = JSON.parse(sceneJson) as SceneInfo;
   const speech = speechSpans(scene.captions?.words ?? []);
-  return renderAudio(audioUrl, scene.audio ?? { start: 0, trim_in: 0, trim_out: null }, sfxCues(scene), scene.duration, clips, scene.music ?? null, speech);
+  const master = o.master === false ? 1 : 10 ** ((scene.mix?.master_db ?? 0) / 20);
+  return renderAudio(audioUrl, scene.audio ?? { start: 0, trim_in: 0, trim_out: null }, sfxCues(scene), scene.duration, clips, scene.music ?? null, speech, master);
 }
 
 /** The `[in, out]` seconds of a mix (export of a range). */

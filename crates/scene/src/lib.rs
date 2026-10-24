@@ -8,6 +8,7 @@
 mod anim;
 pub mod expr;
 pub mod output;
+pub mod mix;
 pub mod tracks;
 pub mod trim;
 pub mod glyphs;
@@ -121,6 +122,9 @@ pub struct Scene {
     /// How the video is exported (resolution, codec, range). `None` = 1080 H.264, the whole video.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<output::Output>,
+    /// The mix bus (master level set by loudness normalization). `None` = 0 dB.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mix: Option<mix::Mix>,
     /// Editing tracks (V1…, A1…) layers join with `track`: hide, mute, solo (see [`tracks`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tracks: Vec<tracks::Track>,
@@ -207,6 +211,7 @@ impl Default for Scene {
             markers: Vec::new(),
             work_area: None,
             output: None,
+            mix: None,
             tracks: Vec::new(),
         }
     }

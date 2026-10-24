@@ -91,6 +91,8 @@ export const ServerMessageType = {
   Export: "export",
   /** Color scopes as numbers (luma percentiles, channel balance, saturation, cast) at some instants. */
   Scopes: "scopes",
+  /** Loudness of the mix as it exports, measured at a master level of 0 dB. */
+  Loudness: "loudness",
 } as const;
 export type ServerMessageType = (typeof ServerMessageType)[keyof typeof ServerMessageType];
 
@@ -105,7 +107,43 @@ export type ServerMessage =
   | { type: typeof ServerMessageType.Review; requestId: string; projectId: string; frames: number }
   | { type: typeof ServerMessageType.Layout; requestId: string; projectId: string; times: number[] }
   | { type: typeof ServerMessageType.Export; requestId: string; projectId: string; output?: Partial<Output> }
-  | { type: typeof ServerMessageType.Scopes; requestId: string; projectId: string; times?: number[] };
+  | { type: typeof ServerMessageType.Scopes; requestId: string; projectId: string; times?: number[] }
+  | { type: typeof ServerMessageType.Loudness; requestId: string; projectId: string };
+
+/** The mix bus (`set_mix`): master level in dB, and the loudness it was normalized to. */
+export type Mix = { master_db: number; target_lufs?: number };
+export const MASTER_DB_RANGE = [-60, 24] as const;
+
+/** Integrated loudness (ITU-R BS.1770-4, LUFS; −Infinity = silence) and sample peak (dBFS) of a mix. */
+export type Loudness = { lufs: number; peakDb: number };
+
+/** Loudness targets the editor offers (and agents may name). */
+export const LOUDNESS_TARGETS = [
+  { lufs: -14, label: "−14 LUFS · Reels, TikTok, YouTube" },
+  { lufs: -16, label: "−16 LUFS · Podcasts, Apple" },
+  { lufs: -23, label: "−23 LUFS · Broadcast (EBU R128)" },
+] as const;
+export const DEFAULT_TARGET_LUFS = -14;
+/** Highest sample level a normalized mix may reach, dBFS. */
+export const PEAK_CEILING_DB = -1;
+
+export type Normalization = Loudness & {
+  /** Master level (dB) that reaches the target, held under the peak ceiling. */
+  masterDb: number;
+  /** Loudness once the master level is applied. */
+  lufsAfter: number;
+  /** The peak ceiling kept the mix under the target (it would need a limiter to get there). */
+  peakLimited: boolean;
+};
+
+/** The master level that brings a mix measured at 0 dB to `target` LUFS without passing the peak ceiling. */
+export function normalization(m: Loudness, target: number, ceiling = PEAK_CEILING_DB): Normalization {
+  if (!Number.isFinite(m.lufs)) return { ...m, masterDb: 0, lufsAfter: m.lufs, peakLimited: false };
+  const want = target - m.lufs;
+  const room = ceiling - m.peakDb;
+  const masterDb = Math.round(Math.max(MASTER_DB_RANGE[0], Math.min(want, room, MASTER_DB_RANGE[1])) * 100) / 100;
+  return { ...m, masterDb, lufsAfter: m.lufs + masterDb, peakLimited: room < want };
+}
 
 type Rgb3 = [number, number, number];
 /**
@@ -199,6 +237,7 @@ export type EditorMessage =
       review?: ReviewReport;
       layouts?: FrameLayout[];
       scopes?: ScopeStats[];
+      loudness?: Loudness | null;
       /** export: where the file was written (desktop app) or its /media URL (browser editor). */
       file?: string;
       url?: string;
@@ -261,6 +300,7 @@ export const OpName = {
   // delivery
   /** Export settings: `{output: Output | null}` (resolution, codec, range). */
   SetOutput: "set_output",
+  SetMix: "set_mix",
   /** Frame rate of the whole video: `{fps}` (1..120). */
   SetFps: "set_fps",
   /** Editing tracks: `{tracks: Track[]}` (replaces them all). Layers join one with their `track` field. */

@@ -130,6 +130,8 @@ pub enum Op {
     SetWorkArea { work_area: Option<[f32; 2]> },
     /// Export settings: `{"op":"set_output","output":{"short_side":2160,"codec":"prores","range":[2,8]}}` (`null` = defaults).
     SetOutput { output: Option<crate::output::Output> },
+    /// Master level of the mix: `{"op":"set_mix","mix":{"master_db":3.5,"target_lufs":-14}}` (`null` = 0 dB).
+    SetMix { mix: Option<crate::mix::Mix> },
     /// Frame rate of the whole video (1..=120): `{"op":"set_fps","fps":24}`.
     SetFps { fps: f32 },
     /// Replace the editing tracks: `{"op":"set_tracks","tracks":[{"id":"V1","kind":"video"},{"id":"A1","kind":"audio","muted":true}]}`.
@@ -588,6 +590,12 @@ impl Scene {
                     o.check(self.duration).map_err(OpError::Invalid)?;
                 }
                 self.output = output.clone();
+            }
+            Op::SetMix { mix } => {
+                if let Some(m) = mix {
+                    m.check().map_err(OpError::Invalid)?;
+                }
+                self.mix = mix.clone();
             }
             Op::RippleTrim { id, edge, to } => self.ripple_trim(id, *edge, *to)?,
             Op::RollEdit { id, to } => self.roll_edit(id, *to)?,

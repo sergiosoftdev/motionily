@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Output, Track, WorkArea } from "@motionily/protocol";
+import type { Output, Mix, Track, WorkArea } from "@motionily/protocol";
 import type { SfxCue } from "../audio/sfxPlayer";
 import type { MusicTrack } from "../audio/music";
 import { engineHost } from "../engine/host";
@@ -35,6 +35,7 @@ export type SceneView = {
   sfx?: SfxCue[];
   sfx_volume?: number;
   output?: Partial<Output> | null;
+  mix?: Mix | null;
   tracks?: Track[];
   work_area?: WorkArea;
   markers?: { t: number; label: string; color?: string }[];

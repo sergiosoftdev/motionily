@@ -8,6 +8,7 @@
  *   the closest decoded frame now and refines to the exact one in the background.
  */
 import { ALL_FORMATS, Input, UrlSource, VideoSampleSink, type VideoSample } from "mediabunny";
+import { audioBus } from "../audio/bus";
 import { setMediaDuration, type Engine } from "./pkg/engine_wasm.js";
 
 /** A frame is the one shown at t when its timestamp ≤ t + this (frame times are not exact floats). */
@@ -271,11 +272,11 @@ export class ClipSounds {
       let el = this.els.get(c.id);
       if (!el || !el.src.endsWith(c.src)) {
         el?.pause();
-        el = new Audio(this.url(c.src));
+        el = audioBus.element(this.url(c.src));
         el.preservesPitch = false;
         this.els.set(c.id, el);
       }
-      el.volume = Math.min(1, c.volume);
+      audioBus.gain(el, c.volume);
       const frozen = c.rate < MIN_RATE;
       if (!frozen) el.playbackRate = Math.min(MAX_RATE, c.rate);
       if (Math.abs(el.currentTime - c.time) > SOUND_DRIFT) el.currentTime = c.time;

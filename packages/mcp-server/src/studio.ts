@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { GRADE_NEUTRAL, LOOKS, OpName, type ScopeStats, OutputCodec, OUTPUT_SHORT_SIDES, effectsWithGrade, type FootageClip, type Grade, type MediaItem, type Op, type Project } from "@motionily/protocol";
+import { DEFAULT_TARGET_LUFS, GRADE_NEUTRAL, LOOKS, OpName, PEAK_CEILING_DB, normalization, type ScopeStats, OutputCodec, OUTPUT_SHORT_SIDES, effectsWithGrade, type FootageClip, type Grade, type MediaItem, type Op, type Project } from "@motionily/protocol";
 import type { ProjectApi } from "./api.js";
 import type { EditorBridge } from "./bridge.js";
 
@@ -188,6 +188,29 @@ export function registerStudioTools(server: Server, d: StudioDeps) {
       const res = await d.bridge().scopes(times);
       if (!res.ok) throw new Error(res.error ?? "the editor did not measure the frames");
       return d.text(scopeLines(res.scopes ?? []));
+    }),
+  );
+
+  server.registerTool(
+    "normalize_loudness",
+    {
+      description: `Measure the whole mix as it exports (voice, music, effects, clips; ITU-R BS.1770 integrated loudness and sample peak, master at 0 dB) and set the master level (set_mix) so it lands on \`target_lufs\` (default ${DEFAULT_TARGET_LUFS}: Reels, TikTok, YouTube; -16 podcasts; -23 broadcast) with peaks under ${PEAK_CEILING_DB} dBFS. \`apply=false\` only measures. Run it last, after the sound is final.`,
+      inputSchema: { target_lufs: z.number().min(-40).max(-5).optional(), apply: z.boolean().optional() },
+    },
+    d.guard(async ({ target_lufs, apply }: { target_lufs?: number; apply?: boolean }) => {
+      const bridge = d.bridge();
+      const res = await bridge.loudness();
+      if (!res.ok) throw new Error(res.error ?? "the editor did not measure the mix");
+      if (!res.loudness) return d.text("The mix is silent: nothing to normalize.");
+      const target = target_lufs ?? DEFAULT_TARGET_LUFS;
+      const n = normalization(res.loudness, target);
+      const measured = `Mix at 0 dB: ${n.lufs.toFixed(1)} LUFS, peak ${n.peakDb.toFixed(1)} dBFS.`;
+      if (apply === false) return d.text(`${measured} Reaching ${target} LUFS needs a master of ${n.masterDb} dB${n.peakLimited ? " (held by the peak ceiling)" : ""}.`);
+      const done = await bridge.applyOps([{ op: OpName.SetMix, mix: { master_db: n.masterDb, target_lufs: target } }]);
+      if (!done.ok) throw new Error(done.error ?? "the master level did not apply");
+      return d.text(
+        `${measured} Master set to ${n.masterDb} dB: the export plays at ${n.lufsAfter.toFixed(1)} LUFS${n.peakLimited ? `; peaks held it under ${target} LUFS (lower the loudest parts, e.g. music or an effect, then run it again)` : ""}.`,
+      );
     }),
   );
 

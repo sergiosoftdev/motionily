@@ -1,4 +1,8 @@
 import init, { Engine, analyzeAudio, captionStyles, checkSceneShaders, clearAudioAnalysis, stylePalettes, stylePresets } from "./pkg/engine_wasm.js";
+import type { Loudness, Mix } from "@motionily/protocol";
+import { audioBus } from "../audio/bus";
+import { measureLoudness } from "../audio/loudness";
+import { mixAudio } from "../export/exportVideo";
 import { MusicPlayer, speechInFile, speechSpans, voiceOnTimeline, type MusicTrack, type SpeechSpan } from "../audio/music";
 import { sfxPlayer, type SfxCue } from "../audio/sfxPlayer";
 import { DEFAULT_SFX_VOLUME, type CaptionStyle, type FrameLayout, type Marker, type Op, type ReviewReport, type StylePreset, type WorkArea } from "@motionily/protocol";
@@ -80,6 +84,7 @@ type SceneMeta = {
   captions?: { words?: { start: number; end: number }[] } | null;
   markers?: Marker[];
   work_area?: WorkArea;
+  mix?: Mix | null;
 };
 
 /** Audio drift (s) tolerated before re-syncing it to the video clock. */
@@ -421,7 +426,7 @@ class EngineHost {
     if (url === this.audioUrl) return this.audioAnalysis;
     this.audioUrl = url;
     this.audio?.pause();
-    this.audio = url ? new Audio(url) : null;
+    this.audio = url ? audioBus.element(url) : null;
     this.audioInfo = null;
     this.audioAnalysis = this.analyzeAudio(url);
     return this.audioAnalysis;
@@ -466,6 +471,14 @@ class EngineHost {
   }
 
   /** What the video clips play and how loud, over the whole video (the native exporter mixes it in). */
+  /** Loudness of the mix as it exports, at a master level of 0 dB (null when the video is silent). */
+  async mixLoudness(): Promise<Loudness | null> {
+    await this.mediaReady();
+    const mix = await mixAudio(this.sceneJson(), this.audioUrl, this.clipSounds(), { master: false });
+    if (!mix) return null;
+    return measureLoudness(Array.from({ length: mix.numberOfChannels }, (_, c) => mix.getChannelData(c)), mix.sampleRate);
+  }
+
   clipSounds(): ClipSound[] {
     const scene = JSON.parse(this.sceneJson()) as { fps: number; duration: number };
     return this.engine ? clipSounds(this.engine, scene.fps, scene.duration) : [];
@@ -529,6 +542,8 @@ class EngineHost {
     const [from, to] = this.playRange();
     if (time >= to || (this.range && time < from)) useEditor.setState({ time: from });
     useEditor.setState({ playing: true });
+    // Inside the click that plays: browsers only start WebAudio on a gesture.
+    audioBus.context();
     this.syncAudio(true);
     this.music.sync(useEditor.getState().time, true, this.speech);
     void sfxPlayer.start(useEditor.getState().time, this.sfxCues());
@@ -1072,6 +1087,7 @@ class EngineHost {
     this.captionWords = meta.captions?.words ?? [];
     this.range = meta.work_area ?? null;
     this.marks = meta.markers ?? [];
+    audioBus.setMaster(10 ** ((meta.mix?.master_db ?? 0) / 20));
     this.updateSpeech();
     useEditor.setState((s) => ({
       sceneSize: [meta.width, meta.height],

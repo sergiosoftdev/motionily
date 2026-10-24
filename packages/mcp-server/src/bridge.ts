@@ -10,6 +10,8 @@ const HEADLESS_BOOT_MS = 40_000;
 const REVIEW_TIMEOUT_MS = 60_000;
 /** A long or 4K export can take a while. */
 const EXPORT_TIMEOUT_MS = 60 * 60_000;
+/** Mixing the whole soundtrack to measure it decodes every file. */
+const LOUDNESS_TIMEOUT_MS = 5 * 60_000;
 /** A page reload closes the editor for a few seconds: wait for it before opening our own. */
 const RELOAD_GRACE_MS = 10_000;
 const RECONNECT_MS = 2_000;
@@ -108,6 +110,10 @@ export class EditorBridge {
 
   scopes(times?: number[]) {
     return this.request({ type: ServerMessageType.Scopes, requestId: randomUUID(), projectId: this.projectId, times });
+  }
+
+  loudness() {
+    return this.request({ type: ServerMessageType.Loudness, requestId: randomUUID(), projectId: this.projectId }, LOUDNESS_TIMEOUT_MS);
   }
 
   layout(times: number[]) {

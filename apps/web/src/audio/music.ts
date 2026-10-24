@@ -1,4 +1,5 @@
 import { mediaUrl } from "../api/client";
+import { audioBus } from "./bus";
 import { musicFileTime, musicLevel, type MusicTrack, type SpeechSpan } from "./ducking";
 
 export * from "./ducking";
@@ -14,7 +15,7 @@ export class MusicPlayer {
   setTrack(track: MusicTrack | null) {
     if (track?.src !== this.track?.src) {
       this.el?.pause();
-      this.el = track ? new Audio(mediaUrl(track.src)) : null;
+      this.el = track ? audioBus.element(mediaUrl(track.src)) : null;
     }
     this.track = track;
   }
@@ -28,7 +29,7 @@ export class MusicPlayer {
       if (!a.paused) a.pause();
       return;
     }
-    a.volume = Math.min(1, musicLevel(m, spans, t));
+    audioBus.gain(a, musicLevel(m, spans, t));
     if (Math.abs(a.currentTime - f) > DRIFT) a.currentTime = f;
     if (playing && a.paused) void a.play();
     if (!playing && !a.paused) a.pause();

@@ -121,6 +121,14 @@ class AgentBridge {
         }, (e: unknown) => this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error: String(e) }));
         return;
       }
+      case ServerMessageType.Loudness: {
+        void engineHost.mixLoudness().then((loudness) => {
+          logActivity(ActivitySource.Agent, "Measures the loudness of the mix");
+          // JSON has no -Infinity: silence goes as null.
+          this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, loudness: loudness && Number.isFinite(loudness.lufs) ? loudness : null });
+        }, (e: unknown) => this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error: String(e) }));
+        return;
+      }
       case ServerMessageType.Layout: {
         const layouts = engineHost.layout(msg.times.slice(0, MAX_LAYOUT_TIMES));
         this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, layouts });

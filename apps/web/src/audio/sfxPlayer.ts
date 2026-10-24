@@ -1,4 +1,5 @@
 import { mediaUrl } from "../api/client";
+import { audioBus } from "./bus";
 
 /**
  * A sound effect on the timeline (mirrors SfxCue in crates/scene): `from` seconds into the file, for `len`
@@ -12,9 +13,9 @@ const CUE_FADE_OUT = 0.04;
 
 /**
  * Schedule `cue` on `ctx` at context time `when`, `into` seconds into the cue (a playhead past its start).
- * Shared by the preview and the export so both sound the same. Null when the cue is already over.
+ * Shared by the preview and the export so both sound the same (into `out`: the mix bus). Null when the cue is already over.
  */
-export function playCue(ctx: BaseAudioContext, buf: AudioBuffer, cue: SfxCue, when: number, into = 0): AudioBufferSourceNode | null {
+export function playCue(ctx: BaseAudioContext, buf: AudioBuffer, cue: SfxCue, when: number, into = 0, out: AudioNode = ctx.destination): AudioBufferSourceNode | null {
   const from = cue.from ?? 0;
   const len = Math.min(cue.len ?? Infinity, buf.duration - from);
   if (len <= 0 || into >= len) return null;
@@ -31,7 +32,7 @@ export function playCue(ctx: BaseAudioContext, buf: AudioBuffer, cue: SfxCue, wh
   }
   const src = ctx.createBufferSource();
   src.buffer = buf;
-  src.connect(g).connect(ctx.destination);
+  src.connect(g).connect(out);
   src.start(when, from + into, len - into);
   return src;
 }
@@ -41,14 +42,11 @@ export function playCue(ctx: BaseAudioContext, buf: AudioBuffer, cue: SfxCue, wh
  * scheduled with WebAudio from the playhead, so timing is sample-accurate.
  */
 class SfxPlayer {
-  private ctx: AudioContext | null = null;
   private buffers = new Map<string, Promise<AudioBuffer | null>>();
   private playing: AudioBufferSourceNode[] = [];
 
   private context() {
-    this.ctx ??= new AudioContext();
-    if (this.ctx.state === "suspended") void this.ctx.resume();
-    return this.ctx;
+    return audioBus.context();
   }
 
   load(src: string) {
@@ -72,7 +70,7 @@ class SfxPlayer {
       const buf = await this.load(cue.src);
       if (!buf) continue;
       const offset = from - cue.at;
-      const src = playCue(ctx, buf, cue, t0 + Math.max(0, -offset), Math.max(0, offset));
+      const src = playCue(ctx, buf, cue, t0 + Math.max(0, -offset), Math.max(0, offset), audioBus.master);
       if (src) this.playing.push(src);
     }
   }
@@ -93,7 +91,7 @@ class SfxPlayer {
     const buf = await this.load(cue.src);
     if (!buf) return;
     const ctx = this.context();
-    playCue(ctx, buf, { id: "", sound: "", at: 0, ...cue }, ctx.currentTime);
+    playCue(ctx, buf, { id: "", sound: "", at: 0, ...cue }, ctx.currentTime, 0, audioBus.master);
   }
 }
 
