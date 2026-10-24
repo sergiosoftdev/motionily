@@ -63,7 +63,10 @@ type IconDataApi = { iconData(ids: string[]): Promise<{ icons: { id: string; bod
 
 /** Load every Iconify id written in these lines (ic=prefix:name) before they are parsed. */
 export async function preloadIcons(text: string, api: IconDataApi): Promise<void> {
-  const ids = [...new Set([...text.matchAll(ICONIFY_IN_TEXT)].map((m) => m[1]!))].filter((id) => !iconify.has(id) && !fromDisk(id));
+  // `ic=message-circle:84` is a Lucide name with its size, not the Iconify id "message-circle:84".
+  const ids = [...new Set([...text.matchAll(ICONIFY_IN_TEXT)].map((m) => m[1]!))]
+    .filter((id) => !/^[\d.]+$/.test(id.split(":")[1]!))
+    .filter((id) => !iconify.has(id) && !fromDisk(id));
   if (!ids.length) return;
   const { icons: got, missing } = await api.iconData(ids);
   for (const i of got) iconify.set(i.id, { body: i.body, width: i.width, height: i.height, multicolor: i.multicolor });
