@@ -47,7 +47,7 @@ function clone<T>(v: T): T {
   if (Array.isArray(v)) return Array.prototype.map.call(v, clone) as T;
   if (Object.getPrototypeOf(v) !== Object.prototype && Object.getPrototypeOf(v) !== null) {
     // BSON values (Decimal128, Long…) and anything else with its own class: round-trip through EJSON.
-    return EJSON.deserialize(EJSON.serialize(v, { relaxed: false }), { relaxed: false }) as T;
+    return EJSON.deserialize(EJSON.serialize(v, { relaxed: false }), { relaxed: true }) as T;
   }
   const out: Record<string, unknown> = {};
   for (const [k, x] of Object.entries(v)) out[k] = clone(x);
@@ -176,11 +176,15 @@ class SqliteCollection {
     this.namespace = `${db.databaseName}.${name}`;
   }
 
-  /** Every document of the collection, read from SQLite once and then kept in memory. */
+  /**
+   * Every document of the collection, read from SQLite once and then kept in memory. Stored as
+   * canonical EJSON (exact types) and read back relaxed: numbers come back as numbers, not Int32 or
+   * Double wrappers that queries would never match.
+   */
   private all(): Map<string, Doc> {
     if (!this.docs) {
       this.docs = new Map();
-      for (const row of this.db.rows(this.collectionName)) this.docs.set(row.id, EJSON.parse(row.body, { relaxed: false }) as Doc);
+      for (const row of this.db.rows(this.collectionName)) this.docs.set(row.id, EJSON.parse(row.body, { relaxed: true }) as Doc);
     }
     return this.docs;
   }
