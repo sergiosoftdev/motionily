@@ -5,6 +5,7 @@ import type { EditorProps } from "./context";
 import { captioningLabel } from "./AgentLine";
 import { useEditActions } from "./edit/useEditActions";
 import { CLIP_ACCEPT, SONG_ACCEPT, useClipUpload, useMusicUpload } from "./edit/MediaPanel";
+import { useAgentName } from "../agentName";
 
 const IMAGE_ACCEPT = "image/png,image/jpeg,image/webp,image/gif";
 const ACCEPT = [IMAGE_ACCEPT, CLIP_ACCEPT, SONG_ACCEPT].join(",");
@@ -22,6 +23,7 @@ const hasFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes("Files");
  * on the editor; then ask Claude where to use them.
  */
 export function SimpleMedia({ ed }: { ed: EditorProps }) {
+  const agent = useAgentName();
   const project = ed.project!;
   const footage = project.footage;
   const edits = useEditActions(footage);
@@ -144,7 +146,7 @@ export function SimpleMedia({ ed }: { ed: EditorProps }) {
         >
           ＋ Add media
         </button>
-        {empty && <span className="shrink-0 pl-1 text-xs text-neutral-500">Photos, logos, clips or a song for Claude to use · or drop them anywhere</span>}
+        {empty && <span className="shrink-0 pl-1 text-xs text-neutral-500">Photos, logos, clips or a song for {agent} to use · or drop them anywhere</span>}
         {busy && <span className="shrink-0 pl-1 text-xs text-neutral-400">{busy}</span>}
         <input
           ref={input}

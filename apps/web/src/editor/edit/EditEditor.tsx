@@ -21,6 +21,7 @@ import { MediaPanel, MediaTab, mmss, useClipUpload, useMusicUpload } from "./Med
 import { editTracks } from "./tracks";
 import { useEditActions } from "./useEditActions";
 import { useEditOps } from "./useEditOps";
+import { useAgentName } from "../../agentName";
 
 const PREVIEW_MAX_WIDTH = 900;
 
@@ -37,6 +38,7 @@ const hasFiles = (e: DragEvent) => e.dataTransfer.types.includes("Files");
  * anything ("an animated map here, 5 seconds"). Files dropped anywhere go to the library.
  */
 export function EditEditor({ ed }: { ed: EditorProps }) {
+  const agent = useAgentName();
   const { project } = ed;
   const scene = useSceneView();
   const fps = scene?.fps ?? 30;
@@ -198,7 +200,7 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
             )}
             {empty && (
               <p className="pointer-events-none absolute inset-x-0 top-1/2 text-center text-sm text-neutral-500">
-                Drop clips anywhere to start, or ask Claude on the right.
+                Drop clips anywhere to start, or ask {agent} on the right.
               </p>
             )}
           </div>

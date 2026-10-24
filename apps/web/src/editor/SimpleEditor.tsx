@@ -18,12 +18,14 @@ import { SceneStrip } from "./SceneStrip";
 import { SimpleMedia } from "./SimpleMedia";
 import { AttentionStrip } from "./AttentionStrip";
 import { Viewer } from "./Viewer";
+import { useAgentName } from "../agentName";
 
 /** Widest the preview gets, like a video player rather than a full-bleed canvas. */
 const PREVIEW_MAX_WIDTH = 1100;
 
 /** Simple mode: the video, its moments, and one box to ask for changes. Everything else is in Settings. */
 export function SimpleEditor({ ed }: { ed: EditorProps }) {
+  const agent = useAgentName();
   const { project, g } = ed;
   const [settings, setSettings] = useState(false);
   /** Something on screen yet (an empty scene can be saved before the first build). */
@@ -65,7 +67,7 @@ export function SimpleEditor({ ed }: { ed: EditorProps }) {
                   Generate video
                 </button>
                 <button type="button" onClick={() => setSettings(true)} className="text-xs text-neutral-500 hover:text-white">
-                  Claude builds it from your brief · review the brief first
+                  {agent} builds it from your brief · review the brief first
                 </button>
                 {g.error && <p className="text-xs text-red-400">{g.error}</p>}
               </div>

@@ -13,6 +13,7 @@ import type { SceneView } from "../sceneView";
 import { SunoDialog } from "./SunoDialog";
 import { appendClipOps, editTracks, freshId } from "./tracks";
 import type { EditActions } from "./useEditActions";
+import { useAgentName } from "../../agentName";
 
 export const CLIP_ACCEPT = "video/mp4,video/quicktime,video/webm";
 export const SONG_ACCEPT = "audio/*";
@@ -180,6 +181,7 @@ export function MediaPanel({
 }
 
 function ClipsTab({ ed, scene, clips }: { ed: EditorProps; scene: SceneView | null; clips: ClipUpload }) {
+  const agent = useAgentName();
   const footage = ed.project?.footage ?? [];
   const used = new Set(scene?.layers.filter((l) => l.type === "video").map((l) => String(l.src)) ?? []);
   return (
@@ -201,7 +203,7 @@ function ClipsTab({ ed, scene, clips }: { ed: EditorProps; scene: SceneView | nu
               ))}
             </select>
           </label>
-          <p className="px-1 text-xs text-neutral-500">Each clip is transcribed, so you or Claude can cut it by what is said.</p>
+          <p className="px-1 text-xs text-neutral-500">Each clip is transcribed, so you or {agent} can cut it by what is said.</p>
         </>
       ) : (
         <>
@@ -249,6 +251,7 @@ function ClipRow({ clip, inEdit, onAdd }: { clip: FootageClip; inEdit: boolean; 
 }
 
 function MusicTab({ ed, scene, music, onSelectMusic }: { ed: EditorProps; scene: SceneView | null; music: MusicUpload; onSelectMusic: () => void }) {
+  const agent = useAgentName();
   const project = ed.project;
   const [suno, setSuno] = useState(false);
   const song = project?.music;
@@ -303,7 +306,7 @@ function MusicTab({ ed, scene, music, onSelectMusic }: { ed: EditorProps; scene:
         <img src={SUNO_LOGO} alt="" className="size-8 shrink-0 rounded-full" />
         <span className="min-w-0">
           <span className="block text-xs font-semibold text-neutral-200">Make one with Suno</span>
-          <span className="block text-[11px] text-neutral-500">Claude writes the prompt from your video</span>
+          <span className="block text-[11px] text-neutral-500">{agent} writes the prompt from your video</span>
         </span>
       </button>
       {music.error && <p className="px-1 text-xs text-red-400">{music.error}</p>}

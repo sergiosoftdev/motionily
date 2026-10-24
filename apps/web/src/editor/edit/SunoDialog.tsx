@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Project, SunoPrompt } from "@motionily/protocol";
 import { api } from "../../api/client";
+import { useAgentName } from "../../agentName";
 
 const SUNO_URL = "https://suno.com/create";
 const SUNO_LOGO = "/brand/suno.png";
@@ -11,6 +12,7 @@ const SUNO_LOGO = "/brand/suno.png";
  * The prompt stays with the video until the user asks for another.
  */
 export function SunoDialog({ project, onProject, onSong, onClose }: { project: Project; onProject: (p: Project) => void; onSong: (file: File) => Promise<void>; onClose: () => void }) {
+  const agent = useAgentName();
   const [prompt, setPrompt] = useState<SunoPrompt | null>(project.sunoPrompt);
   const [busy, setBusy] = useState<string | null>(null);
   const [steer, setSteer] = useState("");
@@ -19,7 +21,7 @@ export function SunoDialog({ project, onProject, onSong, onClose }: { project: P
   const input = useRef<HTMLInputElement>(null);
 
   const write = async (change?: string) => {
-    setBusy("Claude is writing the prompt…");
+    setBusy(`${agent} is writing the prompt…`);
     setError(null);
     try {
       const p = await api.sunoPrompt(project.id, change);
@@ -81,7 +83,7 @@ export function SunoDialog({ project, onProject, onSong, onClose }: { project: P
             Music with Suno
           </h2>
           <p className="mt-1 text-sm text-neutral-400">
-            Claude wrote this for your video. Paste it in Suno, generate, and bring the song back: Motionily lines its big moment up with the video.
+            {agent} wrote this for your video. Paste it in Suno, generate, and bring the song back: Motionily lines its big moment up with the video.
           </p>
         </div>
 

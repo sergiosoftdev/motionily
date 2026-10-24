@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, mediaUrl, SoundShape, type SoundRow } from "../api/client";
 import { MotionilyLayout } from "../shell/MotionilyLayout";
+import { useAgentName } from "../agentName";
 
 /** What each shape means when you listen, for the tag next to a sound. */
 const SHAPE_LABEL: Record<SoundShape, string> = {
@@ -12,6 +13,7 @@ const SHAPE_LABEL: Record<SoundShape, string> = {
 
 /** Motionily's sound effect library: the same for every account; Claude picks from it for each video. */
 export function SoundsScreen() {
+  const agent = useAgentName();
   const [sounds, setSounds] = useState<SoundRow[] | null>(null);
   const [category, setCategory] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -43,7 +45,7 @@ export function SoundsScreen() {
   };
 
   return (
-    <MotionilyLayout title="Sounds" description="Motionily's sound effect library. Claude picks from it to sync effects to the motion of every video.">
+    <MotionilyLayout title="Sounds" description={`Motionily's sound effect library. ${agent} picks from it to sync effects to the motion of every video.`}>
       <div className="flex flex-col gap-3">
         <input
           value={query}

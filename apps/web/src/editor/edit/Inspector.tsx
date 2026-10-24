@@ -6,6 +6,7 @@ import type { EditSelection } from "./EditTimeline";
 import type { EditClip, GraphicsBlock } from "./tracks";
 import type { EditActions } from "./useEditActions";
 import type { EditOps } from "./useEditOps";
+import { useAgentName } from "../../agentName";
 
 /** Range of the song-start slider when the song's length is unknown (s). */
 const DEFAULT_SONG_RANGE = 180;
@@ -121,6 +122,7 @@ function ClipInspector({ clip, ops, edits }: { clip: EditClip; ops: EditOps; edi
 }
 
 function BlockInspector({ block, ops }: { block: GraphicsBlock; ops: EditOps }) {
+  const agent = useAgentName();
   return (
     <div className="flex flex-col gap-4">
       <div>
@@ -129,7 +131,7 @@ function BlockInspector({ block, ops }: { block: GraphicsBlock; ops: EditOps }) 
           Motion graphics · {block.start.toFixed(2)}–{block.end.toFixed(2)} s · {block.ids.length} layers
         </p>
       </div>
-      <p className="text-xs text-neutral-500">Tell Claude below what to change in it. Drag it on the timeline to move it in time.</p>
+      <p className="text-xs text-neutral-500">Tell {agent} below what to change in it. Drag it on the timeline to move it in time.</p>
       <button type="button" onClick={() => ops.remove({ kind: "block", block })} className="self-start text-xs text-neutral-400 hover:text-red-400">
         Delete block
       </button>

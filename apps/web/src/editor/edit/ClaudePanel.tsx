@@ -7,6 +7,7 @@ import { ActivitySource, useEditor, type Activity } from "../../store";
 import { AgentLine } from "../AgentLine";
 import type { EditorProps } from "../context";
 import { ModePiece } from "../mode";
+import { useAgentName } from "../../agentName";
 
 /** Agent steps shown under an ask before "N earlier steps". */
 const STEPS_SHOWN = 3;
@@ -43,6 +44,7 @@ function splitAsk(text: string): [string | null, string] {
  * box at the bottom, with a few starts when it is empty.
  */
 export function ClaudePanel({ ed, hasScene, hasFootage, selection }: { ed: EditorProps; hasScene: boolean; hasFootage: boolean; selection: ReactNode }) {
+  const agent = useAgentName();
   const { project, g } = ed;
   const activity = useEditor((s) => s.activity);
   const turns = useMemo(() => toTurns(activity), [activity]);
@@ -63,7 +65,7 @@ export function ClaudePanel({ ed, hasScene, hasFootage, selection }: { ed: Edito
     <aside className={`flex w-[380px] shrink-0 flex-col overflow-hidden rounded-2xl bg-neutral-900/50 ring-1 ring-white/[0.06] ${ModePiece.Right}`}>
       <header className="flex items-center gap-2 px-4 pt-3.5 pb-2">
         <Spark className="size-4 text-white" />
-        <span className="text-sm font-semibold">Claude</span>
+        <span className="text-sm font-semibold">{agent}</span>
         {g.running && <span className="ml-auto size-2 animate-pulse rounded-full bg-emerald-400" aria-label="Working" />}
       </header>
 
@@ -79,7 +81,7 @@ export function ClaudePanel({ ed, hasScene, hasFootage, selection }: { ed: Edito
             <p className="text-sm leading-relaxed text-neutral-500">
               {hasScene
                 ? "Ask for anything: cut the pauses, a title, an animated map at the playhead. Click something in the video or the timeline to ask about just that."
-                : "Describe the video and Claude builds it, or drop your clips on the left and ask it to cut them."}
+                : `Describe the video and ${agent} builds it, or drop your clips on the left and ask it to cut them.`}
             </p>
           </div>
         ) : (

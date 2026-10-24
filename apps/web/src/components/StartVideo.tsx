@@ -13,7 +13,7 @@ const STARTS: { kind: StartKind; title: string; hint: string; icon: string }[] =
   {
     kind: StartKind.Create,
     title: "Create",
-    hint: "Opens the editor right away. Tell Claude what the video is about and it builds it.",
+    hint: "Opens the editor right away. Tell your agent what the video is about and it builds it.",
     icon: "M12 3v4M12 17v4M3 12h4M17 12h4M6.3 6.3l2.5 2.5M15.2 15.2l2.5 2.5M6.3 17.7l2.5-2.5M15.2 8.8l2.5-2.5",
   },
   {

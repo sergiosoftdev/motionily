@@ -10,6 +10,7 @@ import { ModePicker } from "../components/ModePicker";
 import { VoicePicker } from "../voice/ElevenLabs";
 import { AgentEffort, AgentModel, loadPrefs, savePrefs, type AgentPrefs } from "../components/GeneratePanel";
 import { AttentionCurve } from "../components/AttentionCurve";
+import { useAgentName } from "../agentName";
 
 const Step = {
   Idea: "idea",
@@ -47,6 +48,7 @@ const THINKING_LINE_MS = 2600;
  * pick one, polish its ElevenLabs script, add the voice. The video is then built on that voice.
  */
 export function NewProjectScreen({ brandId }: { brandId: string }) {
+  const agent = useAgentName();
   const [step, setStep] = useState<Step>(Step.Idea);
   const [idea, setIdea] = useState("");
   const refs = useReferences();
@@ -148,7 +150,7 @@ export function NewProjectScreen({ brandId }: { brandId: string }) {
 
       <main className="relative z-10 mx-auto flex w-full max-w-5xl flex-1 flex-col px-8 pt-[12vh] pb-16">
         {step === Step.Idea && (
-          <Panel key={step} kicker="Step 1" title="What do you want to say?" hint="In your own words: who it's for, what problem it solves, what tone. Claude takes care of the rest.">
+          <Panel key={step} kicker="Step 1" title="What do you want to say?" hint={`In your own words: who it's for, what problem it solves, what tone. ${agent} takes care of the rest.`}>
             <textarea
               value={idea}
               onChange={(e) => setIdea(e.target.value)}

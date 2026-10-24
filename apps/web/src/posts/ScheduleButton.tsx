@@ -4,6 +4,7 @@ import { renderCurrentScene } from "../export/renderScene";
 import { href, RouteName } from "../router";
 import type { EditorProps } from "../editor/context";
 import { defaultSlot, formatWhen, fromLocalInput, hashtagsText, MAX_CAPTION, parseHashtags, PLATFORM_LABEL, platformList, PLATFORMS, postText, toLocalInput } from "./posts";
+import { useAgentName } from "../agentName";
 
 const Stage = { Edit: "edit", Rendering: "rendering", Uploading: "uploading", Done: "done" } as const;
 type Stage = (typeof Stage)[keyof typeof Stage];
@@ -32,6 +33,7 @@ export function ScheduleButton({ ed }: { ed: EditorProps }) {
 }
 
 function ScheduleDialog({ ed, onClose }: { ed: EditorProps; onClose: () => void }) {
+  const agent = useAgentName();
   const project = ed.project!;
   /** The video's upcoming post, opened for editing (undefined while loading). */
   const [existing, setExisting] = useState<ScheduledPost | null | undefined>(undefined);
@@ -205,7 +207,7 @@ function ScheduleDialog({ ed, onClose }: { ed: EditorProps; onClose: () => void 
             ) : !showText ? (
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                 <button type="button" disabled={busy || !platforms.length} onClick={() => void write(platforms)} className="font-medium text-white hover:underline disabled:opacity-50">
-                  Write the caption with Claude
+                  Write the caption with {agent}
                 </button>
                 <span className="text-neutral-600">or</span>
                 <button type="button" disabled={busy} onClick={() => setShowText(true)} className="text-neutral-400 hover:text-white">
@@ -231,7 +233,7 @@ function ScheduleDialog({ ed, onClose }: { ed: EditorProps; onClose: () => void 
                         disabled={busy || writing}
                         onChange={(e) => setCopyOf(p, { caption: e.target.value })}
                         rows={p === Platform.Instagram ? 5 : 3}
-                        placeholder={writing ? "Claude is writing…" : "Caption"}
+                        placeholder={writing ? `${agent} is writing…` : "Caption"}
                         className="resize-y rounded-lg bg-neutral-950 px-3 py-2 text-sm leading-relaxed text-neutral-100 placeholder:text-neutral-600"
                       />
                       <input
@@ -252,7 +254,7 @@ function ScheduleDialog({ ed, onClose }: { ed: EditorProps; onClose: () => void 
                       disabled={busy || writing}
                       onChange={(e) => setSteer(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && void write(platforms, steer)}
-                      placeholder={hasText ? "Ask Claude for changes: shorter, more playful, no emojis…" : "Tell Claude anything to keep in mind (optional)"}
+                      placeholder={hasText ? `Ask ${agent} for changes: shorter, more playful, no emojis…` : `Tell ${agent} anything to keep in mind (optional)`}
                       className="min-w-0 flex-1 rounded-lg bg-neutral-800 px-3 py-2 text-sm placeholder:text-neutral-500"
                     />
                     <button
@@ -261,7 +263,7 @@ function ScheduleDialog({ ed, onClose }: { ed: EditorProps; onClose: () => void 
                       onClick={() => void write(platforms, steer)}
                       className="shrink-0 rounded-lg bg-neutral-800 px-3 py-2 text-xs font-semibold hover:bg-neutral-700 disabled:opacity-50"
                     >
-                      {writing ? "Writing…" : hasText ? "Rewrite" : "Write with Claude"}
+                      {writing ? "Writing…" : hasText ? "Rewrite" : `Write with ${agent}`}
                     </button>
                   </div>
                 )}

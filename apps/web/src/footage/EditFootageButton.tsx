@@ -5,6 +5,7 @@ import { FormatPicker } from "../components/FormatPicker";
 import { requestPipeline, VideoPipeline } from "../pipeline";
 import { navigate, RouteName } from "../router";
 import { browserLanguage, LANGUAGES } from "./languages";
+import { useAgentName } from "../agentName";
 
 /** Clip formats the editor decodes. */
 const ACCEPT = "video/mp4,video/quicktime,video/webm";
@@ -25,6 +26,7 @@ export function EditFootageButton({ brandId }: { brandId: string }) {
 }
 
 function EditFootageDialog({ brandId, onClose }: { brandId: string; onClose: () => void }) {
+  const agent = useAgentName();
   const [files, setFiles] = useState<File[]>([]);
   const [format, setFormat] = useState<VideoFormat>(VideoFormat.Vertical);
   const [language, setLanguage] = useState(browserLanguage);
@@ -62,7 +64,7 @@ function EditFootageDialog({ brandId, onClose }: { brandId: string; onClose: () 
         <div>
           <h2 className="text-lg font-bold">Edit your footage</h2>
           <p className="mt-1 text-sm text-neutral-400">
-            Upload what you recorded. Motionily transcribes it, and Claude cuts the best takes, removes the pauses and adds captions and graphics.
+            Upload what you recorded. Motionily transcribes it, and {agent} cuts the best takes, removes the pauses and adds captions and graphics.
           </p>
         </div>
 

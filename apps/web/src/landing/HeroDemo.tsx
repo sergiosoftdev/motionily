@@ -81,7 +81,7 @@ export function HeroDemo() {
         <div className="flex flex-col gap-4 md:pt-2">
           <div className="flex items-center gap-2.5">
             <img src="/brand/mark.png" alt="" className="h-6 w-auto rounded-md" />
-            <span className="text-sm font-semibold text-white">Claude is directing</span>
+            <span className="text-sm font-semibold text-white">Your agent is directing</span>
             <span className="ml-auto flex items-center gap-1.5 text-xs text-emerald-300/90">
               <span className="size-1.5 animate-pulse rounded-full bg-emerald-400" /> live
             </span>

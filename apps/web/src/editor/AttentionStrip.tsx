@@ -4,6 +4,7 @@ import { AttentionCurve } from "../components/AttentionCurve";
 import type { Generation } from "../components/useGenerate";
 import { ActivitySource, logActivity, useEditor } from "../store";
 import { useSceneView } from "./sceneView";
+import { useAgentName } from "../agentName";
 
 /**
  * Short-form videos only (9:16, 4:5, 1:1): the attention curve measured from the scene (the same
@@ -11,6 +12,7 @@ import { useSceneView } from "./sceneView";
  * asks Claude to fix those spots.
  */
 export function AttentionStrip({ g, className = "" }: { g: Generation; className?: string }) {
+  const agent = useAgentName();
   const scene = useSceneView();
   const [width, height] = useEditor((s) => s.sceneSize);
   const time = useEditor((s) => s.time);
@@ -38,7 +40,7 @@ export function AttentionStrip({ g, className = "" }: { g: Generation; className
           title={issues.join("\n")}
           className="shrink-0 rounded-full px-2.5 py-1 text-[11px] text-amber-200 ring-1 ring-amber-200/30 hover:bg-amber-200/10 disabled:opacity-50"
         >
-          {issues.length} to fix · Ask Claude
+          {issues.length} to fix · Ask {agent}
         </button>
       ) : (
         <span className="shrink-0 text-[11px] text-emerald-400" title="Moving frame 0, re-hooks every 4-7 s, a pattern interrupt, an escalating finale">

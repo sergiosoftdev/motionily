@@ -99,7 +99,7 @@ function Hero() {
       <Orbs />
       <div className="mx-auto flex max-w-6xl flex-col items-center text-center">
         <span className="lp-glass mb-7 flex items-center gap-2 rounded-full px-3.5 py-1.5 text-xs text-neutral-300">
-          <span className="size-1.5 rounded-full bg-[#e5484d]" /> Now in beta · Powered by Claude
+          <span className="size-1.5 rounded-full bg-[#e5484d]" /> Open source · Works with any MCP agent
         </span>
         <h1 className="max-w-4xl text-5xl leading-[1.02] font-extrabold tracking-tight sm:text-7xl">
           Motion graphics,
@@ -107,7 +107,7 @@ function Hero() {
           <span className="bg-[linear-gradient(100deg,#ffffff_10%,#f6a5a5_55%,#e5484d_95%)] bg-clip-text text-transparent">directed by AI.</span>
         </h1>
         <p className="mt-6 max-w-2xl text-lg leading-relaxed text-neutral-400">
-          Write what you want to say. Claude scripts it, designs every scene and times each beat to your voice. Then you refine anything with a click.
+          Write what you want to say. Your agent scripts it, designs every scene and times each beat to your voice. Then you refine anything with a click.
         </p>
         <div className="mt-9 flex w-full flex-col items-center gap-3">
           <EmailStart cta="Start creating" />
@@ -132,9 +132,9 @@ function Heading({ id, eyebrow, title, children }: { id: Section; eyebrow: strin
 }
 
 const STEPS: { title: string; body: string }[] = [
-  { title: "Write what you want to say", body: "Your idea in your own words, with references if you have them. Claude proposes angles and writes the script in natural, spoken English." },
+  { title: "Write what you want to say", body: "Your idea in your own words, with references if you have them. The agent proposes angles and writes the script in natural, spoken English." },
   { title: "Add your voice", body: "Upload the voice-over. Motionily transcribes it word by word in your browser, so captions, cuts and pauses land on your words." },
-  { title: "Claude directs the video", body: "A team of agents designs each scene, animates it to the voice and checks its own frames. You watch it build, live." },
+  { title: "Your agent directs the video", body: "A team of agents designs each scene, animates it to the voice and checks its own frames. You watch it build, live." },
   { title: "Refine and export", body: "Click anything and ask for a change, or open Pro mode for keyframes. Export an MP4 rendered frame by frame on your GPU." },
 ];
 
@@ -171,13 +171,13 @@ function Features() {
   return (
     <section className="relative isolate px-5 py-24 sm:px-8">
       <Heading id={Section.Features} eyebrow="Features" title="A real motion engine, with an AI director">
-        Not templates or slideshows: every frame is drawn by an engine built for motion design, and every decision is made by Claude.
+        Not templates or slideshows: every frame is drawn by an engine built for motion design, and every decision is made by your agent.
       </Heading>
       <div className="mx-auto mt-16 grid max-w-6xl gap-4 md:grid-cols-3">
         <Card
           className="md:col-span-2"
           title="Our own render engine, built from scratch"
-          body="Written in Rust and compiled to WebAssembly, it draws every frame on your graphics card through WebGPU: a live preview while Claude works, and a frame-exact MP4 when you export."
+          body="Written in Rust and compiled to WebAssembly, it draws every frame on your graphics card through WebGPU: a live preview while the agent works, and a frame-exact MP4 when you export."
         >
           <div className="flex w-full max-w-lg flex-wrap items-center justify-center gap-2 sm:flex-nowrap">
             {["Rust", "WebAssembly", "WebGPU", "MP4"].map((s, i) => (
@@ -221,7 +221,7 @@ function Features() {
             <span className="text-4xl font-extrabold tracking-tight">Aa</span>
           </div>
         </Card>
-        <Card title="Every format" body="Vertical, portrait, square or wide. Switch it and Claude recomposes every scene for the new frame.">
+        <Card title="Every format" body="Vertical, portrait, square or wide. Switch it and the agent recomposes every scene for the new frame.">
           <div className="flex items-end gap-3" aria-hidden>
             {[
               ["9:16", "h-20 w-[45px]"],
@@ -236,7 +236,7 @@ function Features() {
             ))}
           </div>
         </Card>
-        <Card className="md:col-span-3" title="Works with Claude Code" body="Prefer your own agent? Connect Claude Code to Motionily over MCP with one command and watch it build the video in the editor, live.">
+        <Card className="md:col-span-3" title="Works with your agent" body="Claude Code, Codex, Gemini CLI, OpenCode, Cursor, VS Code or any MCP client: connect it with one command and watch it build the video in the editor, live.">
           <div className="w-full max-w-2xl rounded-2xl bg-black/70 p-4 font-mono text-[12px] leading-relaxed ring-1 ring-white/10 sm:text-[13px]">
             <p className="truncate text-neutral-500">$ claude mcp add motionily -e MOTIONILY_PROJECT=… -- motionily-mcp</p>
             <p className="mt-1 text-neutral-200">
@@ -319,10 +319,10 @@ function Editors() {
 }
 
 const QUESTIONS: [string, string][] = [
-  ["Do I need to know animation?", "No. You write what you want to say and Claude designs, animates and times the video. Pro mode is there when you want to move keyframes yourself."],
+  ["Do I need to know animation?", "No. You write what you want to say and the agent designs, animates and times the video. Pro mode is there when you want to move keyframes yourself."],
   ["What do I get at the end?", "An MP4 up to 1080p in 9:16, 4:5, 1:1 or 16:9, rendered frame by frame on your GPU with your voice-over and sound effects mixed in."],
   ["Where does it run?", "In your browser. The engine runs on your graphics card through WebGPU, so a recent Chrome or Edge works best."],
-  ["Which AI makes the videos?", "Claude, by Anthropic. A small team of Claude agents writes the script, designs and builds each scene, and reviews its own frames before you see them."],
+  ["Which AI makes the videos?", "The one you choose. Motionily is open source and speaks MCP, so Claude Code, Codex, Gemini CLI, OpenCode or any MCP agent can drive it, with your own account. A small team of agents writes the script, designs and builds each scene, and reviews its own frames before you see them."],
 ];
 
 function Faq() {
@@ -351,7 +351,7 @@ function Closing() {
         <Orbs />
         <img src="/brand/mark.png" alt="" className="h-16 w-auto rounded-2xl" />
         <h2 className="max-w-2xl text-4xl leading-[1.08] font-bold tracking-tight sm:text-5xl">Your next video starts with one sentence.</h2>
-        <p className="max-w-xl text-lg text-neutral-400">Sign in, write your idea and watch Claude build it.</p>
+        <p className="max-w-xl text-lg text-neutral-400">Sign in, write your idea and watch your agent build it.</p>
         <EmailStart cta="Start creating" />
       </div>
     </section>

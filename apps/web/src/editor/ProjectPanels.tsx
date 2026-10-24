@@ -4,6 +4,7 @@ import { ReferenceStrip, useReferences } from "../components/References";
 import { ImageCredits } from "../components/ImageCredits";
 import { FormatPicker } from "../components/FormatPicker";
 import { CaptionsPanel } from "../captions/CaptionsPanel";
+import { useAgentName } from "../agentName";
 
 export const ProjectTab = { Brief: "brief", Voice: "voice", Format: "format" } as const;
 export type ProjectTab = (typeof ProjectTab)[keyof typeof ProjectTab];
@@ -66,11 +67,12 @@ function VoiceScript({ script, hasVoice }: { script: string; hasVoice: boolean }
 
 /** The brief plus its reference images (paste, drop or attach); both are what the agent builds from. */
 function BriefBox({ project, onBrief, onReferences }: { project: Project; onBrief: (brief: string) => void; onReferences: (refs: string[]) => void }) {
+  const agent = useAgentName();
   const refs = useReferences(project.references, onReferences);
   return (
     <div className="flex flex-col gap-2">
       <label htmlFor="brief" className="text-xs text-neutral-500">
-        What the video is about · Claude designs all of it from this
+        What the video is about · {agent} designs all of it from this
       </label>
       <textarea
         id="brief"
@@ -94,6 +96,7 @@ function BriefBox({ project, onBrief, onReferences }: { project: Project; onBrie
 
 /** The user's own clips this video is cut from, and whether each one is transcribed yet. */
 function FootageList({ project }: { project: Project }) {
+  const agent = useAgentName();
   const minutes = (s: number | null) => (s === null ? "?" : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`);
   return (
     <section className="flex flex-col gap-2">
@@ -106,7 +109,7 @@ function FootageList({ project }: { project: Project }) {
           <span className={c.words ? "text-neutral-400" : "text-amber-200/90"}>{c.words ? `${c.words.length} words` : "not transcribed"}</span>
         </div>
       ))}
-      <span className="text-xs text-neutral-500">Claude cuts these clips by their transcript. Ask in the box below to change the cut.</span>
+      <span className="text-xs text-neutral-500">{agent} cuts these clips by their transcript. Ask in the box below to change the cut.</span>
     </section>
   );
 }

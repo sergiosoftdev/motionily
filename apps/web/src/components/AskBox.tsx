@@ -5,6 +5,7 @@ import { ActivitySource, logActivity, useEditor } from "../store";
 import { scopedInstruction } from "../timeline/SelectionOverlay";
 import { ReferenceStrip, useReferences } from "./References";
 import type { Generation } from "./useGenerate";
+import { useAgentName } from "../agentName";
 
 /** Simple: under the video. Pro: After Effects panel. Chat: the composer at the bottom of Edit mode's Claude panel. */
 export const AskVariant = { Simple: "simple", Pro: "pro", Chat: "chat" } as const;
@@ -63,6 +64,7 @@ export function AskBox({
   /** Text to put in the box (a suggestion the user clicked); a new `n` puts it again. */
   draft?: { text: string; n: number };
 }) {
+  const agent = useAgentName();
   const [text, setText] = useState("");
   const input = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -109,7 +111,7 @@ export function AskBox({
   };
 
   const placeholder = first
-    ? "What's the video about? Who it's for, what it should say, the tone… Claude builds it from this."
+    ? `What's the video about? Who it's for, what it should say, the tone… ${agent} builds it from this.`
     : disabled
     ? "Once there's a video, ask for changes here"
     : g.running

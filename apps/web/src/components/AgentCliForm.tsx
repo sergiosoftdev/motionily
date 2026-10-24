@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { AgentCli, api, type AgentSettings } from "../api/client";
 import { AgentModel, MODEL_LABEL } from "./GeneratePanel";
+import { useAgentNameStore } from "../agentName";
 
 /** How each CLI names its models, as a placeholder for the tier fields. */
 const MODEL_HINT: Record<AgentCli, string> = {
@@ -27,6 +28,7 @@ export function AgentCliForm() {
 
   const save = (cli: AgentCli, models: Record<string, string>) => {
     setSettings({ ...settings, cli, models });
+    useAgentNameStore.getState().set(cli);
     api.saveAgentSettings(cli, models).then(setSettings, (e: Error) => setError(e.message));
   };
   const current = settings.clis.find((c) => c.cli === settings.cli);
