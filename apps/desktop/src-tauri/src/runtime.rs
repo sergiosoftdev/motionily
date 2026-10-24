@@ -108,6 +108,35 @@ pub struct Api {
     pub session: serde_json::Value,
 }
 
+/// The PATH the user's terminal has. An app opened from Finder or the Dock gets only the system's
+/// (`/usr/bin:/bin:…`), so the agent CLIs the API starts (`claude`, `codex`…) would not be found.
+fn user_path() -> String {
+    let current = std::env::var("PATH").unwrap_or_default();
+    if cfg!(windows) {
+        return current;
+    }
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+    // A login, interactive shell reads the profile files where installers add their folders.
+    let from_shell = Command::new(&shell)
+        .args(["-ilc", "printf '%s' \"$PATH\""])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
+    let home = std::env::var("HOME").unwrap_or_default();
+    let usual = [format!("{home}/.local/bin"), format!("{home}/.npm-global/bin"), "/opt/homebrew/bin".into(), "/usr/local/bin".into()];
+    let mut dirs: Vec<String> = Vec::new();
+    for d in from_shell.split(':').chain(current.split(':')).map(str::to_string).chain(usual) {
+        if !d.is_empty() && !dirs.contains(&d) {
+            dirs.push(d);
+        }
+    }
+    dirs.join(":")
+}
+
 impl Api {
     /// Starts the API on its port with its data in `data` and waits until it answers.
     pub fn start(layout: &Layout, data: &Path, web_origins: &str) -> Result<Self, String> {
@@ -129,6 +158,7 @@ impl Api {
             .env("PUBLIC_API_URL", &url)
             .env("MOTIONILY_DESKTOP", "1")
             .env("MOTIONILY_PARENT_PID", std::process::id().to_string())
+            .env("PATH", user_path())
             .stdin(Stdio::null())
             .stdout(log.try_clone().map_err(|e| e.to_string())?)
             .stderr(log);
