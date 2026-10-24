@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { WebSocket } from "ws";
 import type { HeadlessEditor } from "./headless.js";
 import { NO_PROJECT } from "./api.js";
-import { BRIDGE_PATH, BridgeClose, BridgeRole, EditorMessageType, HubMessageType, ServerMessageType, type EditorMessage, type HubMessage, type Op, type ServerMessage, type Output } from "@motionily/protocol";
+import { BRIDGE_PATH, BridgeClose, BridgeRole, EditorMessageType, HubMessageType, ServerMessageType, type EditorMessage, type HubMessage, type Op, type ServerMessage, type Output, type SideFile } from "@motionily/protocol";
 
 const REQUEST_TIMEOUT_MS = 15_000;
 /** How long to wait for the headless editor to boot (wasm, fonts, models). */
@@ -110,6 +110,10 @@ export class EditorBridge {
 
   scopes(times?: number[]) {
     return this.request({ type: ServerMessageType.Scopes, requestId: randomUUID(), projectId: this.projectId, times });
+  }
+
+  sideFile(kind: SideFile) {
+    return this.request({ type: ServerMessageType.SideFile, requestId: randomUUID(), projectId: this.projectId, kind });
   }
 
   loudness() {

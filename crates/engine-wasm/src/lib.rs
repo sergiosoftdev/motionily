@@ -148,6 +148,29 @@ impl Engine {
         self.scene.duration
     }
 
+    /// The Edit timeline for another editor (`format` "fcpxml" | "otio" | "edl"); `media_root` replaces
+    /// `/media/` in sources, `voice_src` is the voice-over file (it lives outside the scene).
+    #[wasm_bindgen(js_name = timelineFile)]
+    pub fn timeline_file(&self, format: &str, name: &str, media_root: &str, voice_src: Option<String>) -> Result<String, JsError> {
+        use scene::interchange::{TimelineFormat, Voice};
+        let format = match format {
+            "fcpxml" => TimelineFormat::Fcpxml,
+            "otio" => TimelineFormat::Otio,
+            "edl" => TimelineFormat::Edl,
+            other => return Err(JsError::new(&format!("unknown timeline format {other}"))),
+        };
+        let voice = voice_src.as_deref().map(|src| Voice { src });
+        Ok(self.scene.timeline_file(format, name, media_root, voice.as_ref()))
+    }
+
+    /// The captions as a subtitle file (`format` "srt" | "vtt"), cue by cue as on screen; empty
+    /// without captions. `from`/`to` keep only an exported range, timed from its start.
+    pub fn subtitles(&self, format: &str, from: Option<f32>, to: Option<f32>) -> Result<String, JsError> {
+        let format: scene::subtitles::SubtitleFormat = serde_json::from_value(serde_json::Value::String(format.into())).map_err(|e| JsError::new(&e.to_string()))?;
+        let range = from.zip(to).map(|(a, b)| [a, b]);
+        Ok(self.scene.captions.as_ref().map(|c| c.subtitles(format, range)).unwrap_or_default())
+    }
+
     /// Register a GLB model for the 3D stage.
     #[wasm_bindgen(js_name = addModel)]
     pub fn add_model(&mut self, key: &str, bytes: &[u8]) -> Result<(), JsError> {

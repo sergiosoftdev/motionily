@@ -1,5 +1,6 @@
+import { writeFile } from "node:fs/promises";
 import { z } from "zod";
-import { DEFAULT_TARGET_LUFS, GRADE_NEUTRAL, LOOKS, OpName, PEAK_CEILING_DB, normalization, type ScopeStats, OutputCodec, OUTPUT_SHORT_SIDES, effectsWithGrade, type FootageClip, type Grade, type MediaItem, type Op, type Project } from "@motionily/protocol";
+import { DEFAULT_TARGET_LUFS, GRADE_NEUTRAL, LOOKS, OpName, PEAK_CEILING_DB, SideFile, normalization, type ScopeStats, OutputCodec, OUTPUT_SHORT_SIDES, effectsWithGrade, type FootageClip, type Grade, type MediaItem, type Op, type Project } from "@motionily/protocol";
 import type { ProjectApi } from "./api.js";
 import type { EditorBridge } from "./bridge.js";
 
@@ -104,6 +105,25 @@ export function registerStudioTools(server: Server, d: StudioDeps) {
       const res = await d.bridge().exportVideo(o);
       if (!res.ok) throw new Error(res.error ?? "the export failed");
       return d.text(res.file ? `Exported to ${res.file}` : `Exported: ${res.url}`);
+    }),
+  );
+
+  server.registerTool(
+    "export_file",
+    {
+      description:
+        "Export the video's subtitles or its Edit timeline for another editor, like the Export dialog's extra files: srt / vtt (captions cue by cue as on screen; the export range applies), fcpxml (Final Cut Pro, DaVinci Resolve, Premiere), otio (OpenTimelineIO) or edl (CMX3600: V1, A1, A2). Timelines carry every clip, picture clip, audio layer, the music and the voice-over with their track, position and file in/out (graphics and speed changes stay in Motionily). The desktop app saves it next to the exports and you get the path; `path` (absolute) writes it there too; otherwise you get the text.",
+      inputSchema: { kind: z.enum(Object.values(SideFile) as [SideFile, ...SideFile[]]), path: z.string().min(1).optional() },
+    },
+    d.guard(async ({ kind, path }: { kind: SideFile; path?: string }) => {
+      const res = await d.bridge().sideFile(kind);
+      if (!res.ok || res.text == null) throw new Error(res.error ?? "the editor did not write it");
+      if (path) {
+        await writeFile(path, res.text, "utf8");
+        return d.text(`Wrote ${path} (${res.text.length} characters).`);
+      }
+      if (res.file) return d.text(`Saved to ${res.file}.`);
+      return d.text(res.text);
     }),
   );
 

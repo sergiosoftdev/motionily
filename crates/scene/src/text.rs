@@ -175,7 +175,7 @@ const PHRASE_MAX_CHARS: usize = 26;
 /// A silence this long starts a new phrase.
 const PHRASE_GAP: f32 = 0.6;
 /// Keep a phrase on screen this long after its last word.
-const PHRASE_LINGER: f32 = 0.35;
+pub(crate) const PHRASE_LINGER: f32 = 0.35;
 const POP_IN: f32 = 0.16;
 
 impl Captions {

@@ -86,4 +86,5 @@ terminarlo, con su commit.
 - [x] 4.2 transparencia, 4.3 fps, 4.6 tramo (95ae7c4)
 - [x] 2.2 ruedas y curvas (f2744ed)
 - [x] 2.1 scopes y `color_scopes` (a4886f6)
-- [x] 3.4 bus de mezcla con master (`set_mix`) y `normalize_loudness` (BS.1770, medido igual que ffmpeg ebur128)
+- [x] 3.4 bus de mezcla con master (`set_mix`) y `normalize_loudness` (BS.1770, medido igual que ffmpeg ebur128) (a6baab0)
+- [x] 4.4 SRT/VTT y 4.5 FCPXML/OTIO/EDL (`export_file`; OTIO validado con opentimelineio, FCPXML con xmllint)

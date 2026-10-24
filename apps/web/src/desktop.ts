@@ -9,6 +9,8 @@ export type DesktopInfo = {
   /** How agents start the Motionily MCP server on this machine. */
   mcp?: { command: string; args: string[] } | null;
   platform: string;
+  /** Folder of the uploads served at /media (timelines exported for other editors point at it). */
+  mediaDir?: string;
   /** The local runtime could not start; the editor shows why instead of loading. */
   error?: string;
 };

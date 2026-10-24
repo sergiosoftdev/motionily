@@ -9,6 +9,8 @@ mod anim;
 pub mod expr;
 pub mod output;
 pub mod mix;
+pub mod subtitles;
+pub mod interchange;
 pub mod tracks;
 pub mod trim;
 pub mod glyphs;

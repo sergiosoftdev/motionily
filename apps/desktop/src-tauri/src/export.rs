@@ -93,16 +93,39 @@ pub fn export(
     Ok(out)
 }
 
+/// Files written next to the exported videos: subtitles and timelines for other editors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SideFile {
+    Srt,
+    Vtt,
+    Fcpxml,
+    Otio,
+    Edl,
+}
+
+impl SideFile {
+    pub fn extension(self) -> &'static str {
+        match self {
+            SideFile::Srt => "srt",
+            SideFile::Vtt => "vtt",
+            SideFile::Fcpxml => "fcpxml",
+            SideFile::Otio => "otio",
+            SideFile::Edl => "edl",
+        }
+    }
+}
+
 /// `<Movies>/Motionily/<name>.<ext>`, numbered when the name is taken.
-pub fn default_path(movies: &Path, name: &str, codec: Codec) -> PathBuf {
+pub fn default_path(movies: &Path, name: &str, extension: &str) -> PathBuf {
     let dir = movies.join("Motionily");
     let _ = std::fs::create_dir_all(&dir);
     let clean: String = name.chars().map(|c| if c.is_alphanumeric() || " -_".contains(c) { c } else { '-' }).collect();
     let base = if clean.trim().is_empty() { "Motionily video".to_string() } else { clean.trim().to_string() };
-    let mut path = dir.join(format!("{base}.{}", codec.extension()));
+    let mut path = dir.join(format!("{base}.{extension}"));
     let mut n = 2;
     while path.exists() {
-        path = dir.join(format!("{base} {n}.{}", codec.extension()));
+        path = dir.join(format!("{base} {n}.{extension}"));
         n += 1;
     }
     path

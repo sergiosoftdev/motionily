@@ -187,7 +187,7 @@ async fn export_video(app: tauri::AppHandle, request: export::ExportRequest) -> 
             Some(p) => p.clone(),
             None => {
                 let movies = app.path().video_dir().or_else(|_| app.path().home_dir()).map_err(|e| e.to_string())?;
-                export::default_path(&movies, request.name.as_deref().unwrap_or("Motionily video"), request.codec)
+                export::default_path(&movies, request.name.as_deref().unwrap_or("Motionily video"), request.codec.extension())
             }
         };
         let audio = native.audio.lock().map_err(|e| e.to_string())?.clone();
@@ -277,6 +277,15 @@ fn viewer_hide() {
     });
 }
 
+/// Writes a subtitle or timeline file next to the exports (`<Movies>/Motionily/<name>.<ext>`) and returns its path.
+#[tauri::command]
+fn save_side_file(app: tauri::AppHandle, name: String, kind: export::SideFile, contents: String) -> Result<String, String> {
+    let movies = app.path().video_dir().or_else(|_| app.path().home_dir()).map_err(|e| e.to_string())?;
+    let path = export::default_path(&movies, &name, kind.extension());
+    std::fs::write(&path, contents).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
 /// Shows a written file in Finder / Explorer / the file manager.
 #[tauri::command]
 fn reveal(path: String) -> Result<(), String> {
@@ -310,12 +319,13 @@ fn percent_decode(s: &str) -> String {
 }
 
 /// What the web app reads before it starts (see apps/web/src/desktop.ts).
-fn desktop_script(api: Result<&runtime::Api, &str>, layout: Option<&runtime::Layout>) -> String {
+fn desktop_script(api: Result<&runtime::Api, &str>, layout: Option<&runtime::Layout>, media: &std::path::Path) -> String {
     let info = match api {
         Ok(api) => serde_json::json!({
             "apiUrl": api.url,
             "session": api.session,
             "platform": std::env::consts::OS,
+            "mediaDir": media.display().to_string(),
             "mcp": layout.map(|l| serde_json::json!({ "command": l.mcp_command, "args": l.mcp_args })),
         }),
         Err(e) => serde_json::json!({ "error": e, "platform": std::env::consts::OS }),
@@ -335,7 +345,7 @@ pub fn run() {
             let layout = runtime::Layout::find(resources.as_deref());
             let api = layout.as_ref().map_err(String::clone).and_then(|l| runtime::Api::start(l, &data, WEB_ORIGINS));
             #[allow(unused_mut)]
-            let mut script = desktop_script(api.as_ref().map_err(String::as_str), layout.as_ref().ok());
+            let mut script = desktop_script(api.as_ref().map_err(String::as_str), layout.as_ref().ok(), &data.join("media"));
             // Development builds only: extra JS for automated checks (e.g. start playback and screenshot).
             #[cfg(debug_assertions)]
             if let Ok(js) = std::env::var("MOTIONILY_DEV_EVAL") {
@@ -362,7 +372,7 @@ pub fn run() {
             app.manage(Runtime(Mutex::new(api.ok())));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![engine_add_asset, engine_missing_assets, engine_audio_analysis, export_audio, export_video, export_cancel, reveal, viewer_supported, viewer_show, viewer_place, viewer_frame, viewer_hide, desktop_route])
+        .invoke_handler(tauri::generate_handler![engine_add_asset, engine_missing_assets, engine_audio_analysis, export_audio, export_video, export_cancel, save_side_file, reveal, viewer_supported, viewer_show, viewer_place, viewer_frame, viewer_hide, desktop_route])
         .build(tauri::generate_context!())
         .expect("error while building Motionily");
     app.run(|handle, event| {

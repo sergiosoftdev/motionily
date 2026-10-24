@@ -1,4 +1,4 @@
-import { BRIDGE_PATH, BridgeClose, BridgeRole, HEADLESS_PARAM, EditorMessageType, ServerMessageType, type EditorMessage, type ServerMessage, type Output } from "@motionily/protocol";
+import { BRIDGE_PATH, BridgeClose, SIDE_FILE_LABEL, BridgeRole, HEADLESS_PARAM, EditorMessageType, ServerMessageType, type EditorMessage, type ServerMessage, type Output, type SideFile } from "@motionily/protocol";
 import { API_URL } from "./api/client";
 import { presetViolation, scenePresetViolation } from "./agentRules";
 import { engineHost } from "./engine/host";
@@ -29,6 +29,8 @@ class AgentBridge {
   onProjectChanged: (() => void) | null = null;
   /** The editor screen exports for an agent (it knows the project's name and audio). */
   onExport: ((output: Partial<Output> | undefined) => Promise<{ file?: string; url?: string }>) | null = null;
+  /** Writes a subtitle or timeline file (set by the open editor): its text, and where the desktop app saved it. */
+  onSideFile: ((kind: SideFile) => Promise<{ text: string; file?: string }>) | null = null;
 
   /** Connect for the project open in the editor (`null` disconnects). */
   setProject(id: string | null) {
@@ -119,6 +121,21 @@ class AgentBridge {
           logActivity(ActivitySource.Agent, `Reads the color scopes (${frames.length} ${frames.length === 1 ? "frame" : "frames"})`);
           this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, scopes: frames.map((f) => scopeStats(f.image, f.t)) });
         }, (e: unknown) => this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error: String(e) }));
+        return;
+      }
+      case ServerMessageType.SideFile: {
+        const run = this.onSideFile;
+        if (!run) {
+          this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error: "This editor cannot write files right now (open the video in the editor)." });
+          return;
+        }
+        void run(msg.kind).then(
+          (r) => {
+            logActivity(ActivitySource.Agent, `Exports ${SIDE_FILE_LABEL[msg.kind]}`);
+            this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, ...r });
+          },
+          (e: unknown) => this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error: e instanceof Error ? e.message : String(e) }),
+        );
         return;
       }
       case ServerMessageType.Loudness: {

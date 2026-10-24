@@ -93,6 +93,8 @@ export const ServerMessageType = {
   Scopes: "scopes",
   /** Loudness of the mix as it exports, measured at a master level of 0 dB. */
   Loudness: "loudness",
+  /** A subtitle or timeline file of the video (SideFile); the desktop app also saves it next to the exports. */
+  SideFile: "side_file",
 } as const;
 export type ServerMessageType = (typeof ServerMessageType)[keyof typeof ServerMessageType];
 
@@ -108,7 +110,13 @@ export type ServerMessage =
   | { type: typeof ServerMessageType.Layout; requestId: string; projectId: string; times: number[] }
   | { type: typeof ServerMessageType.Export; requestId: string; projectId: string; output?: Partial<Output> }
   | { type: typeof ServerMessageType.Scopes; requestId: string; projectId: string; times?: number[] }
-  | { type: typeof ServerMessageType.Loudness; requestId: string; projectId: string };
+  | { type: typeof ServerMessageType.Loudness; requestId: string; projectId: string }
+  | { type: typeof ServerMessageType.SideFile; requestId: string; projectId: string; kind: SideFile };
+
+/** Files exported beside the video: subtitles, and the Edit timeline for other editors. */
+export const SideFile = { Srt: "srt", Vtt: "vtt", Fcpxml: "fcpxml", Otio: "otio", Edl: "edl" } as const;
+export type SideFile = (typeof SideFile)[keyof typeof SideFile];
+export const SIDE_FILE_LABEL: Record<SideFile, string> = { srt: "Subtitles (.srt)", vtt: "Subtitles (.vtt)", fcpxml: "Final Cut / Resolve (.fcpxml)", otio: "OpenTimelineIO (.otio)", edl: "EDL (.edl)" };
 
 /** The mix bus (`set_mix`): master level in dB, and the loudness it was normalized to. */
 export type Mix = { master_db: number; target_lufs?: number };
@@ -238,6 +246,8 @@ export type EditorMessage =
       layouts?: FrameLayout[];
       scopes?: ScopeStats[];
       loudness?: Loudness | null;
+      /** side_file: the file's text. */
+      text?: string;
       /** export: where the file was written (desktop app) or its /media URL (browser editor). */
       file?: string;
       url?: string;

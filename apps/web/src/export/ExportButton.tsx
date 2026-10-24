@@ -6,6 +6,7 @@ import { engineHost } from "../engine/host";
 import { exportNative, revealFile } from "./nativeExport";
 import { renderCurrentScene } from "./renderScene";
 import { RESOLUTIONS, sceneOutput } from "./resolution";
+import { SideFilesRow } from "./SideFilesRow";
 
 const Stage = { Idle: "idle", Rendering: "rendering", Done: "done", Error: "error" } as const;
 type Stage = (typeof Stage)[keyof typeof Stage];
@@ -142,6 +143,7 @@ export function ExportButton({ name, audioUrl }: { projectId: string; name: stri
                 Export
               </button>
             )}
+            <SideFilesRow name={name} />
           </div>
         </div>
       )}

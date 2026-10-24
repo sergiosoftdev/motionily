@@ -471,6 +471,17 @@ class EngineHost {
   }
 
   /** What the video clips play and how loud, over the whole video (the native exporter mixes it in). */
+  /** The Edit timeline as FCPXML, OTIO or EDL, sources under `mediaRoot`, with the voice-over as a clip. */
+  timelineFile(format: "fcpxml" | "otio" | "edl", name: string, mediaRoot: string): string {
+    const voice = this.audioUrl ? new URL(this.audioUrl, location.href).pathname : undefined;
+    return this.require().timelineFile(format, name, mediaRoot, voice?.startsWith("/media/") ? voice : this.audioUrl ?? undefined);
+  }
+
+  /** The captions as SRT or WebVTT, cue by cue as on screen (empty without captions); `range` = an exported part. */
+  subtitles(format: "srt" | "vtt", range?: [number, number] | null): string {
+    return this.require().subtitles(format, range?.[0], range?.[1]);
+  }
+
   /** Loudness of the mix as it exports, at a master level of 0 dB (null when the video is silent). */
   async mixLoudness(): Promise<Loudness | null> {
     await this.mediaReady();

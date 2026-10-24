@@ -1,4 +1,5 @@
 import { sceneOutput } from "../export/resolution";
+import { saveSideFile, sideFileText } from "../export/sideFiles";
 import { exportNative } from "../export/nativeExport";
 import { renderCurrentScene } from "../export/renderScene";
 import { desktop } from "../desktop";
@@ -109,8 +110,16 @@ export function EditorScreen({ id }: { id: string }) {
       logActivity(ActivitySource.Agent, "Exported the video");
       return { url: mediaUrl(up.url) };
     };
+    agentBridge.onSideFile = async (kind) => {
+      const name = latestProject.current?.name ?? "";
+      const text = sideFileText(kind, name);
+      if (!text.trim()) throw new Error("there is nothing to write (no captions or no clips yet)");
+      const file = desktop ? await saveSideFile(name, kind, text) : null;
+      return file ? { text, file } : { text };
+    };
     return () => {
       agentBridge.onExport = null;
+      agentBridge.onSideFile = null;
     };
   }, []);
 
