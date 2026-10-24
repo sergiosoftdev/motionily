@@ -14,7 +14,7 @@ import {
   WebMOutputFormat,
 } from "mediabunny";
 import { Engine } from "../engine/pkg/engine_wasm.js";
-import { VIDEO_LAYER, clipSounds, hasSound, type ClipSound, type VideoLibrary } from "../engine/video";
+import { AUDIO_LAYER, VIDEO_LAYER, clipSounds, hasSound, type ClipSound, type VideoLibrary } from "../engine/video";
 import { audioPieces, type AudioTrack } from "../audio/track";
 
 type SceneInfo = {
@@ -106,7 +106,7 @@ function sfxCues(scene: SceneInfo) {
 /** Whether the video has any sound at all (voice, music, effects or clips with their own sound). */
 export function sceneHasAudio(sceneJson: string, audioUrl: string | null): boolean {
   const scene = JSON.parse(sceneJson) as SceneInfo;
-  const hasClipSound = (scene.layers ?? []).some((l) => l.type === VIDEO_LAYER && hasSound(l.volume));
+  const hasClipSound = (scene.layers ?? []).some((l) => (l.type === VIDEO_LAYER || l.type === AUDIO_LAYER) && hasSound(l.volume));
   return !!audioUrl || !!scene.music || sfxCues(scene).length > 0 || hasClipSound;
 }
 

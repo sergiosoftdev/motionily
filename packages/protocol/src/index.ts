@@ -491,6 +491,25 @@ export type VoiceWord = { text: string; start: number; end: number };
 export type SunoPrompt = { title: string; style: string; structure: string; dropAt: number | null; notes: string; createdAt: string };
 
 /** A clip uploaded to be edited. `words` (file seconds) once the editor transcribed it; `poster` = a 4×3 contact sheet. */
+/** Kinds of file in a video's media pool besides its clips (apps/api media-pool). */
+export const MediaKind = { Audio: "audio", Image: "image" } as const;
+export type MediaKind = (typeof MediaKind)[keyof typeof MediaKind];
+
+/** A sound or picture in a video's media pool (GET /projects/:id/media). */
+export type MediaItem = {
+  id: string;
+  kind: MediaKind;
+  url: string;
+  name: string;
+  mime: string;
+  size: number;
+  /** Sounds: seconds. */
+  duration: number | null;
+  /** Pictures: pixels. */
+  width: number | null;
+  height: number | null;
+};
+
 export type FootageClip = {
   id: string;
   name: string;

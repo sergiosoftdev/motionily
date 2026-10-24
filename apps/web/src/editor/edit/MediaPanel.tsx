@@ -18,9 +18,9 @@ import { useAgentName } from "../../agentName";
 export const CLIP_ACCEPT = "video/mp4,video/quicktime,video/webm";
 export const SONG_ACCEPT = "audio/*";
 /** Suno's own icon, for the button that opens the Suno prompt. */
-const SUNO_LOGO = "/brand/suno.png";
+export const SUNO_LOGO = "/brand/suno.png";
 /** Frame shown as a clip's thumbnail (s): past a fade-in, early enough to load fast. */
-const THUMB_AT = 0.5;
+export const THUMB_AT = 0.5;
 
 export const MediaTab = { Clips: "clips", Music: "music" } as const;
 export type MediaTab = (typeof MediaTab)[keyof typeof MediaTab];
@@ -29,13 +29,13 @@ const TAB_LABEL: Record<MediaTab, string> = { [MediaTab.Clips]: "Clips", [MediaT
 
 export const mmss = (t: number) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
 
-const ICON = {
+export const ICON = {
   film: "M4 5h16v14H4zM8 5v14M16 5v14M4 9h4M4 15h4M16 9h4M16 15h4",
   note: "M9 18V5l11-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM20 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z",
   plus: "M12 5v14M5 12h14",
 };
 
-function Icon({ d, className = "size-5" }: { d: string; className?: string }) {
+export function Icon({ d, className = "size-5" }: { d: string; className?: string }) {
   return (
     <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
       <path d={d} />
@@ -108,7 +108,7 @@ export function useMusicUpload(ed: EditorProps, edits: EditActions) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** Under the whole video, starting where the song fits it best (its loud part on the key moment). */
-  const place = (m: NonNullable<Project["music"]>) => {
+  const place = (m: { url: string; trimIn: number; duration?: number | null }) => {
     // Never start past the end of the song (it would play nothing).
     const trimIn = m.duration ? Math.min(m.trimIn, Math.max(0, m.duration - 1)) : m.trimIn;
     edits.apply([{ op: OpName.SetMusic, music: { src: m.url, start: 0, trim_in: trimIn, gain: DEFAULT_MUSIC_GAIN, duck: DEFAULT_DUCK } }], "Adds music", false);
@@ -316,7 +316,7 @@ function MusicTab({ ed, scene, music, onSelectMusic }: { ed: EditorProps; scene:
 }
 
 /** Click to browse or drop files on it. `big` fills the tab when it is empty. */
-function DropZone({ accept, multiple, busy, onFiles, big, children }: { accept: string; multiple?: boolean; busy?: boolean; onFiles: (f: File[]) => void; big?: boolean; children: ReactNode }) {
+export function DropZone({ accept, multiple, busy, onFiles, big, children }: { accept: string; multiple?: boolean; busy?: boolean; onFiles: (f: File[]) => void; big?: boolean; children: ReactNode }) {
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
   return (
@@ -357,7 +357,7 @@ function DropZone({ accept, multiple, busy, onFiles, big, children }: { accept: 
   );
 }
 
-function ProgressLine({ progress }: { progress: CaptionProgress }) {
+export function ProgressLine({ progress }: { progress: CaptionProgress }) {
   return (
     <div className="flex flex-col gap-1.5 px-1">
       <span className="text-xs text-neutral-400">{captioningLabel(progress)}</span>

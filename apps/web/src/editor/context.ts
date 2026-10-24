@@ -19,7 +19,8 @@ export type EditorProps = {
   mode: EditorMode;
   setMode: (m: EditorMode) => void;
   rename: (name: string) => void;
-  changeFormat: (f: VideoFormat) => void;
+  /** New frame shape; `recompose` (default true) asks the agent to lay the graphics out again. */
+  changeFormat: (f: VideoFormat, recompose?: boolean) => Promise<void>;
   saveBrief: (brief: string) => void;
   saveReferences: (refs: string[]) => void;
   setProject: (p: Project) => void;

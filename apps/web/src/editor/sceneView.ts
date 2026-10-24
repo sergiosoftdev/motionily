@@ -23,6 +23,8 @@ export type SceneLayerView = {
 };
 /** The parts of the scene JSON the editor panels read. */
 export type SceneView = {
+  width: number;
+  height: number;
   duration: number;
   fps?: number;
   layers: SceneLayerView[];

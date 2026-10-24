@@ -152,7 +152,7 @@ export function EditorScreen({ id }: { id: string }) {
     if (!project || name === project.name) return;
     setProject(await api.updateProject(id, { name }));
   };
-  const changeFormat = async (format: VideoFormat) => {
+  const changeFormat = async (format: VideoFormat, recompose = true) => {
     if (!project || format === project.format) return;
     const p = await api.updateProject(id, { format });
     setProject(p);
@@ -161,7 +161,7 @@ export function EditorScreen({ id }: { id: string }) {
     logActivity(ActivitySource.User, `Format: ${format}`);
     // A new frame shape needs a new layout, not a stretched one: let the agent recompose.
     const [w, h] = FORMAT_SIZE[format];
-    if (p.scene && (p.scene.layers as unknown[] | undefined)?.length) {
+    if (recompose && p.scene && (p.scene.layers as unknown[] | undefined)?.length) {
       void api
         .generate(id, `The user switched the format to ${w}x${h}. Recompose every beat for this frame (positions, sizes, line breaks) keeping the content; check with render_frames.`)
         .catch(() => undefined);
@@ -183,7 +183,7 @@ export function EditorScreen({ id }: { id: string }) {
     mode,
     setMode,
     rename: (name) => void rename(name),
-    changeFormat: (f) => void changeFormat(f),
+    changeFormat: (f, recompose) => changeFormat(f, recompose),
     saveBrief: (b) => void saveBrief(b),
     saveReferences: (references) => void api.updateProject(id, { references }).then(setProject),
     setProject,

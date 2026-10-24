@@ -7,7 +7,8 @@ import { engineHost } from "../../engine/host";
 import { useEditor } from "../../store";
 import type { SceneView } from "../sceneView";
 import { Filmstrip, SoundWave, usePeaks, Waveform } from "./TimelineMedia";
-import { MIN_CLIP, moveBlockOps, moveClipOps, shownSpan, trimWithTransitionsOps, type EditClip, type EditTracks, type GraphicsBlock } from "./tracks";
+import { ClipKind, MIN_CLIP, moveBlockOps, moveClipOps, shownSpan, trimWithTransitionsOps, type EditClip, type EditTracks, type GraphicsBlock } from "./tracks";
+import { isPoolDrag, readPoolDrop, type PoolDrop } from "./MediaPool";
 import { CUT_EPS } from "./transitions";
 import { TransitionChip } from "./TransitionChip";
 import type { EditActions } from "./useEditActions";
@@ -42,6 +43,12 @@ const CLIP_WAVE = "rgba(186,230,253,0.9)";
 const MUTED_WAVE = "rgba(186,230,253,0.35)";
 const VOICE_WAVE = "rgba(209,250,229,0.85)";
 const MUSIC_WAVE = "rgba(252,231,243,0.8)";
+const SOUND_WAVE = "rgba(167,243,208,0.9)";
+const MUTED_SOUND_WAVE = "rgba(167,243,208,0.35)";
+
+/** Which track a lane belongs to, for drops from the media pool. */
+export const LaneTrack = { Video: "video", Audio: "audio" } as const;
+export type LaneTrack = (typeof LaneTrack)[keyof typeof LaneTrack];
 
 /** What the user has picked in the timeline. Clips and blocks follow the editor's selection (canvas or timeline). */
 export type EditSelection =
@@ -97,6 +104,7 @@ export function EditTimeline({
   onSelectCue,
   onSelectMusic,
   onPick,
+  onDropMedia,
   edits,
 }: {
   scene: SceneView;
@@ -108,8 +116,11 @@ export function EditTimeline({
   onSelectMusic: (on: boolean) => void;
   /** Several pieces at once (marquee, Shift-click, "select all effects"); null clears them. */
   onPick: (picks: Picks | null) => void;
+  /** A media pool tile dropped on a lane at scene second `at`. */
+  onDropMedia: (drop: PoolDrop, at: number, track: LaneTrack) => void;
   edits: EditActions;
 }) {
+  const [dropLane, setDropLane] = useState<string | null>(null);
   const time = useEditor((s) => s.time);
   const duration = Math.max(scene.duration, 0.1);
   const fps = scene.fps ?? 30;
@@ -215,7 +226,7 @@ export function EditTimeline({
     window.addEventListener("pointerup", up);
   };
 
-  const clipPoints = (c: EditClip) => [0, time, ...tracks.clips.filter((x) => x.id !== c.id && x.lane === c.lane).flatMap((x) => [x.start, x.end])];
+  const clipPoints = (c: EditClip) => [0, time, ...(c.kind === ClipKind.Audio ? tracks.audio : tracks.clips).filter((x) => x.id !== c.id && x.lane === c.lane).flatMap((x) => [x.start, x.end])];
   /** Shift-click: add the piece to the selection, or take it out. */
   const togglePick = (kind: PickKind, id: string) => {
     const has = picked[kind].includes(id);
@@ -279,6 +290,9 @@ export function EditTimeline({
   /** One clip: frames, its sound, its name, the volume line when selected (or keyed), trim handles. */
   const clipBlock = (c: EditClip) => {
     const on = picked.clip.includes(c.id);
+    const sound = c.kind === ClipKind.Audio;
+    const still = c.kind === ClipKind.Image;
+    const height = sound ? AUDIO_H : CLIP_H;
     // Main-track clips show from the middle of each transition, like a cut there.
     const [from, to] = c.lane === 0 ? shownSpan(c) : [c.start, c.end];
     const left = px(from);
@@ -317,10 +331,16 @@ export function EditTimeline({
             true,
           )
         }
-        className={`group absolute top-1.5 bottom-1.5 cursor-grab overflow-hidden rounded-md text-[11px] whitespace-nowrap text-sky-50 active:cursor-grabbing ${on ? "bg-sky-800 ring-2 ring-white" : "bg-sky-900 hover:brightness-110"}`}
+        className={`group absolute cursor-grab overflow-hidden rounded-md text-[11px] whitespace-nowrap active:cursor-grabbing ${sound ? "top-1 bottom-1 text-emerald-50" : "top-1.5 bottom-1.5 text-sky-50"} ${
+          on ? `${sound ? "bg-emerald-700" : "bg-sky-800"} ring-2 ring-white` : `${sound ? "bg-emerald-900/80" : still ? "bg-indigo-900" : "bg-sky-900"} hover:brightness-110`
+        }`}
         style={{ left, width }}
       >
-        {vis.visR > vis.visL && (
+        {sound && vis.visR > vis.visL && (
+          <SoundWave url={mediaUrl(c.src)} fileAt0={c.in + (from - c.start) * c.speed} rate={c.speed / pps} visL={vis.visL} visR={vis.visR} top={0} height={AUDIO_H} color={c.volume > 0 ? SOUND_WAVE : MUTED_SOUND_WAVE} />
+        )}
+        {still && <span className="pointer-events-none absolute inset-0 bg-repeat-x opacity-80" style={{ backgroundImage: `url(${mediaUrl(c.src)})`, backgroundSize: `auto ${CLIP_H}px` }} />}
+        {!sound && !still && vis.visR > vis.visL && (
           <>
             <Filmstrip
               src={c.src}
@@ -342,16 +362,17 @@ export function EditTimeline({
         <span className="pointer-events-none absolute top-1 left-1 max-w-[calc(100%-8px)] truncate rounded bg-black/55 px-1.5 text-[10px] leading-4">
           {c.name}
           {c.scale > 1 ? ` · ${Math.round((c.scale - 1) * 100)}% zoom` : ""}
-          {c.volume <= 0 ? " · muted" : ""}
+          {!still && c.volume <= 0 ? " · muted" : ""}
+          {c.speed !== 1 ? ` · ${c.speed}×` : ""}
         </span>
-        {(on || c.volumeKeys) && (
+        {!still && (on || c.volumeKeys) && (
           <VolumeLine
             keys={c.volumeKeys}
             level={c.volume}
             keyZero={c.start}
             from={from}
             width={width}
-            height={CLIP_H}
+            height={height}
             pps={pps}
             fps={fps}
             active={on}
@@ -377,6 +398,8 @@ export function EditTimeline({
     });
   };
 
+  /** Lanes that take media pool drops: video lanes (clips, pictures) and audio lanes (sounds). */
+  const trackOf = (key: string): LaneTrack | null => (key.startsWith("video-") ? LaneTrack.Video : key.startsWith("audio-") ? LaneTrack.Audio : null);
   /** `pickAll` turns the lane's label into "select everything on this lane". */
   const lanes: { key: string; label: string; height: number; body: ReactNode; pickAll?: () => void }[] = [];
   for (let row = tracks.blockLanes - 1; row >= 0; row--) {
@@ -427,6 +450,15 @@ export function EditTimeline({
           {lane === 0 && cuts()}
         </>
       ),
+    });
+  }
+  // Sound clips under the video, one lane per overlap (always one, to drop sounds on).
+  for (let lane = 0; lane < tracks.audioLanes; lane++) {
+    lanes.push({
+      key: `audio-${lane}`,
+      label: lane === 0 ? "Audio" : `Audio ${lane + 1}`,
+      height: AUDIO_LANE_H,
+      body: <>{tracks.audio.filter((c) => c.lane === lane).map(clipBlock)}</>,
     });
   }
   if (phrases.length)
@@ -609,7 +641,26 @@ export function EditTimeline({
                   l.label
                 )}
               </div>
-              <div onPointerDown={marquee} className="relative flex-1 border-b border-neutral-900/80">
+              <div
+                onPointerDown={marquee}
+                onDragOver={(e) => {
+                  if (!isPoolDrag(e) || !trackOf(l.key)) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "copy";
+                  setDropLane(l.key);
+                }}
+                onDragLeave={() => setDropLane((k) => (k === l.key ? null : k))}
+                onDrop={(e) => {
+                  const track = trackOf(l.key);
+                  const drop = readPoolDrop(e);
+                  setDropLane(null);
+                  if (!track || !drop) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onDropMedia(drop, timeAt(e.clientX), track);
+                }}
+                className={`relative flex-1 border-b border-neutral-900/80 ${dropLane === l.key ? "bg-white/[0.06]" : ""}`}
+              >
                 {l.body}
               </div>
             </div>

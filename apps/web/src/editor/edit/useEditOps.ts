@@ -3,7 +3,7 @@ import { engineHost } from "../../engine/host";
 import { useEditor } from "../../store";
 import type { SceneView } from "../sceneView";
 import type { EditSelection } from "./EditTimeline";
-import { freshId, rippleDeleteOps, splitClipOps, type EditClip, type EditTracks } from "./tracks";
+import { ClipKind, freshId, rippleDeleteOps, splitClipOps, type EditClip, type EditTracks } from "./tracks";
 import type { EditActions } from "./useEditActions";
 
 /** Split, delete and their friends, shared by keys, toolbar and inspector. */
@@ -23,9 +23,10 @@ export function useEditOps(scene: SceneView | null, tracks: EditTracks | null, e
     if (!scene) return;
     if (sel.kind === "clip") {
       const c = sel.clip;
-      // The main track closes its gap; an overlay just goes.
-      const o = c.lane === 0 ? rippleDeleteOps(c, scene) : [{ op: OpName.RemoveLayer, id: c.id }];
-      edits.apply(o, c.lane === 0 ? `Deletes ${c.id} and closes the gap` : `Deletes ${c.id}`, true);
+      // The main video track closes its gap; an overlay or a sound just goes.
+      const ripple = c.lane === 0 && c.kind !== ClipKind.Audio;
+      const o = ripple ? rippleDeleteOps(c, scene) : [{ op: OpName.RemoveLayer, id: c.id }];
+      edits.apply(o, ripple ? `Deletes ${c.id} and closes the gap` : `Deletes ${c.id}`, true);
     } else if (sel.kind === "block") {
       const b = sel.block;
       edits.apply(b.group ? [{ op: OpName.RemoveGroup, group: b.group }] : b.ids.map((id) => ({ op: OpName.RemoveLayer, id })), `Deletes ${b.label}`, false);

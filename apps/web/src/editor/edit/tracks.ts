@@ -1,6 +1,7 @@
-import { OpName, type FootageClip, type Op } from "@motionily/protocol";
+import { MediaKind, OpName, type FootageClip, type MediaItem, type Op } from "@motionily/protocol";
 import { isKeyWord, type CaptionWord } from "../../captions/transcribe";
-import { VIDEO_LAYER } from "../../engine/video";
+import { AUDIO_LAYER, VIDEO_LAYER } from "../../engine/video";
+export { AUDIO_LAYER };
 import type { SceneLayerView, SceneView } from "../sceneView";
 import { overlapMatches, readTransition, refitTransitionOps, roomAfter, roomBefore, round, shiftAfterOps, stripTransitionFields, stripTransitionOps, type ClipTransition } from "./transitions";
 import { readVolume, shiftKeys, type VolumeKey } from "./volume";
@@ -17,8 +18,20 @@ export const MIN_CLIP = 0.1;
 const FULL_LENGTH = 0.9;
 const EPS = 0.001;
 
+/** What a timeline clip shows or plays: a video clip, a picture held on the video track, or a sound. */
+export const ClipKind = { Video: "video", Image: "image", Audio: "audio" } as const;
+export type ClipKind = (typeof ClipKind)[keyof typeof ClipKind];
+
+/** The scene's layer type for pictures. */
+const IMAGE_LAYER = "image";
+/** Seconds a picture gets when it is dropped on the timeline. */
+export const IMAGE_SECONDS = 3;
+
 export type EditClip = {
   id: string;
+  kind: ClipKind;
+  /** Seconds of the file (null = unknown, or a picture: no end). */
+  fileLength: number | null;
   /** The footage clip it comes from (c1…), when it is the user's own. */
   footage: FootageClip | null;
   name: string;
@@ -42,17 +55,31 @@ export type EditClip = {
 /** Layers of motion graphics shown and moved as one piece: a group, or layers that overlap in time. */
 export type GraphicsBlock = { key: string; label: string; group: string | null; ids: string[]; start: number; end: number; lane: number };
 
-export type EditTracks = { clips: EditClip[]; lanes: number; blocks: GraphicsBlock[]; blockLanes: number; backdrop: string[] };
+export type EditTracks = {
+  /** The video track: clips and pictures, on the main lane (0) and overlay lanes. */
+  clips: EditClip[];
+  lanes: number;
+  /** Sound clips, on their own lanes under the video. */
+  audio: EditClip[];
+  audioLanes: number;
+  blocks: GraphicsBlock[];
+  blockLanes: number;
+  backdrop: string[];
+};
 
 const num = (v: unknown, fallback: number) => (typeof v === "number" ? v : fallback);
 const endOf = (l: SceneLayerView, duration: number) => (l.end == null ? duration : l.end);
 
-export function editTracks(scene: SceneView, footage: FootageClip[]): EditTracks {
+/** A picture the user put on the video track (from the media pool), as opposed to one in the graphics. */
+const isPictureClip = (l: SceneLayerView) => l.type === IMAGE_LAYER && l.group === FOOTAGE_GROUP;
+
+export function editTracks(scene: SceneView, footage: FootageClip[], media: MediaItem[] = []): EditTracks {
   const duration = scene.duration;
   const byUrl = new Map(footage.map((c) => [c.url, c]));
+  const mediaByUrl = new Map(media.map((m) => [m.url, m]));
   const clips: EditClip[] = [];
   const lanesEnd: number[] = [];
-  const videos = scene.layers.filter((l) => l.type === VIDEO_LAYER).sort((a, b) => (a.start ?? 0) - (b.start ?? 0));
+  const videos = scene.layers.filter((l) => l.type === VIDEO_LAYER || isPictureClip(l)).sort((a, b) => (a.start ?? 0) - (b.start ?? 0));
   /** Last clip placed on the main track. */
   let main: EditClip | null = null;
   for (const l of videos) {
@@ -68,10 +95,13 @@ export function editTracks(scene: SceneView, footage: FootageClip[]): EditTracks
     const src = String(l.src ?? "");
     const fc = byUrl.get(src) ?? null;
     const volume = readVolume(l.volume);
+    const picture = l.type === IMAGE_LAYER;
     const clip: EditClip = {
       id: l.id,
+      kind: picture ? ClipKind.Image : ClipKind.Video,
+      fileLength: picture ? null : (fc?.duration ?? null),
       footage: fc,
-      name: fc ? `${fc.id} · ${fc.name}` : (src.split("/").pop() ?? l.id),
+      name: fc ? `${fc.id} · ${fc.name}` : (mediaByUrl.get(src)?.name ?? src.split("/").pop() ?? l.id),
       src,
       start,
       end,
@@ -89,12 +119,45 @@ export function editTracks(scene: SceneView, footage: FootageClip[]): EditTracks
     if (lane === 0) main = clip;
   }
 
+  // Sound clips: lanes of their own, packed like overlays (no transitions between them).
+  const audio: EditClip[] = [];
+  const audioEnd: number[] = [];
+  for (const l of scene.layers.filter((x) => x.type === AUDIO_LAYER).sort((a, b) => (a.start ?? 0) - (b.start ?? 0))) {
+    const start = l.start ?? 0;
+    const end = endOf(l, duration);
+    let lane = audioEnd.findIndex((e) => e <= start + EPS);
+    if (lane < 0) lane = audioEnd.push(end) - 1;
+    else audioEnd[lane] = end;
+    const src = String(l.src ?? "");
+    const item = mediaByUrl.get(src);
+    const volume = readVolume(l.volume);
+    audio.push({
+      id: l.id,
+      kind: ClipKind.Audio,
+      fileLength: item?.duration ?? null,
+      footage: null,
+      name: item?.name ?? src.split("/").pop() ?? l.id,
+      src,
+      start,
+      end,
+      in: num(l.in, 0),
+      out: typeof l.out === "number" ? l.out : null,
+      speed: num(l.speed, 1),
+      volume: volume.level,
+      volumeKeys: volume.keys,
+      scale: 1,
+      lane,
+      transition: null,
+      outgoing: 0,
+    });
+  }
+
   const backdrop: string[] = [];
   const blocks: GraphicsBlock[] = [];
   const groups = new Map<string, GraphicsBlock>();
   const loose: SceneLayerView[] = [];
   for (const l of scene.layers) {
-    if (l.type === VIDEO_LAYER) continue;
+    if (l.type === VIDEO_LAYER || l.type === AUDIO_LAYER || isPictureClip(l)) continue;
     const start = l.start ?? 0;
     const end = endOf(l, duration);
     if (end - start >= duration * FULL_LENGTH) {
@@ -142,7 +205,7 @@ export function editTracks(scene: SceneView, footage: FootageClip[]): EditTracks
     else rows[row] = b.end;
     b.lane = row;
   }
-  return { clips, lanes: Math.max(1, lanesEnd.length), blocks, blockLanes: Math.max(1, rows.length), backdrop };
+  return { clips, lanes: Math.max(1, lanesEnd.length), audio, audioLanes: Math.max(1, audioEnd.length), blocks, blockLanes: Math.max(1, rows.length), backdrop };
 }
 
 /** File second at the end of a clip (out, or where its length on screen runs out). */
@@ -150,7 +213,7 @@ const fileEnd = (c: EditClip) => c.in + (c.end - c.start) * c.speed;
 
 /** The main-track clip a transition leads into from `c` (the next clip overlaps `c` by it). */
 const nextOf = (c: EditClip, tracks: EditTracks) => tracks.clips.find((x) => x.transition?.from === c.id) ?? null;
-const clipById = (id: string, tracks: EditTracks) => tracks.clips.find((x) => x.id === id) ?? null;
+const clipById = (id: string, tracks: EditTracks) => tracks.clips.find((x) => x.id === id) ?? tracks.audio.find((x) => x.id === id) ?? null;
 
 /** Seconds of the scene where the clip is what shows: its transitions give half their length to each side. */
 export const shownSpan = (c: EditClip): [number, number] => [c.start + (c.transition?.duration ?? 0) / 2, c.end - c.outgoing / 2];
@@ -173,6 +236,12 @@ export function trimClipOps(c: EditClip, edge: "in" | "out", t: number): Op[] {
 
 /** A trim's ops and where the clip ends up. */
 function trimmed(c: EditClip, edge: "in" | "out", t: number): { ops: Op[]; start: number; end: number } {
+  // A picture has no file time: its edges only change how long it holds.
+  if (c.kind === ClipKind.Image) {
+    const start = edge === "in" ? Math.min(Math.max(t, 0), c.end - MIN_CLIP) : c.start;
+    const end = edge === "out" ? Math.max(t, c.start + MIN_CLIP) : c.end;
+    return { ops: [{ op: OpName.SetTiming, id: c.id, start, end }], start, end };
+  }
   if (edge === "in") {
     // Never before the file's first frame, never past the other edge.
     const start = Math.min(Math.max(t, c.start - c.in / c.speed, 0), c.end - MIN_CLIP);
@@ -185,7 +254,7 @@ function trimmed(c: EditClip, edge: "in" | "out", t: number): { ops: Op[]; start
     ];
     return { ops, start, end: c.end };
   }
-  const fileLength = c.footage?.duration ?? Infinity;
+  const fileLength = c.fileLength ?? c.footage?.duration ?? Infinity;
   const end = Math.max(Math.min(t, c.start + (fileLength - c.in) / c.speed), c.start + MIN_CLIP);
   const ops: Op[] = [
     { op: OpName.SetTiming, id: c.id, start: c.start, end },
@@ -218,6 +287,15 @@ export function splitClipOps(c: EditClip, t: number, layer: Record<string, unkno
   const [from, to] = shownSpan(c);
   if (t <= Math.max(c.start, from) + MIN_CLIP || t >= Math.min(c.end, to) - MIN_CLIP) return null;
   const cutAt = round(c.in + (t - c.start) * c.speed);
+  if (c.kind === ClipKind.Image) {
+    const still: Record<string, unknown> = { ...layer, ...(stripTransitionFields(layer as SceneLayerView) ?? {}), id: newId, start: t, end: c.end };
+    for (const k of Object.keys(still)) if (still[k] === null) delete still[k];
+    return [
+      { op: OpName.SetTiming, id: c.id, start: c.start, end: t },
+      { op: OpName.AddLayer, layer: still },
+      { op: OpName.Reorder, id: newId, index: index + 1 },
+    ];
+  }
   // The second half starts at the cut: no way in, and its volume keys stay on the same sound.
   const copy: Record<string, unknown> = { ...layer, ...(stripTransitionFields(layer as SceneLayerView) ?? {}), id: newId, start: t, end: c.end, in: cutAt, out: c.out ?? round(fileEnd(c)) };
   if (c.volumeKeys) copy.volume = shiftKeys(c.volumeKeys, t - c.start);
@@ -296,6 +374,31 @@ export function appendClipOps(fc: FootageClip, at: number, size: [number, number
     },
     { op: OpName.Reorder, id, index: under },
   ];
+}
+
+/**
+ * Put a media pool item on the timeline at `at`: a sound on the audio track (its whole length), a
+ * picture on the video track for IMAGE_SECONDS, full frame. Overlaps go to another lane by themselves.
+ */
+export function placeMediaOps(item: MediaItem, at: number, size: [number, number], id: string, under: number): Op[] {
+  const [w, h] = size;
+  if (item.kind === MediaKind.Audio) {
+    const length = item.duration ?? IMAGE_SECONDS;
+    return [{ op: OpName.AddLayer, layer: { id, type: AUDIO_LAYER, start: round(at), end: round(at + length), x: w / 2, y: h / 2, w: 2, h: 2, src: item.url, in: 0, out: round(length), volume: 1 } }];
+  }
+  return [
+    { op: OpName.AddLayer, layer: { id, type: IMAGE_LAYER, start: round(at), end: round(at + IMAGE_SECONDS), group: FOOTAGE_GROUP, x: w / 2, y: h / 2, w, h, src: item.url, fit: "cover" } },
+    { op: OpName.Reorder, id, index: under },
+  ];
+}
+
+/** Ops that fit every full-frame clip and picture of the video track to a new frame size (a format change). */
+export function reframeClipOps(scene: SceneView, size: [number, number]): Op[] {
+  const [w, h] = size;
+  const full = (l: SceneLayerView) => Math.abs(num(l.w, 0) - scene.width) < 2 && Math.abs(num(l.h, 0) - scene.height) < 2;
+  return scene.layers
+    .filter((l) => (l.type === VIDEO_LAYER || isPictureClip(l)) && full(l))
+    .map((l) => ({ op: OpName.Patch, id: l.id, fields: { x: w / 2, y: h / 2, w, h } }));
 }
 
 /** Layer group of the user's footage (the MCP's edit_footage writes the same). */

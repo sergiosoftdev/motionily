@@ -32,7 +32,10 @@ pub struct Layout {
 impl Layout {
     pub fn find(resources: Option<&Path>) -> Result<Self, String> {
         let node_override = std::env::var_os("MOTIONILY_NODE").map(PathBuf::from);
-        if let Some(runtime) = resources.map(|r| r.join("runtime")).filter(|r| r.join("api/dist/main.js").exists()) {
+        // Debug builds run the repository's API (Tauri also copies the last bundled runtime next to
+        // them, which would be stale); MOTIONILY_USE_BUNDLE=1 tries the bundle instead.
+        let bundled = !cfg!(debug_assertions) || std::env::var_os("MOTIONILY_USE_BUNDLE").is_some();
+        if let Some(runtime) = resources.filter(|_| bundled).map(|r| r.join("runtime")).filter(|r| r.join("api/dist/main.js").exists()) {
             let node = node_override.unwrap_or_else(|| runtime.join(if cfg!(windows) { "node/node.exe" } else { "node/bin/node" }));
             return Ok(Self {
                 api_main: runtime.join("api/dist/main.js"),

@@ -1,4 +1,4 @@
-import type { AgentRunUsage, AttentionDevice, Brick, BrickSlot, LibraryItem, Project, ProjectListItem, ProviderKey, ProviderStatus, SunoPrompt, User, VideoFormat, Voice, VoiceModel } from "@motionily/protocol";
+import type { AgentRunUsage, AttentionDevice, Brick, BrickSlot, LibraryItem, MediaItem, Project, ProjectListItem, ProviderKey, ProviderStatus, SunoPrompt, User, VideoFormat, Voice, VoiceModel } from "@motionily/protocol";
 import { useSession } from "../session";
 import type { AgentPrefs, GenerateState } from "../components/GeneratePanel";
 import { desktop } from "../desktop";
@@ -180,6 +180,9 @@ export const api = {
   /** Background music for the video (replaces the previous file). */
   uploadMusic: (id: string, file: File) => upload<Project>(`/projects/${id}/music`, file),
   /** The user's own clip to edit; `language` is what is spoken in it (ISO 639-1). */
+  projectMedia: (id: string) => call<MediaItem[]>(HttpMethod.Get, `/projects/${id}/media`),
+  uploadMedia: (id: string, file: File) => upload<MediaItem>(`/projects/${id}/media`, file),
+  removeMedia: (id: string, mediaId: string) => call<{ ok: true }>(HttpMethod.Delete, `/projects/${id}/media/${mediaId}`),
   uploadFootage: (id: string, file: File, language: string) => upload<Project>(`/projects/${id}/footage`, file, { language }),
   /** A clip's transcript, made here in the browser. */
   saveFootageWords: (id: string, clipId: string, words: { text: string; start: number; end: number }[]) =>

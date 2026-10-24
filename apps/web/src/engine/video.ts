@@ -24,6 +24,8 @@ const MAX_RATE = 16;
 
 /** Layer `type` of video clips in the scene JSON. */
 export const VIDEO_LAYER = "video";
+/** Sound clips on the timeline (scene `audio` layers): played and mixed like a video clip's sound, never drawn. */
+export const AUDIO_LAYER = "audio";
 
 export const VideoStatus = { Loading: "loading", Ready: "ready", Failed: "failed" } as const;
 export type VideoStatus = (typeof VideoStatus)[keyof typeof VideoStatus];

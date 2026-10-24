@@ -43,7 +43,7 @@ function splitAsk(text: string): [string | null, string] {
  * top (its settings, and what the next ask points at), the conversation in the middle, and the
  * box at the bottom, with a few starts when it is empty.
  */
-export function ClaudePanel({ ed, hasScene, hasFootage, selection }: { ed: EditorProps; hasScene: boolean; hasFootage: boolean; selection: ReactNode }) {
+export function ClaudePanel({ ed, hasScene, hasFootage, selection, bare = false }: { ed: EditorProps; hasScene: boolean; hasFootage: boolean; selection: ReactNode; bare?: boolean }) {
   const agent = useAgentName();
   const { project, g } = ed;
   const activity = useEditor((s) => s.activity);
@@ -62,12 +62,15 @@ export function ClaudePanel({ ed, hasScene, hasFootage, selection }: { ed: Edito
   const suggestions = hasScene && !g.running ? (hasFootage ? SUGGESTIONS_FOOTAGE : SUGGESTIONS_GRAPHICS) : [];
 
   return (
-    <aside className={`flex w-[380px] shrink-0 flex-col overflow-hidden rounded-2xl bg-neutral-900/50 ring-1 ring-white/[0.06] ${ModePiece.Right}`}>
-      <header className="flex items-center gap-2 px-4 pt-3.5 pb-2">
-        <Spark className="size-4 text-white" />
-        <span className="text-sm font-semibold">{agent}</span>
-        {g.running && <span className="ml-auto size-2 animate-pulse rounded-full bg-emerald-400" aria-label="Working" />}
-      </header>
+    // `bare`: inside the side panel's tab (which has the title), not a panel of its own.
+    <aside className={bare ? "flex min-h-0 flex-1 flex-col overflow-hidden" : `flex w-[380px] shrink-0 flex-col overflow-hidden rounded-2xl bg-neutral-900/50 ring-1 ring-white/[0.06] ${ModePiece.Right}`}>
+      {!bare && (
+        <header className="flex items-center gap-2 px-4 pt-3.5 pb-2">
+          <Spark className="size-4 text-white" />
+          <span className="text-sm font-semibold">{agent}</span>
+          {g.running && <span className="ml-auto size-2 animate-pulse rounded-full bg-emerald-400" aria-label="Working" />}
+        </header>
+      )}
 
       {selection && <div className="mx-3 mb-2 max-h-[45%] shrink-0 overflow-y-auto rounded-xl bg-neutral-950/70 p-3">{selection}</div>}
 
@@ -158,7 +161,7 @@ function TurnView({ turn }: { turn: Turn }) {
   );
 }
 
-function Spark({ className }: { className: string }) {
+export function Spark({ className }: { className: string }) {
   return (
     <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden>
       <path d="M12 2.5c.5 4.6 2.9 7 9.5 9.5-6.6 2.5-9 4.9-9.5 9.5-.5-4.6-2.9-7-9.5-9.5 6.6-2.5 9-4.9 9.5-9.5z" />

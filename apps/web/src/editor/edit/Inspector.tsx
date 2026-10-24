@@ -3,7 +3,7 @@ import { OpName } from "@motionily/protocol";
 import type { SfxCue } from "../../audio/sfxPlayer";
 import type { MusicTrack } from "../../audio/music";
 import type { EditSelection } from "./EditTimeline";
-import type { EditClip, GraphicsBlock } from "./tracks";
+import { ClipKind, type EditClip, type GraphicsBlock } from "./tracks";
 import type { EditActions } from "./useEditActions";
 import type { EditOps } from "./useEditOps";
 import { useAgentName } from "../../agentName";
@@ -51,7 +51,44 @@ function Slider({ label, value, min, max, step, format, onChange, onDone }: { la
   );
 }
 
+/** Sections of a clip's inspector, like CapCut's: what it shows, what it sounds like, its color. */
+const ClipTab = { Video: "video", Audio: "audio", Color: "color" } as const;
+type ClipTab = (typeof ClipTab)[keyof typeof ClipTab];
+const CLIP_TAB_LABEL: Record<ClipTab, string> = { video: "Video", audio: "Audio", color: "Color" };
+const TABS_OF: Record<EditClip["kind"], ClipTab[]> = {
+  [ClipKind.Video]: [ClipTab.Video, ClipTab.Audio, ClipTab.Color],
+  [ClipKind.Image]: [ClipTab.Video, ClipTab.Color],
+  [ClipKind.Audio]: [ClipTab.Audio],
+};
+const FADES = [0, 0.25, 0.5, 1, 2];
+const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3];
+
+/** Fade in/out read back from volume keys written by `fadeKeys` (0 when there is none). */
+function readFades(c: EditClip): { fadeIn: number; fadeOut: number } {
+  const k = c.volumeKeys;
+  if (!k || k.length < 2) return { fadeIn: 0, fadeOut: 0 };
+  const len = c.end - c.start;
+  return { fadeIn: k[0]!.v === 0 && k[0]!.t === 0 ? k[1]!.t : 0, fadeOut: k.at(-1)!.v === 0 && Math.abs(k.at(-1)!.t - len) < 0.01 ? len - k.at(-2)!.t : 0 };
+}
+
+/** Volume keys (seconds from the clip's start) for a level with fades at both ends. */
+function fadeKeys(level: number, len: number, fadeIn: number, fadeOut: number): { t: number; v: number; ease?: string }[] | number {
+  if (!fadeIn && !fadeOut) return level;
+  const i = Math.min(fadeIn, len / 2);
+  const o = Math.min(fadeOut, len / 2);
+  const r = (t: number) => Math.round(t * 1000) / 1000;
+  return [
+    ...(i ? [{ t: 0, v: 0, ease: "linear" }, { t: r(i), v: level }] : [{ t: 0, v: level }]),
+    ...(o ? [{ t: r(len - o), v: level, ease: "linear" }, { t: r(len), v: 0 }] : []),
+  ];
+}
+
 function ClipInspector({ clip, ops, edits, clipIds }: { clip: EditClip; ops: EditOps; edits: EditActions; clipIds: string[] }) {
+  const tabs = TABS_OF[clip.kind];
+  const [tab, setTab] = useState<ClipTab>(tabs[0]!);
+  useEffect(() => {
+    if (!tabs.includes(tab)) setTab(tabs[0]!);
+  }, [clip.kind]); // eslint-disable-line react-hooks/exhaustive-deps
   const live = (o: Parameters<EditActions["preview"]>[0]) => edits.preview(o);
   const started = useRef(false);
   const change = (o: Parameters<EditActions["preview"]>[0]) => {
@@ -64,52 +101,115 @@ function ClipInspector({ clip, ops, edits, clipIds }: { clip: EditClip; ops: Edi
     started.current = false;
     edits.end(what, recaption);
   };
+  const still = clip.kind === ClipKind.Image;
   const fileOut = clip.out ?? clip.in + (clip.end - clip.start) * clip.speed;
+  const len = clip.end - clip.start;
+  const { fadeIn, fadeOut } = readFades(clip);
+  const level = clip.volumeKeys ? Math.max(...clip.volumeKeys.map((k) => k.v)) : clip.volume;
+  const customKeys = !!clip.volumeKeys && !fadeIn && !fadeOut;
+  const setFades = (i: number, o: number) =>
+    edits.apply([{ op: OpName.Patch, id: clip.id, fields: { volume: fadeKeys(level || 1, len, i, o) } }], `Fades of ${clip.id}: in ${i} s, out ${o} s`, clip.kind === ClipKind.Video);
+
   return (
     <div className="flex flex-col gap-4">
       <div>
         <p className="truncate text-sm font-semibold">{clip.name}</p>
         <p className="text-xs text-neutral-500 tabular-nums">
-          {clip.start.toFixed(2)}–{clip.end.toFixed(2)} s on the video · file {clip.in.toFixed(2)}–{fileOut.toFixed(2)} s
+          {clip.start.toFixed(2)}–{clip.end.toFixed(2)} s{still ? ` · ${len.toFixed(2)} s on screen` : ` on the video · file ${clip.in.toFixed(2)}–${fileOut.toFixed(2)} s`}
         </p>
       </div>
-      {clip.volumeKeys ? (
-        // Keyed volume lives on the clip's volume line; a slider here would flatten it.
-        <div className="flex flex-col gap-1 text-xs text-neutral-400">
-          <span className="flex justify-between">
-            Volume <span className="text-neutral-200 tabular-nums">{clip.volumeKeys.length} keyframes</span>
-          </span>
-          <p className="text-[11px] text-neutral-500">Drag the volume line on the clip; double-click a point to remove it.</p>
-          <button
-            type="button"
-            onClick={() => edits.apply([{ op: OpName.Patch, id: clip.id, fields: { volume: clip.volume } }], `Volume of ${clip.id}: one level`, true)}
-            className="self-start text-[11px] text-neutral-400 hover:text-white"
-          >
-            Use one level instead
-          </button>
-        </div>
-      ) : (
-        <Slider label="Volume" value={clip.volume} min={0} max={1} step={0.05} format={(v) => `${Math.round(v * 100)}%`} onChange={(v) => change([{ op: OpName.Patch, id: clip.id, fields: { volume: v } }])} onDone={() => done(`Volume of ${clip.id}`, true)} />
-      )}
-      <Slider label="Zoom" value={clip.scale} min={1} max={1.6} step={0.01} format={(v) => `${Math.round(v * 100)}%`} onChange={(v) => change([{ op: OpName.SetProp, id: clip.id, prop: "scale", value: v }])} onDone={() => done(`Zoom of ${clip.id}`)} />
-      <label className="flex flex-col gap-1 text-xs text-neutral-400">
-        Speed
-        <select
-          value={clip.speed}
-          onChange={(e) => {
-            const speed = Number(e.target.value);
-            const end = Math.round((clip.start + (fileOut - clip.in) / speed) * 1000) / 1000;
-            edits.apply([{ op: OpName.Patch, id: clip.id, fields: { speed } }, { op: OpName.SetTiming, id: clip.id, start: clip.start, end }], `Speed of ${clip.id}: ${speed}×`, true);
-          }}
-          className="rounded-md bg-neutral-800 px-2 py-1.5 text-sm text-white"
-        >
-          {[0.5, 0.75, 1, 1.25, 1.5, 2].map((s) => (
-            <option key={s} value={s}>
-              {s}×
-            </option>
+      {tabs.length > 1 && (
+        <div className="grid gap-1 rounded-lg bg-neutral-950 p-1" style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}>
+          {tabs.map((t) => (
+            <button key={t} type="button" onClick={() => setTab(t)} className={`rounded-md py-1 text-xs ${tab === t ? "bg-neutral-800 text-white" : "text-neutral-500 hover:text-white"}`}>
+              {CLIP_TAB_LABEL[t]}
+            </button>
           ))}
-        </select>
-      </label>
+        </div>
+      )}
+      {tab === ClipTab.Video && (
+        <>
+          <Slider label="Zoom" value={clip.scale} min={1} max={1.6} step={0.01} format={(v) => `${Math.round(v * 100)}%`} onChange={(v) => change([{ op: OpName.SetProp, id: clip.id, prop: "scale", value: v }])} onDone={() => done(`Zoom of ${clip.id}`)} />
+          {still && (
+            <Slider
+              label="Duration"
+              value={len}
+              min={0.5}
+              max={15}
+              step={0.1}
+              format={(v) => `${v.toFixed(1)} s`}
+              onChange={(v) => change([{ op: OpName.SetTiming, id: clip.id, start: clip.start, end: Math.round((clip.start + v) * 1000) / 1000 }])}
+              onDone={() => done(`Duration of ${clip.id}`)}
+            />
+          )}
+        </>
+      )}
+      {tab === ClipTab.Audio && (
+        <>
+          {customKeys ? (
+            // Keyed volume lives on the clip's volume line; a slider here would flatten it.
+            <div className="flex flex-col gap-1 text-xs text-neutral-400">
+              <span className="flex justify-between">
+                Volume <span className="text-neutral-200 tabular-nums">{clip.volumeKeys!.length} keyframes</span>
+              </span>
+              <p className="text-[11px] text-neutral-500">Drag the volume line on the clip; double-click a point to remove it.</p>
+              <button
+                type="button"
+                onClick={() => edits.apply([{ op: OpName.Patch, id: clip.id, fields: { volume: level } }], `Volume of ${clip.id}: one level`, true)}
+                className="self-start text-[11px] text-neutral-400 hover:text-white"
+              >
+                Use one level instead
+              </button>
+            </div>
+          ) : (
+            <Slider
+              label="Volume"
+              value={level}
+              min={0}
+              max={1}
+              step={0.05}
+              format={(v) => `${Math.round(v * 100)}%`}
+              onChange={(v) => change([{ op: OpName.Patch, id: clip.id, fields: { volume: fadeKeys(v, len, fadeIn, fadeOut) } }])}
+              onDone={() => done(`Volume of ${clip.id}`, true)}
+            />
+          )}
+          <div className="grid grid-cols-2 gap-2">
+            {([["Fade in", fadeIn, (v: number) => setFades(v, fadeOut)], ["Fade out", fadeOut, (v: number) => setFades(fadeIn, v)]] as const).map(([label, value, set]) => (
+              <label key={label} className="flex flex-col gap-1 text-xs text-neutral-400">
+                {label}
+                <select value={value} onChange={(e) => set(Number(e.target.value))} className="rounded-md bg-neutral-800 px-2 py-1.5 text-sm text-white">
+                  {[...new Set([...FADES, Math.round(value * 100) / 100])].sort((a, b) => a - b).map((f) => (
+                    <option key={f} value={f}>
+                      {f ? `${f} s` : "Off"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
+        </>
+      )}
+      {(tab === ClipTab.Video || clip.kind === ClipKind.Audio) && !still && (
+        <label className="flex flex-col gap-1 text-xs text-neutral-400">
+          Speed
+          <select
+            value={clip.speed}
+            onChange={(e) => {
+              const speed = Number(e.target.value);
+              const end = Math.round((clip.start + (fileOut - clip.in) / speed) * 1000) / 1000;
+              edits.apply([{ op: OpName.Patch, id: clip.id, fields: { speed } }, { op: OpName.SetTiming, id: clip.id, start: clip.start, end }], `Speed of ${clip.id}: ${speed}×`, true);
+            }}
+            className="rounded-md bg-neutral-800 px-2 py-1.5 text-sm text-white"
+          >
+            {[...new Set([...SPEEDS, clip.speed])].sort((a, b) => a - b).map((s) => (
+              <option key={s} value={s}>
+                {s}×
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {tab === ClipTab.Color && <ColorSection clipId={clip.id} allClipIds={clipIds.filter((id) => id !== clip.id).concat(clip.id)} edits={edits} />}
       <div className="flex gap-2">
         <button type="button" onClick={() => ops.split(clip)} className="flex-1 rounded-md bg-neutral-800 px-2 py-1.5 text-xs font-semibold hover:bg-neutral-700">
           Split at playhead
@@ -118,7 +218,6 @@ function ClipInspector({ clip, ops, edits, clipIds }: { clip: EditClip; ops: Edi
           Delete
         </button>
       </div>
-      <ColorSection clipId={clip.id} allClipIds={clipIds} edits={edits} />
     </div>
   );
 }
