@@ -458,6 +458,9 @@ pub struct Layer {
     /// Shy: the editor's timeline can hide it. No effect on the render.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub shy: bool,
+    /// Editing track (`V1`, `A2`… of the scene's `tracks`): its switches hide or silence the layer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub track: Option<String>,
     /// Inherit position, rotation and scale from another layer (x/y become relative to it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,

@@ -3,7 +3,7 @@ import { engineHost } from "../../engine/host";
 import { useEditor } from "../../store";
 import type { SceneView } from "../sceneView";
 import type { EditSelection } from "./EditTimeline";
-import { ClipKind, freshId, rippleDeleteOps, splitClipOps, type EditClip, type EditTracks } from "./tracks";
+import { ClipKind, clipLocked, freshId, rippleDeleteOps, splitClipOps, type EditClip, type EditTracks } from "./tracks";
 import type { EditActions } from "./useEditActions";
 
 /** Split, delete and their friends, shared by keys, toolbar and inspector. */
@@ -14,7 +14,7 @@ export function useEditOps(scene: SceneView | null, tracks: EditTracks | null, e
     const t = useEditor.getState().time;
     const c = clip && t > clip.start && t < clip.end ? clip : tracks.clips.find((x) => x.lane === 0 && t > x.start && t < x.end);
     const layer = c && engineHost.layer(c.id);
-    if (!c || !layer) return;
+    if (!c || !layer || clipLocked(tracks, c)) return;
     const id = freshId(c.id, new Set(scene.layers.map((l) => l.id)));
     const o = splitClipOps(c, t, layer, id, scene.layers.findIndex((l) => l.id === c.id));
     if (o) edits.apply(o, `Splits ${c.id} at ${t.toFixed(2)} s`, true);
@@ -23,6 +23,8 @@ export function useEditOps(scene: SceneView | null, tracks: EditTracks | null, e
     if (!scene) return;
     if (sel.kind === "clip") {
       const c = sel.clip;
+      // A locked track keeps its clips.
+      if (tracks && clipLocked(tracks, c)) return;
       // The main video track closes its gap; an overlay or a sound just goes.
       const ripple = c.lane === 0 && c.kind !== ClipKind.Audio;
       const o = ripple ? rippleDeleteOps(c, scene) : [{ op: OpName.RemoveLayer, id: c.id }];

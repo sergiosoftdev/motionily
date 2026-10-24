@@ -237,6 +237,8 @@ export const OpName = {
   SetOutput: "set_output",
   /** Frame rate of the whole video: `{fps}` (1..120). */
   SetFps: "set_fps",
+  /** Editing tracks: `{tracks: Track[]}` (replaces them all). Layers join one with their `track` field. */
+  SetTracks: "set_tracks",
 } as const;
 export type OpName = (typeof OpName)[keyof typeof OpName];
 
@@ -258,6 +260,14 @@ export type Output = { short_side: number; codec: OutputCodec; range?: [number, 
 export const DEFAULT_OUTPUT: Output = { short_side: 1080, codec: OutputCodec.H264 };
 export type SetOutputOp = { op: typeof OpName.SetOutput; output: Output | null };
 export type SetFpsOp = { op: typeof OpName.SetFps; fps: number };
+
+export const TrackKind = { Video: "video", Audio: "audio" } as const;
+export type TrackKind = (typeof TrackKind)[keyof typeof TrackKind];
+/** An editing track (scene `tracks`): hidden = not drawn nor heard, muted = not heard, solo = only solo tracks heard, locked = editor only. */
+export type Track = { id: string; kind: TrackKind; name?: string; hidden?: boolean; muted?: boolean; solo?: boolean; locked?: boolean };
+/** Switches of a track the timeline toggles. */
+export const TrackSwitch = { Hidden: "hidden", Muted: "muted", Solo: "solo", Locked: "locked" } as const;
+export type TrackSwitch = (typeof TrackSwitch)[keyof typeof TrackSwitch];
 
 /** Grade fields of the engine's `color` effect the editor and agents set, with their neutral values. */
 export const GRADE_NEUTRAL = { exposure: 0, contrast: 1, highlights: 0, shadows: 0, temperature: 0, tint: 0, saturation: 1, vibrance: 0, vignette: 0 } as const;

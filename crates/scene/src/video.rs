@@ -203,7 +203,7 @@ impl Scene {
                 let duration = media_duration(&clip.src);
                 let (lt, ahead, volume) = crate::expr::with_vars(t, 0.0, 1.0, || {
                     let lt = l.local_time(t);
-                    (lt, l.local_time(t + RATE_PROBE), clip.volume_at(lt))
+                    (lt, l.local_time(t + RATE_PROBE), clip.volume_at(lt) * self.track_gain(l))
                 });
                 let time = clip.media_time(lt, duration);
                 let next = clip.media_time(ahead, duration);

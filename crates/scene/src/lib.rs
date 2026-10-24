@@ -8,6 +8,7 @@
 mod anim;
 pub mod expr;
 pub mod output;
+pub mod tracks;
 pub mod glyphs;
 mod patch;
 mod hit;
@@ -119,6 +120,9 @@ pub struct Scene {
     /// How the video is exported (resolution, codec, range). `None` = 1080 H.264, the whole video.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<output::Output>,
+    /// Editing tracks (V1…, A1…) layers join with `track`: hide, mute, solo (see [`tracks`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tracks: Vec<tracks::Track>,
 }
 
 /// A named instant on the timeline: `{"t":1.2,"label":"drop","color":"#f5a623"}`.
@@ -202,6 +206,7 @@ impl Default for Scene {
             markers: Vec::new(),
             work_area: None,
             output: None,
+            tracks: Vec::new(),
         }
     }
 }
@@ -285,7 +290,7 @@ impl Scene {
                 continue;
             }
             let is_3d = l.is_3d();
-            if !l.visible && !is_3d {
+            if (!l.visible && !is_3d) || self.track_hidden(l) {
                 continue;
             }
             // Soloing a layer inside a tilted plane keeps the plane's projection (not its own drawing).

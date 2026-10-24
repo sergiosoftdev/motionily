@@ -132,6 +132,8 @@ pub enum Op {
     SetOutput { output: Option<crate::output::Output> },
     /// Frame rate of the whole video (1..=120): `{"op":"set_fps","fps":24}`.
     SetFps { fps: f32 },
+    /// Replace the editing tracks: `{"op":"set_tracks","tracks":[{"id":"V1","kind":"video"},{"id":"A1","kind":"audio","muted":true}]}`.
+    SetTracks { tracks: Vec<crate::tracks::Track> },
     /// Take `[from, to]` seconds out of the whole video and close the gap: voice (its file skips
     /// that stretch), captions, layers (clips get a jump cut), sound effects, transitions, markers.
     RippleDelete { from: f32, to: f32 },
@@ -575,6 +577,10 @@ impl Scene {
                     o.check(self.duration).map_err(OpError::Invalid)?;
                 }
                 self.output = output.clone();
+            }
+            Op::SetTracks { tracks } => {
+                crate::tracks::check(tracks).map_err(OpError::Invalid)?;
+                self.tracks = tracks.clone();
             }
             Op::SetFps { fps } => {
                 if !(fps.is_finite() && (1.0..=120.0).contains(fps)) {

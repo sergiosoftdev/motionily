@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { OpName, type Op } from "@motionily/protocol";
+import { OpName, TrackKind, TrackSwitch, type Op, type Track } from "@motionily/protocol";
 import { mediaUrl } from "../../api/client";
 import type { SfxCue } from "../../audio/sfxPlayer";
 import type { MusicTrack } from "../../audio/music";
@@ -7,7 +7,7 @@ import { engineHost } from "../../engine/host";
 import { useEditor } from "../../store";
 import type { SceneView } from "../sceneView";
 import { Filmstrip, SoundWave, usePeaks, Waveform } from "./TimelineMedia";
-import { ClipKind, MIN_CLIP, moveBlockOps, moveClipOps, shownSpan, trimWithTransitionsOps, type EditClip, type EditTracks, type GraphicsBlock } from "./tracks";
+import { ClipKind, MIN_CLIP, clipLocked, moveBlockOps, moveClipOps, moveToLaneOps, renameTrackOps, shownSpan, trackSwitchOps, trimWithTransitionsOps, type EditClip, type EditTracks, type GraphicsBlock } from "./tracks";
 import { isPoolDrag, readPoolDrop, type PoolDrop } from "./MediaPool";
 import { CUT_EPS } from "./transitions";
 import { TransitionChip } from "./TransitionChip";
@@ -85,7 +85,7 @@ function picksOf(selection: EditSelection): Picks {
 }
 const union = (a: Picks, b: Picks): Picks => ({ clip: [...new Set([...a.clip, ...b.clip])], block: [...new Set([...a.block, ...b.block])], cue: [...new Set([...a.cue, ...b.cue])] });
 
-type Drag = { kind: "move" | "in" | "out"; x0: number; moved: boolean };
+type Drag = { kind: "move" | "in" | "out"; x0: number; y0: number; moved: boolean };
 
 /** Music fields for its volume line: keys without eases (the envelope is linear), a flat level as one key, 100% as none. */
 const envelopeOf = (v: VolumeKey[] | number) => (typeof v === "number" ? (v >= 1 ? [] : [{ t: 0, v }]) : v.map(({ t, v: level }) => ({ t, v: level })));
@@ -206,21 +206,36 @@ export function EditTimeline({
   };
 
   /** Drag helper: a click selects, a drag past the threshold edits live and commits on release. */
-  const drag = (e: ReactPointerEvent, kind: Drag["kind"], onSelect: () => void, onDrag: (dt: number, clientX: number) => Op[], what: () => string, recaption: boolean) => {
+  /**
+   * Drag helper: a click selects, a drag past the threshold edits live and commits on release.
+   * `onRelease` runs after (a clip dropped on another track's lane moves there).
+   */
+  const drag = (
+    e: ReactPointerEvent,
+    kind: Drag["kind"],
+    onSelect: () => void,
+    onDrag: (dt: number, clientX: number) => Op[],
+    what: () => string,
+    recaption: boolean,
+    onRelease?: (ev: PointerEvent) => void,
+  ) => {
     e.stopPropagation();
     e.preventDefault();
     onSelect();
-    const d: Drag = { kind, x0: e.clientX, moved: false };
+    const d: Drag = { kind, x0: e.clientX, y0: e.clientY, moved: false };
+    let vertical = false;
     const move = (ev: PointerEvent) => {
+      if (Math.abs(ev.clientY - d.y0) >= DRAG_THRESHOLD * 4) vertical = true;
       if (!d.moved && Math.abs(ev.clientX - d.x0) < DRAG_THRESHOLD) return;
       if (!d.moved) edits.begin();
       d.moved = true;
       edits.preview(onDrag((ev.clientX - d.x0) / pps, ev.clientX));
     };
-    const up = () => {
+    const up = (ev: PointerEvent) => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       if (d.moved) edits.end(what(), recaption);
+      if (vertical) onRelease?.(ev);
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
@@ -288,8 +303,17 @@ export function EditTimeline({
   };
 
   /** One clip: frames, its sound, its name, the volume line when selected (or keyed), trim handles. */
+  /** Lane under the pointer, from its `data-lane` ("video-2", "audio-new"…). */
+  const laneAt = (x: number, y: number): { kind: TrackKind; lane: number } | null => {
+    const el = document.elementFromPoint(x, y)?.closest<HTMLElement>("[data-lane]");
+    const m = el?.dataset.lane?.match(/^(video|audio)-(\d+|new)$/);
+    if (!m) return null;
+    const kind = m[1] === "audio" ? TrackKind.Audio : TrackKind.Video;
+    return { kind, lane: m[2] === "new" ? (kind === TrackKind.Audio ? tracks.audioLanes : tracks.lanes) : Number(m[2]) };
+  };
   const clipBlock = (c: EditClip) => {
     const on = picked.clip.includes(c.id);
+    const locked = clipLocked(tracks, c);
     const sound = c.kind === ClipKind.Audio;
     const still = c.kind === ClipKind.Image;
     const height = sound ? AUDIO_H : CLIP_H;
@@ -317,7 +341,9 @@ export function EditTimeline({
         onPointerDown={(e) =>
           e.shiftKey
             ? (e.stopPropagation(), togglePick(PickKind.Clip, c.id))
-            : drag(
+            : locked
+              ? (e.stopPropagation(), selectClip(c))
+              : drag(
             e,
             "move",
             () => selectClip(c),
@@ -329,6 +355,12 @@ export function EditTimeline({
             },
             () => `Moves ${c.id}`,
             true,
+            (ev) => {
+              // Dropped on another lane of its kind: the clip moves to that track.
+              const to = laneAt(ev.clientX, ev.clientY);
+              const kind = c.kind === ClipKind.Audio ? TrackKind.Audio : TrackKind.Video;
+              if (to && to.kind === kind && to.lane !== c.lane) edits.apply(moveToLaneOps(tracks, c, to.lane), `Moves ${c.id} to another track`, true);
+            },
           )
         }
         className={`group absolute cursor-grab overflow-hidden rounded-md text-[11px] whitespace-nowrap active:cursor-grabbing ${sound ? "top-1 bottom-1 text-emerald-50" : "top-1.5 bottom-1.5 text-sky-50"} ${
@@ -382,8 +414,8 @@ export function EditTimeline({
             edits={edits}
           />
         )}
-        <span onPointerDown={edge("in")} className="absolute inset-y-0 left-0 cursor-ew-resize bg-white/0 group-hover:bg-white/25" style={{ width: HANDLE_PX }} />
-        <span onPointerDown={edge("out")} className="absolute inset-y-0 right-0 cursor-ew-resize bg-white/0 group-hover:bg-white/25" style={{ width: HANDLE_PX }} />
+        {!locked && <span onPointerDown={edge("in")} className="absolute inset-y-0 left-0 cursor-ew-resize bg-white/0 group-hover:bg-white/25" style={{ width: HANDLE_PX }} />}
+        {!locked && <span onPointerDown={edge("out")} className="absolute inset-y-0 right-0 cursor-ew-resize bg-white/0 group-hover:bg-white/25" style={{ width: HANDLE_PX }} />}
       </div>
     );
   };
@@ -399,9 +431,9 @@ export function EditTimeline({
   };
 
   /** Lanes that take media pool drops: video lanes (clips, pictures) and audio lanes (sounds). */
-  const trackOf = (key: string): LaneTrack | null => (key.startsWith("video-") ? LaneTrack.Video : key.startsWith("audio-") ? LaneTrack.Audio : null);
+  const trackOf = (key: string): LaneTrack | null => (key.startsWith("video-") && key !== "video-new" ? LaneTrack.Video : key.startsWith("audio-") && key !== "audio-new" ? LaneTrack.Audio : null);
   /** `pickAll` turns the lane's label into "select everything on this lane". */
-  const lanes: { key: string; label: string; height: number; body: ReactNode; pickAll?: () => void }[] = [];
+  const lanes: { key: string; label: string; height: number; body: ReactNode; pickAll?: () => void; track?: { kind: TrackKind; lane: number; info: Track } }[] = [];
   for (let row = tracks.blockLanes - 1; row >= 0; row--) {
     lanes.push({
       key: `graphics-${row}`,
@@ -439,10 +471,13 @@ export function EditTimeline({
     });
   }
   // Overlay lanes above, the main track (lane 0) at the bottom, as in CapCut.
+  // An empty lane above the top track: drop a clip there for a new track.
+  lanes.push({ key: "video-new", label: "", height: SMALL_LANE_H, body: <span className="pointer-events-none absolute inset-y-0 left-2 flex items-center text-[10px] text-neutral-700">Drop here for a new video track</span> });
   for (let lane = tracks.lanes - 1; lane >= 0; lane--) {
     lanes.push({
       key: `video-${lane}`,
-      label: lane === 0 ? "Video" : `Overlay ${lane}`,
+      label: tracks.videoTracks[lane]!.name || tracks.videoTracks[lane]!.id,
+      track: { kind: TrackKind.Video, lane, info: tracks.videoTracks[lane]! },
       height: VIDEO_LANE_H,
       body: (
         <>
@@ -456,11 +491,13 @@ export function EditTimeline({
   for (let lane = 0; lane < tracks.audioLanes; lane++) {
     lanes.push({
       key: `audio-${lane}`,
-      label: lane === 0 ? "Audio" : `Audio ${lane + 1}`,
+      label: tracks.audioTracks[lane]!.name || tracks.audioTracks[lane]!.id,
+      track: { kind: TrackKind.Audio, lane, info: tracks.audioTracks[lane]! },
       height: AUDIO_LANE_H,
       body: <>{tracks.audio.filter((c) => c.lane === lane).map(clipBlock)}</>,
     });
   }
+  lanes.push({ key: "audio-new", label: "", height: SMALL_LANE_H, body: <span className="pointer-events-none absolute inset-y-0 left-2 flex items-center text-[10px] text-neutral-700">Drop here for a new audio track</span> });
   if (phrases.length)
     lanes.push({
       key: "captions",
@@ -632,8 +669,10 @@ export function EditTimeline({
           {/* Lanes */}
           {lanes.map((l) => (
             <div key={l.key} className="flex" style={{ height: l.height }}>
-              <div className="sticky left-0 z-10 flex shrink-0 items-center bg-neutral-950 px-3 text-[11px] text-neutral-500" style={{ width: HEADER_W }}>
-                {l.pickAll ? (
+              <div className="sticky left-0 z-10 flex shrink-0 items-center gap-1 bg-neutral-950 px-2 text-[11px] text-neutral-500" style={{ width: HEADER_W }}>
+                {l.track ? (
+                  <TrackHeader track={l.track} onOps={(ops, what) => edits.apply(ops, what, true)} tracks={tracks} />
+                ) : l.pickAll ? (
                   <button type="button" onClick={l.pickAll} title={`Select every item on ${l.label}`} className="hover:text-white">
                     {l.label}
                   </button>
@@ -642,6 +681,7 @@ export function EditTimeline({
                 )}
               </div>
               <div
+                data-lane={l.key}
                 onPointerDown={marquee}
                 onDragOver={(e) => {
                   if (!isPoolDrag(e) || !trackOf(l.key)) return;
@@ -659,7 +699,7 @@ export function EditTimeline({
                   e.stopPropagation();
                   onDropMedia(drop, timeAt(e.clientX), track);
                 }}
-                className={`relative flex-1 border-b border-neutral-900/80 ${dropLane === l.key ? "bg-white/[0.06]" : ""}`}
+                className={`relative flex-1 border-b border-neutral-900/80 ${dropLane === l.key ? "bg-white/[0.06]" : ""} ${l.track?.info.hidden || (l.track?.kind === TrackKind.Audio && l.track.info.muted) ? "opacity-40" : ""}`}
               >
                 {l.body}
               </div>
@@ -673,5 +713,56 @@ export function EditTimeline({
         </div>
       </div>
     </div>
+  );
+}
+
+const SWITCH_LABEL: Record<TrackSwitch, { on: string; off: string; glyph: string }> = {
+  hidden: { on: "Show the track", off: "Hide the track", glyph: "◐" },
+  muted: { on: "Unmute", off: "Mute", glyph: "M" },
+  solo: { on: "Unsolo", off: "Solo: hear only solo tracks", glyph: "S" },
+  locked: { on: "Unlock", off: "Lock (no moving, trimming or deleting)", glyph: "🔒" },
+};
+
+/** A track's name (double-click renames it) and its switches, like an NLE's track header. */
+function TrackHeader({ track, tracks, onOps }: { track: { kind: TrackKind; lane: number; info: Track }; tracks: EditTracks; onOps: (ops: Op[], what: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const switches: TrackSwitch[] = track.kind === TrackKind.Video ? [TrackSwitch.Hidden, TrackSwitch.Locked] : [TrackSwitch.Muted, TrackSwitch.Solo, TrackSwitch.Locked];
+  const name = track.info.name || track.info.id;
+  return (
+    <span className="flex w-full min-w-0 items-center gap-1">
+      {editing ? (
+        <input
+          autoFocus
+          defaultValue={track.info.name ?? ""}
+          placeholder={track.info.id}
+          onBlur={(e) => {
+            setEditing(false);
+            if (e.target.value !== (track.info.name ?? "")) onOps(renameTrackOps(tracks, track.kind, track.lane, e.target.value), `Renames ${track.info.id}`);
+          }}
+          onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+          className="w-12 min-w-0 rounded bg-neutral-900 px-1 text-[11px] text-white focus:outline-none"
+        />
+      ) : (
+        <span onDoubleClick={() => setEditing(true)} title={`${track.info.id} · double-click to rename`} className="min-w-0 flex-1 truncate text-neutral-400">
+          {name}
+        </span>
+      )}
+      {switches.map((sw) => {
+        const on = !!track.info[sw];
+        const label = SWITCH_LABEL[sw];
+        return (
+          <button
+            key={sw}
+            type="button"
+            title={on ? label.on : label.off}
+            aria-pressed={on}
+            onClick={() => onOps(trackSwitchOps(tracks, track.kind, track.lane, sw), `${on ? label.on : label.off}: ${track.info.id}`)}
+            className={`flex size-4 shrink-0 items-center justify-center rounded text-[9px] font-semibold ${on ? (sw === TrackSwitch.Solo ? "bg-amber-400 text-neutral-900" : "bg-neutral-200 text-neutral-900") : "text-neutral-600 hover:text-white"}`}
+          >
+            {label.glyph}
+          </button>
+        );
+      })}
+    </span>
   );
 }

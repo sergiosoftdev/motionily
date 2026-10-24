@@ -115,6 +115,7 @@ applied: fix it and resend the call.
 {"op":"set_markers","markers":[{"t":1.2,"label":"drop","color":"#f5a623"}]}     // timeline markers (replaces all; [] clears; kept sorted)
 {"op":"set_work_area","work_area":[2,5]}                // preview loops 2-5 s; null = whole video (export: see output.range)
 {"op":"set_output","output":{"short_side":2160,"codec":"prores","range":[2,8]}}  // export settings (the user's Project settings): short_side 720|1080|1440|2160|4320; codec h264|hevc|prores|prores4444|vp9_alpha (the last two keep transparency: nothing drawn = alpha 0); range [in,out] s optional; null = 1080 h264 whole video
+{"op":"set_tracks","tracks":[{"id":"V1","kind":"video","name":"Main"},{"id":"V2","kind":"video","hidden":true},{"id":"A1","kind":"audio","solo":true},{"id":"A2","kind":"audio","muted":true,"locked":true}]}  // the editor's tracks (replaces all); a layer joins one with `track` (line key `track=V2`, or patch fields {"track":"V2"}); hidden = not drawn nor heard, muted = not heard, while any track is solo only solo tracks are heard; locked = the user cannot move it in the editor (respect it). V1 is the main video lane, A1 the first audio lane.
 {"op":"set_fps","fps":24}                              // frame rate of the whole video, 1..120 (offered: 23.976 24 25 29.97 30 50 60)
 {"op":"patch","id":"card","fields":{"solo":true}}       // solo/locked/shy are layer fields (false = off); solo changes the render
 3D stage: put_prop, remove_prop, set_camera, set_shots, set_stage, set_lights, define_prefab (below)

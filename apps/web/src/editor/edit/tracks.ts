@@ -1,4 +1,4 @@
-import { MediaKind, OpName, type FootageClip, type MediaItem, type Op } from "@motionily/protocol";
+import { MediaKind, OpName, TrackKind, type FootageClip, type MediaItem, type Op, type Track, type TrackSwitch } from "@motionily/protocol";
 import { isKeyWord, type CaptionWord } from "../../captions/transcribe";
 import { AUDIO_LAYER, VIDEO_LAYER } from "../../engine/video";
 export { AUDIO_LAYER };
@@ -62,6 +62,9 @@ export type EditTracks = {
   /** Sound clips, on their own lanes under the video. */
   audio: EditClip[];
   audioLanes: number;
+  /** The track of each lane (index = lane): the scene's, or V1… / A1… until the scene has tracks. */
+  videoTracks: Track[];
+  audioTracks: Track[];
   blocks: GraphicsBlock[];
   blockLanes: number;
   backdrop: string[];
@@ -80,6 +83,13 @@ export function editTracks(scene: SceneView, footage: FootageClip[], media: Medi
   const clips: EditClip[] = [];
   const lanesEnd: number[] = [];
   const videos = scene.layers.filter((l) => l.type === VIDEO_LAYER || isPictureClip(l)).sort((a, b) => (a.start ?? 0) - (b.start ?? 0));
+  // Lanes follow the scene's tracks when it has them (V1 = main lane); layers without one pack in.
+  const sceneVideo = (scene.tracks ?? []).filter((t) => t.kind === TrackKind.Video);
+  const sceneAudio = (scene.tracks ?? []).filter((t) => t.kind === TrackKind.Audio);
+  const laneOf = (l: SceneLayerView, list: Track[]) => {
+    const i = typeof l.track === "string" ? list.findIndex((t) => t.id === l.track) : -1;
+    return i >= 0 ? i : null;
+  };
   /** Last clip placed on the main track. */
   let main: EditClip | null = null;
   for (const l of videos) {
@@ -88,8 +98,12 @@ export function editTracks(scene: SceneView, footage: FootageClip[], media: Medi
     // A clip that overlaps the end of the main track's last clip by exactly its transition stays on the main track.
     const tr = main && start > main.start + EPS && start < main.end - EPS ? readTransition(l) : null;
     const into: ClipTransition | null = main && tr && overlapMatches(main.end - start, tr.duration) ? { ...tr, from: main.id } : null;
-    let lane = into ? 0 : lanesEnd.findIndex((e) => e <= start + EPS);
-    if (lane < 0) lane = lanesEnd.push(end) - 1;
+    const fixed = laneOf(l, sceneVideo);
+    let lane = fixed ?? (into ? 0 : lanesEnd.findIndex((e, i) => e <= start + EPS && !sceneVideo[i]));
+    if (fixed !== null) {
+      while (lanesEnd.length <= fixed) lanesEnd.push(0);
+      lanesEnd[fixed] = Math.max(lanesEnd[fixed]!, end);
+    } else if (lane < 0) lane = lanesEnd.push(end) - 1;
     else lanesEnd[lane] = end;
     if (into && main) main.outgoing = into.duration;
     const src = String(l.src ?? "");
@@ -125,8 +139,12 @@ export function editTracks(scene: SceneView, footage: FootageClip[], media: Medi
   for (const l of scene.layers.filter((x) => x.type === AUDIO_LAYER).sort((a, b) => (a.start ?? 0) - (b.start ?? 0))) {
     const start = l.start ?? 0;
     const end = endOf(l, duration);
-    let lane = audioEnd.findIndex((e) => e <= start + EPS);
-    if (lane < 0) lane = audioEnd.push(end) - 1;
+    const fixed = laneOf(l, sceneAudio);
+    let lane = fixed ?? audioEnd.findIndex((e, i) => e <= start + EPS && !sceneAudio[i]);
+    if (fixed !== null) {
+      while (audioEnd.length <= fixed) audioEnd.push(0);
+      audioEnd[fixed] = Math.max(audioEnd[fixed]!, end);
+    } else if (lane < 0) lane = audioEnd.push(end) - 1;
     else audioEnd[lane] = end;
     const src = String(l.src ?? "");
     const item = mediaByUrl.get(src);
@@ -205,7 +223,62 @@ export function editTracks(scene: SceneView, footage: FootageClip[], media: Medi
     else rows[row] = b.end;
     b.lane = row;
   }
-  return { clips, lanes: Math.max(1, lanesEnd.length), audio, audioLanes: Math.max(1, audioEnd.length), blocks, blockLanes: Math.max(1, rows.length), backdrop };
+  const lanes = Math.max(1, lanesEnd.length, sceneVideo.length);
+  const audioLanes = Math.max(1, audioEnd.length, sceneAudio.length);
+  const named = (list: Track[], n: number, kind: TrackKind, prefix: string) => Array.from({ length: n }, (_, i) => list[i] ?? { id: `${prefix}${i + 1}`, kind });
+  return {
+    clips,
+    lanes,
+    audio,
+    audioLanes,
+    videoTracks: named(sceneVideo, lanes, TrackKind.Video, "V"),
+    audioTracks: named(sceneAudio, audioLanes, TrackKind.Audio, "A"),
+    blocks,
+    blockLanes: Math.max(1, rows.length),
+    backdrop,
+  };
+}
+
+/**
+ * The scene's tracks as the timeline shows them, written down (with one more lane of each kind when
+ * asked), and every clip pinned to its lane's track: done once, the first time a track is touched.
+ */
+function settleTracks(t: EditTracks, extra: { video?: number; audio?: number } = {}): { tracks: Track[]; ops: Op[] } {
+  const more = (list: Track[], n: number, kind: TrackKind, prefix: string) => [...list, ...Array.from({ length: n }, (_, i) => ({ id: `${prefix}${list.length + i + 1}`, kind }))];
+  const video = more(t.videoTracks, extra.video ?? 0, TrackKind.Video, "V");
+  const audio = more(t.audioTracks, extra.audio ?? 0, TrackKind.Audio, "A");
+  const pin = (c: EditClip, list: Track[]): Op[] => [{ op: OpName.Patch, id: c.id, fields: { track: list[c.lane]!.id } }];
+  return { tracks: [...video, ...audio], ops: [...t.clips.flatMap((c) => pin(c, video)), ...t.audio.flatMap((c) => pin(c, audio))] };
+}
+
+/** Flip one switch (hide, mute, solo, lock) of the track of `lane`. */
+export function trackSwitchOps(t: EditTracks, kind: TrackKind, lane: number, sw: TrackSwitch): Op[] {
+  const { tracks, ops } = settleTracks(t);
+  const id = (kind === TrackKind.Video ? t.videoTracks : t.audioTracks)[lane]!.id;
+  const next = tracks.map((x) => (x.id === id ? { ...x, [sw]: !x[sw] } : x));
+  return [{ op: OpName.SetTracks, tracks: next }, ...ops];
+}
+
+/** Rename the track of `lane`. */
+export function renameTrackOps(t: EditTracks, kind: TrackKind, lane: number, name: string): Op[] {
+  const { tracks, ops } = settleTracks(t);
+  const id = (kind === TrackKind.Video ? t.videoTracks : t.audioTracks)[lane]!.id;
+  return [{ op: OpName.SetTracks, tracks: tracks.map((x) => (x.id === id ? { ...x, name: name.trim() || undefined } : x)) }, ...ops];
+}
+
+/** Put a clip on the track of `lane` (a lane past the last one makes a new track). */
+export function moveToLaneOps(t: EditTracks, c: EditClip, lane: number): Op[] {
+  const audio = c.kind === ClipKind.Audio;
+  const count = audio ? t.audioLanes : t.lanes;
+  const { tracks, ops } = settleTracks(t, audio ? { audio: lane >= count ? 1 : 0 } : { video: lane >= count ? 1 : 0 });
+  const list = tracks.filter((x) => x.kind === (audio ? TrackKind.Audio : TrackKind.Video));
+  const target = list[Math.min(lane, list.length - 1)]!;
+  return [{ op: OpName.SetTracks, tracks }, ...ops, { op: OpName.Patch, id: c.id, fields: { track: target.id } }];
+}
+
+/** The clip's track is locked (no moving, trimming or deleting it in the editor). */
+export function clipLocked(t: EditTracks, c: EditClip): boolean {
+  return !!(c.kind === ClipKind.Audio ? t.audioTracks : t.videoTracks)[c.lane]?.locked;
 }
 
 /** File second at the end of a clip (out, or where its length on screen runs out). */
