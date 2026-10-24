@@ -52,6 +52,13 @@ Fase 0 · 1.1–1.4 · 2.1 scopes · 2.2 ruedas y curvas · 2.3 LUTs · 3.4 bus 
 - 6.1 Visor nativo en Windows (DX12, ventana hija) y Linux (necesita esas máquinas para probar).
 - 6.2 Caché de render en segundo plano para tramos pesados.
 
+## Bugs vistos
+- Motor nativo (visor de escritorio y export nativo): una capa de vídeo más alta que el cuadro (p. ej. 1080×2484 en
+  9:16) se dibuja cortada abajo con cámara (franja con otro encuadre). El motor web lo pinta bien. Esquivado en el vídeo
+  "Every AI Video Looks the Same" con un muro de 1080×1920; arreglar en el motor nativo (cf. el bug de texto >1920 px).
+- El lint auto-corrige capas que salen del cuadro a propósito (muros, bandas) y colores sobre fondos con keys de color
+  (lee el primer color): debería respetar capas mayores que el cuadro y evaluar el fondo en el instante del texto.
+
 ## Notas técnicas
 - La API local (3100) corre desde `apps/api/dist`; su `tsc -w` se queda colgado: recompilar con
   `npx tsc -p tsconfig.build.json` en `apps/api`.
