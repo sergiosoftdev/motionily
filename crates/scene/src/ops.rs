@@ -573,7 +573,7 @@ impl Scene {
     /// What every new or patched layer must pass: shaders compile, clips make sense, instances bind.
     pub(crate) fn checked_layer(&self, mut layer: Layer) -> Result<Layer, OpError> {
         crate::shader::check_layer(&layer).map_err(OpError::Shader)?;
-        if let LayerContent::Video { clip } = &layer.content {
+        if let Some(clip) = layer.content.media_clip() {
             clip.check().map_err(OpError::Invalid)?;
         }
         crate::component::check_instance(&mut layer, &self.library)?;

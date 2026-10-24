@@ -25,6 +25,8 @@ pub struct Layout {
     pub mcp_args: Vec<PathBuf>,
     /// The prompts and manual the API reads (docs/agent).
     pub docs: PathBuf,
+    /// The bundled ffmpeg folder (None in development: ffmpeg from PATH).
+    pub ffmpeg_dir: Option<PathBuf>,
 }
 
 impl Layout {
@@ -38,6 +40,7 @@ impl Layout {
                 mcp_command: node.clone(),
                 mcp_args: vec![runtime.join("mcp/node_modules/tsx/dist/cli.mjs"), runtime.join("mcp/src/index.ts")],
                 docs: runtime.join("docs/agent"),
+                ffmpeg_dir: Some(runtime.join("ffmpeg")).filter(|d| d.is_dir()),
                 node,
             });
         }
@@ -56,6 +59,7 @@ impl Layout {
             mcp_command: mcp.join("node_modules/.bin/tsx"),
             mcp_args: vec![mcp.join("src/index.ts")],
             docs: repo.join("docs/agent"),
+            ffmpeg_dir: None,
         })
     }
 }
@@ -129,6 +133,10 @@ impl Api {
         cmd.env("MOTIONILY_MCP_COMMAND", &layout.mcp_command)
             .env("MOTIONILY_MCP_ARGS", serde_json::to_string(&args).map_err(|e| e.to_string())?)
             .env("MOTIONILY_DOCS_DIR", &layout.docs);
+        if let Some(dir) = &layout.ffmpeg_dir {
+            let exe = if cfg!(windows) { ".exe" } else { "" };
+            cmd.env("FFMPEG_PATH", dir.join(format!("ffmpeg{exe}"))).env("FFPROBE_PATH", dir.join(format!("ffprobe{exe}")));
+        }
         let child = cmd.spawn().map_err(|e| format!("could not start the API with {}: {e}", layout.node.display()))?;
         let mut api = Self { child, url, port, session: serde_json::Value::Null };
         api.wait_ready(port, data)?;

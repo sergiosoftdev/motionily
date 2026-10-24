@@ -17,7 +17,7 @@ const FOLDER_VERSION = 1;
 /** Media paths inside a project (uploads are random UUID names). */
 const MEDIA_REF = /\/media\/([a-f0-9-]{36}\.[a-z0-9]{1,5})/g;
 /** What a folder keeps: the video, its sound and its writing. Usage logs, live runs and owners stay local. */
-const KEPT_FIELDS = ["name", "brief", "wantsScript", "voiceScript", "references", "build", "format", "scene", "audio", "music", "sunoPrompt", "postCopy", "footage", "imageCredits", "direction", "constraints"] as const;
+const KEPT_FIELDS = ["name", "brief", "wantsScript", "voiceScript", "references", "build", "format", "scene", "audio", "music", "sunoPrompt", "postCopy", "footage", "media", "imageCredits", "direction", "constraints"] as const;
 
 class FolderDto {
   /** Absolute path of a folder on this machine. */

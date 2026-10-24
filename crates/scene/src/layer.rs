@@ -70,6 +70,12 @@ pub enum LayerContent {
         #[serde(flatten)]
         clip: crate::video::VideoClip,
     },
+    /// A sound clip (`/media/…` mp3/wav/m4a/ogg) on the timeline: trimmed, sped up and leveled like
+    /// a video clip (same fields), never drawn. Its box is ignored.
+    Audio {
+        #[serde(flatten)]
+        clip: crate::video::VideoClip,
+    },
     /// Procedural character standing at the bottom of its box (`h` is its height).
     Character {
         #[serde(flatten)]
@@ -293,6 +299,21 @@ fn default_line_height() -> f32 {
 }
 
 impl LayerContent {
+    /// The media clip of a video or sound layer (trim, speed, volume), or `None` for any other layer.
+    pub fn media_clip(&self) -> Option<&crate::video::VideoClip> {
+        match self {
+            LayerContent::Video { clip } | LayerContent::Audio { clip } => Some(clip),
+            _ => None,
+        }
+    }
+
+    pub fn media_clip_mut(&mut self) -> Option<&mut crate::video::VideoClip> {
+        match self {
+            LayerContent::Video { clip } | LayerContent::Audio { clip } => Some(clip),
+            _ => None,
+        }
+    }
+
     /// Short name for summaries.
     pub fn kind_name(&self) -> String {
         match self {
@@ -300,6 +321,7 @@ impl LayerContent {
             LayerContent::Text { text, .. } => format!("text \"{}\"", text.chars().take(40).collect::<String>()),
             LayerContent::Image { src, .. } => format!("image {}", src.rsplit('/').next().unwrap_or(src)),
             LayerContent::Video { clip } => format!("video {} {}", clip.src.rsplit('/').next().unwrap_or(&clip.src), clip.describe()),
+            LayerContent::Audio { clip } => format!("audio {} {}", clip.src.rsplit('/').next().unwrap_or(&clip.src), clip.describe()),
             LayerContent::Path { d, .. } => format!("path ({} chars)", d.d.len()),
             LayerContent::Object { finish, .. } => format!("object {}", crate::enum_name(finish)),
             LayerContent::Shader { code, .. } => format!("shader ({} chars)", code.as_str().len()),
@@ -801,6 +823,8 @@ impl Layer {
                 opacity: color.0[3],
                 frame: None,
             })),
+            // Sound only: nothing on screen.
+            LayerContent::Audio { .. } => None,
             LayerContent::Video { clip } => Some(DrawItem::Image(DrawImage {
                 src: clip.src.clone(),
                 fit: clip.fit,

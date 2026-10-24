@@ -37,6 +37,7 @@ import { PostsController } from "./posts/posts.controller";
 import { CopywriterService } from "./posts/copywriter";
 import { SunoService } from "./music/suno";
 import { ProjectFolderController } from "./projects/folder.controller";
+import { MediaPoolController } from "./projects/media-pool.controller";
 import { AgentSettingsController, AgentSettingsService } from "./users/agent-settings";
 
 @Module({
@@ -71,7 +72,7 @@ import { AgentSettingsController, AgentSettingsService } from "./users/agent-set
       }),
     }),
   ],
-  controllers: [AuthController, AgentSettingsController, BricksController, ProjectFolderController, ProjectsController, MediaController, ReferencesController, FontsController, BrandsController, PrefabsController, SoundsController, AssetsController, LibraryController, ProviderKeysController, DirectionController, VoiceController, PostsController],
+  controllers: [AuthController, AgentSettingsController, MediaPoolController, BricksController, ProjectFolderController, ProjectsController, MediaController, ReferencesController, FontsController, BrandsController, PrefabsController, SoundsController, AssetsController, LibraryController, ProviderKeysController, DirectionController, VoiceController, PostsController],
   providers: [AgentSettingsService, BricksService, ProjectsService, GenerateService, PrefabsService, BrandsService, ConceptsService, VoiceService, PostsService, CopywriterService, SunoService, AssetsService, LibraryService, ProviderKeysService, DirectionService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
 })
 export class AppModule {}

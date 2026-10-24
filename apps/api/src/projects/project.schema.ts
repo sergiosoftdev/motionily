@@ -49,6 +49,29 @@ export type SunoPrompt = { title: string; style: string; structure: string; drop
 export type PostCopyDraft = { platform: string; caption: string; hashtags: string[] };
 
 /** A clip uploaded to be edited. `id` is short (c1, c2…) so agents can name it in a cut. */
+/** Kinds of file the media pool holds besides video clips. */
+export enum MediaKind {
+  Audio = "audio",
+  Image = "image",
+}
+
+/** A sound or picture the user brought into the video's media pool. */
+export type MediaItem = {
+  id: string;
+  kind: MediaKind;
+  file: string;
+  /** /media path layers use. */
+  url: string;
+  name: string;
+  mime: string;
+  size: number;
+  /** Sounds: seconds. */
+  duration: number | null;
+  /** Images: pixels. */
+  width: number | null;
+  height: number | null;
+};
+
 export type FootageClip = {
   id: string;
   file: string;
@@ -97,6 +120,8 @@ export class Project {
   @Prop({ type: [MongooseSchema.Types.Mixed], default: [] }) postCopy: PostCopyDraft[];
   /** The user's own clips to edit (usually someone talking to camera); `words` once the editor transcribed them. */
   @Prop({ type: [MongooseSchema.Types.Mixed], default: [] }) footage: FootageClip[];
+  /** Songs, sounds and pictures in the media pool (video clips are `footage`). */
+  @Prop({ type: [MongooseSchema.Types.Mixed], default: [] }) media: MediaItem[];
   /** Bumped on every scene save; clients send it back to avoid overwriting newer edits. */
   @Prop({ default: 0 }) sceneRevision: number;
   /** What each agent run cost (newest last), to see where tokens go. */

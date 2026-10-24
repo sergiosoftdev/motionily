@@ -185,7 +185,7 @@ impl Scene {
     /// Every video frame a render at `t` draws (repeater copies, motion-blur samples, mattes and
     /// transitions included), once each.
     pub fn video_frames(&self, t: f32) -> Vec<FrameNeed> {
-        if !self.layers.iter().any(|l| matches!(l.content, crate::LayerContent::Video { .. })) {
+        if !self.layers.iter().any(|l| l.content.media_clip().is_some()) {
             return Vec::new();
         }
         let mut out: Vec<FrameNeed> = Vec::new();
@@ -199,7 +199,7 @@ impl Scene {
             .iter()
             .filter(|l| self.active(l, t))
             .filter_map(|l| {
-                let crate::LayerContent::Video { clip } = &l.content else { return None };
+                let clip = l.content.media_clip()?;
                 let duration = media_duration(&clip.src);
                 let (lt, ahead, volume) = crate::expr::with_vars(t, 0.0, 1.0, || {
                     let lt = l.local_time(t);
@@ -306,6 +306,28 @@ mod tests {
             .unwrap();
         let v = scene.video_clips(3.0)[0].volume;
         assert!((v - 0.5).abs() < 1e-3, "{v}");
+    }
+
+    #[test]
+    fn audio_clips_play_and_cut_like_video_but_draw_nothing() {
+        let mut scene = Scene { duration: 10.0, ..Scene::default() };
+        scene
+            .apply(&[Op::AddLayer {
+                layer: serde_json::from_str(r#"{"id":"song","type":"audio","src":"/media/s.mp3","in":4,"start":1,"end":9,"volume":0.8}"#).unwrap(),
+            }])
+            .unwrap();
+        assert!(scene.layers[0].content.media_clip().is_some());
+        assert!(scene.video_sources().is_empty(), "sound files are not opened as video");
+        assert!(scene.video_frames(2.0).is_empty());
+        let c = &scene.video_clips(2.0)[0];
+        assert_eq!((c.id.as_str(), c.time, c.volume), ("song", 5.0, 0.8));
+        // A ripple cut through it is a jump cut, like on a video clip.
+        scene.apply(&[Op::RippleDelete { from: 3.0, to: 5.0 }]).unwrap();
+        let ids: Vec<&str> = scene.layers.iter().map(|l| l.id.as_str()).collect();
+        assert_eq!(ids, ["song", "song_2"]);
+        let after = scene.video_clips(3.5);
+        assert_eq!(after.len(), 1);
+        assert!((after[0].time - 8.5).abs() < 1e-3, "{}", after[0].time);
     }
 
     #[test]

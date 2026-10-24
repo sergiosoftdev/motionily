@@ -4,7 +4,7 @@
 //! clips get a real jump cut (their file time skips what was removed).
 use serde_json::Value;
 
-use crate::{Layer, LayerContent, OpError, Scene};
+use crate::{Layer, OpError, Scene};
 
 /// Shorter than this is no cut at all.
 const MIN_CUT: f32 = 1e-3;
@@ -179,10 +179,7 @@ fn from_value(v: Value, id: &str) -> Result<Layer, OpError> {
 
 /// File time of a clip at layer-local time `local` (no time remap: speed only).
 fn clip_file_time(l: &Layer, local: f32) -> Option<f32> {
-    match &l.content {
-        LayerContent::Video { clip } => Some(clip.trim_in + local * clip.speed),
-        _ => None,
-    }
+    l.content.media_clip().map(|clip| clip.trim_in + local * clip.speed)
 }
 
 impl Scene {
@@ -209,11 +206,11 @@ impl Scene {
             let s2 = after_cut(s, from, to);
             let e2 = e.map(|e| after_cut(e, from, to));
             let spans = s < from && e.is_none_or(|e| e > to);
-            if spans && matches!(l.content, LayerContent::Video { .. }) && l.time.is_none() {
+            if spans && l.content.media_clip().is_some() && l.time.is_none() {
                 // A jump cut: the clip stops at `from` and goes on from what played at `to`.
                 let mut a = l.clone();
                 a.end = Some(from);
-                if let LayerContent::Video { clip } = &mut a.content {
+                if let Some(clip) = a.content.media_clip_mut() {
                     clip.trim_out = Some(clip.trim_in + (from - s) * clip.speed);
                 }
                 let mut bv = to_value(l)?;
@@ -222,7 +219,7 @@ impl Scene {
                 b.id = self.free_id(&format!("{}_2", l.id), &next);
                 b.start = from;
                 b.end = e.map(|e| e - d);
-                if let LayerContent::Video { clip } = &mut b.content {
+                if let Some(clip) = b.content.media_clip_mut() {
                     clip.trim_in = clip_file_time(l, to - s).unwrap_or(clip.trim_in);
                 }
                 next.push(self.checked_layer(a)?);
@@ -236,7 +233,7 @@ impl Scene {
             l2.end = e2.map(|e| if e <= s2 { s2 + MIN_CUT } else { e });
             if s > from && s < to {
                 // Started inside the cut: a clip skips what it would have played there.
-                if let LayerContent::Video { clip } = &mut l2.content {
+                if let Some(clip) = l2.content.media_clip_mut() {
                     clip.trim_in += (to - s) * clip.speed;
                 }
             }
@@ -338,7 +335,7 @@ impl Scene {
             l2.end = e.map(|e| e + d);
             if s < seam {
                 // Plays across the opening: a clip plays on for as long (no frame is skipped).
-                if let LayerContent::Video { clip } = &mut l2.content {
+                if let Some(clip) = l2.content.media_clip_mut() {
                     clip.trim_out = clip.trim_out.map(|o| o + d * clip.speed);
                 }
             }
@@ -380,7 +377,7 @@ impl Scene {
         let local = at - l.start;
         let mut a = l.clone();
         a.end = Some(at);
-        if let LayerContent::Video { clip } = &mut a.content {
+        if let Some(clip) = a.content.media_clip_mut() {
             if l.time.is_none() {
                 clip.trim_out = Some(clip.trim_in + local * clip.speed);
             }
@@ -390,7 +387,7 @@ impl Scene {
         let mut b = from_value(bv, id)?;
         b.id = id2.clone();
         b.start = at;
-        if let LayerContent::Video { clip } = &mut b.content {
+        if let Some(clip) = b.content.media_clip_mut() {
             if l.time.is_none() {
                 clip.trim_in += local * clip.speed;
             }
@@ -445,7 +442,7 @@ mod tests {
         // The clip is cut in two: up to 5 s, then what played at 10 s.
         let (a, b) = (s.layer("clip").unwrap(), s.layer("clip_2").unwrap());
         assert_eq!((a.end, b.start, b.end), (Some(5.0), 5.0, Some(9.0)));
-        if let (crate::LayerContent::Video { clip: ca }, crate::LayerContent::Video { clip: cb }) = (&a.content, &b.content) {
+        if let (Some(ca), Some(cb)) = (a.content.media_clip(), b.content.media_clip()) {
             assert_eq!((ca.trim_out, cb.trim_in), (Some(6.0), 11.0));
         }
         // The voice skips file 5-10 s and the words after it move up.
@@ -501,7 +498,7 @@ mod tests {
         s.apply(&Op::parse_list(r#"[{"op":"split_layer","id":"clip","at":6}]"#).unwrap()).unwrap();
         let (a, b) = (s.layer("clip").unwrap(), s.layer("clip_2").unwrap());
         assert_eq!((a.end, b.start, b.end), (Some(6.0), 6.0, Some(14.0)));
-        if let (crate::LayerContent::Video { clip: ca }, crate::LayerContent::Video { clip: cb }) = (&a.content, &b.content) {
+        if let (Some(ca), Some(cb)) = (a.content.media_clip(), b.content.media_clip()) {
             assert_eq!((ca.trim_out, cb.trim_in), (Some(7.0), 7.0));
         }
     }
