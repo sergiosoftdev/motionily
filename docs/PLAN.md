@@ -155,5 +155,5 @@ Sustituye al modelo "gratis + funciones de pago" y al open core del 2026-10-23.
 4. Color avanzado: scopes, nodos, igualar entre clips, gestión de color, HDR.
 5. Visor nativo en Windows (DX12) y Linux (Vulkan); MCP remoto (HTTP) para claude.ai web/móvil.
 
-**Pendiente:** decidir con el socio quién es dueño de la propiedad intelectual (hoy `LICENSE` MIT a nombre de
-Sergio) y revisar la cláusula del contrato de trabajo **antes de hacer público el repositorio**.
+**Repositorio público desde el 2026-10-24** (decisión de Sergio), MIT a su nombre. Queda hablar con el socio sobre
+la propiedad intelectual y revisar la cláusula del contrato de trabajo.
