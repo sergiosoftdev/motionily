@@ -126,6 +126,46 @@ export function registerStudioTools(server: Server, d: StudioDeps) {
   }
 
   server.registerTool(
+    "list_versions",
+    {
+      description: "The video's version history (an automatic version every minute of editing, plus named snapshots), newest first: id, label, when, layers. restore_version brings one back.",
+      inputSchema: {},
+    },
+    d.guard(async () => {
+      const rows = await d.api().route<{ id: string; label: string; at: string; layers: number; duration: number }[]>("GET", "/versions");
+      if (!rows.length) return d.text("No versions yet.");
+      return d.text(`Versions (id | label | when | layers | length):\n${rows.slice(0, 40).map((v) => `${v.id} | ${v.label || "autosave"} | ${v.at} | ${v.layers} | ${v.duration} s`).join("\n")}`);
+    }),
+  );
+
+  server.registerTool(
+    "save_version",
+    {
+      description: "Keep the scene as it is now as a named version (before a risky change: a recut, a grade pass), like Save version in Project settings.",
+      inputSchema: { label: z.string().max(120).optional() },
+    },
+    d.guard(async ({ label }: { label?: string }) => {
+      const v = await d.api().route<{ id: string; label: string }>("POST", "/versions", { label });
+      return d.text(`Saved version ${v.id} "${v.label}".`);
+    }),
+  );
+
+  server.registerTool(
+    "restore_version",
+    {
+      description: "Load a version from list_versions into the editor (the current scene is saved as a version first, so nothing is lost).",
+      inputSchema: { id: z.string().regex(/^[a-f0-9]{24}$/) },
+    },
+    d.guard(async ({ id }: { id: string }) => {
+      await d.api().route("POST", "/versions", { label: "Before restoring" });
+      const v = await d.api().route<{ scene: Record<string, unknown>; label: string }>("GET", `/versions/${id}`);
+      const res = await d.bridge().loadScene(JSON.stringify(v.scene));
+      if (!res.ok) throw new Error(res.error ?? "the editor did not load it");
+      return d.text(`Restored version ${id}${v.label ? ` "${v.label}"` : ""}.`);
+    }),
+  );
+
+  server.registerTool(
     "apply_look",
     {
       description: `Grade clips with one of the editor's looks (the same values as the Color tab): ${LOOKS.map((l) => l.name).join(", ")}. Without ids it grades every video clip and picture clip. It replaces each layer's color effect (other effects stay); refine with a patch of the color effect after (docs: Color correction).`,

@@ -7,6 +7,7 @@ import { Build, Feedback, FeedbackKind, Project, ProjectDocument, type AgentRunU
 import type { AssetCredit } from "../assets/asset-types";
 import { removeMedia } from "../media";
 import type { CreateFeedbackDto, CreateProjectDto, SaveSceneDto, SetSlotDto, UpdateProjectDto } from "./projects.dto";
+import { VersionsService } from "./versions";
 
 type KitPayload = { defaults?: Partial<Build> };
 
@@ -20,6 +21,7 @@ export class ProjectsService {
   constructor(
     @InjectModel(Project.name) private readonly projects: Model<Project>,
     @InjectModel(Feedback.name) private readonly feedback: Model<Feedback>,
+    private readonly versions: VersionsService,
     private readonly bricks: BricksService,
   ) {}
 
@@ -201,6 +203,8 @@ export class ProjectsService {
 
   async saveScene(ownerId: Types.ObjectId, id: string, dto: SaveSceneDto) {
     const project = await this.get(ownerId, id);
+    // The scene being replaced joins the version history (one automatic version a minute at most).
+    if (project.sceneRevision === dto.baseRevision) await this.versions.keepBeforeSave(project._id, project.scene, project.sceneRevision);
     const updated = await this.projects.findOneAndUpdate(
       { _id: project._id, sceneRevision: dto.baseRevision },
       { $set: { scene: dto.scene }, $inc: { sceneRevision: 1 } },

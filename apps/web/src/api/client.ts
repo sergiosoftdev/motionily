@@ -17,6 +17,9 @@ export type AgentSettings = {
   clis: { cli: AgentCli; name: string; version: string | null }[];
 };
 
+/** One entry of a video's version history (automatic each minute of editing, or a named snapshot). */
+export type SceneVersionRow = { id: string; revision: number; label: string; layers: number; duration: number; at: string };
+
 export const AssetKind = { Logo: "logo", Screenshot: "screenshot", Photo: "photo", Video: "video", Other: "other" } as const;
 export type AssetKind = (typeof AssetKind)[keyof typeof AssetKind];
 /** Whether the user connected their ElevenLabs key, and its last characters. */
@@ -181,6 +184,9 @@ export const api = {
   uploadMusic: (id: string, file: File) => upload<Project>(`/projects/${id}/music`, file),
   /** The user's own clip to edit; `language` is what is spoken in it (ISO 639-1). */
   uploadRender: (id: string, file: File) => upload<{ url: string; size: number }>(`/projects/${id}/renders`, file),
+  versions: (id: string) => call<SceneVersionRow[]>(HttpMethod.Get, `/projects/${id}/versions`),
+  saveVersion: (id: string, label?: string) => call<{ id: string }>(HttpMethod.Post, `/projects/${id}/versions`, { label }),
+  version: (id: string, versionId: string) => call<{ id: string; label: string; scene: Record<string, unknown> }>(HttpMethod.Get, `/projects/${id}/versions/${versionId}`),
   projectMedia: (id: string) => call<MediaItem[]>(HttpMethod.Get, `/projects/${id}/media`),
   uploadMedia: (id: string, file: File) => upload<MediaItem>(`/projects/${id}/media`, file),
   removeMedia: (id: string, mediaId: string) => call<{ ok: true }>(HttpMethod.Delete, `/projects/${id}/media/${mediaId}`),

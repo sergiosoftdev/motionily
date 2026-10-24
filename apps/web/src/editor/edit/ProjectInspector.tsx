@@ -5,6 +5,7 @@ import { RESOLUTIONS } from "../../export/resolution";
 import type { EditorProps } from "../context";
 import type { SceneView } from "../sceneView";
 import type { EditActions } from "./useEditActions";
+import { VersionsSection } from "./VersionsSection";
 
 /** Codecs by where they can be written: the desktop app has ffmpeg, the browser has WebCodecs (H.264). */
 const CODECS: { codec: OutputCodec; label: string; hint: string; desktopOnly: boolean }[] = [
@@ -101,6 +102,7 @@ export function ProjectInspector({ ed, scene, edits, onFormat }: { ed: EditorPro
           className="accent-white"
         />
       </label>
+      <VersionsSection projectId={project.id} />
     </div>
   );
 }
