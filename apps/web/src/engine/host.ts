@@ -502,10 +502,10 @@ class EngineHost {
     return this.require().subtitles(format, range?.[0], range?.[1]);
   }
 
-  /** Loudness of the mix as it exports, at a master level of 0 dB (null when the video is silent). */
-  async mixLoudness(): Promise<Loudness | null> {
+  /** Loudness of the mix as it exports, at a master level of 0 dB without the master effects, or at `masterDb` with them (null when silent). */
+  async mixLoudness(masterDb?: number): Promise<Loudness | null> {
     await this.mediaReady();
-    const mix = await mixAudio(this.sceneJson(), this.audioUrl, this.clipSounds(), { master: false });
+    const mix = await mixAudio(this.sceneJson(), this.audioUrl, this.clipSounds(), masterDb === undefined ? { master: false } : { masterDb });
     if (!mix) return null;
     return measureLoudness(Array.from({ length: mix.numberOfChannels }, (_, c) => mix.getChannelData(c)), mix.sampleRate);
   }
@@ -1131,6 +1131,7 @@ class EngineHost {
     this.range = meta.work_area ?? null;
     this.marks = meta.markers ?? [];
     audioBus.setMaster(10 ** ((meta.mix?.master_db ?? 0) / 20));
+    audioBus.setMasterFx(meta.mix?.master_fx);
     useEditor.setState((s) => ({
       sceneSize: [meta.width, meta.height],
       style: meta.style,

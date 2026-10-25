@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { DEFAULT_TARGET_LUFS, LOUDNESS_TARGETS, MASTER_DB_RANGE, OpName, normalization, type Mix, type Normalization } from "@motionily/protocol";
+import { DEFAULT_TARGET_LUFS, LOUDNESS_TARGETS, MASTER_DB_RANGE, OpName, limitedNormalization, normalization, type Mix, type Normalization } from "@motionily/protocol";
 import { engineHost } from "../../engine/host";
 import type { EditActions } from "./useEditActions";
+import { AudioFxControls } from "./AudioFxControls";
 
 const db = (v: number) => `${v > 0 ? "+" : ""}${v.toFixed(1)} dB`;
 const lufs = (v: number) => (Number.isFinite(v) ? `${v.toFixed(1)} LUFS` : "silence");
@@ -17,9 +18,11 @@ export function LoudnessSection({ mix, edits }: { mix: Mix | null | undefined; e
   const [error, setError] = useState<string | null>(null);
   const master = mix?.master_db ?? 0;
   const setMaster = (v: number, what: string, extra: Partial<Mix> = {}) => {
-    // The mixer's channels stay; a hand-set master is no longer a normalization.
-    const next: Mix = { master_db: v, ...(mix?.channels ? { channels: mix.channels } : {}), ...extra };
-    edits.apply([{ op: OpName.SetMix, mix: v === 0 && next.target_lufs == null && !next.channels ? null : next }], what, false);
+    // The mixer's channels and the master effects stay; a hand-set master is no longer a normalization.
+    const { target_lufs: _normalized, ...rest } = mix ?? { master_db: 0 };
+    const next: Mix = { ...rest, master_db: v, ...extra };
+    const neutral = v === 0 && next.target_lufs == null && !next.channels && !next.master_fx;
+    edits.apply([{ op: OpName.SetMix, mix: neutral ? null : next }], what, false);
   };
   const normalize = async () => {
     setBusy(true);
@@ -27,7 +30,8 @@ export function LoudnessSection({ mix, edits }: { mix: Mix | null | undefined; e
     try {
       const m = await engineHost.mixLoudness();
       if (!m) throw new Error("The video has no sound yet.");
-      const n = normalization(m, target);
+      // With a master limiter the peaks no longer cap it: measure through the limiter until it lands.
+      const n = mix?.master_fx?.limiter ? await limitedNormalization(m, target, (db) => engineHost.mixLoudness(db)) : normalization(m, target);
       setResult(n);
       setMaster(n.masterDb, `Normalize the mix to ${target} LUFS`, { target_lufs: target });
     } catch (e) {
@@ -58,6 +62,7 @@ export function LoudnessSection({ mix, edits }: { mix: Mix | null | undefined; e
           className="accent-white"
         />
       </label>
+      <AudioFxControls fx={mix?.master_fx} limiter label="the master" edits={edits} opsFor={(fx) => [{ op: OpName.SetMix, mix: { ...(mix ?? { master_db: 0 }), master_fx: fx ?? undefined } }]} />
       <div className="flex gap-2">
         <select value={target} onChange={(e) => setTarget(Number(e.target.value))} className="min-w-0 flex-1 rounded-md bg-neutral-900 px-2 py-1.5 text-xs text-neutral-200">
           {LOUDNESS_TARGETS.map((t) => (
@@ -73,6 +78,7 @@ export function LoudnessSection({ mix, edits }: { mix: Mix | null | undefined; e
       {result && (
         <p className="text-[11px] text-neutral-500">
           Measured {lufs(result.lufs)}, peak {result.peakDb.toFixed(1)} dBFS · now {lufs(result.lufsAfter)}
+          {result.peakAfter != null ? `, peak ${result.peakAfter.toFixed(1)} dBFS (limited)` : ""}
           {result.peakLimited ? " (held back so peaks stay under −1 dBFS)" : ""}
         </p>
       )}

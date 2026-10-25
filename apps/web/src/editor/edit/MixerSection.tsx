@@ -1,4 +1,6 @@
-import { MAX_FADER, MixChannel, OpName, TrackKind, type Mix, type MixStrip, type Op, type Track } from "@motionily/protocol";
+import { useState } from "react";
+import { MAX_FADER, MixChannel, OpName, TrackKind, type AudioFx, type Mix, type MixStrip, type Op, type Track } from "@motionily/protocol";
+import { AudioFxControls } from "./AudioFxControls";
 import type { FootageClip } from "@motionily/protocol";
 import type { SceneView } from "../sceneView";
 import { hasSound } from "../../engine/video";
@@ -11,7 +13,7 @@ const CHANNEL_LABEL: Record<MixChannel, string> = { voice: "Voice-over", music: 
 const db = (v: number) => (v <= 0.0001 ? "−∞" : `${v >= 1 ? "+" : ""}${(20 * Math.log10(v)).toFixed(1)} dB`);
 const panLabel = (p: number) => (Math.abs(p) < 0.01 ? "C" : `${p < 0 ? "L" : "R"}${Math.round(Math.abs(p) * 100)}`);
 
-type Strip = { key: string; label: string; volume: number; pan: number; muted: boolean; solo: boolean; ops: (fields: MixStrip) => Op[] };
+type Strip = { key: string; label: string; volume: number; pan: number; muted: boolean; solo: boolean; ops: (fields: MixStrip) => Op[]; fx?: AudioFx | null };
 
 /**
  * The mixer: a strip per track with sound (A1…, and video tracks whose clips play sound) and for the
@@ -44,12 +46,14 @@ export function MixerSection({ scene, footage, edits }: { scene: SceneView; foot
         pan: cur.pan ?? 0,
         muted: !!cur.muted,
         solo: !!cur.solo,
+        fx: cur.fx ?? null,
         ops: (f) => {
           const strip = clean({ ...cur, ...f });
           const channels = { ...mix?.channels, [c]: strip };
           if (!strip) delete channels[c];
           const keep = Object.keys(channels).length ? { channels } : {};
-          return [{ op: OpName.SetMix, mix: { master_db: mix?.master_db ?? 0, ...(mix?.target_lufs != null ? { target_lufs: mix.target_lufs } : {}), ...keep } }];
+          const { channels: _old, ...rest } = mix ?? { master_db: 0 };
+          return [{ op: OpName.SetMix, mix: { ...rest, ...keep } }];
         },
       };
     });
@@ -72,10 +76,12 @@ function clean(s: MixStrip): MixStrip | null {
   if (s.pan != null && Math.abs(s.pan) > 1e-4) out.pan = s.pan;
   if (s.muted) out.muted = true;
   if (s.solo) out.solo = true;
+  if (s.fx) out.fx = s.fx;
   return Object.keys(out).length ? out : null;
 }
 
 function StripRow({ strip: s, edits }: { strip: Strip; edits: EditActions }) {
+  const [open, setOpen] = useState(false);
   const live = (f: MixStrip) => edits.preview(s.ops(f));
   const toggle = (on: boolean, field: "muted" | "solo", label: string) => (
     <button
@@ -91,6 +97,11 @@ function StripRow({ strip: s, edits }: { strip: Strip; edits: EditActions }) {
     <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 text-xs text-neutral-400">
       <span className="truncate text-neutral-300">{s.label}</span>
       <span className="flex gap-1">
+        {s.fx !== undefined && (
+          <button type="button" onClick={() => setOpen(!open)} className={`h-5 rounded px-1.5 text-[10px] font-semibold ${s.fx ? "bg-sky-500 text-black" : "bg-neutral-800 text-neutral-400 hover:text-white"}`} title="EQ and compressor">
+            FX
+          </button>
+        )}
         {toggle(s.muted, "muted", "Mute")}
         {toggle(s.solo, "solo", "Solo")}
       </span>
@@ -124,6 +135,11 @@ function StripRow({ strip: s, edits }: { strip: Strip; edits: EditActions }) {
         />
         <span className="text-neutral-200 tabular-nums">{panLabel(s.pan)}</span>
       </label>
+      {open && s.fx !== undefined && (
+        <div className="col-span-2 pl-2">
+          <AudioFxControls fx={s.fx} label={s.label} edits={edits} opsFor={(fx) => s.ops({ fx: fx ?? undefined })} />
+        </div>
+      )}
     </div>
   );
 }

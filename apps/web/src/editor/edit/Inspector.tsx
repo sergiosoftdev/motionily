@@ -6,6 +6,8 @@ import type { MusicTrack } from "../../audio/music";
 import type { EditSelection } from "./EditTimeline";
 import { AUDIO_LAYER, ClipKind, freshId, type EditClip, type GraphicsBlock } from "./tracks";
 import { engineHost } from "../../engine/host";
+import { AudioFxControls } from "./AudioFxControls";
+import type { AudioFx } from "@motionily/protocol";
 import type { EditActions } from "./useEditActions";
 import type { EditOps } from "./useEditOps";
 import { useAgentName } from "../../agentName";
@@ -229,6 +231,14 @@ function ClipInspector({ clip, ops, edits, clipIds, luts }: { clip: EditClip; op
               onChange={(v) => change([{ op: OpName.Patch, id: clip.id, fields: { pan: Math.abs(v) < 0.01 ? 0 : v } }])}
               onDone={() => done(`Pan of ${clip.id}`, false)}
             />
+          )}
+          {(clip.kind === ClipKind.Audio || clip.volume > 0 || clip.volumeKeys) && (
+            <details className="text-xs text-neutral-400">
+              <summary className="cursor-pointer select-none">Audio effects{engineHost.layer(clip.id)?.audio_fx ? " · on" : ""}</summary>
+              <div className="pt-2">
+                <AudioFxControls fx={engineHost.layer(clip.id)?.audio_fx as AudioFx | undefined} label={clip.id} edits={edits} opsFor={(fx) => [{ op: OpName.Patch, id: clip.id, fields: { audio_fx: fx } }]} />
+              </div>
+            </details>
           )}
           {clip.kind === ClipKind.Video && (clip.volume > 0 || clip.volumeKeys) && (
             <button

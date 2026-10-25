@@ -1,5 +1,6 @@
 import { audioBus } from "./bus";
-import { scheduleMix, type MixSources } from "./mix";
+import { mixFx, scheduleMix, type MixSources } from "./mix";
+import { prepareFx } from "./fx";
 
 /** Lead time (s) between asking to play and the first sample, so nothing starts late. */
 const LEAD = 0.05;
@@ -21,7 +22,8 @@ export class PreviewMix {
     const session = ++this.session;
     const ctx = audioBus.context();
     this.anchor = { t, ctx: ctx.currentTime + LEAD };
-    void load().then((m) => {
+    void load().then(async (m) => {
+      await prepareFx(ctx, mixFx(m)).catch(() => undefined);
       if (session !== this.session || !this.anchor) return;
       const when = Math.max(this.anchor.ctx, ctx.currentTime + LEAD);
       this.sources = scheduleMix(ctx, audioBus.master, m, this.anchor.t + (when - this.anchor.ctx), when);

@@ -9,6 +9,7 @@ mod anim;
 pub mod expr;
 pub mod output;
 pub mod mix;
+pub mod audio_fx;
 pub mod subtitles;
 pub mod interchange;
 pub mod lut;

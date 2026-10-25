@@ -9,6 +9,7 @@
  */
 import { ALL_FORMATS, Input, UrlSource, VideoSampleSink, type VideoSample } from "mediabunny";
 import { setMediaDuration, type Engine } from "./pkg/engine_wasm.js";
+import type { AudioFx } from "@motionily/protocol";
 
 /** A frame is the one shown at t when its timestamp ≤ t + this (frame times are not exact floats). */
 const FRAME_EPSILON = 1e-3;
@@ -35,7 +36,7 @@ export type ClipState = { id: string; src: string; time: number; rate: number; v
  * file from `offset`, starting at `volume` and ramping through `levels` ([video second, level]) when
  * the clip's volume is keyframed; `pan` (−1..1) and `pans` the same for where it sits.
  */
-export type ClipSound = { src: string; at: number; offset: number; seconds: number; rate: number; volume: number; levels: [number, number][]; pan: number; pans: [number, number][] };
+export type ClipSound = { src: string; at: number; offset: number; seconds: number; rate: number; volume: number; levels: [number, number][]; pan: number; pans: [number, number][]; fx?: AudioFx };
 
 /** Whether a video layer's `volume` (a number, keyframes or an expression) is ever above 0. */
 export function hasSound(volume: unknown): boolean {
@@ -265,9 +266,11 @@ export function clipSounds(engine: Engine, fps: number, duration: number): ClipS
   const open = new Map<string, ClipSound & { last: number; prevT: number; prevV: number; prevKept: boolean; prevP: number; prevPKept: boolean }>();
   const frames = Math.max(1, Math.round(duration * fps));
   const step = 1 / fps;
+  // Each clip's own effects ride along with its stretches.
+  const fxOf = new Map(((JSON.parse(engine.sceneJson()) as { layers?: { id: string; audio_fx?: AudioFx }[] }).layers ?? []).filter((l) => l.audio_fx).map((l) => [l.id, l.audio_fx!]));
   const close = (id: string) => {
     const s = open.get(id);
-    if (s && s.seconds > 0) out.push({ src: s.src, at: s.at, offset: s.offset, seconds: s.seconds, rate: s.rate, volume: s.volume, levels: s.levels, pan: s.pan, pans: s.pans });
+    if (s && s.seconds > 0) out.push({ src: s.src, at: s.at, offset: s.offset, seconds: s.seconds, rate: s.rate, volume: s.volume, levels: s.levels, pan: s.pan, pans: s.pans, ...(fxOf.has(id) ? { fx: fxOf.get(id) } : {}) });
     open.delete(id);
   };
   for (let i = 0; i <= frames; i++) {

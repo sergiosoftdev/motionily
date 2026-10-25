@@ -165,7 +165,7 @@ class AgentBridge {
         return;
       }
       case ServerMessageType.Loudness: {
-        void engineHost.mixLoudness().then((loudness) => {
+        void engineHost.mixLoudness(msg.masterDb).then((loudness) => {
           logActivity(ActivitySource.Agent, "Measures the loudness of the mix");
           // JSON has no -Infinity: silence goes as null.
           this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, loudness: loudness && Number.isFinite(loudness.lufs) ? loudness : null });

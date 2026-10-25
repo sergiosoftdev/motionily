@@ -19,6 +19,9 @@ pub struct Mix {
     /// Mixer channels: `voice`, `music`, `effects` (clips are mixed on their tracks).
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub channels: std::collections::BTreeMap<MixChannel, Channel>,
+    /// Effects on the whole mix, after the master level: a limiter here holds the peaks under its ceiling.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub master_fx: Option<crate::audio_fx::AudioFx>,
 }
 
 /// The sounds a mix channel carries.
@@ -41,6 +44,9 @@ pub struct Channel {
     pub muted: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub solo: bool,
+    /// The channel's effects, before its fader.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fx: Option<crate::audio_fx::AudioFx>,
 }
 
 fn unit() -> f32 {
@@ -61,7 +67,13 @@ impl Mix {
         if self.target_lufs.is_some_and(|t| !(t.is_finite() && (-60.0..=0.0).contains(&t))) {
             return Err("target_lufs is a loudness in LUFS, -60..0");
         }
+        if let Some(fx) = &self.master_fx {
+            fx.check()?;
+        }
         for c in self.channels.values() {
+            if let Some(fx) = &c.fx {
+                fx.check()?;
+            }
             if !(c.volume.is_finite() && (0.0..=crate::tracks::MAX_FADER).contains(&c.volume)) {
                 return Err("a mix channel's volume is a linear gain, 0..2");
             }

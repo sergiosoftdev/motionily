@@ -126,8 +126,9 @@ export class EditorBridge {
     return this.request({ type: ServerMessageType.MatchColor, requestId: randomUUID(), projectId: this.projectId, from, to }, TRACK_TIMEOUT_MS);
   }
 
-  loudness() {
-    return this.request({ type: ServerMessageType.Loudness, requestId: randomUUID(), projectId: this.projectId }, LOUDNESS_TIMEOUT_MS);
+  /** The mix's loudness at a master level of 0 dB, or at `masterDb` through the master effects. */
+  loudness(masterDb?: number) {
+    return this.request({ type: ServerMessageType.Loudness, requestId: randomUUID(), projectId: this.projectId, masterDb }, LOUDNESS_TIMEOUT_MS);
   }
 
   layout(times: number[]) {

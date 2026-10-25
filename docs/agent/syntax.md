@@ -275,6 +275,17 @@ to hear it. It plays in the preview and the export mix; `ripple_delete` and spli
 A video layer's `volume` also takes keyframes (seconds from the layer start, values 0..1, in time order), followed in the
 preview and the export mix: `{"op":"patch","id":"ft2","fields":{"volume":[{"t":0,"v":1,"ease":"linear"},{"t":3,"v":0.2,"ease":"linear"},{"t":4,"v":1}]}}`
 dips the clip's sound from 3 s to 4 s. The line syntax's `volume=V` is a flat level only (write keys with a patch).
+
+### Clip pan and audio effects
+`pan` (−1 left .. 1 right, keyframes like `volume`; the track's pan adds to it) places a video or audio clip's sound.
+`audio_fx` runs effects on it, in this order — EQ (`eq`, up to 5 bands: `{"type":"high_pass"|"low_pass","freq":HZ,"q":0.707}`
+cut below / above `freq` at 12 dB/octave; `{"type":"low_shelf"|"high_shelf","freq":HZ,"gain_db":DB}` lift or lower below /
+above `freq`; `{"type":"peak","freq":HZ,"gain_db":DB,"q":1}` a bell, higher q = narrower; freq 20..20000, gain −24..24),
+then a compressor (`{"threshold_db":-24,"ratio":3,"attack":0.01,"release":0.25,"knee_db":6,"makeup_db":4}`: above the
+threshold the level rises 1 dB per `ratio` dB; `makeup_db` is the only gain it adds), then a limiter
+(`{"ceiling_db":-1}`: sample peaks held under it, 5 ms lookahead). Speech usually wants `high_pass` 80–120 Hz, a peak
+around 3 kHz +2..4 dB for clarity and a compressor near −24 dB 3:1. The same object is a mix channel's `fx` and the
+master's `master_fx` (set_mix). `{"op":"patch","id":"vo","fields":{"pan":-0.3,"audio_fx":{"eq":[{"type":"high_pass","freq":100}],"compressor":{"threshold_db":-24,"ratio":3,"makeup_db":4}}}}`
 Music: `set_music` takes `envelope: [{"t":0,"v":0},{"t":2,"v":1}]` — levels 0..1 multiplying `gain`, `t` from the music's
 `start`, straight between keys (fade the song in, dip it under a moment, fade it out).
 

@@ -61,6 +61,9 @@ pub struct VideoClip {
     /// Where the clip's sound sits, −1 (left) .. 1 (right); animatable like `volume`. The track's pan adds to it.
     #[serde(default, skip_serializing_if = "is_muted")]
     pub pan: Animated,
+    /// EQ, compressor and limiter on the clip's sound (see `audio_fx`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio_fx: Option<crate::audio_fx::AudioFx>,
 }
 
 fn is_zero(v: &f32) -> bool {
@@ -87,6 +90,9 @@ impl VideoClip {
         }
         if !(self.speed > 0.0 && self.speed <= MAX_SPEED) {
             return Err("video speed must be > 0 and <= 16 (freeze or reverse with time=)");
+        }
+        if let Some(fx) = &self.audio_fx {
+            fx.check()?;
         }
         match &self.volume {
             Animated::Static(v) if !(0.0..=1.0).contains(v) => return Err("video volume must be 0..1"),

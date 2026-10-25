@@ -1,7 +1,8 @@
 import type { SfxCue } from "../audio/sfxPlayer";
 import type { MusicTrack } from "../audio/ducking";
-import { loadMix, scheduleMix, sfxCues } from "../audio/mix";
-import type { Mix } from "@motionily/protocol";
+import { loadMix, mixFx, scheduleMix, sfxCues } from "../audio/mix";
+import { fxChain, hasFx, prepareFx } from "../audio/fx";
+import type { AudioFx, Mix } from "@motionily/protocol";
 import {
   AudioBufferSource,
   BufferTarget,
@@ -37,14 +38,22 @@ export type FontFile = { family: string; weight: number; bytes: Uint8Array };
 
 const AUDIO_RATE = 48_000;
 
-/** Mix the voice-over, the music (ducked under speech), every sound effect and the clips' own sound into one buffer the length of the video. */
-async function renderAudio(scene: SceneInfo, url: string | null, clips: ClipSound[], master: number): Promise<AudioBuffer> {
+/**
+ * Mix the voice-over, the music (ducked under speech), every sound effect and the clips' own sound into
+ * one buffer the length of the video, through the master level and (unless left out) the master effects.
+ */
+async function renderAudio(scene: SceneInfo, url: string | null, clips: ClipSound[], master: number, masterFx: AudioFx | null): Promise<AudioBuffer> {
   const sources = await loadMix(scene, url, clips);
   const ctx = new OfflineAudioContext(2, Math.ceil(scene.duration * AUDIO_RATE), AUDIO_RATE);
-  // The mix bus: everything plays into it, at the scene's master level.
+  await prepareFx(ctx, [...mixFx(sources), masterFx]).catch(() => undefined);
+  // The mix bus: everything plays into it, at the scene's master level, then the master effects.
   const bus = ctx.createGain();
   bus.gain.value = master;
-  bus.connect(ctx.destination);
+  if (hasFx(masterFx)) {
+    const chain = fxChain(ctx, masterFx);
+    bus.connect(chain.input);
+    chain.output.connect(ctx.destination);
+  } else bus.connect(ctx.destination);
   scheduleMix(ctx, bus, sources, 0, 0);
   return ctx.startRendering();
 }
@@ -60,11 +69,13 @@ export function sceneHasAudio(sceneJson: string, audioUrl: string | null): boole
  * The video's whole soundtrack mixed into one buffer, or null when it is silent. Shared by the browser and
  * native exporters; `master: false` leaves the master level out (what loudness normalization measures).
  */
-export async function mixAudio(sceneJson: string, audioUrl: string | null, clips: ClipSound[], o: { master?: boolean } = {}): Promise<AudioBuffer | null> {
+export async function mixAudio(sceneJson: string, audioUrl: string | null, clips: ClipSound[], o: { master?: boolean; masterDb?: number } = {}): Promise<AudioBuffer | null> {
   if (!sceneHasAudio(sceneJson, audioUrl)) return null;
   const scene = JSON.parse(sceneJson) as SceneInfo;
-  const master = o.master === false ? 1 : 10 ** ((scene.mix?.master_db ?? 0) / 20);
-  return renderAudio(scene, audioUrl, clips, master);
+  // Without the master: what loudness normalization measures first (master effects left out too).
+  if (o.master === false) return renderAudio(scene, audioUrl, clips, 1, null);
+  const db = o.masterDb ?? scene.mix?.master_db ?? 0;
+  return renderAudio(scene, audioUrl, clips, 10 ** (db / 20), scene.mix?.master_fx ?? null);
 }
 
 /** The `[in, out]` seconds of a mix (export of a range). */

@@ -91,7 +91,7 @@ export const ServerMessageType = {
   Export: "export",
   /** Color scopes as numbers (luma percentiles, channel balance, saturation, cast) at some instants. */
   Scopes: "scopes",
-  /** Loudness of the mix as it exports, measured at a master level of 0 dB. */
+  /** Loudness of the mix as it exports, measured at a master level of 0 dB (or at `masterDb`, master effects included). */
   Loudness: "loudness",
   /** A subtitle or timeline file of the video (SideFile); the desktop app also saves it next to the exports. */
   SideFile: "side_file",
@@ -114,7 +114,7 @@ export type ServerMessage =
   | { type: typeof ServerMessageType.Layout; requestId: string; projectId: string; times: number[] }
   | { type: typeof ServerMessageType.Export; requestId: string; projectId: string; output?: Partial<Output> }
   | { type: typeof ServerMessageType.Scopes; requestId: string; projectId: string; times?: number[] }
-  | { type: typeof ServerMessageType.Loudness; requestId: string; projectId: string }
+  | { type: typeof ServerMessageType.Loudness; requestId: string; projectId: string; masterDb?: number }
   | { type: typeof ServerMessageType.SideFile; requestId: string; projectId: string; kind: SideFile }
   | { type: typeof ServerMessageType.TrackWindow; requestId: string; projectId: string; id: string; at?: number }
   | { type: typeof ServerMessageType.MatchColor; requestId: string; projectId: string; from: string; to: string[] };
@@ -129,10 +129,19 @@ export const SIDE_FILE_LABEL: Record<SideFile, string> = { srt: "Subtitles (.srt
 export const MixChannel = { Voice: "voice", Music: "music", Effects: "effects" } as const;
 export type MixChannel = (typeof MixChannel)[keyof typeof MixChannel];
 /** A mixer strip: fader (linear 0..2, 1 = as is), pan (−1 left .. 1 right), mute, solo. */
-export type MixStrip = { volume?: number; pan?: number; muted?: boolean; solo?: boolean };
+export type MixStrip = { volume?: number; pan?: number; muted?: boolean; solo?: boolean; fx?: AudioFx };
+
+/** EQ band shapes (crates/scene audio_fx). */
+export const BandType = { HighPass: "high_pass", LowPass: "low_pass", LowShelf: "low_shelf", HighShelf: "high_shelf", Peak: "peak" } as const;
+export type BandType = (typeof BandType)[keyof typeof BandType];
+export type EqBand = { type: BandType; freq: number; gain_db?: number; q?: number };
+export type Compressor = { threshold_db: number; ratio: number; attack?: number; release?: number; knee_db?: number; makeup_db?: number };
+/** Audio effects in this order: EQ (up to 5 bands), compressor, limiter (sample peak under `ceiling_db`, default −1). */
+export type AudioFx = { eq?: EqBand[]; compressor?: Compressor; limiter?: { ceiling_db?: number } };
+export const MAX_EQ_BANDS = 5;
 /** Highest fader gain (+6 dB) of a track or a mix channel. */
 export const MAX_FADER = 2;
-export type Mix = { master_db: number; target_lufs?: number; channels?: Partial<Record<MixChannel, MixStrip>> };
+export type Mix = { master_db: number; target_lufs?: number; channels?: Partial<Record<MixChannel, MixStrip>>; master_fx?: AudioFx };
 export const MASTER_DB_RANGE = [-60, 24] as const;
 
 /** Integrated loudness (ITU-R BS.1770-4, LUFS; −Infinity = silence) and sample peak (dBFS) of a mix. */
@@ -155,7 +164,40 @@ export type Normalization = Loudness & {
   lufsAfter: number;
   /** The peak ceiling kept the mix under the target (it would need a limiter to get there). */
   peakLimited: boolean;
+  /** Measured peak once applied (with a master limiter, the loop measures it). */
+  peakAfter?: number;
 };
+
+/** Rounds of measure → correct when a master limiter shapes the loudness. */
+const LIMITED_ROUNDS = 6;
+
+/**
+ * Normalization when the master has a limiter: the peaks no longer cap the master level (the limiter holds
+ * them), but limiting lowers the loudness, more the harder it works, so the whole mix is measured at the
+ * master level being tried (`measureAt`, master effects included) and corrected (secant steps, using how
+ * much the loudness moved per dB) until it lands within 0.1 LU.
+ */
+export async function limitedNormalization(m: Loudness, target: number, measureAt: (masterDb: number) => Promise<Loudness | null>): Promise<Normalization> {
+  if (!Number.isFinite(m.lufs)) return { ...m, masterDb: 0, lufsAfter: m.lufs, peakLimited: false };
+  const clamp = (v: number) => Math.round(Math.max(MASTER_DB_RANGE[0], Math.min(v, MASTER_DB_RANGE[1])) * 100) / 100;
+  let masterDb = clamp(target - m.lufs);
+  let after: Loudness = { lufs: m.lufs + masterDb, peakDb: m.peakDb + masterDb };
+  let prev: { db: number; lufs: number } = { db: 0, lufs: m.lufs };
+  for (let i = 0; i < LIMITED_ROUNDS; i++) {
+    const now = await measureAt(masterDb);
+    if (!now || !Number.isFinite(now.lufs)) break;
+    after = now;
+    const miss = target - now.lufs;
+    if (Math.abs(miss) < 0.1) break;
+    // LU gained per dB of master here (1 unlimited, less as the limiter works harder).
+    const slope = Math.abs(masterDb - prev.db) > 1e-3 ? Math.max(0.05, Math.min(1, (now.lufs - prev.lufs) / (masterDb - prev.db))) : 1;
+    prev = { db: masterDb, lufs: now.lufs };
+    const next = clamp(masterDb + miss / slope);
+    if (next === masterDb) break;
+    masterDb = next;
+  }
+  return { ...m, masterDb, lufsAfter: after.lufs, peakLimited: false, peakAfter: after.peakDb };
+}
 
 /** The master level that brings a mix measured at 0 dB to `target` LUFS without passing the peak ceiling. */
 export function normalization(m: Loudness, target: number, ceiling = PEAK_CEILING_DB): Normalization {
