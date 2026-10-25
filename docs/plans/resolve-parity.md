@@ -98,4 +98,5 @@ terminarlo, con su commit.
 - [x] 1.5 clips compuestos: precompose admite vídeo y audio (imagen y sonido iguales dentro, test), op `decompose` (romper en su sitio); en Edit "Make compound clip" con varios clips, clip compuesto que se mueve y recorta por el final, "Break apart"
 - [x] 1.6 rampas de velocidad (`speedRampKeys`, presets, `speed_ramp`, selector en el inspector; curva 1→0,25→1 comprobada) y estabilización (`stabilize_clip` / Stabilize: vid.stab 2 pasadas o deshake; jitter entre frames 14,5 → 3,4)
 - [x] 1.7 sincronizar audio por forma de onda (`sync_audio` / "Sync audio by waveform": envolventes + correlación normalizada ±30 s, refinado a muestra; 6,500 s exactos en la prueba con archivos reales)
-- [ ] Siguiente: 4.1 → 5.1–5.3 → 6 → 1.5–1.7 → 4.1 → 5.1–5.3 → 6
+- [x] 4.1 cola de render: presets (`EXPORT_PRESETS`), cola secuencial en el editor (Export › Queue, insignia en el botón, cancelar), `queue_export`; probado con 2 renders seguidos
+- [ ] Siguiente: 5.1–5.3 → 6 → 1.5–1.7 → 4.1 → 5.1–5.3 → 6

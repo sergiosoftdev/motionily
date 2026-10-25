@@ -97,6 +97,8 @@ export const ServerMessageType = {
   SideFile: "side_file",
   /** Track a color window over its clip from an instant: keys its x / y (answers with a summary in `text`). */
   TrackWindow: "track_window",
+  /** Render several exports one after the other (`presets` by name); answers when all are done, with their files in `text`. */
+  QueueExport: "queue_export",
   /** Line a sound clip up with a video clip by their waveforms (moves the sound, mutes the clip; answers in `text`). */
   SyncAudio: "sync_audio",
   /** Match clips' color to another clip's (writes their grade; answers with the difference before and after in `text`). */
@@ -120,7 +122,8 @@ export type ServerMessage =
   | { type: typeof ServerMessageType.SideFile; requestId: string; projectId: string; kind: SideFile }
   | { type: typeof ServerMessageType.TrackWindow; requestId: string; projectId: string; id: string; at?: number }
   | { type: typeof ServerMessageType.MatchColor; requestId: string; projectId: string; from: string; to: string[] }
-  | { type: typeof ServerMessageType.SyncAudio; requestId: string; projectId: string; video: string; audio: string };
+  | { type: typeof ServerMessageType.SyncAudio; requestId: string; projectId: string; video: string; audio: string }
+  | { type: typeof ServerMessageType.QueueExport; requestId: string; projectId: string; presets: string[] };
 
 /** Files exported beside the video: subtitles, and the Edit timeline for other editors. */
 export const SideFile = { Srt: "srt", Vtt: "vtt", Fcpxml: "fcpxml", Otio: "otio", Edl: "edl" } as const;
@@ -404,6 +407,15 @@ export const FRAME_RATES = [23.976, 24, 25, 29.97, 30, 50, 60] as const;
 /** Scene `output`: how the video is exported. Missing = 1080, H.264, the whole video. */
 export type Output = { short_side: number; codec: OutputCodec; range?: [number, number] };
 export const DEFAULT_OUTPUT: Output = { short_side: 1080, codec: OutputCodec.H264 };
+
+/** Render queue presets (Export › Queue, `queue_export`): the video's own format at these settings. `desktop` = needs the app's native exporter. */
+export const EXPORT_PRESETS: { name: string; output: Output; desktop: boolean }[] = [
+  { name: "Reels / TikTok", output: { short_side: 1080, codec: OutputCodec.H264 }, desktop: false },
+  { name: "YouTube 1080p", output: { short_side: 1080, codec: OutputCodec.H264 }, desktop: false },
+  { name: "YouTube 4K", output: { short_side: 2160, codec: OutputCodec.Hevc }, desktop: true },
+  { name: "Master ProRes", output: { short_side: 2160, codec: OutputCodec.Prores }, desktop: true },
+  { name: "Transparent ProRes 4444", output: { short_side: 1080, codec: OutputCodec.Prores4444 }, desktop: true },
+];
 export type SetOutputOp = { op: typeof OpName.SetOutput; output: Output | null };
 export type SetFpsOp = { op: typeof OpName.SetFps; fps: number };
 

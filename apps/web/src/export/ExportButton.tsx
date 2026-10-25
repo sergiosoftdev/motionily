@@ -7,6 +7,8 @@ import { exportNative, revealFile } from "./nativeExport";
 import { renderCurrentScene } from "./renderScene";
 import { RESOLUTIONS, sceneOutput } from "./resolution";
 import { SideFilesRow } from "./SideFilesRow";
+import { QueueSection } from "./QueueSection";
+import { JobStatus, useExportQueue } from "./queue";
 
 const Stage = { Idle: "idle", Rendering: "rendering", Done: "done", Error: "error" } as const;
 type Stage = (typeof Stage)[keyof typeof Stage];
@@ -35,6 +37,8 @@ const OPTION_CLASS = (on: boolean) => `rounded-md py-1.5 text-xs ${on ? "bg-neut
 /** Export the current scene to a video file, rendered frame by frame on the GPU. */
 export function ExportButton({ name, audioUrl }: { projectId: string; name: string; audioUrl: string | null }) {
   const [open, setOpen] = useState(false);
+  /** Queued renders still to finish (shown on the button while you keep editing). */
+  const pending = useExportQueue((s) => s.jobs.filter((j) => j.status === JobStatus.Queued || j.status === JobStatus.Rendering).length);
   // The scene's export settings (Project settings, set_output), as this exporter can render them.
   const [output, setOutputState] = useState<Output>(() => usable(sceneOutput()));
   const shortSide = output.short_side;
@@ -87,10 +91,11 @@ export function ExportButton({ name, audioUrl }: { projectId: string; name: stri
         className="rounded-lg bg-neutral-800 px-3 py-1.5 text-xs font-semibold hover:bg-neutral-700"
       >
         Export
+        {pending > 0 && <span className="ml-1.5 rounded-full bg-white px-1.5 text-[10px] text-neutral-900 tabular-nums">{pending}</span>}
       </button>
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" onClick={() => stage !== Stage.Rendering && setOpen(false)}>
-          <div className="flex w-full max-w-sm flex-col gap-5 rounded-2xl bg-neutral-900 p-6" onClick={(e) => e.stopPropagation()}>
+          <div className="flex max-h-[90vh] w-full max-w-sm flex-col gap-5 overflow-y-auto rounded-2xl bg-neutral-900 p-6" onClick={(e) => e.stopPropagation()}>
             <div>
               <h2 className="text-lg font-bold">Export video</h2>
               <p className="mt-1 text-sm text-neutral-400">Rendered frame by frame on your GPU, with the trimmed audio{desktop ? ", saved to Movies/Motionily" : ""}.</p>
@@ -143,6 +148,7 @@ export function ExportButton({ name, audioUrl }: { projectId: string; name: stri
                 Export
               </button>
             )}
+            <QueueSection current={output} />
             <SideFilesRow name={name} />
           </div>
         </div>

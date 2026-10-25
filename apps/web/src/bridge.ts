@@ -1,4 +1,4 @@
-import { BRIDGE_PATH, BridgeClose, SIDE_FILE_LABEL, BridgeRole, HEADLESS_PARAM, EditorMessageType, ServerMessageType, type EditorMessage, type ServerMessage, type Output, type SideFile } from "@motionily/protocol";
+import { BRIDGE_PATH, BridgeClose, EXPORT_PRESETS, SIDE_FILE_LABEL, BridgeRole, HEADLESS_PARAM, EditorMessageType, ServerMessageType, type EditorMessage, type ServerMessage, type Output, type SideFile } from "@motionily/protocol";
 import { API_URL, mediaUrl } from "./api/client";
 import { presetViolation, scenePresetViolation } from "./agentRules";
 import { engineHost } from "./engine/host";
@@ -7,6 +7,8 @@ import { trackWindow } from "./editor/edit/windowTrack";
 import { matchColor } from "./editor/edit/colorMatch";
 import { syncAudioOps, syncClipsOf } from "./editor/edit/audioSync";
 import { decodeAudio } from "./audio/decode";
+import { JobStatus, enqueue } from "./export/queue";
+import { desktop } from "./desktop";
 import { useSession } from "./session";
 import { ActivitySource, logActivity, useEditor } from "./store";
 
@@ -152,6 +154,22 @@ class AgentBridge {
           },
           (e: unknown) => this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error: e instanceof Error ? e.message : String(e) }),
         );
+        return;
+      }
+      case ServerMessageType.QueueExport: {
+        const unknown = msg.presets.filter((n) => !EXPORT_PRESETS.some((p) => p.name.toLowerCase() === n.toLowerCase()));
+        const usable = EXPORT_PRESETS.filter((p) => msg.presets.some((n) => n.toLowerCase() === p.name.toLowerCase()) && (desktop || !p.desktop));
+        if (unknown.length || !usable.length) {
+          this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error: unknown.length ? `unknown presets: ${unknown.join(", ")} (${EXPORT_PRESETS.map((p) => p.name).join("; ")})` : "those presets need the desktop app" });
+          return;
+        }
+        logActivity(ActivitySource.Agent, `Queues ${usable.map((p) => p.name).join(", ")}`);
+        // The video's own range setting applies to every preset.
+        const range = (JSON.parse(engineHost.sceneJson()) as { output?: { range?: [number, number] } }).output?.range;
+        void enqueue(usable.map((p) => ({ label: p.name, output: { ...p.output, ...(range ? { range } : {}) } }))).then((jobs) => {
+          const lines = jobs.map((j) => `${j.label}: ${j.status === JobStatus.Done ? (j.file ?? j.url) : j.status === JobStatus.Failed ? `failed (${j.error})` : j.status}`);
+          this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: jobs.some((j) => j.status === JobStatus.Done), text: lines.join("\n"), error: jobs.every((j) => j.status !== JobStatus.Done) ? lines.join("; ") : undefined });
+        });
         return;
       }
       case ServerMessageType.SyncAudio: {

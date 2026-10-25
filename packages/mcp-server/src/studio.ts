@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { z } from "zod";
-import { DEFAULT_TARGET_LUFS, GRADE_NEUTRAL, LOOKS, OpName, PEAK_CEILING_DB, SideFile, normalization, type ScopeStats, OutputCodec, OUTPUT_SHORT_SIDES, effectsWithGrade, effectsWithGradeOf, limitedNormalization, SPEED_RAMPS, speedRampKeys, type RampPoint, type Mix, type FootageClip, type Grade, type MediaItem, type Op, type Project } from "@motionily/protocol";
+import { DEFAULT_TARGET_LUFS, GRADE_NEUTRAL, LOOKS, OpName, PEAK_CEILING_DB, SideFile, normalization, type ScopeStats, OutputCodec, OUTPUT_SHORT_SIDES, effectsWithGrade, effectsWithGradeOf, EXPORT_PRESETS, limitedNormalization, SPEED_RAMPS, speedRampKeys, type RampPoint, type Mix, type FootageClip, type Grade, type MediaItem, type Op, type Project } from "@motionily/protocol";
 import type { ProjectApi } from "./api.js";
 import type { EditorBridge } from "./bridge.js";
 
@@ -164,6 +164,19 @@ export function registerStudioTools(server: Server, d: StudioDeps) {
       const res = await d.bridge().exportVideo(o);
       if (!res.ok) throw new Error(res.error ?? "the export failed");
       return d.text(res.file ? `Exported to ${res.file}` : `Exported: ${res.url}`);
+    }),
+  );
+
+  server.registerTool(
+    "queue_export",
+    {
+      description: `Render several versions one after the other, like Export › Queue: presets ${EXPORT_PRESETS.map((p) => `"${p.name}" (${p.output.short_side} short side, ${p.output.codec}${p.desktop ? ", desktop app" : ""})`).join(", ")}, each in the video's own format and export range. Answers when all are done, with each file's path (desktop app) or URL. Long videos take minutes per preset.`,
+      inputSchema: { presets: z.array(z.string().min(1)).min(1).max(EXPORT_PRESETS.length) },
+    },
+    d.guard(async ({ presets }: { presets: string[] }) => {
+      const res = await d.bridge().queueExport(presets);
+      if (!res.ok) throw new Error(res.error ?? "the exports failed");
+      return d.text(res.text ?? "Exported.");
     }),
   );
 

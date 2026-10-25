@@ -2,9 +2,10 @@ import { sceneOutput } from "../export/resolution";
 import { saveSideFile, sideFileText } from "../export/sideFiles";
 import { exportNative } from "../export/nativeExport";
 import { renderCurrentScene } from "../export/renderScene";
+import { setRenderer } from "../export/queue";
 import { desktop } from "../desktop";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FORMAT_SIZE, OpName, type VideoFormat, type Brick, type Build, type Op, type Project } from "@motionily/protocol";
+import { FORMAT_SIZE, OpName, type VideoFormat, type Brick, type Build, type Op, type Output, type Project } from "@motionily/protocol";
 import { api, ApiError, mediaUrl } from "../api/client";
 import { engineHost } from "../engine/host";
 import { agentBridge } from "../bridge";
@@ -94,21 +95,24 @@ export function EditorScreen({ id }: { id: string }) {
   const latestProject = useRef(project);
   latestProject.current = project;
   useEffect(() => {
-    agentBridge.onExport = async (override) => {
+    /** One render of the video at `o`: native in the desktop app (a file), WebCodecs in the browser (uploaded, a URL). */
+    const render = async (o: Output, onProgress: (r: number) => void, signal: AbortSignal) => {
       const p = latestProject.current;
       if (!p) throw new Error("the project is still loading");
-      const o = { ...sceneOutput(), ...(override ?? {}) };
       const audioUrl = p.audio ? mediaUrl(p.audio.url) : null;
-      const signal = new AbortController().signal;
       if (desktop) {
-        const file = await exportNative({ name: p.name, shortSide: o.short_side, codec: o.codec, range: o.range ?? null, supersample: o.short_side <= 1080, audioUrl, onProgress: () => undefined, signal });
-        logActivity(ActivitySource.Agent, `Exported ${file.split(/[\\/]/).pop()}`);
+        const file = await exportNative({ name: p.name, shortSide: o.short_side, codec: o.codec, range: o.range ?? null, supersample: o.short_side <= 1080, audioUrl, onProgress, signal });
         return { file };
       }
-      const res = await renderCurrentScene({ shortSide: Math.min(o.short_side, 1080), range: o.range ?? null, audioUrl, onProgress: () => undefined, signal });
+      const res = await renderCurrentScene({ shortSide: Math.min(o.short_side, 1080), range: o.range ?? null, audioUrl, onProgress, signal });
       const up = await api.uploadRender(p.id, new File([res.blob], `${p.name || "motionily"}.${res.extension}`, { type: res.blob.type }));
-      logActivity(ActivitySource.Agent, "Exported the video");
       return { url: mediaUrl(up.url) };
+    };
+    setRenderer(render);
+    agentBridge.onExport = async (override) => {
+      const r = await render({ ...sceneOutput(), ...(override ?? {}) }, () => undefined, new AbortController().signal);
+      logActivity(ActivitySource.Agent, r.file ? `Exported ${r.file.split(/[\\/]/).pop()}` : "Exported the video");
+      return r;
     };
     agentBridge.onSideFile = async (kind) => {
       const name = latestProject.current?.name ?? "";
@@ -120,6 +124,7 @@ export function EditorScreen({ id }: { id: string }) {
     return () => {
       agentBridge.onExport = null;
       agentBridge.onSideFile = null;
+      setRenderer(null);
     };
   }, []);
 
