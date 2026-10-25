@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { copyFile, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, extname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, NotFoundException, Param, Post, UploadedFile, UseInterceptors } from "@nestjs/common";
-import { IsOptional, IsString, MaxLength, MinLength } from "class-validator";
+import { IsIn, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { InjectModel } from "@nestjs/mongoose";
 import { diskStorage } from "multer";
@@ -17,6 +18,17 @@ import { ProjectsService } from "./projects.service";
 import { BridgeHub } from "../bridge-hub";
 
 const FFPROBE = process.env.FFPROBE_PATH ?? "ffprobe";
+const FFMPEG = process.env.FFMPEG_PATH ?? "ffmpeg";
+/** RNNoise's own speech model (Xiph, BSD-3-Clause), for voice isolation. */
+const RNNOISE_MODEL = [join(__dirname, "..", "..", "models"), join(__dirname, "..", "..", "..", "models")].map((d) => join(d, "rnnoise-std.rnnn")).find((f) => existsSync(f)) ?? "rnnoise-std.rnnn";
+
+/** How a sound is cleaned: `denoise` lowers steady noise (hiss, hum, fans); `voice` keeps speech and drops the rest (RNNoise). */
+export const CleanMode = { Denoise: "denoise", Voice: "voice" } as const;
+export type CleanMode = (typeof CleanMode)[keyof typeof CleanMode];
+/** The voice-over (the project's audio) as a clean_audio source. */
+const VOICE_SOURCE = "voice";
+/** FFT noise reduction (dB) at strength 0 and 1. */
+const DENOISE_DB: [number, number] = [6, 36];
 const run = promisify(execFile);
 
 /** `.cube` files have no registered type; the pool names them this. */
@@ -58,6 +70,24 @@ class ImportMediaDto {
   /** An http(s) URL, or (desktop app) an absolute path on this machine. */
   @IsString() @MinLength(1) @MaxLength(4000) source: string;
   @IsOptional() @IsString() @MaxLength(200) name?: string;
+}
+
+class CleanAudioDto {
+  /** A sound or clip of this video (`/media/…`), or `voice` for the voice-over. */
+  @IsString() @MinLength(1) @MaxLength(200) source: string;
+  @IsIn(Object.values(CleanMode)) mode: CleanMode;
+  /** 0..1 (default 0.5): how hard `denoise` works; `voice` mixes the original back in below 1. */
+  @IsOptional() @IsNumber() @Min(0) @Max(1) strength?: number;
+}
+
+/** The ffmpeg filter for a cleaning (paths escaped for the filter syntax). */
+function cleanFilter(mode: CleanMode, strength: number): string {
+  if (mode === CleanMode.Denoise) {
+    const nr = DENOISE_DB[0] + (DENOISE_DB[1] - DENOISE_DB[0]) * strength;
+    return `afftdn=nr=${nr.toFixed(1)}:nf=-50:tn=1`;
+  }
+  const model = RNNOISE_MODEL.replace(/\\/g, "/").replace(/:/g, "\\:").replace(/'/g, "\\'");
+  return `arnndn=m='${model}':mix=${strength.toFixed(2)}`;
 }
 
 /** The user, the video's agent or its headless editor may change the pool; account tokens may not. */
@@ -198,6 +228,40 @@ export class MediaPoolController {
       await removeMedia(filename);
       throw e;
     }
+  }
+
+  /**
+   * A cleaned copy of a sound (non-destructive): the result joins the pool as a new sound; for the voice-over
+   * it replaces the voice (timing, words and cuts stay, the file is the same length) and the original joins
+   * the pool, so it can come back.
+   */
+  @Post(":id/media/clean")
+  async clean(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: CleanAudioDto) {
+    poolWriter(user);
+    const project = await this.projects.get(user.id, id);
+    const voice = dto.source === VOICE_SOURCE;
+    const fromPool = (project.media ?? []).find((m) => m.url === dto.source && m.kind === MediaKind.Audio);
+    const fromClips = (project.footage ?? []).find((c) => `/media/${c.file}` === dto.source);
+    const file = voice ? project.audio?.file : (fromPool?.file ?? fromClips?.file);
+    if (!file) throw new BadRequestException(voice ? "this video has no voice-over" : `${dto.source} is not a sound or a clip of this video (list_media shows them)`);
+    const label = voice ? (project.audio?.name ?? "Voice-over") : (fromPool?.name ?? fromClips?.name ?? "sound");
+    const out = mediaName(`${label}.wav`);
+    const strength = dto.strength ?? (dto.mode === CleanMode.Voice ? 1 : 0.5);
+    try {
+      // 48 kHz, the source's channels, 16-bit WAV: lossless for further editing.
+      await run(FFMPEG, ["-v", "error", "-y", "-i", join(MEDIA_DIR, file), "-vn", "-af", cleanFilter(dto.mode, strength), "-ar", "48000", "-c:a", "pcm_s16le", join(MEDIA_DIR, out)], { maxBuffer: 16 * 1024 * 1024 });
+    } catch (e) {
+      await removeMedia(out);
+      throw new BadRequestException(`ffmpeg could not clean it: ${(e as { stderr?: string }).stderr?.trim() || String(e)}`);
+    }
+    const what = dto.mode === CleanMode.Voice ? "voice isolated" : "denoised";
+    const size = (await stat(join(MEDIA_DIR, out))).size;
+    if (!voice) return this.add(user, id, out, `${label} (${what})`, "audio/wav", size);
+    // The voice-over: the cleaned file takes its place; the original goes to the pool.
+    const original = await this.add(user, id, file, `${label} (before cleaning)`, project.audio!.mime, (await stat(join(MEDIA_DIR, file))).size);
+    await this.model.updateOne({ _id: project._id }, { $set: { audio: { ...project.audio!, file: out, mime: "audio/wav" } } });
+    BridgeHub.instance?.notifyProjectChanged(id);
+    return { voice: `/media/${out}`, original };
   }
 
   /** A finished export from the browser editor, so the agent that asked for it gets a URL back. */

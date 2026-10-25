@@ -91,6 +91,10 @@ export class ApiError extends Error {
   }
 }
 
+/** How clean_audio / Clean works: steady noise down (denoise) or speech kept and the rest dropped (voice). */
+export const CleanMode = { Denoise: "denoise", Voice: "voice" } as const;
+export type CleanMode = (typeof CleanMode)[keyof typeof CleanMode];
+
 const HttpMethod = { Get: "GET", Post: "POST", Put: "PUT", Patch: "PATCH", Delete: "DELETE" } as const;
 type HttpMethod = (typeof HttpMethod)[keyof typeof HttpMethod];
 
@@ -197,6 +201,8 @@ export const api = {
   projectMedia: (id: string) => call<MediaItem[]>(HttpMethod.Get, `/projects/${id}/media`),
   uploadMedia: (id: string, file: File) => upload<MediaItem>(`/projects/${id}/media`, file),
   removeMedia: (id: string, mediaId: string) => call<{ ok: true }>(HttpMethod.Delete, `/projects/${id}/media/${mediaId}`),
+  /** A cleaned copy of a sound or clip (new pool sound), or of the voice-over (`source` "voice", replaced in place). */
+  cleanMedia: (id: string, body: { source: string; mode: CleanMode; strength?: number }) => call<MediaItem | { voice: string; original: MediaItem }>(HttpMethod.Post, `/projects/${id}/media/clean`, body),
   uploadFootage: (id: string, file: File, language: string) => upload<Project>(`/projects/${id}/footage`, file, { language }),
   /** A clip's transcript, made here in the browser. */
   saveFootageWords: (id: string, clipId: string, words: { text: string; start: number; end: number }[]) =>

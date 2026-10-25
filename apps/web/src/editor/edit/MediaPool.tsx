@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type DragEvent } from "react";
 import { MediaKind, type FootageClip, type MediaItem } from "@motionily/protocol";
-import { api, mediaUrl } from "../../api/client";
+import { CleanMode, api, mediaUrl } from "../../api/client";
 import { useAgentName } from "../../agentName";
 import { LANGUAGES } from "../../footage/languages";
 import { ActivitySource, logActivity } from "../../store";
@@ -75,7 +75,24 @@ export function useMediaPool(projectId: string | undefined, version?: string) {
     },
     [projectId],
   );
-  return { items, busy, error, upload, remove };
+  /** Clean a sound or a clip's sound into a new pool sound, or the voice-over in place (`source` "voice"). */
+  const clean = useCallback(
+    async (source: string, mode: CleanMode) => {
+      if (!projectId) return;
+      setBusy(true);
+      setError(null);
+      try {
+        const r = await api.cleanMedia(projectId, { source, mode });
+        setItems((xs) => [...xs, "voice" in r ? r.original : r]);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [projectId],
+  );
+  return { items, busy, error, upload, remove, clean };
 }
 export type MediaPoolState = ReturnType<typeof useMediaPool>;
 
@@ -169,6 +186,7 @@ export function MediaPool({
                   picked={!!picked && picked.source === e.source && picked.id === (e.source === "footage" ? e.clip.id : e.item.id)}
                   onPick={onPick}
                   onRemove={e.source === "media" ? () => void pool.remove(e.item.id) : undefined}
+                  onClean={(mode) => void pool.clean(e.source === "footage" ? e.clip.url : e.item.url, mode)}
                 />
               ))}
             </ul>
@@ -202,6 +220,19 @@ export function MediaPool({
             ))}
           </select>
         </label>
+        {project?.audio && (
+          <span className="px-1">
+            <CleanMenu
+              label="Clean the voice-over…"
+              onClean={(mode) =>
+                void pool.clean("voice", mode).then(async () => {
+                  // The voice-over was replaced in place: reload it.
+                  ed.setProject(await api.project(project.id));
+                })
+              }
+            />
+          </span>
+        )}
         <button type="button" disabled={!project} onClick={() => setSuno(true)} className="flex items-center gap-2.5 rounded-lg p-1.5 text-left hover:bg-neutral-800/60 disabled:opacity-50">
           <img src={SUNO_LOGO} alt="" className="size-6 shrink-0 rounded-full" />
           <span className="min-w-0">
@@ -215,7 +246,7 @@ export function MediaPool({
   );
 }
 
-function Tile({ entry, used, music, onAdd, onRemove, picked, onPick }: { entry: PoolEntry; used: Set<string>; music: MusicUpload; onAdd: (d: PoolDrop) => void; onRemove?: () => void; picked: boolean; onPick: (d: PoolDrop | null) => void }) {
+function Tile({ entry, used, music, onAdd, onRemove, onClean, picked, onPick }: { entry: PoolEntry; used: Set<string>; music: MusicUpload; onAdd: (d: PoolDrop) => void; onRemove?: () => void; onClean: (mode: CleanMode) => void; picked: boolean; onPick: (d: PoolDrop | null) => void }) {
   const drop: PoolDrop = entry.source === "footage" ? { source: "footage", id: entry.clip.id } : { source: "media", id: entry.item.id };
   const url = entry.source === "footage" ? entry.clip.url : entry.item.url;
   const name = entry.source === "footage" ? entry.clip.name : entry.item.name;
@@ -261,6 +292,7 @@ function Tile({ entry, used, music, onAdd, onRemove, picked, onPick }: { entry: 
         </span>
       </span>
       <span className="truncate px-0.5 text-[11px] text-neutral-300">{name}</span>
+      {(isAudio || entry.source === "footage") && <CleanMenu onClean={onClean} />}
       {isAudio && entry.source === "media" && (
         <button
           type="button"
@@ -271,5 +303,22 @@ function Tile({ entry, used, music, onAdd, onRemove, picked, onPick }: { entry: 
         </button>
       )}
     </li>
+  );
+}
+
+/** Clean a sound (a new copy joins the pool; the original stays). */
+function CleanMenu({ onClean, label = "Clean sound…" }: { onClean: (mode: CleanMode) => void; label?: string }) {
+  return (
+    <select
+      value=""
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => e.target.value && onClean(e.target.value as CleanMode)}
+      className="self-start bg-transparent px-0.5 text-[10px] text-neutral-500 hover:text-white"
+      title="Reduce noise or isolate the voice (ffmpeg; a cleaned copy, the original stays)"
+    >
+      <option value="">{label}</option>
+      <option value={CleanMode.Denoise}>Reduce noise</option>
+      <option value={CleanMode.Voice}>Isolate voice</option>
+    </select>
   );
 }

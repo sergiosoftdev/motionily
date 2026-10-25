@@ -79,6 +79,20 @@ export function registerStudioTools(server: Server, d: StudioDeps) {
   );
 
   server.registerTool(
+    "clean_audio",
+    {
+      description:
+        "Clean a sound, non-destructively, with ffmpeg: `mode` denoise (FFT noise reduction, `strength` 0..1 = 6..36 dB, default 0.5: steady hiss, hum, fans) or voice (RNNoise speech isolation: keeps the voice, drops everything else; `strength` below 1 mixes the original back in). `source` is a sound (src from list_media), a clip's src (its sound), or `voice` for the voice-over. A sound or clip gives a new pool sound (WAV) to place (`id audio START-END src=… volume=1` at the clip's start/in/out, and the clip's own volume to 0); the voice-over is replaced in place (same length: timing, words and cuts stay) and its original joins the pool.",
+      inputSchema: { source: z.string().min(1).max(200), mode: z.enum(["denoise", "voice"]), strength: z.number().min(0).max(1).optional() },
+    },
+    d.guard(async ({ source, mode, strength }: { source: string; mode: "denoise" | "voice"; strength?: number }) => {
+      const r = await d.api().route<MediaItem | { voice: string; original: MediaItem }>("POST", "/media/clean", { source, mode, strength });
+      if ("voice" in r) return d.text(`The voice-over is now ${r.voice} (${mode === "voice" ? "voice isolated" : "denoised"}); the original is ${r.original.id} (src=${r.original.url}) in the pool.`);
+      return d.text(`Cleaned into ${r.id}: src=${r.url}${r.duration != null ? `, ${r.duration.toFixed(2)} s` : ""}. Place it where the original plays.`);
+    }),
+  );
+
+  server.registerTool(
     "remove_media",
     {
       description: "Take a sound or picture (m1…) out of the media pool. Layers that still use it keep working until you remove them.",

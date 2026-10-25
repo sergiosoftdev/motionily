@@ -83,6 +83,26 @@ describe("media pool", () => {
     await http.delete(`${base}/m1`).set(auth).expect(404);
   });
 
+  it("cleans a sound into a new one (denoise, voice isolation) and only the video's own sounds", async () => {
+    const login = await http.post("/auth/mock-google").send({ email: "clean@motionily.local" }).expect(201);
+    const auth = { Authorization: `Bearer ${login.body.token as string}` };
+    const project = await http.post("/projects").set(auth).send({ name: "Clean", format: "square_1_1" }).expect(201);
+    const base = `/projects/${project.body.id as string}/media`;
+    // Noise to clean: a 440 Hz tone under white noise.
+    const noisy = wav(2, 16000);
+    for (let i = 44; i < noisy.length; i += 2) noisy.writeInt16LE(Math.round(6000 * Math.sin((i / 2) * 0.17) + (Math.random() - 0.5) * 4000), i);
+    const sound = await http.post(base).set(auth).attach("file", noisy, { filename: "take.wav", contentType: "audio/wav" }).expect(201);
+    for (const mode of ["denoise", "voice"]) {
+      const out = await http.post(`${base}/clean`).set(auth).send({ source: sound.body.url, mode }).expect(201);
+      assert.equal(out.body.kind, "audio");
+      assert.match(out.body.name, mode === "voice" ? /voice isolated/ : /denoised/);
+      assert.ok(Math.abs(out.body.duration - 2) < 0.1, `same length: ${out.body.duration}`);
+    }
+    await http.post(`${base}/clean`).set(auth).send({ source: "/media/not-mine.wav", mode: "voice" }).expect(400);
+    await http.post(`${base}/clean`).set(auth).send({ source: "voice", mode: "denoise" }).expect(400);
+    await http.post(`${base}/clean`).set(auth).send({ source: sound.body.url, mode: "louder" }).expect(400);
+  });
+
   it("lets the video's agent import from a URL, and keeps account tokens out", async () => {
     const login = await http.post("/auth/mock-google").send({ email: "pool-agent@motionily.local" }).expect(201);
     const auth = { Authorization: `Bearer ${login.body.token as string}` };
