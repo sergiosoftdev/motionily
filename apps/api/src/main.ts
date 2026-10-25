@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
+import type { NestExpressApplication } from "@nestjs/platform-express";
 import { AppModule } from "./app.module";
 import { configureApp } from "./setup";
 import { JwtService } from "@nestjs/jwt";
@@ -11,8 +12,12 @@ import { GenerateService } from "./projects/generate.service";
 const PARENT_CHECK_MS = 2000;
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
   configureApp(app, process.env.WEB_ORIGIN ?? "http://localhost:5173");
+  // The desktop app passes its editor build: agents' headless editors open it here, on the API's
+  // own origin, since there is no web server on the machine. Only existing files are served (folders
+  // such as fonts/ fall through), so every API route still answers.
+  if (process.env.MOTIONILY_WEB_DIR) app.useStaticAssets(process.env.MOTIONILY_WEB_DIR, { redirect: false });
   // Hot reload / shutdown: stop the agents, then exit right away. (Nest's shutdown hooks would wait
   // forever for the editors' websockets to close and freeze the watcher's restart.)
   const generator = app.get(GenerateService);

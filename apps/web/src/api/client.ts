@@ -3,7 +3,14 @@ import { useSession } from "../session";
 import type { AgentPrefs, GenerateState } from "../components/GeneratePanel";
 import { desktop } from "../desktop";
 
-export const API_URL = desktop?.apiUrl ?? import.meta.env.VITE_API_URL ?? "http://localhost:3100";
+declare global {
+  interface Window {
+    /** Set by an agent's headless editor (packages/mcp-server/src/headless.ts): the API it works on. */
+    __MOTIONILY_API__?: string;
+  }
+}
+
+export const API_URL = desktop?.apiUrl ?? (typeof window === "undefined" ? undefined : window.__MOTIONILY_API__) ?? import.meta.env.VITE_API_URL ?? "http://localhost:3100";
 
 /** Agent CLIs Motionily drives (apps/api/src/common/agent-cli.ts). */
 export const AgentCli = { Claude: "claude", Codex: "codex", Gemini: "gemini", OpenCode: "opencode" } as const;

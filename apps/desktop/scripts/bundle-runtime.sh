@@ -4,6 +4,7 @@
 #   api/       the API, built, with its production dependencies
 #   mcp/       the MCP server agents start, with its dependencies (run through tsx)
 #   docs/agent the prompts and manual the API reads
+#   web/       the editor build, served by the API for agents' headless editors
 #   ffmpeg/    ffmpeg + ffprobe (static builds), for native export and clip decoding
 # Run from anywhere; `tauri build` calls it. Override downloads with NODE_DIR=/path/to/node-root or
 # FFMPEG_DIR=/path/with/ffmpeg+ffprobe. NODE_VERSION picks the Node release to download.
@@ -77,6 +78,11 @@ test -f "$OUT/mcp/src/index.ts"
 
 mkdir -p "$OUT/docs"
 cp -R "$ROOT/docs/agent" "$OUT/docs/agent"
+
+# The editor build (`tauri build` makes it first): the API serves it so agents' headless editors
+# open the editor on the API's own origin.
+test -f "$ROOT/apps/web/dist/index.html"
+cp -R "$ROOT/apps/web/dist" "$OUT/web"
 
 # --- ffmpeg + ffprobe (GPL static builds from ffmpeg-static's GitHub releases; see THIRD_PARTY.md) ---
 FFMPEG_RELEASE="${FFMPEG_RELEASE:-b6.1.1}"

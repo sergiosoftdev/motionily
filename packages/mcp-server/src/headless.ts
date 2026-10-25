@@ -6,6 +6,9 @@ const DEFAULT_CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Ch
 /** WebGPU on Metal; SwiftShader is too slow for 3D. */
 const CHROME_ARGS = ["--enable-unsafe-webgpu", "--use-angle=metal"];
 const VIEWPORT = { width: 1360, height: 880 };
+/** The API the agent works on (index.ts reads the same variable). */
+const API_URL = process.env.MOTIONILY_API ?? "http://localhost:3100";
+const PROBE_MS = 3000;
 
 /**
  * An invisible editor the agent opens on its own project when the user has none open,
@@ -42,14 +45,32 @@ export class HeadlessEditor {
     await (await b?.catch(() => null))?.close().catch(() => undefined);
   }
 
+  /**
+   * Where the editor is served: MOTIONILY_WEB when set, else the API itself when it serves the
+   * editor build (the desktop app, which runs no web server), else the default web URL.
+   */
+  private async editorUrl(): Promise<string> {
+    if (process.env.MOTIONILY_WEB) return this.webUrl;
+    const res = await fetch(`${API_URL}/index.html`, { signal: AbortSignal.timeout(PROBE_MS) }).catch(() => null);
+    return res?.ok && res.headers.get("content-type")?.includes("text/html") ? API_URL : this.webUrl;
+  }
+
   private async launch(): Promise<Browser> {
     const session = await this.session();
+    const webUrl = await this.editorUrl();
     const browser = await chromium.launch({ executablePath: process.env.MOTIONILY_CHROME ?? DEFAULT_CHROME, headless: true, args: CHROME_ARGS });
     const page = await browser.newPage({ viewport: VIEWPORT });
-    await page.addInitScript(([key, value]) => localStorage.setItem(key!, value!), [SESSION_KEY, JSON.stringify(session)]);
+    // The editor talks to the agent's API, wherever the page itself is served from.
+    await page.addInitScript(
+      ([key, value, api]) => {
+        localStorage.setItem(key!, value!);
+        Object.assign(window, { __MOTIONILY_API__: api });
+      },
+      [SESSION_KEY, JSON.stringify(session), API_URL],
+    );
     page.on("pageerror", (e) => console.error(`[motionily] headless editor: ${e.message}`));
     page.on("close", () => void this.close());
-    await page.goto(`${this.webUrl}/?${HEADLESS_PARAM}=1#/p/${this.projectId}`);
+    await page.goto(`${webUrl}/?${HEADLESS_PARAM}=1#/p/${this.projectId}`);
     console.error(`[motionily] opened a headless editor on project ${this.projectId}`);
     return browser;
   }

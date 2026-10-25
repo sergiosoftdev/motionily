@@ -27,6 +27,8 @@ pub struct Layout {
     pub docs: PathBuf,
     /// The bundled ffmpeg folder (None in development: ffmpeg from PATH).
     pub ffmpeg_dir: Option<PathBuf>,
+    /// The editor's web build, served by the API so agents' headless editors can open it.
+    pub web: Option<PathBuf>,
 }
 
 impl Layout {
@@ -44,6 +46,7 @@ impl Layout {
                 mcp_args: vec![runtime.join("mcp/node_modules/tsx/dist/cli.mjs"), runtime.join("mcp/src/index.ts")],
                 docs: runtime.join("docs/agent"),
                 ffmpeg_dir: Some(runtime.join("ffmpeg")).filter(|d| d.is_dir()),
+                web: Some(runtime.join("web")).filter(|d| d.join("index.html").exists()),
                 node,
             });
         }
@@ -63,6 +66,7 @@ impl Layout {
             mcp_args: vec![mcp.join("src/index.ts")],
             docs: repo.join("docs/agent"),
             ffmpeg_dir: None,
+            web: Some(repo.join("apps/web/dist")).filter(|d| d.join("index.html").exists()),
         })
     }
 }
@@ -166,6 +170,9 @@ impl Api {
         cmd.env("MOTIONILY_MCP_COMMAND", &layout.mcp_command)
             .env("MOTIONILY_MCP_ARGS", serde_json::to_string(&args).map_err(|e| e.to_string())?)
             .env("MOTIONILY_DOCS_DIR", &layout.docs);
+        if let Some(dir) = &layout.web {
+            cmd.env("MOTIONILY_WEB_DIR", dir);
+        }
         if let Some(dir) = &layout.ffmpeg_dir {
             let exe = if cfg!(windows) { ".exe" } else { "" };
             cmd.env("FFMPEG_PATH", dir.join(format!("ffmpeg{exe}"))).env("FFPROBE_PATH", dir.join(format!("ffprobe{exe}")));

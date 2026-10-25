@@ -21,6 +21,11 @@ delete them) and expires in 90 days. The server it registers is:
 }
 ```
 
+When the video is not open in the editor, the server works in its own invisible editor (headless
+Chrome). The desktop app's API serves the editor itself, so nothing else has to run; against a
+development API it opens `http://localhost:5173`, or `MOTIONILY_WEB` when set. Each server process
+works on one video at a time: run one agent per video to build several in parallel.
+
 | Client | How |
 | --- | --- |
 | Claude Code | `claude mcp add motionily -s user -e … -- <command> <args>` |
