@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { engineHost } from "../../engine/host";
-import { OpName, WHEELS_NEUTRAL, effectsWithGrade, type Curves, type GradeLut, type MediaItem, type Wheels } from "@motionily/protocol";
+import { LOG_INPUT_LABEL, LogInput, OpName, WHEELS_NEUTRAL, effectsWithGrade, type Curves, type GradeLut, type MediaItem, type Wheels } from "@motionily/protocol";
 import { GRADE_FIELDS, GRADE_GROUPS, GRADE_PRESETS, gradeOps, presetGrade, readGrade, type Grade, type GradeField } from "./colorGrade";
 import { ColorWheels } from "./ColorWheels";
 import { CurvesEditor } from "./CurvesEditor";
@@ -27,6 +27,9 @@ export function ColorSection({ clipId, allClipIds, edits, luts }: { clipId: stri
   };
   const curves = (fx.curves as Curves | undefined) ?? {};
   const lut: GradeLut | null = typeof fx.lut === "string" ? { src: fx.lut, mix: typeof fx.lut_mix === "number" ? fx.lut_mix : 1 } : null;
+  const input = (Object.values(LogInput) as string[]).includes(String(fx.input)) ? (fx.input as LogInput) : null;
+  const setInput = (next: LogInput | null) =>
+    edits.apply([{ op: OpName.Patch, id: clipId, fields: { effects: effectsWithGrade(engineHost.layer(clipId)?.effects as unknown[] | undefined, grade, { input: next }) } }], next ? `${LOG_INPUT_LABEL[next]} input on ${clipId}` : `No log input on ${clipId}`, false);
   const setLut = (next: GradeLut | null, what: string) =>
     edits.apply([{ op: OpName.Patch, id: clipId, fields: { effects: effectsWithGrade(engineHost.layer(clipId)?.effects as unknown[] | undefined, grade, { lut: next }) } }], `${what} on ${clipId}`, false);
   /** Wheels, curves or the LUT mix changed live (one undo step per gesture). */
@@ -70,6 +73,17 @@ export function ColorSection({ clipId, allClipIds, edits, luts }: { clipId: stri
           </button>
         )}
       </div>
+      <label className="flex items-center justify-between gap-2 text-xs text-neutral-400" title="Shot in a camera log: turned into Rec.709 before the grade">
+        Camera log
+        <select value={input ?? ""} onChange={(e) => setInput((e.target.value || null) as LogInput | null)} className="min-w-0 flex-1 rounded-md bg-neutral-900 px-2 py-1.5 text-xs text-neutral-200">
+          <option value="">None (Rec.709)</option>
+          {Object.values(LogInput).map((v) => (
+            <option key={v} value={v}>
+              {LOG_INPUT_LABEL[v]}
+            </option>
+          ))}
+        </select>
+      </label>
       <div className="flex flex-wrap gap-1">
         {GRADE_PRESETS.map((p) => (
           <button key={p.name} type="button" onClick={() => look(p.name, presetGrade(p.grade))} className="rounded-md bg-neutral-800/70 px-2 py-1 text-[11px] text-neutral-300 hover:bg-neutral-700 hover:text-white">

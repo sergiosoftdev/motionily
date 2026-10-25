@@ -1087,7 +1087,7 @@ fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, glass: &mut GlassPass, s
     }
     // Warps pull pixels from around them: at the frame edge, repeat the edge instead of emptiness.
     let clamp_edges = if f.adjust || turb[0] != 0.0 { 1.0 } else { 0.0 };
-    plan.layer = fx.push(FxParams { a: [0.0, matte, 1.0, 0.0], b: [0.0, 0.0, clamp_edges, if f.adjust { 1.0 } else { 0.0 }], adj: [hue, sat - 1.0, bright, contrast - 1.0], warp, grain, turb, h0, h1, h2, origin, grade: [grade.exposure, grade.temperature, grade.tint, grade.vibrance], tone: [grade.shadows, grade.highlights, grade.vignette, 0.0], lift: wheel(grade.lift, 0.0), gamma: wheel(grade.gamma, 1.0), gain: wheel(grade.gain, 1.0), offset: wheel(grade.offset, 0.0), curve_n: grade.curve_points.map(|n| n as f32), curve: curve_vecs(&grade.curves), lut: [grade.lut_mix, 0.0, 0.0, 0.0], ..Default::default() });
+    plan.layer = fx.push(FxParams { a: [0.0, matte, 1.0, 0.0], b: [0.0, 0.0, clamp_edges, if f.adjust { 1.0 } else { 0.0 }], adj: [hue, sat - 1.0, bright, contrast - 1.0], warp, grain, turb, h0, h1, h2, origin, grade: [grade.exposure, grade.temperature, grade.tint, grade.vibrance], tone: [grade.shadows, grade.highlights, grade.vignette, 0.0], lift: wheel(grade.lift, 0.0), gamma: wheel(grade.gamma, 1.0), gain: wheel(grade.gain, 1.0), offset: wheel(grade.offset, 0.0), curve_n: grade.curve_points.map(|n| n as f32), curve: curve_vecs(&grade.curves), lut: [grade.lut_mix, grade.input as f32, 0.0, 0.0], ..Default::default() });
     plan.lut = grade.lut;
     if f.adjust {
         plan.copy = fx.push(FxParams::default());

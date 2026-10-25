@@ -91,4 +91,5 @@ terminarlo, con su commit.
 - [x] 2.3 LUTs `.cube` (pool, textura 3D en motor web y nativo, `lut`/`lut_mix`)
 - [x] 2.4 ventanas: capa de ajuste rect/elipse con `soft`, `invert`, `attach` al clip; pestaña Color (Clip / Window n), tracking NCC (`track_window`) probado de punta a punta en "Tracking test": error < 1,5 px (0fdf003, 303b400)
 - [x] 2.5 `match_color` (media y desviación por canal → `gain`/`offset`, 3 rondas medidas; ΔE 8,0 → 1,1 en la prueba) y copiar/pegar grade (`copy_grade`, ⌥⌘C/⌥⌘V, botones en Color)
-- [ ] Siguiente: 2.6 → 3.1–3.3 → 1.5–1.7 → 4.1 → 5.1–5.3 → 6
+- [x] 2.6 gestión de color: `input` del efecto color (Apple Log, S-Log3, V-Log, Canon Log 3 → Rec.709 2.4, gamut + roll-off), selector "Camera log" en Color; test GPU de gris medio
+- [ ] Siguiente: 3.1–3.3 → 1.5–1.7 → 4.1 → 5.1–5.3 → 6

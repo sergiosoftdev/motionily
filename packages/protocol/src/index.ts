@@ -394,11 +394,18 @@ export type CurveChannel = (typeof CURVE_CHANNELS)[number];
 /** A color effect's LUT: a `.cube` from the media pool and how much of it shows. */
 export type GradeLut = { src: string; mix: number };
 
-export function effectsWithGrade(effects: unknown[] | undefined, grade: Grade, extra: { wheels?: Wheels; curves?: Curves; lut?: GradeLut | null } = {}): Record<string, unknown>[] {
+/** Camera log a clip was shot in: the color effect's `input` turns it into Rec.709 before the grade (crates/scene LogInput). */
+export const LogInput = { AppleLog: "apple_log", Slog3: "slog3", Vlog: "vlog", Clog3: "clog3" } as const;
+export type LogInput = (typeof LogInput)[keyof typeof LogInput];
+export const LOG_INPUT_LABEL: Record<LogInput, string> = { apple_log: "Apple Log", slog3: "Sony S-Log3 · S-Gamut3.Cine", vlog: "Panasonic V-Log", clog3: "Canon Log 3" };
+
+export function effectsWithGrade(effects: unknown[] | undefined, grade: Grade, extra: { wheels?: Wheels; curves?: Curves; lut?: GradeLut | null; input?: LogInput | null } = {}): Record<string, unknown>[] {
   const list = (effects ?? []) as Record<string, unknown>[];
   const old = list.find((e) => e.fx === "color") ?? {};
   const others = list.filter((e) => e.fx !== "color");
   const out: Record<string, unknown> = { fx: "color" };
+  const input = extra.input !== undefined ? extra.input : (old.input as LogInput | undefined);
+  if (input) out.input = input;
   for (const f of Object.keys(GRADE_NEUTRAL) as GradeField[]) if (Math.abs(grade[f] - GRADE_NEUTRAL[f]) > 1e-4) out[f] = Math.round(grade[f] * 1000) / 1000;
   const wheels = extra.wheels ?? (old as Partial<Wheels>);
   for (const k of ["lift", "gamma", "gain", "offset"] as const) {

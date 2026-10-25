@@ -53,3 +53,28 @@ fn windows_grade_inside_or_outside_their_shape() {
         assert!(at(&outside, 10, 10) > 200, "inverted: brighter outside {}", at(&outside, 10, 10));
     });
 }
+
+/// Color management: each camera log's 18% grey lands on Rec.709 gamma 2.4 mid grey (0.18^(1/2.4) ≈ 0.49,
+/// gray stays gray through the gamut matrix), and diffuse white rolls off under white instead of clipping.
+#[test]
+fn log_inputs_land_mid_grey_on_rec709() {
+    pollster::block_on(async {
+        let mut renderer = Renderer::new_headless(200, 200).await.expect("a GPU adapter");
+        let mut grey = |input: &str, fill: &str| {
+            let json = format!(
+                r##"{{"width":200,"height":200,"fps":30,"duration":1,"layers":[{{"id":"bg","type":"shape","shape":"rect","x":100,"y":100,"w":200,"h":200,"fill":"{fill}","effects":[{{"fx":"color","input":"{input}"}}]}}]}}"##
+            );
+            let px = renderer.render_rgba(&Scene::from_json(&json).expect("scene parses"), 0.5);
+            [px[(100 * 200 + 100) * 4], px[(100 * 200 + 100) * 4 + 1], px[(100 * 200 + 100) * 4 + 2]]
+        };
+        // 18% grey in each encoding, as video-level code values (see LogInput).
+        for (input, fill) in [("apple_log", "#7c7c7c"), ("slog3", "#686868"), ("vlog", "#6b6b6b"), ("clog3", "#585858")] {
+            let [r, g, b] = grey(input, fill);
+            assert!((118..=132).contains(&g), "{input}: mid grey {r} {g} {b}");
+            assert!(r.abs_diff(g) <= 2 && b.abs_diff(g) <= 2, "{input}: grey stays grey {r} {g} {b}");
+        }
+        // S-Log3 code for linear 1.0 (diffuse white): a hard clip would give 255; the roll-off gives 0.85^(1/2.4).
+        let [_, g, _] = grey("slog3", "#9f9f9f");
+        assert!((230..=247).contains(&g), "highlights roll off under white: {g}");
+    });
+}

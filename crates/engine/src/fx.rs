@@ -38,7 +38,8 @@ pub struct FxParams {
     pub curve_n: [f32; 4],
     /// Curve points, 3 vec4 per curve (x0 y0 x1 y1 …), master then red, green, blue.
     pub curve: [[f32; 4]; 12],
-    /// LUT: how much of it shows (x; 0 = off), the rest unused. The LUT itself is bind group 1.
+    /// LUT: how much of it shows (x; 0 = off), input transform (y: `LogInput::id`, 0 = none), the rest
+    /// unused. The LUT itself is bind group 1.
     pub lut: [f32; 4],
 }
 

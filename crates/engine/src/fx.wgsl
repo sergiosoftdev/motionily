@@ -35,7 +35,7 @@ struct Params {
     // Points per curve (master, red, green, blue) and the points, 3 vec4 per curve (x0 y0 x1 y1 ...).
     curve_n: vec4<f32>,
     curve: array<vec4<f32>, 12>,
-    // LUT mix (x; 0 = none). The cube is group 1.
+    // LUT mix (x; 0 = none), input transform (y: 1 Apple Log, 2 S-Log3, 3 V-Log, 4 Canon Log 3). The cube is group 1.
     lut: vec4<f32>,
 };
 
@@ -45,6 +45,71 @@ struct Params {
 @group(0) @binding(3) var<uniform> p: Params;
 @group(1) @binding(0) var lut_tex: texture_3d<f32>;
 @group(1) @binding(1) var lut_samp: sampler;
+
+// Color management: camera log (code values as decoded, video levels 0..1) to Rec.709 gamma 2.4.
+fn log_to_linear(v: f32, curve: i32) -> f32 {
+    if (curve == 1) {
+        // Apple Log (Apple Log profile white paper).
+        let r0 = -0.05641088;
+        let rt = 0.01;
+        let c = 47.28711236;
+        let beta = 0.00964052;
+        let gamma = 0.08550479;
+        let delta = 0.69336945;
+        let pt = c * (rt - r0) * (rt - r0);
+        if (v >= pt) {
+            return exp2((v - delta) / gamma) - beta;
+        }
+        if (v >= 0.0) {
+            return sqrt(v / c) + r0;
+        }
+        return r0;
+    }
+    // S-Log3 and V-Log are defined on 10-bit code values / 1023: back from video levels first.
+    let code = (64.0 + 876.0 * v) / 1023.0;
+    if (curve == 2) {
+        // Sony S-Log3.
+        if (code >= 171.2102946929 / 1023.0) {
+            return pow(10.0, (code * 1023.0 - 420.0) / 261.5) * 0.19 - 0.01;
+        }
+        return (code * 1023.0 - 95.0) * 0.01125 / (171.2102946929 - 95.0);
+    }
+    if (curve == 3) {
+        // Panasonic V-Log.
+        if (code < 0.181) {
+            return (code - 0.125) / 5.6;
+        }
+        return pow(10.0, (code - 0.598206) / 0.241514) - 0.00873;
+    }
+    // Canon Log 3 (on video levels, as Canon's IDT), scaled like it (× 0.9).
+    if (v < 0.097465473) {
+        return -(pow(10.0, (0.12783901 - v) / 0.36726845) - 1.0) / 14.98325 * 0.9;
+    }
+    if (v <= 0.15277891) {
+        return (v - 0.12512219) / 1.9754798 * 0.9;
+    }
+    return (pow(10.0, (v - 0.12240537) / 0.36726845) - 1.0) / 14.98325 * 0.9;
+}
+
+fn from_log(rgb: vec3<f32>, curve: i32) -> vec3<f32> {
+    let lin = vec3(log_to_linear(rgb.r, curve), log_to_linear(rgb.g, curve), log_to_linear(rgb.b, curve));
+    // Camera gamut to Rec.709 primaries (D65), rows: Rec.2020, S-Gamut3.Cine, V-Gamut, Cinema Gamut.
+    var m: mat3x3<f32>;
+    if (curve == 1) {
+        m = mat3x3(vec3(1.660491, -0.12455, -0.018151), vec3(-0.587641, 1.1329, -0.100579), vec3(-0.07285, -0.008349, 1.11873));
+    } else if (curve == 2) {
+        m = mat3x3(vec3(1.626947, -0.178516, -0.044436), vec3(-0.540139, 1.417941, -0.19592), vec3(-0.086809, -0.239425, 1.240356));
+    } else if (curve == 3) {
+        m = mat3x3(vec3(1.806576, -0.17009, -0.025206), vec3(-0.695697, 1.305955, -0.154468), vec3(-0.110879, -0.135865, 1.179674));
+    } else {
+        m = mat3x3(vec3(1.923861, -0.204311, -0.023685), vec3(-0.798761, 1.495899, -0.420127), vec3(-0.125101, -0.291588, 1.443812));
+    }
+    let x = max(m * lin, vec3(0.0));
+    // Highlights roll off above 0.6 toward 1 (same slope at the knee), then Rec.709 gamma 2.4.
+    let knee = 0.6;
+    let soft = knee + (1.0 - knee) * (1.0 - exp(-(x - knee) / (1.0 - knee)));
+    return pow(select(x, soft, x > vec3(knee)), vec3(1.0 / 2.4));
+}
 
 struct VsOut {
     @builtin(position) pos: vec4<f32>,
@@ -191,8 +256,12 @@ fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
     let wheels = any(p.lift != vec4(0.0)) || any(p.gamma != vec4(0.0)) || any(p.gain != vec4(0.0)) || any(p.offset != vec4(0.0));
     let curves = any(p.curve_n != vec4(0.0));
     let graded_lut = p.lut.x > 0.0;
-    if (mode == 0 && (any(p.adj != vec4(0.0)) || any(p.grade != vec4(0.0)) || any(p.tone != vec4(0.0)) || wheels || curves || graded_lut || p.grain.x > 0.0) && c.a > 0.0) {
+    let log_input = i32(p.lut.y + 0.5);
+    if (mode == 0 && (any(p.adj != vec4(0.0)) || any(p.grade != vec4(0.0)) || any(p.tone != vec4(0.0)) || wheels || curves || graded_lut || log_input > 0 || p.grain.x > 0.0) && c.a > 0.0) {
         var rgb = c.rgb / c.a;
+        if (log_input > 0) {
+            rgb = from_log(rgb, log_input);
+        }
         // Exposure in stops, then white balance: warm lifts red and lowers blue, magenta lowers green.
         rgb = rgb * exp2(p.grade.x);
         rgb = rgb * vec3(1.0 + 0.2 * p.grade.y + 0.06 * p.grade.z, 1.0 - 0.12 * p.grade.z, 1.0 - 0.2 * p.grade.y + 0.06 * p.grade.z);

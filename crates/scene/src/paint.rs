@@ -392,6 +392,10 @@ pub enum Effect {
         lut: Option<String>,
         #[serde(default = "one", skip_serializing_if = "is_one")]
         lut_mix: Animated,
+        /// Input transform, before everything else: the clip was shot in this camera log, and it is turned into
+        /// Rec.709 (gamma 2.4) so the grade starts from a normal picture. See `LogInput`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        input: Option<LogInput>,
     },
     /// RGB split: red and blue shifted apart by `amount` px (glitch, lens edge).
     Chromatic { amount: Animated },
@@ -539,6 +543,35 @@ fn shadow_opacity() -> Animated {
     Animated::Static(0.25)
 }
 
+/// Camera log encodings a clip can be turned from (color management's input transform). Each decodes the
+/// picture's code values (video levels, as decoded) to scene-linear light with the maker's published curve,
+/// converts the camera's gamut to Rec.709 primaries, rolls the highlights off above 0.6 (so nothing clips
+/// hard) and encodes Rec.709 gamma 2.4.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LogInput {
+    /// Apple Log (iPhone 15 Pro and later), Rec.2020 gamut.
+    AppleLog,
+    /// Sony S-Log3 with S-Gamut3.Cine.
+    Slog3,
+    /// Panasonic V-Log with V-Gamut.
+    Vlog,
+    /// Canon Log 3 with Cinema Gamut.
+    Clog3,
+}
+
+impl LogInput {
+    /// The shader's id for it (0 = no input transform).
+    pub fn id(self) -> u32 {
+        match self {
+            LogInput::AppleLog => 1,
+            LogInput::Slog3 => 2,
+            LogInput::Vlog => 3,
+            LogInput::Clog3 => 4,
+        }
+    }
+}
+
 /// The grading half of `Effect::Color` for one frame (neutral = all zeros).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ColorGrade {
@@ -559,6 +592,8 @@ pub struct ColorGrade {
     /// `lut_key` of the LUT (0 = none) and how much of it shows.
     pub lut: u64,
     pub lut_mix: f32,
+    /// `LogInput::id` of the input transform (0 = none).
+    pub input: u32,
 }
 
 impl Default for ColorGrade {
@@ -579,6 +614,7 @@ impl Default for ColorGrade {
             curve_points: [0; 4],
             lut: 0,
             lut_mix: 0.0,
+            input: 0,
         }
     }
 }
@@ -598,6 +634,10 @@ impl ColorGrade {
             self.gamma[c] *= o.gamma[c];
             self.gain[c] *= o.gain[c];
             self.offset[c] += o.offset[c];
+        }
+        // One input transform per layer: the last effect that names one.
+        if o.input != 0 {
+            self.input = o.input;
         }
         // One LUT per layer: the last effect that has one.
         if o.lut != 0 {
@@ -698,7 +738,7 @@ impl Effect {
                 c.0[3] *= opacity.sample(t).clamp(0.0, 1.0);
                 DrawEffect::Shadow { offset: [x.sample(t), y.sample(t)], blur: blur.sample(t).max(0.0), color: c }
             }
-            Effect::Color { hue, saturation, brightness, contrast, exposure, temperature, tint, shadows, highlights, vibrance, vignette, lift, gamma, gain, offset, curves, lut, lut_mix } => DrawEffect::Color {
+            Effect::Color { hue, saturation, brightness, contrast, exposure, temperature, tint, shadows, highlights, vibrance, vignette, lift, gamma, gain, offset, curves, lut, lut_mix, input } => DrawEffect::Color {
                 hue: hue.sample(t),
                 saturation: saturation.sample(t).max(0.0),
                 brightness: brightness.sample(t),
@@ -719,6 +759,7 @@ impl Effect {
                     curve_points: curves.resolved().1,
                     lut: lut.as_deref().map_or(0, crate::lut::lut_key),
                     lut_mix: if lut.is_some() { lut_mix.sample(t).clamp(0.0, 1.0) } else { 0.0 },
+                    input: input.map_or(0, LogInput::id),
                 },
             },
             Effect::Chromatic { amount } => DrawEffect::Chromatic { amount: amount.sample(t) },
