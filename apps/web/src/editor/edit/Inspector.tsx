@@ -7,6 +7,9 @@ import type { EditSelection } from "./EditTimeline";
 import { AUDIO_LAYER, ClipKind, freshId, type EditClip, type GraphicsBlock } from "./tracks";
 import { engineHost } from "../../engine/host";
 import { compoundOps, decomposeOps } from "./tracks";
+import { syncAudioOps, syncClipsOf } from "./audioSync";
+import { decodeAudio } from "../../audio/decode";
+import { mediaUrl } from "../../api/client";
 import type { SceneView } from "../sceneView";
 import { AudioFxControls } from "./AudioFxControls";
 import { SPEED_RAMPS, speedRampKeys, type AudioFx } from "@motionily/protocol";
@@ -184,6 +187,36 @@ function StabilizeButton({ clip, onStabilize }: { clip: EditClip; onStabilize: (
     <div className="flex flex-col gap-1">
       <button type="button" disabled={busy} onClick={() => void run()} className="self-start rounded-md bg-neutral-800 px-3 py-1.5 text-xs text-neutral-100 hover:bg-neutral-700 disabled:opacity-50">
         {busy ? "Stabilizing…" : "Stabilize"}
+      </button>
+      {note && <p className="text-[11px] text-neutral-500">{note}</p>}
+    </div>
+  );
+}
+
+/** Waveform sync of a picked video clip and sound clip (the sound moves under the picture, the clip goes quiet). */
+function SyncButton({ clips, edits }: { clips: EditClip[]; edits: EditActions }) {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const video = clips.find((c) => c.kind === ClipKind.Video)!;
+  const audio = clips.find((c) => c.kind === ClipKind.Audio)!;
+  const run = async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      const [v, a] = syncClipsOf(JSON.parse(engineHost.sceneJson()), video.id, audio.id);
+      const { ops, match } = await syncAudioOps(v, a, (src, isVideo) => decodeAudio(mediaUrl(src), isVideo));
+      edits.apply(ops, `Syncs ${audio.id} to ${video.id}`, true);
+      setNote(`Offset ${match.offset.toFixed(3)} s · ${match.score >= 0.5 && match.margin >= 1.15 ? "clear match" : "weak match: check it by ear"}.`);
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-1">
+      <button type="button" disabled={busy} onClick={() => void run()} className="self-start rounded-md bg-neutral-800 px-3 py-1.5 text-xs text-neutral-100 hover:bg-neutral-700 disabled:opacity-50" title="Line the sound up with the clip by their waveforms and mute the clip's own sound">
+        {busy ? "Syncing…" : "Sync audio by waveform"}
       </button>
       {note && <p className="text-[11px] text-neutral-500">{note}</p>}
     </div>
@@ -493,6 +526,7 @@ function ManyInspector({ selection, edits, ops }: { selection: Extract<EditSelec
           onDone={() => edits.apply(cues.map((c) => ({ op: OpName.PutSfx, cue: { ...c, gain: level } })), `Level of ${plural(cues.length, "effect", "effects")}: ${Math.round(level * 100)}%`, false)}
         />
       )}
+      {clips.length === 2 && clips.some((c) => c.kind === ClipKind.Video) && clips.some((c) => c.kind === ClipKind.Audio) && <SyncButton clips={clips} edits={edits} />}
       {clips.length > 1 && !blocks.length && !cues.length && clips.every((c) => c.kind !== ClipKind.Compound) && (
         <button type="button" onClick={compound} className="self-start rounded-md bg-neutral-800 px-3 py-1.5 text-xs text-neutral-100 hover:bg-neutral-700" title="Join them into one clip that moves and trims as one (break it apart later)">
           Make compound clip

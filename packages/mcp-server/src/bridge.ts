@@ -122,6 +122,10 @@ export class EditorBridge {
     return this.request({ type: ServerMessageType.TrackWindow, requestId: randomUUID(), projectId: this.projectId, id, at }, TRACK_TIMEOUT_MS);
   }
 
+  syncAudio(video: string, audio: string) {
+    return this.request({ type: ServerMessageType.SyncAudio, requestId: randomUUID(), projectId: this.projectId, video, audio }, LOUDNESS_TIMEOUT_MS);
+  }
+
   matchColor(from: string, to: string[]) {
     return this.request({ type: ServerMessageType.MatchColor, requestId: randomUUID(), projectId: this.projectId, from, to }, TRACK_TIMEOUT_MS);
   }

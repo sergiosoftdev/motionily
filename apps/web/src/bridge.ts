@@ -1,10 +1,12 @@
 import { BRIDGE_PATH, BridgeClose, SIDE_FILE_LABEL, BridgeRole, HEADLESS_PARAM, EditorMessageType, ServerMessageType, type EditorMessage, type ServerMessage, type Output, type SideFile } from "@motionily/protocol";
-import { API_URL } from "./api/client";
+import { API_URL, mediaUrl } from "./api/client";
 import { presetViolation, scenePresetViolation } from "./agentRules";
 import { engineHost } from "./engine/host";
 import { scopeStats } from "./editor/edit/colorScopes";
 import { trackWindow } from "./editor/edit/windowTrack";
 import { matchColor } from "./editor/edit/colorMatch";
+import { syncAudioOps, syncClipsOf } from "./editor/edit/audioSync";
+import { decodeAudio } from "./audio/decode";
 import { useSession } from "./session";
 import { ActivitySource, logActivity, useEditor } from "./store";
 
@@ -146,6 +148,22 @@ class AgentBridge {
             engineHost.applyOps(r.ops);
             logActivity(ActivitySource.Agent, `Tracks ${msg.id}`);
             const text = `Tracked ${msg.id}: ${r.samples} points from ${r.from.toFixed(2)} to ${r.to.toFixed(2)} s, keyed on x and y${r.lost ? " (the detail was lost at the ends of that range: move the window there and track again)" : ""}.`;
+            this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, text, scene: engineHost.sceneJson(), summary: engineHost.summary() });
+          },
+          (e: unknown) => this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error: e instanceof Error ? e.message : String(e) }),
+        );
+        return;
+      }
+      case ServerMessageType.SyncAudio: {
+        void (async () => {
+          const [video, audio] = syncClipsOf(JSON.parse(engineHost.sceneJson()), msg.video, msg.audio);
+          return syncAudioOps(video, audio, (src, isVideo) => decodeAudio(mediaUrl(src), isVideo));
+        })().then(
+          ({ ops, match }) => {
+            engineHost.applyOps(ops);
+            logActivity(ActivitySource.Agent, `Syncs ${msg.audio} to ${msg.video}`);
+            const doubt = match.score < 0.5 || match.margin < 1.15 ? " The match is weak: check it by ear (they may not share a moment within 30 s of where they were)." : "";
+            const text = `Synced ${msg.audio} to ${msg.video}: offset ${match.offset.toFixed(3)} s (correlation ${match.score.toFixed(2)}, ${Number.isFinite(match.margin) ? `${match.margin.toFixed(2)}× the next best` : "no other candidate"}); ${msg.audio} now plays under the clip and ${msg.video}'s own sound is muted.${doubt}`;
             this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, text, scene: engineHost.sceneJson(), summary: engineHost.summary() });
           },
           (e: unknown) => this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error: e instanceof Error ? e.message : String(e) }),

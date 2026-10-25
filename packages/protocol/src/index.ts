@@ -97,6 +97,8 @@ export const ServerMessageType = {
   SideFile: "side_file",
   /** Track a color window over its clip from an instant: keys its x / y (answers with a summary in `text`). */
   TrackWindow: "track_window",
+  /** Line a sound clip up with a video clip by their waveforms (moves the sound, mutes the clip; answers in `text`). */
+  SyncAudio: "sync_audio",
   /** Match clips' color to another clip's (writes their grade; answers with the difference before and after in `text`). */
   MatchColor: "match_color",
 } as const;
@@ -117,7 +119,8 @@ export type ServerMessage =
   | { type: typeof ServerMessageType.Loudness; requestId: string; projectId: string; masterDb?: number }
   | { type: typeof ServerMessageType.SideFile; requestId: string; projectId: string; kind: SideFile }
   | { type: typeof ServerMessageType.TrackWindow; requestId: string; projectId: string; id: string; at?: number }
-  | { type: typeof ServerMessageType.MatchColor; requestId: string; projectId: string; from: string; to: string[] };
+  | { type: typeof ServerMessageType.MatchColor; requestId: string; projectId: string; from: string; to: string[] }
+  | { type: typeof ServerMessageType.SyncAudio; requestId: string; projectId: string; video: string; audio: string };
 
 /** Files exported beside the video: subtitles, and the Edit timeline for other editors. */
 export const SideFile = { Srt: "srt", Vtt: "vtt", Fcpxml: "fcpxml", Otio: "otio", Edl: "edl" } as const;

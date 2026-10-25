@@ -285,6 +285,20 @@ export function registerStudioTools(server: Server, d: StudioDeps) {
   );
 
   server.registerTool(
+    "sync_audio",
+    {
+      description:
+        "Line a separately recorded sound (an audio layer: a lav, a recorder) up with a video clip by their waveforms, like Resolve's auto sync: both are cross-correlated within 30 s of where they sit now and refined to the sample. The sound then plays the matching moment under the clip (its start, in and end follow the clip) and the clip's own sound is muted. Answers with the offset and how clear the match is. Both clips at normal speed.",
+      inputSchema: { video: z.string().min(1), audio: z.string().min(1) },
+    },
+    d.guard(async ({ video, audio }: { video: string; audio: string }) => {
+      const res = await d.bridge().syncAudio(video, audio);
+      if (!res.ok) throw new Error(res.error ?? "the editor did not sync them");
+      return d.text(res.text ?? "Synced.");
+    }),
+  );
+
+  server.registerTool(
     "match_color",
     {
       description:
