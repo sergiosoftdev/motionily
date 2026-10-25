@@ -24,6 +24,7 @@ class NativeViewer {
   private pending: number | null = null;
   private observer: ResizeObserver | null = null;
   private session = 0;
+  private canvas: HTMLCanvasElement | null = null;
 
   private async available(): Promise<boolean> {
     if (!desktop || desktop.error) return false;
@@ -36,13 +37,15 @@ class NativeViewer {
     return this.supported;
   }
 
-  async start(canvas: HTMLCanvasElement, sceneJson: string, assets: AssetSource) {
+  /** Show the native viewer over `canvas`, drawing `sceneJson` from second `t` (it appears with that frame drawn). */
+  async start(canvas: HTMLCanvasElement, sceneJson: string, assets: AssetSource, t: number) {
     const session = ++this.session;
     if (!(await this.available())) return;
+    this.canvas = canvas;
     try {
       await syncNativeAssets(assets);
       if (session !== this.session) return;
-      await invoke<string>("viewer_show", { rect: rectOf(canvas), sceneJson });
+      await invoke<string>("viewer_show", { rect: rectOf(canvas), sceneJson, t });
       if (session !== this.session) return void invoke("viewer_hide");
       this.active = true;
       this.observer = new ResizeObserver(() => void invoke("viewer_place", { rect: rectOf(canvas) }));
@@ -51,6 +54,21 @@ class NativeViewer {
       // Native playback is an enhancement: the editor's canvas keeps playing.
       console.warn("[motionily] native viewer unavailable:", e);
       this.active = false;
+    }
+  }
+
+  /** The scene changed while playing (an agent or an edit): the viewer draws the new one from `t`. */
+  async reload(sceneJson: string, assets: AssetSource, t: number) {
+    const canvas = this.canvas;
+    if (!this.active || !canvas) return;
+    const session = this.session;
+    try {
+      await syncNativeAssets(assets);
+      if (session !== this.session) return;
+      await invoke<string>("viewer_show", { rect: rectOf(canvas), sceneJson, t });
+      if (session !== this.session) void invoke("viewer_hide");
+    } catch (e) {
+      console.warn("[motionily] native viewer reload failed:", e);
     }
   }
 

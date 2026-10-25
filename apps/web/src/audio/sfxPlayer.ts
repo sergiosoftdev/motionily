@@ -1,5 +1,6 @@
 import { mediaUrl } from "../api/client";
 import { audioBus } from "./bus";
+import { decodeAudio } from "./decode";
 
 /**
  * A sound effect on the timeline (mirrors SfxCue in crates/scene): `from` seconds into the file, for `len`
@@ -37,53 +38,14 @@ export function playCue(ctx: BaseAudioContext, buf: AudioBuffer, cue: SfxCue, wh
   return src;
 }
 
-/**
- * Plays the scene's sound effects in sync with the preview. Buffers are decoded once and
- * scheduled with WebAudio from the playhead, so timing is sample-accurate.
- */
+/** Plays one sound effect on its own (a click on a cue, the Sounds screen); the timeline's play with the mix. */
 class SfxPlayer {
-  private buffers = new Map<string, Promise<AudioBuffer | null>>();
-  private playing: AudioBufferSourceNode[] = [];
-
   private context() {
     return audioBus.context();
   }
 
   load(src: string) {
-    let b = this.buffers.get(src);
-    if (!b) {
-      b = fetch(mediaUrl(src))
-        .then((r) => r.arrayBuffer())
-        .then((a) => this.context().decodeAudioData(a))
-        .catch(() => null);
-      this.buffers.set(src, b);
-    }
-    return b;
-  }
-
-  /** Start every cue from `from` seconds (cues already sounding join mid-way). */
-  async start(from: number, cues: SfxCue[]) {
-    this.stop();
-    const ctx = this.context();
-    const t0 = ctx.currentTime + 0.03;
-    for (const cue of cues) {
-      const buf = await this.load(cue.src);
-      if (!buf) continue;
-      const offset = from - cue.at;
-      const src = playCue(ctx, buf, cue, t0 + Math.max(0, -offset), Math.max(0, offset), audioBus.master);
-      if (src) this.playing.push(src);
-    }
-  }
-
-  stop() {
-    for (const s of this.playing) {
-      try {
-        s.stop();
-      } catch {
-        // Already ended.
-      }
-    }
-    this.playing = [];
+    return decodeAudio(mediaUrl(src));
   }
 
   /** Preview one cue, or a whole library sound (timeline click, Sounds screen). */

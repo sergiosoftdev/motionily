@@ -8,7 +8,6 @@
  *   the closest decoded frame now and refines to the exact one in the background.
  */
 import { ALL_FORMATS, Input, UrlSource, VideoSampleSink, type VideoSample } from "mediabunny";
-import { audioBus } from "../audio/bus";
 import { setMediaDuration, type Engine } from "./pkg/engine_wasm.js";
 
 /** A frame is the one shown at t when its timestamp ≤ t + this (frame times are not exact floats). */
@@ -17,9 +16,7 @@ const FRAME_EPSILON = 1e-3;
 const MAX_DECODE_AHEAD = 2;
 /** Long side (px) frames are decoded to: enough for a 1080p export, bounded upload cost. */
 const MAX_SIDE = 1920;
-/** Clip sound drift (s) tolerated before re-syncing it to the video clock. */
-const SOUND_DRIFT = 0.15;
-/** Browsers play media between these rates. */
+/** Clip sound plays between these rates (slower is a freeze: silent). */
 const MIN_RATE = 0.0625;
 const MAX_RATE = 16;
 
@@ -255,45 +252,6 @@ function retain(engine: Engine, needs: FrameNeed[], cache: FrameCache) {
   const keys = new Set(needs.map((n) => n.key));
   for (const k of [...cache.keys()]) if (!keys.has(k)) cache.delete(k);
   engine.retainVideoFrames([...keys]);
-}
-
-/** Preview sound of video layers with volume > 0, kept on the video clock like the voice-over. */
-export class ClipSounds {
-  private els = new Map<string, HTMLAudioElement>();
-
-  constructor(private readonly url: (src: string) => string) {}
-
-  sync(clips: ClipState[], playing: boolean) {
-    const live = new Set<string>();
-    for (const c of clips) {
-      // A keyframed clip that dips to silence keeps its element (at volume 0) so it never restarts.
-      if (c.volume <= 0 && !this.els.has(c.id)) continue;
-      live.add(c.id);
-      let el = this.els.get(c.id);
-      if (!el || !el.src.endsWith(c.src)) {
-        el?.pause();
-        el = audioBus.element(this.url(c.src));
-        el.preservesPitch = false;
-        this.els.set(c.id, el);
-      }
-      audioBus.gain(el, c.volume);
-      const frozen = c.rate < MIN_RATE;
-      if (!frozen) el.playbackRate = Math.min(MAX_RATE, c.rate);
-      if (Math.abs(el.currentTime - c.time) > SOUND_DRIFT) el.currentTime = c.time;
-      if (playing && !frozen && el.paused) void el.play().catch(() => undefined);
-      if ((!playing || frozen) && !el.paused) el.pause();
-    }
-    for (const [id, el] of this.els) if (!live.has(id) && !el.paused) el.pause();
-  }
-
-  stop() {
-    this.els.forEach((el) => el.pause());
-  }
-
-  dispose() {
-    this.stop();
-    this.els.clear();
-  }
 }
 
 /**

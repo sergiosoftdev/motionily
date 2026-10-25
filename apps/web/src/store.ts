@@ -75,3 +75,11 @@ export function logActivity(source: ActivitySource, text: string, images: string
     activity: [{ id: nextId++, source, text, at: new Date(), images: images.length ? images : undefined }, ...s.activity].slice(0, MAX_ACTIVITY),
   }));
 }
+
+/** Seconds UI that shows values at the playhead moves in while playing (it re-renders this often, not every frame). */
+const LIVE_STEP = 0.25;
+
+/** The playhead for panels that show values at it: exact when paused, in `step`s while playing. */
+export function usePlayheadTime(step = LIVE_STEP): number {
+  return useEditor((s) => (s.playing ? Math.floor(s.time / step) * step : s.time));
+}

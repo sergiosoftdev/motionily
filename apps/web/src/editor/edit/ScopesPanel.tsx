@@ -21,7 +21,8 @@ function savedMode(): ScopeMode {
 export function Scopes() {
   const [mode, setMode] = useState<ScopeMode>(savedMode);
   const canvas = useRef<HTMLCanvasElement>(null);
-  const time = useEditor((s) => s.time);
+  // Paused only: while playing the scopes wait.
+  const time = useEditor((s) => (s.playing ? -1 : s.time));
   const playing = useEditor((s) => s.playing);
   const [rev, setRev] = useState(0);
 

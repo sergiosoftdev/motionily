@@ -76,6 +76,7 @@ pub struct Probe {
 
 /// One clip decoded forward as RGBA frames, restarted with a seek when playback jumps.
 struct Decoder {
+    probe: Probe,
     input: String,
     size: (u32, u32),
     fps: f64,
@@ -92,7 +93,7 @@ impl Decoder {
         let k = (MAX_CLIP_SIDE as f64 / probe.width.max(probe.height).max(1) as f64).min(1.0);
         let even = |v: f64| ((v * k / 2.0).round() as u32 * 2).max(2);
         let size = (even(probe.width as f64), even(probe.height as f64));
-        Self { input, size, fps: probe.fps, child: None, stdout: None, time: f64::NEG_INFINITY, frame: vec![0; (size.0 * size.1 * 4) as usize], has_frame: false }
+        Self { probe, input, size, fps: probe.fps, child: None, stdout: None, time: f64::NEG_INFINITY, frame: vec![0; (size.0 * size.1 * 4) as usize], has_frame: false }
     }
 
     fn start(&mut self, tools: &Tools, at: f64) -> Result<(), String> {
@@ -170,8 +171,11 @@ impl Clips {
         Self { tools, decoders: HashMap::new(), resolve }
     }
 
-    /// Opens `src` (probing size, rate and duration) the first time it is asked for.
+    /// Opens `src` (probing size, rate and duration) the first time it is asked for; then answers from memory.
     pub fn open(&mut self, src: &str) -> Result<Probe, String> {
+        if let Some(d) = self.decoders.get(src) {
+            return Ok(d.probe);
+        }
         let input = (self.resolve)(src);
         let probe = self.tools.probe(&input)?;
         self.decoders.entry(src.to_string()).or_insert_with(|| Decoder::new(probe, input));

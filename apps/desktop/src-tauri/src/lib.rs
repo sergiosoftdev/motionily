@@ -90,7 +90,7 @@ fn desktop_route(state: tauri::State<'_, OpenProject>, project: Option<String>) 
 /// The native engine's state shared by the commands: assets mirrored from the editor, the staged
 /// export audio and the running export's cancel flag.
 struct Native {
-    assets: Mutex<assets::Assets>,
+    assets: Arc<Mutex<assets::Assets>>,
     audio: Mutex<Option<PathBuf>>,
     cancel: Arc<AtomicBool>,
     tools: ffmpeg::Tools,
@@ -219,27 +219,41 @@ fn viewer_supported() -> bool {
     viewer::Viewer::SUPPORTED
 }
 
-/// Puts the viewer over the preview canvas at `rect` with `scene_json` loaded; returns the GPU it draws on.
+/// Puts the viewer over the preview canvas at `rect` with `scene_json` loaded and its frame at `t`
+/// drawn (so it never shows a stale frame); returns the GPU it draws on.
 #[tauri::command]
 #[allow(unused_variables)]
-fn viewer_show(window: tauri::WebviewWindow, native: tauri::State<'_, Native>, rect: viewer::Rect, scene_json: String) -> Result<String, String> {
+async fn viewer_show(app: tauri::AppHandle, window: tauri::WebviewWindow, native: tauri::State<'_, Native>, rect: viewer::Rect, scene_json: String, t: f32) -> Result<String, String> {
     #[cfg(target_os = "macos")]
     {
-        let assets = native.assets.lock().map_err(|e| e.to_string())?;
-        VIEWER.with(|v| {
-            let mut v = v.borrow_mut();
-            if v.is_none() {
-                let content = window.ns_view().map_err(|e| e.to_string())?;
-                *v = Some(viewer::Viewer::new(content, rect, ffmpeg::Clips::new(native.tools.clone(), native.resolver()))?);
-            }
-            let viewer = v.as_mut().expect("created above");
-            viewer.place(rect);
-            viewer.sync_assets(&assets);
-            viewer.load_scene(&scene_json)?;
-            viewer.set_hidden(false);
-            eprintln!("[motionily] native viewer on {} at {:.0}x{:.0}@{}x", viewer.adapter(), rect.width, rect.height, rect.scale);
-            Ok(viewer.adapter().to_string())
+        let (tools, resolver, assets) = (native.tools.clone(), native.resolver(), native.assets.clone());
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.run_on_main_thread(move || {
+            let made = VIEWER.with(|v| -> Result<(viewer::Worker, String), String> {
+                let mut v = v.borrow_mut();
+                if v.is_none() {
+                    let content = window.ns_view().map_err(|e| e.to_string())?;
+                    *v = Some(viewer::Viewer::new(content, rect, ffmpeg::Clips::new(tools, resolver), assets)?);
+                }
+                let viewer = v.as_mut().expect("created above");
+                viewer.place(rect);
+                Ok((viewer.worker(), viewer.adapter().to_string()))
+            });
+            let _ = tx.send(made);
         })
+        .map_err(|e| e.to_string())?;
+        let (worker, adapter) = tauri::async_runtime::spawn_blocking(move || rx.recv().map_err(|e| e.to_string())?).await.map_err(|e| e.to_string())??;
+        tauri::async_runtime::spawn_blocking(move || worker.load(scene_json, t)).await.map_err(|e| e.to_string())??;
+        app.run_on_main_thread(|| {
+            VIEWER.with(|v| {
+                if let Some(v) = v.borrow().as_ref() {
+                    v.set_hidden(false);
+                }
+            })
+        })
+        .map_err(|e| e.to_string())?;
+        eprintln!("[motionily] native viewer on {adapter} at {:.0}x{:.0}@{}x", rect.width, rect.height, rect.scale);
+        Ok(adapter)
     }
     #[cfg(not(target_os = "macos"))]
     Err("the native viewer is not available on this system".into())
@@ -257,14 +271,16 @@ fn viewer_place(rect: viewer::Rect) {
     });
 }
 
-/// Draws the frame at `t` seconds.
+/// Draws the frame at `t` seconds (on the viewer's thread; returns at once).
 #[tauri::command]
 #[allow(unused_variables)]
-fn viewer_frame(t: f32) -> Result<(), String> {
+fn viewer_frame(t: f32) {
     #[cfg(target_os = "macos")]
-    return VIEWER.with(|v| v.borrow_mut().as_mut().map_or(Ok(()), |v| v.render(t)));
-    #[cfg(not(target_os = "macos"))]
-    Ok(())
+    VIEWER.with(|v| {
+        if let Some(v) = v.borrow().as_ref() {
+            v.worker().frame(t);
+        }
+    });
 }
 
 #[tauri::command]
@@ -362,7 +378,7 @@ pub fn run() {
                 .build()?;
             let api_url = api.as_ref().map(|a| a.url.clone()).unwrap_or_default();
             app.manage(Native {
-                assets: Mutex::new(assets::Assets::default()),
+                assets: Arc::new(Mutex::new(assets::Assets::default())),
                 audio: Mutex::new(None),
                 cancel: Arc::new(AtomicBool::new(false)),
                 tools: ffmpeg::Tools::find(resources.as_deref().map(|r| r.join("runtime")).as_deref()),

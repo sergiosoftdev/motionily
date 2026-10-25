@@ -53,7 +53,6 @@ export function ProEditor({ ed }: { ed: EditorProps }) {
   const { project, g } = ed;
   const scene = useSceneView();
   const fps = scene?.fps ?? 30;
-  const time = useEditor((s) => s.time);
   const [sceneW, sceneH] = useEditor((s) => s.sceneSize);
   const selected = useEditor((s) => s.selectedLayerId);
   const group = useEditor((s) => s.selectedGroup);
@@ -164,7 +163,7 @@ export function ProEditor({ ed }: { ed: EditorProps }) {
             <CompositionViewer canvas={ed.canvas} error={ed.error} projectId={ed.id} />
             <div className="flex h-7 shrink-0 items-center gap-4 border-t border-[#151515] px-3 text-[11px] text-[#8a8a8a]">
               <ZoomMenu canvas={ed.canvas} />
-              <span className="text-[#4aa3f0] tabular-nums">{timecode(time, fps)}</span>
+              <Timecode fps={fps} />
               <OverlayMenu />
               <span className="tabular-nums">
                 {sceneW} × {sceneH}
@@ -242,4 +241,10 @@ export function ProEditor({ ed }: { ed: EditorProps }) {
       </div>
     </div>
   );
+}
+
+/** The composition's timecode (re-renders with the playhead, alone). */
+function Timecode({ fps }: { fps: number }) {
+  const time = useEditor((s) => s.time);
+  return <span className="text-[#4aa3f0] tabular-nums">{timecode(time, fps)}</span>;
 }

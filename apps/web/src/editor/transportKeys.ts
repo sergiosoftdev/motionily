@@ -26,6 +26,8 @@ export function useTransportKeys(fps: number, frames: boolean) {
       const meta = e.metaKey || e.ctrlKey;
       if (e.key === " ") {
         e.preventDefault();
+        // Holding Space would toggle on every key repeat.
+        if (e.repeat) return;
         // A focused button would also take the Space (on key up) and undo the toggle.
         if ((e.target as HTMLElement | null)?.tagName === "BUTTON") window.addEventListener("keyup", (up) => up.preventDefault(), { once: true, capture: true });
         if (playing) engineHost.pause();

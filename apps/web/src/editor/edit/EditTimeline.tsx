@@ -17,6 +17,8 @@ import type { VolumeKey } from "./volume";
 import { audioPieces } from "../../audio/track";
 
 const HEADER_W = 104;
+/** Px the playhead keeps from the edge when the view pages along with playback. */
+const PAGE_MARGIN = 24;
 const RULER_H = 26;
 const LANE_H = 44;
 const SMALL_LANE_H = 28;
@@ -127,7 +129,6 @@ export function EditTimeline({
   edits: EditActions;
 }) {
   const [dropLane, setDropLane] = useState<string | null>(null);
-  const time = useEditor((s) => s.time);
   const duration = Math.max(scene.duration, 0.1);
   const fps = scene.fps ?? 30;
   const [zoom, setZoom] = useState(1);
@@ -247,7 +248,7 @@ export function EditTimeline({
     window.addEventListener("pointerup", up);
   };
 
-  const clipPoints = (c: EditClip) => [0, time, ...(c.kind === ClipKind.Audio ? tracks.audio : tracks.clips).filter((x) => x.id !== c.id && x.lane === c.lane).flatMap((x) => [x.start, x.end])];
+  const clipPoints = (c: EditClip) => [0, playhead(), ...(c.kind === ClipKind.Audio ? tracks.audio : tracks.clips).filter((x) => x.id !== c.id && x.lane === c.lane).flatMap((x) => [x.start, x.end])];
   /** Shift-click: add the piece to the selection, or take it out. */
   const togglePick = (kind: PickKind, id: string) => {
     const has = picked[kind].includes(id);
@@ -336,11 +337,11 @@ export function EditTimeline({
       if (trimMode && e.altKey) {
         const left = kind === "in" ? prevOnTrack(c.kind) : c;
         if (!left) return;
-        drag(e, kind, () => selectClip(c), (dt) => [{ op: OpName.RollEdit, id: left.id, to: snap((kind === "in" ? c.start : c.end) + dt, [time]) }], () => `Rolls the cut of ${left.id}`, true);
+        drag(e, kind, () => selectClip(c), (dt) => [{ op: OpName.RollEdit, id: left.id, to: snap((kind === "in" ? c.start : c.end) + dt, [playhead()]) }], () => `Rolls the cut of ${left.id}`, true);
         return;
       }
       if (trimMode) {
-        drag(e, kind, () => selectClip(c), (dt) => [{ op: OpName.RippleTrim, id: c.id, edge: kind, to: kind === "in" ? c.start + dt : snap(c.end + dt, [time]) }], () => `Ripple trims ${c.id}`, true);
+        drag(e, kind, () => selectClip(c), (dt) => [{ op: OpName.RippleTrim, id: c.id, edge: kind, to: kind === "in" ? c.start + dt : snap(c.end + dt, [playhead()]) }], () => `Ripple trims ${c.id}`, true);
         return;
       }
       drag(
@@ -478,7 +479,7 @@ export function EditTimeline({
                 "move",
                 () => selectBlock(b),
                 (dt) => {
-                  const start = snap(b.start + dt, [0, time, ...tracks.clips.map((c) => c.start)]);
+                  const start = snap(b.start + dt, [0, playhead(), ...tracks.clips.map((c) => c.start)]);
                   return moveBlockOps(b, start - b.start, scene);
                 },
                 () => `Moves ${b.label}`,
@@ -584,7 +585,7 @@ export function EditTimeline({
                 onSelectCue(null);
                 onSelectMusic(true);
               },
-              (dt) => [{ op: OpName.SetMusic, music: { ...m, start: Math.max(0, Math.round(snap(m.start + dt, [0, time]) * 1000) / 1000) } }],
+              (dt) => [{ op: OpName.SetMusic, music: { ...m, start: Math.max(0, Math.round(snap(m.start + dt, [0, playhead()]) * 1000) / 1000) } }],
               () => "Moves the music",
               false,
             )
@@ -645,7 +646,7 @@ export function EditTimeline({
                   onSelectMusic(false);
                   onSelectCue(cue);
                 },
-                (dt) => [{ op: OpName.PutSfx, cue: { ...cue, at: Math.max(0, Math.round(snap(cue.at + dt, [time]) * 1000) / 1000) } }],
+                (dt) => [{ op: OpName.PutSfx, cue: { ...cue, at: Math.max(0, Math.round(snap(cue.at + dt, [playhead()]) * 1000) / 1000) } }],
                 () => `Moves the ${cue.sound} effect`,
                 false,
               )
@@ -741,9 +742,7 @@ export function EditTimeline({
           ))}
           {band && <div className="pointer-events-none absolute z-30 rounded-sm border border-white/60 bg-white/10" style={band} />}
           {/* Playhead */}
-          <div className="pointer-events-none absolute top-0 bottom-0 z-20 w-px bg-red-400" style={{ left: HEADER_W + px(time) }}>
-            <span className="absolute -top-0 -left-1.5 size-3 rotate-45 bg-red-400" />
-          </div>
+          <Playhead pps={pps} scroller={scroller} />
         </div>
       </div>
     </div>
@@ -758,6 +757,30 @@ const SWITCH_LABEL: Record<TrackSwitch, { on: string; off: string; glyph: string
 };
 
 /** A track's name (double-click renames it) and its switches, like an NLE's track header. */
+/** The playhead's second right now (snapping reads it when a drag moves, so the timeline never re-renders per frame). */
+const playhead = () => useEditor.getState().time;
+
+/**
+ * The playhead line: the only part of the timeline that changes every frame while playing. When it runs
+ * off the visible part of a zoomed timeline, the view turns the page with it.
+ */
+function Playhead({ pps, scroller }: { pps: number; scroller: React.RefObject<HTMLDivElement | null> }) {
+  const time = useEditor((s) => s.time);
+  const playing = useEditor((s) => s.playing);
+  const x = time * pps;
+  useEffect(() => {
+    const el = scroller.current;
+    if (!playing || !el) return;
+    const width = el.clientWidth - HEADER_W;
+    if (x < el.scrollLeft || x > el.scrollLeft + width - PAGE_MARGIN) el.scrollLeft = Math.max(0, x - PAGE_MARGIN);
+  }, [x, playing, scroller]);
+  return (
+    <div className="pointer-events-none absolute top-0 bottom-0 z-20 w-px bg-red-400" style={{ left: HEADER_W + x }}>
+      <span className="absolute -top-0 -left-1.5 size-3 rotate-45 bg-red-400" />
+    </div>
+  );
+}
+
 function TrackHeader({ track, tracks, onOps }: { track: { kind: TrackKind; lane: number; info: Track }; tracks: EditTracks; onOps: (ops: Op[], what: string) => void }) {
   const [editing, setEditing] = useState(false);
   const switches: TrackSwitch[] = track.kind === TrackKind.Video ? [TrackSwitch.Hidden, TrackSwitch.Locked] : [TrackSwitch.Muted, TrackSwitch.Solo, TrackSwitch.Locked];

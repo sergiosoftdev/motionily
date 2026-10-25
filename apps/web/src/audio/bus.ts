@@ -20,6 +20,11 @@ class AudioBus {
     return this.ctx;
   }
 
+  /** The context if one was made (never creates or resumes it). */
+  peek(): AudioContext | null {
+    return this.ctx;
+  }
+
   /** Where every sound connects. */
   get master(): GainNode {
     this.context();

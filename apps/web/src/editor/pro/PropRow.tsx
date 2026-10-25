@@ -1,7 +1,7 @@
 import type { Op } from "@motionily/protocol";
 import { commit, preview } from "../../editing/direct";
 import { engineHost } from "../../engine/host";
-import { useEditor } from "../../store";
+import { useEditor, usePlayheadTime } from "../../store";
 import { addKey, isExpr, isKeys, keyAt, keyTimes, removeKey, setAt, setProp, type Anim, type PropDef } from "./keys";
 import { ExpressionEditor, exprFrom, Stopwatch } from "./panels/AnimParam";
 import { notify } from "./panels/notice";
@@ -16,7 +16,7 @@ import { ScrubNumber } from "./ScrubNumber";
  * the row (Effect Controls), elsewhere the ƒ jumps there.
  */
 export function PropRow({ id, layer, def, fps, indent = 0, exprInline = false }: { id: string; layer: Record<string, unknown>; def: PropDef; fps: number; indent?: number; exprInline?: boolean }) {
-  const time = useEditor((s) => s.time);
+  const time = usePlayheadTime();
   const focused = useWorkspace((s) => s.prop?.id === id && s.prop.label === def.label);
   const start = (layer.start as number | undefined) ?? 0;
   const lt = time - start;

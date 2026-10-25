@@ -3,7 +3,7 @@ import { OpName, type Op } from "@motionily/protocol";
 import { commit, preview } from "../../editing/direct";
 import { groupLayerIds } from "../../editing/groups";
 import { engineHost } from "../../engine/host";
-import { useEditor } from "../../store";
+import { useEditor, usePlayheadTime } from "../../store";
 import { landingTime, type SceneView } from "../sceneView";
 import { rowsFor, TRANSFORM_PROPS } from "./keys";
 import { setMatte } from "./panels/actions";
@@ -47,7 +47,7 @@ export const FX_DROP_ATTR = "data-fx-drop";
 export function EffectControls({ scene }: { scene: SceneView | null }) {
   const selected = useEditor((s) => s.selectedLayerId);
   const group = useEditor((s) => s.selectedGroup);
-  const time = useEditor((s) => s.time);
+  const time = usePlayheadTime();
   const [error, setError] = useState<string | null>(null);
   const fps = scene?.fps ?? 30;
   const duration = scene?.duration ?? 0;

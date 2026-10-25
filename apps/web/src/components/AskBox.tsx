@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { ModePiece } from "../editor/mode";
-import { ActivitySource, logActivity, useEditor } from "../store";
+import { ActivitySource, logActivity, useEditor, usePlayheadTime } from "../store";
 import { scopedInstruction } from "../timeline/SelectionOverlay";
 import { ReferenceStrip, useReferences } from "./References";
 import type { Generation } from "./useGenerate";
@@ -76,7 +76,7 @@ export function AskBox({
   const layer = useEditor((s) => s.selectedLayerId);
   const group = useEditor((s) => s.selectedGroup);
   const moment = useEditor((s) => s.pinnedMoment);
-  const time = useEditor((s) => s.time);
+  const time = usePlayheadTime();
   const target = group ?? layer;
   const first = !hasScene && !g.running && !!onBrief;
   const disabled = !hasScene && !g.running && !first;

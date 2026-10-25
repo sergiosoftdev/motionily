@@ -1,17 +1,19 @@
 import init, { Engine, analyzeAudio, captionStyles, checkSceneShaders, clearAudioAnalysis, stylePalettes, stylePresets } from "./pkg/engine_wasm.js";
 import type { Loudness, Mix } from "@motionily/protocol";
 import { audioBus } from "../audio/bus";
-import { VoicePlayer } from "../audio/voice";
 import { measureLoudness } from "../audio/loudness";
 import { mixAudio } from "../export/exportVideo";
-import { MusicPlayer, speechInFile, speechSpans, voiceOnTimeline, type MusicTrack, type SpeechSpan } from "../audio/music";
-import { sfxPlayer, type SfxCue } from "../audio/sfxPlayer";
-import { DEFAULT_SFX_VOLUME, type CaptionStyle, type FrameLayout, type Marker, type Op, type ReviewReport, type StylePreset, type WorkArea } from "@motionily/protocol";
+import type { MusicTrack } from "../audio/music";
+import type { SfxCue } from "../audio/sfxPlayer";
+import { loadMix, sfxCues, type MixScene, type MixSources } from "../audio/mix";
+import { decodeAudio } from "../audio/decode";
+import { PreviewMix } from "../audio/preview";
+import { OpName, type CaptionStyle, type FrameLayout, type Marker, type Op, type ReviewReport, type StylePreset, type WorkArea } from "@motionily/protocol";
 import { DEFAULT_FONT_FAMILY, fontFilesFor, text3dFonts } from "./fonts";
 import { decodeBytes, decodePng, modelFileUrl, modelUrl, packOf, packTextureUrl, type Pixels } from "./models";
 import { mediaUrl } from "../api/client";
 import { ActivitySource, EngineStatus, logActivity, useEditor } from "../store";
-import { ClipSounds, VIDEO_LAYER, VideoLibrary, VideoStatus, clipSounds, type ClipSound, type ClipState, type FrameCache } from "./video";
+import { AUDIO_LAYER, VIDEO_LAYER, VideoLibrary, VideoStatus, clipSounds, hasSound, type ClipSound, type FrameCache } from "./video";
 import { decodeMono, type AudioAnalysisInfo } from "./audioReactive";
 import type { AudioTrack } from "../audio/track";
 import { nativeViewer } from "../native/viewer";
@@ -116,9 +118,9 @@ class EngineHost {
   private lutsLoading: Promise<void> = Promise.resolve();
   private imageCache = new Map<string, Promise<Pixels | null>>();
 
-  /** Voice-over/music played in sync with the preview (not saved yet). */
-  /** The voice-over, played through the mix bus from decoded audio. */
-  private voice = new VoicePlayer();
+  /** The soundtrack (voice, music, effects, clip sound), scheduled as the export mixes it; also the playback clock. */
+  private mix = new PreviewMix();
+  private mixKey = "";
   private audioUrl: string | null = null;
   /** Analysis of `audioUrl` for audio-reactive expressions; resolves once installed in the engine. */
   private audioAnalysis: Promise<void> = Promise.resolve();
@@ -126,14 +128,6 @@ class EngineHost {
   /** Video files (decoders shared with export engines), frames uploaded to this engine, clip sounds. */
   private videos = new VideoLibrary(mediaSrc, () => this.draw());
   private frames: FrameCache = new Map();
-  private sounds = new ClipSounds(mediaSrc);
-  private audioTrack: AudioTrack = { start: 0, trim_in: 0, trim_out: null };
-  /** Background music, and where the voice speaks (it ducks there). */
-  private music = new MusicPlayer();
-  private speech: SpeechSpan[] = [];
-  /** Caption words, and the voice file's own speech (file seconds) for videos without captions. */
-  private captionWords: { start: number; end: number }[] = [];
-  private voiceSpeech: SpeechSpan[] = [];
   private size: [number, number] = [1080, 1920];
 
   /** Restart at the end instead of stopping (turntable previews). */
@@ -191,10 +185,8 @@ class EngineHost {
     this.pause();
     this.loop = false;
     void this.setAudio(null);
-    this.music.setTrack(null);
     this.videos.dispose();
     this.videos = new VideoLibrary(mediaSrc, () => this.draw());
-    this.sounds.dispose();
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     this.engine?.free();
@@ -459,19 +451,14 @@ class EngineHost {
   setAudio(url: string | null): Promise<void> {
     if (url === this.audioUrl) return this.audioAnalysis;
     this.audioUrl = url;
-    this.voice.load(url);
+    // Decoded ahead, so the first play starts at once.
+    if (url) void decodeAudio(url);
     this.audioInfo = null;
     this.audioAnalysis = this.analyzeAudio(url);
     return this.audioAnalysis;
   }
 
-  /** Where the music ducks: the caption words, or the voice's own speech when there are none. */
-  private updateSpeech() {
-    this.speech = this.captionWords.length ? speechSpans(this.captionWords) : voiceOnTimeline(this.voiceSpeech, this.audioTrack);
-  }
-
   private async analyzeAudio(url: string | null) {
-    this.voiceSpeech = [];
     if (!this.wasmReady) return;
     await this.wasmReady;
     if (!url) {
@@ -483,8 +470,6 @@ class EngineHost {
       const { samples, rate } = await decodeMono(url);
       // A newer file replaced this one while it decoded.
       if (url !== this.audioUrl) return;
-      this.voiceSpeech = speechInFile(samples, rate);
-      this.updateSpeech();
       this.audioInfo = JSON.parse(analyzeAudio(samples, rate)) as AudioAnalysisInfo;
     } catch {
       if (url === this.audioUrl) clearAudioAnalysis();
@@ -554,16 +539,14 @@ class EngineHost {
     if (rate === 0) return this.pause();
     this.rate = rate;
     if (useEditor.getState().playing) {
-      if (rate !== 1) this.silence();
-      else {
-        this.syncAudio(true);
-        this.music.sync(useEditor.getState().time, true, this.speech);
-      }
+      if (rate !== 1) this.mix.stop();
+      else this.startMix(useEditor.getState().time);
+      this.lastTick = performance.now();
       return;
     }
     if (rate === 1) return this.play();
     useEditor.setState({ playing: true });
-    this.silence();
+    this.mix.stop();
     this.lastTick = performance.now();
     this.raf = requestAnimationFrame(this.tick);
   }
@@ -571,13 +554,6 @@ class EngineHost {
   /** Current shuttle speed (1 = normal playback). */
   get shuttleRate() {
     return useEditor.getState().playing ? this.rate : 0;
-  }
-
-  private silence() {
-    this.voice.stop();
-    this.music.pause();
-    this.sounds.stop();
-    sfxPlayer.stop();
   }
 
   play() {
@@ -589,93 +565,96 @@ class EngineHost {
     useEditor.setState({ playing: true });
     // Inside the click that plays: browsers only start WebAudio on a gesture.
     audioBus.context();
-    this.syncAudio(true);
-    this.music.sync(useEditor.getState().time, true, this.speech);
-    void sfxPlayer.start(useEditor.getState().time, this.sfxCues());
+    this.startMix(useEditor.getState().time);
     this.lastTick = performance.now();
     this.raf = requestAnimationFrame(this.tick);
-    if (this.canvas) void nativeViewer.start(this.canvas, this.sceneJson(), this);
+    if (this.canvas) void nativeViewer.start(this.canvas, this.sceneJson(), this, useEditor.getState().time);
   }
 
   pause() {
+    const wasPlaying = useEditor.getState().playing;
     this.rate = 1;
     cancelAnimationFrame(this.raf);
     nativeViewer.stop();
-    this.voice.stop();
-    this.music.pause();
-    this.sounds.stop();
-    sfxPlayer.stop();
+    this.mix.stop();
     useEditor.setState({ playing: false });
+    // The editor's canvas comes back where playback stopped (the native viewer drew the frames meanwhile).
+    if (wasPlaying) this.draw();
   }
 
   seek(t: number) {
     useEditor.setState({ time: Math.max(0, Math.min(t, useEditor.getState().duration)) });
-    this.syncAudio(false);
-    this.music.sync(useEditor.getState().time, useEditor.getState().playing, this.speech);
-    this.syncClipSounds(useEditor.getState().playing);
-    if (useEditor.getState().playing) void sfxPlayer.start(useEditor.getState().time, this.sfxCues());
+    if (useEditor.getState().playing && this.rate === 1) this.startMix(useEditor.getState().time);
+    this.lastTick = performance.now();
+    if (nativeViewer.active) nativeViewer.frame(useEditor.getState().time);
     this.draw();
   }
 
   /** The scene's sound effect cues. */
   sfxCues(): SfxCue[] {
     if (!this.engine) return [];
-    const scene = JSON.parse(this.sceneJson()) as { sfx?: SfxCue[]; sfx_volume?: number };
-    // The user's effects slider scales every cue.
-    return (scene.sfx ?? []).map((c) => ({ ...c, gain: (c.gain ?? 1) * (scene.sfx_volume ?? DEFAULT_SFX_VOLUME) }));
+    return sfxCues(JSON.parse(this.sceneJson()) as MixScene);
+  }
+
+  /** Schedule the soundtrack from scene second `t` (the clock follows it from then on). */
+  private startMix(t: number) {
+    this.mixKey = this.mixState();
+    this.mix.start(t, () => this.loadMix());
+  }
+
+  /** Everything the soundtrack is built from: when an edit changes it mid-play, the mix is rescheduled. */
+  private mixState(): string {
+    const s = JSON.parse(this.require().sceneJson()) as MixScene & { layers?: { type: string }[]; mix?: unknown; duration: number };
+    const clips = (s.layers ?? []).filter((l) => l.type === VIDEO_LAYER || l.type === AUDIO_LAYER);
+    return JSON.stringify([this.audioUrl, s.audio, s.music, s.sfx, s.sfx_volume, s.captions?.words, s.duration, clips]);
+  }
+
+  private async loadMix(): Promise<MixSources> {
+    const engine = this.require();
+    const scene = JSON.parse(engine.sceneJson()) as MixScene & { fps: number; duration: number; layers?: { type: string; volume?: unknown }[] };
+    const withSound = (scene.layers ?? []).some((l) => (l.type === VIDEO_LAYER || l.type === AUDIO_LAYER) && hasSound(l.volume));
+    // Clip timing needs the files' lengths (loops), known once they are open.
+    if (withSound) await this.videos.ready(engine);
+    const clips = withSound && engine === this.engine ? clipSounds(engine, scene.fps, scene.duration) : [];
+    return loadMix(scene, this.audioUrl, clips);
   }
 
   private tick = (now: number) => {
     const { time } = useEditor.getState();
-    const next = time + ((now - this.lastTick) / 1000) * this.rate;
+    const elapsed = ((now - this.lastTick) / 1000) * this.rate;
     this.lastTick = now;
     const [from, to] = this.playRange();
     if (this.rate !== 1) {
       // Shuttle: silent, stops at either end.
-      const t = Math.min(to, Math.max(from, next));
-      useEditor.setState({ time: t });
-      if (nativeViewer.active) nativeViewer.frame(t);
-      else this.draw();
+      const t = Math.min(to, Math.max(from, time + elapsed));
+      this.show(t);
       if (t <= from || t >= to) return this.pause();
       this.raf = requestAnimationFrame(this.tick);
       return;
     }
+    // At 1× the picture follows the sound coming out (the frame clock keeps time while there is none).
+    const next = this.mix.now() ?? time + elapsed;
     // A work area always loops; the whole video only when `loop` is on.
     if (next >= to && (this.loop || this.range)) {
-      useEditor.setState({ time: from });
-      this.syncAudio(true);
-      this.music.sync(from, true, this.speech);
-      void sfxPlayer.start(from, this.sfxCues());
-      if (nativeViewer.active) nativeViewer.frame(from);
-      else this.draw();
+      this.show(from);
+      this.startMix(from);
       this.raf = requestAnimationFrame(this.tick);
       return;
     }
     if (next >= to) {
       useEditor.setState({ time: to });
-      this.draw();
       this.pause();
       return;
     }
-    useEditor.setState({ time: next });
-    this.syncAudio(true);
-    this.music.sync(next, true, this.speech);
-    // With the desktop app's native viewer on screen, it draws the frame instead of the canvas.
-    if (nativeViewer.active) nativeViewer.frame(next);
-    else this.draw();
-    this.syncClipSounds(true);
+    this.show(next);
     this.raf = requestAnimationFrame(this.tick);
   };
 
-  /** Video layers with volume > 0 play their own sound in the preview. */
-  private syncClipSounds(playing: boolean) {
-    if (!this.engine) return;
-    this.sounds.sync(JSON.parse(this.engine.videoClips(useEditor.getState().time)) as ClipState[], playing);
-  }
-
-  /** Keep the voice-over on the timeline (scheduled from the playhead, rescheduled after a jump). */
-  private syncAudio(playing: boolean) {
-    this.voice.sync(useEditor.getState().time, playing, this.audioTrack);
+  /** Put the playhead at `t` while playing and draw it (with the desktop app's native viewer on screen, it draws instead). */
+  private show(t: number) {
+    useEditor.setState({ time: t });
+    if (nativeViewer.active) nativeViewer.frame(t);
+    else this.draw();
   }
 
   /** Render the exact frame at `t` (video frames decoded, audio analysed) into the canvas. */
@@ -710,10 +689,24 @@ class EngineHost {
    * The frame's pixels, `width` px wide, for scopes: at each of `times` exactly (video frames decoded),
    * or at the playhead as it is on screen when `times` is null. Restores the current frame.
    */
-  async framePixels(times: number[] | null, width = 256): Promise<{ t: number; image: ImageData }[]> {
+  async framePixels(times: number[] | null, width = 256, without: string[] = []): Promise<{ t: number; image: ImageData }[]> {
     const canvas = this.canvas;
     const engine = this.engine;
     if (!canvas || !engine) return [];
+    // Measured without some layers (a window tracks the picture, not its own grade): hidden for these frames only.
+    const saved = without.length ? engine.sceneJson() : null;
+    if (saved) engine.applyOps(JSON.stringify(without.map((id) => ({ op: OpName.Patch, id, fields: { visible: false } }))));
+    try {
+      return await this.pixelsOf(canvas, engine, times, width);
+    } finally {
+      if (saved && engine === this.engine) {
+        engine.loadScene(saved);
+        this.draw();
+      }
+    }
+  }
+
+  private async pixelsOf(canvas: HTMLCanvasElement, engine: Engine, times: number[] | null, width: number): Promise<{ t: number; image: ImageData }[]> {
     const [sw, sh] = this.size;
     const out = document.createElement("canvas");
     out.width = width;
@@ -1107,6 +1100,9 @@ class EngineHost {
 
   private changed() {
     this.syncMeta();
+    // An edit of the soundtrack while playing: reschedule it from the playhead.
+    if (useEditor.getState().playing && this.rate === 1 && this.mixState() !== this.mixKey) this.startMix(useEditor.getState().time);
+    if (nativeViewer.active) void nativeViewer.reload(this.sceneJson(), this, useEditor.getState().time);
     this.draw();
     void this.ensureModels();
     void this.ensureImages();
@@ -1117,13 +1113,9 @@ class EngineHost {
   private syncMeta() {
     const meta = JSON.parse(this.require().sceneJson()) as SceneMeta;
     this.size = [meta.width, meta.height];
-    this.audioTrack = meta.audio ?? { start: 0, trim_in: 0, trim_out: null };
-    this.music.setTrack(meta.music ?? null);
-    this.captionWords = meta.captions?.words ?? [];
     this.range = meta.work_area ?? null;
     this.marks = meta.markers ?? [];
     audioBus.setMaster(10 ** ((meta.mix?.master_db ?? 0) / 20));
-    this.updateSpeech();
     useEditor.setState((s) => ({
       sceneSize: [meta.width, meta.height],
       style: meta.style,
