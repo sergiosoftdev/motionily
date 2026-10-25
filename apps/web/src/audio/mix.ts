@@ -1,5 +1,5 @@
 import { decodeAudio } from "./decode";
-import { DEFAULT_SFX_VOLUME } from "@motionily/protocol";
+import { DEFAULT_SFX_VOLUME, MixChannel, type Mix, type MixStrip, type Track } from "@motionily/protocol";
 import { mediaUrl } from "../api/client";
 import { DUCK_RAMP, musicLevel, speechInFile, speechSpans, voiceOnTimeline, type MusicTrack, type SpeechSpan } from "./ducking";
 import { playCue, type SfxCue } from "./sfxPlayer";
@@ -9,8 +9,13 @@ import { VIDEO_LAYER, type ClipSound } from "../engine/video";
 /** Seconds between the points the music's level is sampled at while its envelope shapes it. */
 const ENVELOPE_STEP = 0.02;
 
+/** A mix channel's level and place after mute and solo: `gain` linear, `pan` −1..1. */
+export type StripLevel = { gain: number; pan: number };
+
 /** Every sound of a video with its decoded file: what one mix schedules. */
 export type MixSources = {
+  /** Voice, music and effects channels (clips are mixed on their tracks by the engine). */
+  strips: Record<MixChannel, StripLevel>;
   voice: { buf: AudioBuffer; track: AudioTrack } | null;
   /** The music ducks under `speech` (scene seconds). */
   music: { buf: AudioBuffer; track: MusicTrack; speech: SpeechSpan[] } | null;
@@ -27,7 +32,17 @@ export type MixScene = {
   sfx_volume?: number;
   captions?: { words?: { start: number; end: number }[] } | null;
   layers?: { type: string; src?: string; volume?: unknown }[];
+  tracks?: Track[];
+  mix?: Mix | null;
 };
+
+/** What each mix channel plays at: its fader and pan, silent when muted or left out by a solo (of any track or channel). */
+export function stripLevels(scene: MixScene): Record<MixChannel, StripLevel> {
+  const strips = scene.mix?.channels ?? {};
+  const soloing = (scene.tracks ?? []).some((t) => t.solo) || Object.values(strips).some((c) => c?.solo);
+  const level = (c: MixStrip | undefined): StripLevel => ({ gain: c?.muted || (soloing && !c?.solo) ? 0 : (c?.volume ?? 1), pan: c?.pan ?? 0 });
+  return { voice: level(strips.voice), music: level(strips.music), effects: level(strips.effects) };
+}
 
 /** Every effect cue at the user's master effects level. */
 export function sfxCues(scene: MixScene): SfxCue[] {
@@ -57,6 +72,7 @@ export async function loadMix(scene: MixScene, voiceUrl: string | null, clips: C
     Promise.all(clips.map(async (clip) => ({ clip, buf: await decodeAudio(mediaUrl(clip.src), videos.has(clip.src)) }))),
   ]);
   return {
+    strips: stripLevels(scene),
     voice: voice ? { buf: voice, track } : null,
     music: music && scene.music ? { buf: music, track: scene.music, speech: mixSpeech(scene, voice) } : null,
     cues: cues.filter((c): c is { cue: SfxCue; buf: AudioBuffer } => !!c.buf),
@@ -72,6 +88,19 @@ export async function loadMix(scene: MixScene, voiceUrl: string | null, clips: C
 export function scheduleMix(ctx: BaseAudioContext, out: AudioNode, m: MixSources, from: number, when: number): AudioScheduledSourceNode[] {
   const at = (t: number) => when + Math.max(0, t - from);
   const sources: AudioScheduledSourceNode[] = [];
+  // One strip per mix channel: fader, then pan, into the bus.
+  const strip = (s: StripLevel): AudioNode => {
+    const g = ctx.createGain();
+    g.gain.value = s.gain;
+    if (!s.pan) return (g.connect(out), g);
+    const p = ctx.createStereoPanner();
+    p.pan.value = s.pan;
+    g.connect(p).connect(out);
+    return g;
+  };
+  const voiceOut = strip(m.strips.voice);
+  const musicOut = strip(m.strips.music);
+  const effectsOut = strip(m.strips.effects);
   const source = (buf: AudioBuffer) => {
     const src = ctx.createBufferSource();
     src.buffer = buf;
@@ -85,7 +114,7 @@ export function scheduleMix(ctx: BaseAudioContext, out: AudioNode, m: MixSources
       const into = Math.max(0, from - p.at);
       if (into >= len) continue;
       const src = source(m.voice.buf);
-      src.connect(out);
+      src.connect(voiceOut);
       src.start(at(p.at), p.from + into, len - into);
     }
   }
@@ -102,12 +131,12 @@ export function scheduleMix(ctx: BaseAudioContext, out: AudioNode, m: MixSources
       g.gain.setValueAtTime(musicLevel(track, speech, Math.max(0, from)), when);
       for (const t of times.filter((x) => x > from && x > 0).sort((a, b) => a - b)) g.gain.linearRampToValueAtTime(musicLevel(track, speech, t), at(t));
       const src = source(buf);
-      src.connect(g).connect(out);
+      src.connect(g).connect(musicOut);
       src.start(at(track.start), track.trim_in + into, len - into);
     }
   }
   for (const { buf, cue } of m.cues) {
-    const src = playCue(ctx, buf, cue, at(cue.at), Math.max(0, from - cue.at), out);
+    const src = playCue(ctx, buf, cue, at(cue.at), Math.max(0, from - cue.at), effectsOut);
     if (src) sources.push(src);
   }
   for (const { buf, clip } of m.clips) {
@@ -118,7 +147,11 @@ export function scheduleMix(ctx: BaseAudioContext, out: AudioNode, m: MixSources
     for (const [t, v] of clip.levels) if (t > from) g.gain.linearRampToValueAtTime(v, at(t));
     const src = source(buf);
     src.playbackRate.value = clip.rate;
-    src.connect(g).connect(out);
+    // Where it sits: its pan (and its track's), through its own keys.
+    const p = ctx.createStereoPanner();
+    p.pan.setValueAtTime(keyAt(clip.pan, clip.at, clip.pans, clip.at + into), at(clip.at));
+    for (const [t, v] of clip.pans) if (t > from) p.pan.linearRampToValueAtTime(v, at(t));
+    src.connect(g).connect(p).connect(out);
     // `seconds` of video play `seconds × rate` of the file.
     src.start(at(clip.at), clip.offset + into * clip.rate, (clip.seconds - into) * clip.rate);
   }
@@ -127,8 +160,13 @@ export function scheduleMix(ctx: BaseAudioContext, out: AudioNode, m: MixSources
 
 /** A clip's level at scene second `t`: its volume, then straight through its level keys. */
 function clipLevel(clip: ClipSound, t: number): number {
-  let [pt, pv] = [clip.at, clip.volume];
-  for (const [kt, kv] of clip.levels) {
+  return keyAt(clip.volume, clip.at, clip.levels, t);
+}
+
+/** Value at `t` of `v0` at `t0` followed by straight lines through `keys`. */
+function keyAt(v0: number, t0: number, keys: [number, number][], t: number): number {
+  let [pt, pv] = [t0, v0];
+  for (const [kt, kv] of keys) {
     if (kt >= t) return pv + ((kv - pv) * (t - pt)) / Math.max(1e-6, kt - pt);
     [pt, pv] = [kt, kv];
   }

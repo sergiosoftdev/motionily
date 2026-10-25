@@ -17,8 +17,9 @@ export function LoudnessSection({ mix, edits }: { mix: Mix | null | undefined; e
   const [error, setError] = useState<string | null>(null);
   const master = mix?.master_db ?? 0;
   const setMaster = (v: number, what: string, extra: Partial<Mix> = {}) => {
-    const next: Mix = { master_db: v, ...extra };
-    edits.apply([{ op: OpName.SetMix, mix: v === 0 && next.target_lufs == null ? null : next }], what, false);
+    // The mixer's channels stay; a hand-set master is no longer a normalization.
+    const next: Mix = { master_db: v, ...(mix?.channels ? { channels: mix.channels } : {}), ...extra };
+    edits.apply([{ op: OpName.SetMix, mix: v === 0 && next.target_lufs == null && !next.channels ? null : next }], what, false);
   };
   const normalize = async () => {
     setBusy(true);

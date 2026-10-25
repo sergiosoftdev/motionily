@@ -218,6 +218,18 @@ function ClipInspector({ clip, ops, edits, clipIds, luts }: { clip: EditClip; op
               onDone={() => done(`Volume of ${clip.id}`, true)}
             />
           )}
+          {(clip.kind === ClipKind.Audio || clip.volume > 0 || clip.volumeKeys) && typeof (engineHost.layer(clip.id)?.pan ?? 0) === "number" && (
+            <Slider
+              label="Pan"
+              value={Number(engineHost.layer(clip.id)?.pan ?? 0)}
+              min={-1}
+              max={1}
+              step={0.05}
+              format={(v) => (Math.abs(v) < 0.01 ? "Center" : `${v < 0 ? "L" : "R"} ${Math.round(Math.abs(v) * 100)}`)}
+              onChange={(v) => change([{ op: OpName.Patch, id: clip.id, fields: { pan: Math.abs(v) < 0.01 ? 0 : v } }])}
+              onDone={() => done(`Pan of ${clip.id}`, false)}
+            />
+          )}
           {clip.kind === ClipKind.Video && (clip.volume > 0 || clip.volumeKeys) && (
             <button
               type="button"

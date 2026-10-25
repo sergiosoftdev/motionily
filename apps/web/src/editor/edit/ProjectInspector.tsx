@@ -6,6 +6,7 @@ import type { EditorProps } from "../context";
 import type { SceneView } from "../sceneView";
 import type { EditActions } from "./useEditActions";
 import { LoudnessSection } from "./LoudnessSection";
+import { MixerSection } from "./MixerSection";
 import { VersionsSection } from "./VersionsSection";
 
 /** Codecs by where they can be written: the desktop app has ffmpeg, the browser has WebCodecs (H.264). */
@@ -104,6 +105,7 @@ export function ProjectInspector({ ed, scene, edits, onFormat }: { ed: EditorPro
         />
       </label>
       <LoudnessSection mix={scene.mix} edits={edits} />
+      <MixerSection scene={scene} footage={project.footage ?? []} edits={edits} />
       <VersionsSection projectId={project.id} />
     </div>
   );

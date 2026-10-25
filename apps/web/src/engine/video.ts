@@ -29,13 +29,13 @@ export const VideoStatus = { Loading: "loading", Ready: "ready", Failed: "failed
 export type VideoStatus = (typeof VideoStatus)[keyof typeof VideoStatus];
 
 export type FrameNeed = { key: string; src: string; time: number };
-export type ClipState = { id: string; src: string; time: number; rate: number; volume: number };
+export type ClipState = { id: string; src: string; time: number; rate: number; volume: number; pan: number };
 /**
  * One stretch of a clip's sound for the export mix: from video second `at`, play `seconds` of the
  * file from `offset`, starting at `volume` and ramping through `levels` ([video second, level]) when
- * the clip's volume is keyframed.
+ * the clip's volume is keyframed; `pan` (−1..1) and `pans` the same for where it sits.
  */
-export type ClipSound = { src: string; at: number; offset: number; seconds: number; rate: number; volume: number; levels: [number, number][] };
+export type ClipSound = { src: string; at: number; offset: number; seconds: number; rate: number; volume: number; levels: [number, number][]; pan: number; pans: [number, number][] };
 
 /** Whether a video layer's `volume` (a number, keyframes or an expression) is ever above 0. */
 export function hasSound(volume: unknown): boolean {
@@ -262,12 +262,12 @@ function retain(engine: Engine, needs: FrameNeed[], cache: FrameCache) {
 export function clipSounds(engine: Engine, fps: number, duration: number): ClipSound[] {
   const out: ClipSound[] = [];
   /** Open stretches, with the previous frame's level (to start a ramp where the level starts changing). */
-  const open = new Map<string, ClipSound & { last: number; prevT: number; prevV: number; prevKept: boolean }>();
+  const open = new Map<string, ClipSound & { last: number; prevT: number; prevV: number; prevKept: boolean; prevP: number; prevPKept: boolean }>();
   const frames = Math.max(1, Math.round(duration * fps));
   const step = 1 / fps;
   const close = (id: string) => {
     const s = open.get(id);
-    if (s && s.seconds > 0) out.push({ src: s.src, at: s.at, offset: s.offset, seconds: s.seconds, rate: s.rate, volume: s.volume, levels: s.levels });
+    if (s && s.seconds > 0) out.push({ src: s.src, at: s.at, offset: s.offset, seconds: s.seconds, rate: s.rate, volume: s.volume, levels: s.levels, pan: s.pan, pans: s.pans });
     open.delete(id);
   };
   for (let i = 0; i <= frames; i++) {
@@ -287,12 +287,18 @@ export function clipSounds(engine: Engine, fps: number, duration: number): ClipS
         if (changed && !s.prevKept) s.levels.push([s.prevT, s.prevV]);
         if (changed) s.levels.push([t, c.volume]);
         s.prevKept = changed;
+        // Pan keyframes, the same way.
+        const moved = Math.abs(c.pan - s.prevP) > 1e-4;
+        if (moved && !s.prevPKept) s.pans.push([s.prevT, s.prevP]);
+        if (moved) s.pans.push([t, c.pan]);
+        s.prevPKept = moved;
         s.prevT = t;
         s.prevV = c.volume;
+        s.prevP = c.pan;
         continue;
       }
       close(c.id);
-      if (rate >= MIN_RATE) open.set(c.id, { src: c.src, at: t, offset: c.time, seconds: step, rate, volume: c.volume, levels: [], last: c.time, prevT: t, prevV: c.volume, prevKept: true });
+      if (rate >= MIN_RATE) open.set(c.id, { src: c.src, at: t, offset: c.time, seconds: step, rate, volume: c.volume, levels: [], pan: c.pan, pans: [], last: c.time, prevT: t, prevV: c.volume, prevKept: true, prevP: c.pan, prevPKept: true });
     }
     for (const id of [...open.keys()]) if (!seen.has(id)) close(id);
   }

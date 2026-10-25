@@ -40,6 +40,8 @@ type LayerType = (typeof LayerType)[keyof typeof LayerType];
 const mediaSrc = (src: string) => (src.startsWith("/media/") ? mediaUrl(src) : src);
 
 /** A new video starts blank: the agent designs everything. */
+/** Quiet time after a soundtrack edit before it is rescheduled while playing. */
+const REMIX_MS = 150;
 const EMPTY_SCENE = JSON.stringify({ width: 1080, height: 1920, fps: 30, duration: 6, layers: [] });
 const REVIEW_PROBE = 32;
 const BLANK_VARIANCE = 0.0004;
@@ -596,6 +598,16 @@ class EngineHost {
     return sfxCues(JSON.parse(this.sceneJson()) as MixScene);
   }
 
+  private remixTimer = 0;
+
+  /** Reschedule the soundtrack once edits settle (a fader being dragged changes it on every move). */
+  private remixSoon() {
+    window.clearTimeout(this.remixTimer);
+    this.remixTimer = window.setTimeout(() => {
+      if (useEditor.getState().playing && this.rate === 1 && this.mixState() !== this.mixKey) this.startMix(useEditor.getState().time);
+    }, REMIX_MS);
+  }
+
   /** Schedule the soundtrack from scene second `t` (the clock follows it from then on). */
   private startMix(t: number) {
     this.mixKey = this.mixState();
@@ -604,9 +616,10 @@ class EngineHost {
 
   /** Everything the soundtrack is built from: when an edit changes it mid-play, the mix is rescheduled. */
   private mixState(): string {
-    const s = JSON.parse(this.require().sceneJson()) as MixScene & { layers?: { type: string }[]; mix?: unknown; duration: number };
+    const s = JSON.parse(this.require().sceneJson()) as MixScene & { layers?: { type: string }[]; duration: number };
     const clips = (s.layers ?? []).filter((l) => l.type === VIDEO_LAYER || l.type === AUDIO_LAYER);
-    return JSON.stringify([this.audioUrl, s.audio, s.music, s.sfx, s.sfx_volume, s.captions?.words, s.duration, clips]);
+    // The master level is the bus's (set live); the mixer's channels and tracks are in the schedule.
+    return JSON.stringify([this.audioUrl, s.audio, s.music, s.sfx, s.sfx_volume, s.captions?.words, s.duration, clips, s.tracks, s.mix?.channels]);
   }
 
   private async loadMix(): Promise<MixSources> {
@@ -1103,7 +1116,7 @@ class EngineHost {
   private changed() {
     this.syncMeta();
     // An edit of the soundtrack while playing: reschedule it from the playhead.
-    if (useEditor.getState().playing && this.rate === 1 && this.mixState() !== this.mixKey) this.startMix(useEditor.getState().time);
+    if (useEditor.getState().playing && this.rate === 1 && this.mixState() !== this.mixKey) this.remixSoon();
     if (nativeViewer.active) void nativeViewer.reload(this.sceneJson(), this, useEditor.getState().time);
     this.draw();
     void this.ensureModels();

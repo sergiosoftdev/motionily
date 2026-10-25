@@ -1,6 +1,7 @@
 import type { SfxCue } from "../audio/sfxPlayer";
 import type { MusicTrack } from "../audio/ducking";
 import { loadMix, scheduleMix, sfxCues } from "../audio/mix";
+import type { Mix } from "@motionily/protocol";
 import {
   AudioBufferSource,
   BufferTarget,
@@ -28,7 +29,7 @@ type SceneInfo = {
   layers?: { type: string; volume?: unknown }[];
   music?: MusicTrack | null;
   captions?: { words?: { start: number; end: number }[] } | null;
-  mix?: { master_db?: number } | null;
+  mix?: Mix | null;
 };
 
 export type ExportResult = { blob: Blob; extension: "mp4" | "webm" };

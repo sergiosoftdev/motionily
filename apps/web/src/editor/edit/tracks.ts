@@ -261,6 +261,12 @@ export function trackSwitchOps(t: EditTracks, kind: TrackKind, lane: number, sw:
   return [{ op: OpName.SetTracks, tracks: next }, ...ops];
 }
 
+/** Set fields of track `id` (the mixer's volume and pan), making the scene's tracks explicit first. */
+export function trackFieldsOps(t: EditTracks, id: string, fields: Partial<Track>): Op[] {
+  const { tracks, ops } = settleTracks(t);
+  return [{ op: OpName.SetTracks, tracks: tracks.map((x) => (x.id === id ? { ...x, ...fields } : x)) }, ...ops];
+}
+
 /** Rename the track of `lane`. */
 export function renameTrackOps(t: EditTracks, kind: TrackKind, lane: number, name: string): Op[] {
   const { tracks, ops } = settleTracks(t);

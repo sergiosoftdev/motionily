@@ -125,7 +125,14 @@ export type SideFile = (typeof SideFile)[keyof typeof SideFile];
 export const SIDE_FILE_LABEL: Record<SideFile, string> = { srt: "Subtitles (.srt)", vtt: "Subtitles (.vtt)", fcpxml: "Final Cut / Resolve (.fcpxml)", otio: "OpenTimelineIO (.otio)", edl: "EDL (.edl)" };
 
 /** The mix bus (`set_mix`): master level in dB, and the loudness it was normalized to. */
-export type Mix = { master_db: number; target_lufs?: number };
+/** Mixer channels of the sounds not on a track. */
+export const MixChannel = { Voice: "voice", Music: "music", Effects: "effects" } as const;
+export type MixChannel = (typeof MixChannel)[keyof typeof MixChannel];
+/** A mixer strip: fader (linear 0..2, 1 = as is), pan (−1 left .. 1 right), mute, solo. */
+export type MixStrip = { volume?: number; pan?: number; muted?: boolean; solo?: boolean };
+/** Highest fader gain (+6 dB) of a track or a mix channel. */
+export const MAX_FADER = 2;
+export type Mix = { master_db: number; target_lufs?: number; channels?: Partial<Record<MixChannel, MixStrip>> };
 export const MASTER_DB_RANGE = [-60, 24] as const;
 
 /** Integrated loudness (ITU-R BS.1770-4, LUFS; −Infinity = silence) and sample peak (dBFS) of a mix. */
@@ -356,7 +363,8 @@ export type SetFpsOp = { op: typeof OpName.SetFps; fps: number };
 export const TrackKind = { Video: "video", Audio: "audio" } as const;
 export type TrackKind = (typeof TrackKind)[keyof typeof TrackKind];
 /** An editing track (scene `tracks`): hidden = not drawn nor heard, muted = not heard, solo = only solo tracks heard, locked = editor only. */
-export type Track = { id: string; kind: TrackKind; name?: string; hidden?: boolean; muted?: boolean; solo?: boolean; locked?: boolean };
+/** `volume` (linear 0..2, default 1) and `pan` (−1..1, default 0) are the track's mixer fader and pan. */
+export type Track = { id: string; kind: TrackKind; name?: string; hidden?: boolean; muted?: boolean; solo?: boolean; locked?: boolean; volume?: number; pan?: number };
 /** Switches of a track the timeline toggles. */
 export const TrackSwitch = { Hidden: "hidden", Muted: "muted", Solo: "solo", Locked: "locked" } as const;
 export type TrackSwitch = (typeof TrackSwitch)[keyof typeof TrackSwitch];

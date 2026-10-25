@@ -276,7 +276,9 @@ export function registerStudioTools(server: Server, d: StudioDeps) {
       const n = normalization(res.loudness, target);
       const measured = `Mix at 0 dB: ${n.lufs.toFixed(1)} LUFS, peak ${n.peakDb.toFixed(1)} dBFS.`;
       if (apply === false) return d.text(`${measured} Reaching ${target} LUFS needs a master of ${n.masterDb} dB${n.peakLimited ? " (held by the peak ceiling)" : ""}.`);
-      const done = await bridge.applyOps([{ op: OpName.SetMix, mix: { master_db: n.masterDb, target_lufs: target } }]);
+      // The mixer's channels stay as they are.
+      const channels = (JSON.parse(await bridge.freshScene()) as { mix?: { channels?: Record<string, unknown> } | null }).mix?.channels;
+      const done = await bridge.applyOps([{ op: OpName.SetMix, mix: { master_db: n.masterDb, target_lufs: target, ...(channels ? { channels } : {}) } }]);
       if (!done.ok) throw new Error(done.error ?? "the master level did not apply");
       return d.text(
         `${measured} Master set to ${n.masterDb} dB: the export plays at ${n.lufsAfter.toFixed(1)} LUFS${n.peakLimited ? `; peaks held it under ${target} LUFS (lower the loudest parts, e.g. music or an effect, then run it again)` : ""}.`,

@@ -58,6 +58,9 @@ pub struct VideoClip {
     /// property) make fades and dips: `[{"t":0,"v":0},{"t":0.5,"v":1,"ease":"linear"}]`.
     #[serde(default, skip_serializing_if = "is_muted")]
     pub volume: Animated,
+    /// Where the clip's sound sits, −1 (left) .. 1 (right); animatable like `volume`. The track's pan adds to it.
+    #[serde(default, skip_serializing_if = "is_muted")]
+    pub pan: Animated,
 }
 
 fn is_zero(v: &f32) -> bool {
@@ -164,6 +167,8 @@ pub struct ClipState {
     /// File seconds advanced per video second right now (speed × the time remap's slope; 0 = frozen).
     pub rate: f32,
     pub volume: f32,
+    /// −1 (left) .. 1 (right): the clip's pan plus its track's.
+    pub pan: f32,
 }
 
 impl Scene {
@@ -201,15 +206,15 @@ impl Scene {
             .filter_map(|l| {
                 let clip = l.content.media_clip()?;
                 let duration = media_duration(&clip.src);
-                let (lt, ahead, volume) = crate::expr::with_vars(t, 0.0, 1.0, || {
+                let (lt, ahead, volume, pan) = crate::expr::with_vars(t, 0.0, 1.0, || {
                     let lt = l.local_time(t);
-                    (lt, l.local_time(t + RATE_PROBE), clip.volume_at(lt) * self.track_gain(l))
+                    (lt, l.local_time(t + RATE_PROBE), clip.volume_at(lt) * self.track_gain(l), (clip.pan.sample(lt) + self.track_pan(l)).clamp(-1.0, 1.0))
                 });
                 let time = clip.media_time(lt, duration);
                 let next = clip.media_time(ahead, duration);
                 // A wrap (loop) or a jump is not a rate: measure the clock itself then.
                 let rate = if next >= time { (next - time) / RATE_PROBE } else { clip.speed * (ahead - lt) / RATE_PROBE };
-                Some(ClipState { id: l.id.clone(), src: clip.src.clone(), time, rate: rate.max(0.0), volume })
+                Some(ClipState { id: l.id.clone(), src: clip.src.clone(), time, rate: rate.max(0.0), volume, pan })
             })
             .collect()
     }
