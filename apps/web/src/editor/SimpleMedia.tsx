@@ -26,7 +26,7 @@ export function SimpleMedia({ ed }: { ed: EditorProps }) {
   const agent = useAgentName();
   const project = ed.project!;
   const footage = project.footage;
-  const edits = useEditActions(footage);
+  const edits = useEditActions(footage, !!project.audio);
   const clips = useClipUpload(ed, null);
   const music = useMusicUpload(ed, edits);
   const input = useRef<HTMLInputElement>(null);

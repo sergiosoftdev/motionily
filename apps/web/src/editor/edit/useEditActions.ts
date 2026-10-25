@@ -27,15 +27,16 @@ export type EditActions = {
 /**
  * Hand edits of the Edit view, with undo. In a video cut from the user's footage, every clip edit also
  * rebuilds the captions from the clips' transcripts (so @word timing and captions follow the cut) and
- * sets the length to the end of the last clip.
+ * sets the length to the end of the last clip. A video with a voiceover is timed by the voice, so its
+ * clips (b-roll under it) never change its captions or length.
  */
-export function useEditActions(footage: FootageClip[]): EditActions {
+export function useEditActions(footage: FootageClip[], voiced: boolean): EditActions {
   const past = useRef<string[]>([]);
   const future = useRef<string[]>([]);
   const [, redraw] = useState(0);
 
   const recaption = () => {
-    if (!footage.length) return;
+    if (!footage.length || voiced) return;
     const { clips } = editTracks(JSON.parse(engineHost.sceneJson()) as SceneView, footage);
     if (!clips.length) return;
     engineHost.applyOps([

@@ -50,7 +50,7 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
   const scene = useSceneView();
   const fps = scene?.fps ?? 30;
   const footage = useMemo(() => project?.footage ?? [], [project?.footage]);
-  const edits = useEditActions(footage);
+  const edits = useEditActions(footage, !!project?.audio);
   const pool = useMediaPool(project?.id, project?.updatedAt);
   const tracks = useMemo(() => (scene ? editTracks(scene, footage, pool.items) : null), [scene, footage, pool.items]);
   const [cue, setCue] = useState<SfxCue | null>(null);
