@@ -264,7 +264,7 @@ export function registerStudioTools(server: Server, d: StudioDeps) {
   server.registerTool(
     "normalize_loudness",
     {
-      description: `Measure the whole mix as it exports (voice, music, effects, clips; ITU-R BS.1770 integrated loudness and sample peak, master at 0 dB) and set the master level (set_mix) so it lands on \`target_lufs\` (default ${DEFAULT_TARGET_LUFS}: Reels, TikTok, YouTube; -16 podcasts; -23 broadcast) with peaks under ${PEAK_CEILING_DB} dBFS. \`apply=false\` only measures. Run it last, after the sound is final.`,
+      description: `Measure the whole mix as it exports (voice, music, effects, clips; ITU-R BS.1770 integrated loudness and sample peak, master at 0 dB) and set the master level (set_mix) so it lands on \`target_lufs\` (default ${DEFAULT_TARGET_LUFS}: Reels, TikTok, YouTube; -16 podcasts; -23 broadcast) with peaks under ${PEAK_CEILING_DB} dBFS (with a master limiter, \`master_fx\` in set_mix, it measures through it and reaches the target). \`apply=false\` only measures. Run it last, after the sound is final.`,
       inputSchema: { target_lufs: z.number().min(-40).max(-5).optional(), apply: z.boolean().optional() },
     },
     d.guard(async ({ target_lufs, apply }: { target_lufs?: number; apply?: boolean }) => {
