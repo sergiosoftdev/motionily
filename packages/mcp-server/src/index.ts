@@ -1043,7 +1043,7 @@ server.registerTool(
     inputSchema: {
       genre: z.enum(Object.values(Genre) as [Genre, ...Genre[]]),
       concept: z.string().min(10).max(400).describe("one sentence: the visual idea and why it fits this story"),
-      techniques: z.array(z.string().max(120)).max(12).describe("signature moves, e.g. ['cutouts with white outline', 'map route drawn on', 'halftone photos']"),
+      techniques: z.array(z.string().max(120)).max(12).describe("signature moves, each a short phrase of at most 120 characters, e.g. ['cutouts with white outline', 'map route drawn on', 'halftone photos']"),
       redraw: z.boolean().optional().describe("draw new constraints (a fresh take on the same video)"),
     },
   },
