@@ -323,6 +323,8 @@ export function EditTimeline({
     const locked = clipLocked(tracks, c);
     const sound = c.kind === ClipKind.Audio;
     const still = c.kind === ClipKind.Image;
+    // A compound clip: its clips inside play on its clock; it moves and its end trims.
+    const compound = c.kind === ClipKind.Compound;
     const height = sound ? AUDIO_H : CLIP_H;
     // Main-track clips show from the middle of each transition, like a cut there.
     const [from, to] = c.lane === 0 ? shownSpan(c) : [c.start, c.end];
@@ -333,6 +335,7 @@ export function EditTimeline({
     const trimMode = tool === EditTool.Trim;
     const prevOnTrack = (kind: ClipKind) => (kind === ClipKind.Audio ? tracks.audio : tracks.clips).find((x) => x.lane === c.lane && x.id !== c.id && Math.abs(x.end - c.start) < 0.02);
     const edge = (kind: "in" | "out") => (e: ReactPointerEvent) => {
+      if (compound && (kind === "in" || trimMode)) return;
       // Trim mode: an edge ripples (everything after follows); with Alt it rolls the cut with the neighbour.
       if (trimMode && e.altKey) {
         const left = kind === "in" ? prevOnTrack(c.kind) : c;
@@ -364,7 +367,7 @@ export function EditTimeline({
             ? (e.stopPropagation(), togglePick(PickKind.Clip, c.id))
             : locked
               ? (e.stopPropagation(), selectClip(c))
-              : trimMode && c.kind !== ClipKind.Image
+              : trimMode && c.kind !== ClipKind.Image && !compound
                 ? e.altKey
                   ? drag(e, "move", () => selectClip(c), (dt) => [{ op: OpName.SlideClip, id: c.id, start: c.start + dt }], () => `Slides ${c.id}`, true)
                   : drag(e, "move", () => selectClip(c), (dt) => [{ op: OpName.SlipClip, id: c.id, in: Math.max(0, c.in - dt * c.speed) }], () => `Slips ${c.id}`, true)
@@ -397,7 +400,8 @@ export function EditTimeline({
           <SoundWave url={mediaUrl(c.src)} fileAt0={c.in + (from - c.start) * c.speed} rate={c.speed / pps} visL={vis.visL} visR={vis.visR} top={0} height={AUDIO_H} color={c.volume > 0 ? SOUND_WAVE : MUTED_SOUND_WAVE} />
         )}
         {still && <span className="pointer-events-none absolute inset-0 bg-repeat-x opacity-80" style={{ backgroundImage: `url(${mediaUrl(c.src)})`, backgroundSize: `auto ${CLIP_H}px` }} />}
-        {!sound && !still && vis.visR > vis.visL && (
+        {compound && <span className="pointer-events-none absolute inset-0 bg-[repeating-linear-gradient(135deg,rgba(255,255,255,0.06)_0_6px,transparent_6px_12px)]" />}
+        {!sound && !still && !compound && vis.visR > vis.visL && (
           <>
             <Filmstrip
               src={c.src}
@@ -419,10 +423,10 @@ export function EditTimeline({
         <span className="pointer-events-none absolute top-1 left-1 max-w-[calc(100%-8px)] truncate rounded bg-black/55 px-1.5 text-[10px] leading-4">
           {c.name}
           {c.scale > 1 ? ` · ${Math.round((c.scale - 1) * 100)}% zoom` : ""}
-          {!still && c.volume <= 0 ? " · muted" : ""}
+          {!still && !compound && c.volume <= 0 ? " · muted" : ""}
           {c.speed !== 1 ? ` · ${c.speed}×` : ""}
         </span>
-        {!still && (on || c.volumeKeys) && (
+        {!still && !compound && (on || c.volumeKeys) && (
           <VolumeLine
             keys={c.volumeKeys}
             level={c.volume}

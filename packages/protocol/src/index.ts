@@ -351,6 +351,8 @@ export const OpName = {
   RemoveComponent: "remove_component",
   /** Move layers into a new component and put one instance in their place: `{ids, component, id}`. */
   Precompose: "precompose",
+  /** Decompose in place: `{id}` an instance's layers back at the top level (compound clip broken apart). */
+  Decompose: "decompose",
   // timeline
   /** Replace the timeline markers: `{markers: Marker[]}` (`[]` clears). */
   SetMarkers: "set_markers",

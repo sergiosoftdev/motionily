@@ -39,6 +39,7 @@ export type SceneView = {
   tracks?: Track[];
   work_area?: WorkArea;
   markers?: { t: number; label: string; color?: string }[];
+  library?: { components?: Record<string, { layers: SceneLayerView[] }> };
 };
 
 /** The engine's scene, re-read on every change (agent or user). */

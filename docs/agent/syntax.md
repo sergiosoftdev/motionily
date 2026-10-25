@@ -474,9 +474,14 @@ component uses it; remove those first, same batch is fine). Redefining is refuse
 `intro` and ONE instance `intro1` takes the topmost one's place in the stack, from their earliest start to their latest
 end (open-ended if one is), with their shared parent, group and `fixed`. It renders identically: times re-base to the
 earliest start, anchors bake into x/y, formulas reading `T` are rewritten for the component clock. Refused, with the
-reason, for the camera, layers with z/rx/ry, videos, mixed `fixed`, roots under different outside parents, and parent/
+reason, for the camera, layers with z/rx/ry, mixed `fixed`, roots under different outside parents, and parent/
 matte/formula links between a moved layer and one that stays (move both). Layers stacked between the selected ones end
-up below the instance.
+up below the instance. Video and audio clips precompose too: that is a **compound clip** (Edit mode shows it as one clip
+on the first clip's track); their frames and sound play inside it on its clock, at its track's fader and pan.
+`{"op":"decompose","id":"intro1"}` is the inverse (Decompose in place): the instance's layers come back at the top level
+at its stack position and on its clock (ids kept, suffixed `_2` on a clash), with its parent, group and track, and the
+component goes when no other instance uses it. Refused when the instance is moved, scaled, rotated, faded, retimed
+(`time`), animated or has effects (its layers would draw differently), or the component has params.
 
 ### Component recipes (16:9)
 Stat card — defined once, three instances with staggered starts:

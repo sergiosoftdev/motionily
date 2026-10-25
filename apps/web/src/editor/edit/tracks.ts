@@ -19,11 +19,15 @@ const FULL_LENGTH = 0.9;
 const EPS = 0.001;
 
 /** What a timeline clip shows or plays: a video clip, a picture held on the video track, or a sound. */
-export const ClipKind = { Video: "video", Image: "image", Audio: "audio" } as const;
+export const ClipKind = { Video: "video", Image: "image", Audio: "audio", Compound: "compound" } as const;
 export type ClipKind = (typeof ClipKind)[keyof typeof ClipKind];
 
 /** The scene's layer type for pictures. */
 const IMAGE_LAYER = "image";
+/** A component instance: one holding clips is a compound clip on the video track. */
+const INSTANCE_LAYER = "use";
+/** Component names compound clips get (`compound_1`, …), and their instances' ids. */
+export const COMPOUND_PREFIX = "compound";
 /** Seconds a picture gets when it is dropped on the timeline. */
 export const IMAGE_SECONDS = 3;
 
@@ -76,13 +80,21 @@ const endOf = (l: SceneLayerView, duration: number) => (l.end == null ? duration
 /** A picture the user put on the video track (from the media pool), as opposed to one in the graphics. */
 const isPictureClip = (l: SceneLayerView) => l.type === IMAGE_LAYER && l.group === FOOTAGE_GROUP;
 
+/** The clips inside a compound clip (an instance whose component holds clips or sounds), or null. */
+export function compoundInside(l: SceneLayerView, scene: SceneView): SceneLayerView[] | null {
+  if (l.type !== INSTANCE_LAYER) return null;
+  const inner = scene.library?.components?.[String((l as { comp?: string }).comp ?? "")]?.layers ?? [];
+  const media = inner.filter((x) => x.type === VIDEO_LAYER || x.type === AUDIO_LAYER || isPictureClip(x));
+  return media.length ? media : null;
+}
+
 export function editTracks(scene: SceneView, footage: FootageClip[], media: MediaItem[] = []): EditTracks {
   const duration = scene.duration;
   const byUrl = new Map(footage.map((c) => [c.url, c]));
   const mediaByUrl = new Map(media.map((m) => [m.url, m]));
   const clips: EditClip[] = [];
   const lanesEnd: number[] = [];
-  const videos = scene.layers.filter((l) => l.type === VIDEO_LAYER || isPictureClip(l)).sort((a, b) => (a.start ?? 0) - (b.start ?? 0));
+  const videos = scene.layers.filter((l) => l.type === VIDEO_LAYER || isPictureClip(l) || compoundInside(l, scene)).sort((a, b) => (a.start ?? 0) - (b.start ?? 0));
   // Lanes follow the scene's tracks when it has them (V1 = main lane); layers without one pack in.
   const sceneVideo = (scene.tracks ?? []).filter((t) => t.kind === TrackKind.Video);
   const sceneAudio = (scene.tracks ?? []).filter((t) => t.kind === TrackKind.Audio);
@@ -110,12 +122,13 @@ export function editTracks(scene: SceneView, footage: FootageClip[], media: Medi
     const fc = byUrl.get(src) ?? null;
     const volume = readVolume(l.volume);
     const picture = l.type === IMAGE_LAYER;
+    const inner = compoundInside(l, scene);
     const clip: EditClip = {
       id: l.id,
-      kind: picture ? ClipKind.Image : ClipKind.Video,
-      fileLength: picture ? null : (fc?.duration ?? null),
+      kind: inner ? ClipKind.Compound : picture ? ClipKind.Image : ClipKind.Video,
+      fileLength: picture || inner ? null : (fc?.duration ?? null),
       footage: fc,
-      name: fc ? `${fc.id} · ${fc.name}` : (mediaByUrl.get(src)?.name ?? src.split("/").pop() ?? l.id),
+      name: inner ? `Compound · ${inner.length} clips` : fc ? `${fc.id} · ${fc.name}` : (mediaByUrl.get(src)?.name ?? src.split("/").pop() ?? l.id),
       src,
       start,
       end,
@@ -175,7 +188,7 @@ export function editTracks(scene: SceneView, footage: FootageClip[], media: Medi
   const groups = new Map<string, GraphicsBlock>();
   const loose: SceneLayerView[] = [];
   for (const l of scene.layers) {
-    if (l.type === VIDEO_LAYER || l.type === AUDIO_LAYER || isPictureClip(l)) continue;
+    if (l.type === VIDEO_LAYER || l.type === AUDIO_LAYER || isPictureClip(l) || compoundInside(l, scene)) continue;
     // A clip's color windows live in its Color tab, not among the graphics.
     if ((l as { attach?: string }).attach) continue;
     const start = l.start ?? 0;
@@ -501,4 +514,19 @@ export function freshId(base: string, taken: Set<string>) {
     if (!taken.has(id)) return id;
   }
   return `${base}_${Date.now().toString(36)}`;
+}
+
+/** Clips joined into one compound clip (precompose), on the first one's track; returns the ops and its id. */
+export function compoundOps(ids: string[], scene: SceneView): { ops: Op[]; id: string } {
+  const names = new Set(Object.keys(scene.library?.components ?? {}));
+  const taken = new Set(scene.layers.map((l) => l.id));
+  let n = 1;
+  while (names.has(`${COMPOUND_PREFIX}_${n}`) || taken.has(`${COMPOUND_PREFIX}${n}`)) n++;
+  const id = `${COMPOUND_PREFIX}${n}`;
+  return { ops: [{ op: OpName.Precompose, ids, component: `${COMPOUND_PREFIX}_${n}`, id }], id };
+}
+
+/** A compound clip broken back into its clips, in place. */
+export function decomposeOps(id: string): Op[] {
+  return [{ op: OpName.Decompose, id }];
 }

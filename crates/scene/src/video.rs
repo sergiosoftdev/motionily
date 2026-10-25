@@ -188,6 +188,10 @@ impl Scene {
                 _ => None,
             })
             .collect();
+        // Clips inside components (compound clips) are decoded too.
+        for c in self.library.components.values() {
+            v.extend(c.layers.iter().filter(|l| l.get("type").and_then(serde_json::Value::as_str) == Some("video")).filter_map(|l| l.get("src")?.as_str().map(str::to_owned)));
+        }
         v.sort();
         v.dedup();
         v
@@ -196,7 +200,8 @@ impl Scene {
     /// Every video frame a render at `t` draws (repeater copies, motion-blur samples, mattes and
     /// transitions included), once each.
     pub fn video_frames(&self, t: f32) -> Vec<FrameNeed> {
-        if !self.layers.iter().any(|l| l.content.media_clip().is_some()) {
+        let in_components = || self.library.components.values().any(|c| c.layers.iter().any(|l| l.get("type").and_then(serde_json::Value::as_str) == Some("video")));
+        if !self.layers.iter().any(|l| l.content.media_clip().is_some()) && !in_components() {
             return Vec::new();
         }
         let mut out: Vec<FrameNeed> = Vec::new();
@@ -204,25 +209,45 @@ impl Scene {
         out
     }
 
-    /// Each active video layer's clip state at `t` (repeater copies ignored).
+    /// Each active video layer's clip state at `t` (repeater copies ignored), clips inside active
+    /// component instances (compound clips) included as `instance/layer`.
     pub fn video_clips(&self, t: f32) -> Vec<ClipState> {
-        self.layers
-            .iter()
-            .filter(|l| self.active(l, t))
-            .filter_map(|l| {
-                let clip = l.content.media_clip()?;
-                let duration = media_duration(&clip.src);
-                let (lt, ahead, volume, pan) = crate::expr::with_vars(t, 0.0, 1.0, || {
-                    let lt = l.local_time(t);
-                    (lt, l.local_time(t + RATE_PROBE), clip.volume_at(lt) * self.track_gain(l), (clip.pan.sample(lt) + self.track_pan(l)).clamp(-1.0, 1.0))
-                });
-                let time = clip.media_time(lt, duration);
-                let next = clip.media_time(ahead, duration);
-                // A wrap (loop) or a jump is not a rate: measure the clock itself then.
-                let rate = if next >= time { (next - time) / RATE_PROBE } else { clip.speed * (ahead - lt) / RATE_PROBE };
-                Some(ClipState { id: l.id.clone(), src: clip.src.clone(), time, rate: rate.max(0.0), volume, pan })
-            })
-            .collect()
+        let mut out = Vec::new();
+        for l in self.layers.iter().filter(|l| self.active(l, t)) {
+            let gain = self.track_gain(l);
+            let pan = self.track_pan(l);
+            self.clip_states(l, l.local_time(t), l.local_time(t + RATE_PROBE), t, "", gain, pan, 0, &mut out);
+        }
+        out
+    }
+
+    /// The sound state of `l` at its local time `lt` (`ahead` = its local time `RATE_PROBE` later), or of
+    /// the clips inside it when it is an instance; `gain` and `pan` come from the top-level track.
+    #[allow(clippy::too_many_arguments)]
+    fn clip_states(&self, l: &crate::Layer, lt: f32, ahead: f32, t: f32, prefix: &str, gain: f32, pan: f32, depth: u8, out: &mut Vec<ClipState>) {
+        if let crate::LayerContent::Use { .. } = &l.content {
+            if depth >= crate::component::MAX_COMPONENT_DEPTH {
+                return;
+            }
+            let Some(bound) = l.bound(&self.library) else { return };
+            for child in &bound.layers {
+                // Component clock: a child without `end` lasts as long as the instance.
+                if lt < child.start || child.end.is_some_and(|e| lt >= e) {
+                    continue;
+                }
+                let path = format!("{prefix}{}/", l.id);
+                self.clip_states(child, child.local_time(lt), child.local_time(ahead), t, &path, gain, pan, depth + 1, out);
+            }
+            return;
+        }
+        let Some(clip) = l.content.media_clip() else { return };
+        let duration = media_duration(&clip.src);
+        let (volume, clip_pan) = crate::expr::with_vars(t, 0.0, 1.0, || (clip.volume_at(lt) * gain, (clip.pan.sample(lt) + pan).clamp(-1.0, 1.0)));
+        let time = clip.media_time(lt, duration);
+        let next = clip.media_time(ahead, duration);
+        // A wrap (loop) or a jump is not a rate: measure the clock itself then.
+        let rate = if next >= time { (next - time) / RATE_PROBE } else { clip.speed * (ahead - lt) / RATE_PROBE };
+        out.push(ClipState { id: format!("{prefix}{}", l.id), src: clip.src.clone(), time, rate: rate.max(0.0), volume, pan: clip_pan });
     }
 }
 

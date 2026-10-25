@@ -95,4 +95,5 @@ terminarlo, con su commit.
 - [x] 3.1 mezclador: `volume`/`pan` por pista, `pan` por clip, canales voz/música/efectos en `mix.channels` (solo global), sección Mixer en Project settings; preview = export (test de muestras), fader −6 dB → −6 LUFS
 - [x] 3.2 `audio_fx` (EQ 5 bandas, compresor, limitador lookahead AudioWorklet) en clips, canales (`fx`) y máster (`master_fx`); normalización con limitador por secante (−22 → −9,05 LUFS con pico −1,0 dBFS); controles en Inspector, Mixer y Loudness (a58cf97)
 - [x] 3.3 `clean_audio` / "Clean sound…" en el pool: denoise (afftdn) e aislar voz (arnndn con el modelo RNNoise de Xiph), copia WAV no destructiva; la voz en off se sustituye en su sitio y el original va al pool (ruido de fondo −32 → −52 dB en la prueba)
-- [ ] Siguiente: 1.5–1.7 → 1.5–1.7 → 4.1 → 5.1–5.3 → 6
+- [x] 1.5 clips compuestos: precompose admite vídeo y audio (imagen y sonido iguales dentro, test), op `decompose` (romper en su sitio); en Edit "Make compound clip" con varios clips, clip compuesto que se mueve y recorta por el final, "Break apart"
+- [ ] Siguiente: 1.6–1.7 → 1.5–1.7 → 4.1 → 5.1–5.3 → 6

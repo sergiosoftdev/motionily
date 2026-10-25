@@ -123,6 +123,8 @@ pub enum Op {
     /// Move layers into a new component and put one instance `id` where the topmost was, spanning
     /// their time range (After Effects' precompose): `{"op":"precompose","ids":["a","b"],"component":"intro","id":"intro1"}`.
     Precompose { ids: Vec<String>, component: String, id: String },
+    /// Decompose in place: an instance's layers back at the top level, the instance gone.
+    Decompose { id: String },
     // ── timeline ──
     /// Replace the timeline markers (`[]` clears): `{"op":"set_markers","markers":[{"t":1.2,"label":"drop","color":"#f5a623"}]}`.
     SetMarkers { markers: Vec<crate::Marker> },
@@ -582,6 +584,7 @@ impl Scene {
             Op::DefineComponent { name, component } => self.define_component(name, component)?,
             Op::RemoveComponent { name } => self.remove_component(name)?,
             Op::Precompose { ids, component, id } => self.precompose(ids, component, id)?,
+            Op::Decompose { id } => self.decompose(id)?,
             Op::SetMarkers { markers } => {
                 if markers.iter().any(|m| !(m.t.is_finite() && m.t >= 0.0)) {
                     return Err(OpError::Invalid("every marker needs t >= 0 (seconds)"));

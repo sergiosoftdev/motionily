@@ -120,6 +120,7 @@ applied: fix it and resend the call.
 {"op":"put_sfx","cue":{…}} {"op":"remove_sfx","id":"…"} {"op":"clear_sfx"}           // prefer add_sfx
 {"op":"define_component","name":"stat","component":{"params":[…],"duration":6,"layers":[…]}}  {"op":"remove_component","name":"stat"}  // prefer the define_component tool
 {"op":"precompose","ids":["card","title"],"component":"intro","id":"intro1"}   // layers -> new component + one instance in place (syntax: Precompose)
+{"op":"decompose","id":"intro1"}   // the inverse: an untransformed instance's layers back at the top level (compound clips: video/audio clips precomposed play inside on its clock)
 {"op":"set_markers","markers":[{"t":1.2,"label":"drop","color":"#f5a623"}]}     // timeline markers (replaces all; [] clears; kept sorted)
 {"op":"set_work_area","work_area":[2,5]}                // preview loops 2-5 s; null = whole video (export: see output.range)
 {"op":"set_output","output":{"short_side":2160,"codec":"prores","range":[2,8]}}  // export settings (the user's Project settings): short_side 720|1080|1440|2160|4320; codec h264|hevc|prores|prores4444|vp9_alpha (the last two keep transparency: nothing drawn = alpha 0); range [in,out] s optional; null = 1080 h264 whole video

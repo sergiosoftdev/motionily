@@ -6,6 +6,8 @@ import type { MusicTrack } from "../../audio/music";
 import type { EditSelection } from "./EditTimeline";
 import { AUDIO_LAYER, ClipKind, freshId, type EditClip, type GraphicsBlock } from "./tracks";
 import { engineHost } from "../../engine/host";
+import { compoundOps, decomposeOps } from "./tracks";
+import type { SceneView } from "../sceneView";
 import { AudioFxControls } from "./AudioFxControls";
 import type { AudioFx } from "@motionily/protocol";
 import type { EditActions } from "./useEditActions";
@@ -105,6 +107,7 @@ const TABS_OF: Record<EditClip["kind"], ClipTab[]> = {
   [ClipKind.Video]: [ClipTab.Video, ClipTab.Audio, ClipTab.Color],
   [ClipKind.Image]: [ClipTab.Video, ClipTab.Color],
   [ClipKind.Audio]: [ClipTab.Audio],
+  [ClipKind.Compound]: [],
 };
 const FADES = [0, 0.25, 0.5, 1, 2];
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3];
@@ -129,7 +132,26 @@ function fadeKeys(level: number, len: number, fadeIn: number, fadeOut: number): 
   ];
 }
 
+/** A compound clip: several clips moved and trimmed as one (Resolve's), broken back apart in place. */
+function CompoundInspector({ clip, edits }: { clip: EditClip; edits: EditActions }) {
+  return (
+    <div className="flex flex-col gap-3 text-xs text-neutral-400">
+      <div>
+        <p className="text-sm font-semibold text-neutral-100">{clip.name}</p>
+        <p className="tabular-nums text-neutral-500">
+          {clip.start.toFixed(2)}–{clip.end.toFixed(2)} s · moves and trims as one clip
+        </p>
+      </div>
+      <button type="button" onClick={() => edits.apply(decomposeOps(clip.id), `Breaks ${clip.id} apart`, true)} className="self-start rounded-md bg-neutral-800 px-3 py-1.5 text-neutral-100 hover:bg-neutral-700">
+        Break apart
+      </button>
+      <p className="text-[11px] text-neutral-500">Its clips come back on the timeline where they play, to edit one by one.</p>
+    </div>
+  );
+}
+
 function ClipInspector({ clip, ops, edits, clipIds, luts }: { clip: EditClip; ops: EditOps; edits: EditActions; clipIds: string[]; luts: MediaItem[] }) {
+  if (clip.kind === ClipKind.Compound) return <CompoundInspector clip={clip} edits={edits} />;
   const tabs = TABS_OF[clip.kind];
   const [tab, setTab] = useState<ClipTab>(tabs[0]!);
   useEffect(() => {
@@ -388,6 +410,11 @@ function ManyInspector({ selection, edits, ops }: { selection: Extract<EditSelec
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
   const parts = [clips.length && plural(clips.length, "clip", "clips"), blocks.length && plural(blocks.length, "graphics block", "graphics blocks"), cues.length && plural(cues.length, "effect", "effects")].filter(Boolean);
+  const compound = () => {
+    const scene = JSON.parse(engineHost.sceneJson()) as SceneView;
+    const { ops: made, id } = compoundOps(clips.map((c) => c.id), scene);
+    edits.apply(made, `Makes ${id} of ${plural(clips.length, "clip", "clips")}`, true);
+  };
   return (
     <div className="flex flex-col gap-4">
       <div>
@@ -405,6 +432,11 @@ function ManyInspector({ selection, edits, ops }: { selection: Extract<EditSelec
           onChange={setLevel}
           onDone={() => edits.apply(cues.map((c) => ({ op: OpName.PutSfx, cue: { ...c, gain: level } })), `Level of ${plural(cues.length, "effect", "effects")}: ${Math.round(level * 100)}%`, false)}
         />
+      )}
+      {clips.length > 1 && !blocks.length && !cues.length && clips.every((c) => c.kind !== ClipKind.Compound) && (
+        <button type="button" onClick={compound} className="self-start rounded-md bg-neutral-800 px-3 py-1.5 text-xs text-neutral-100 hover:bg-neutral-700" title="Join them into one clip that moves and trims as one (break it apart later)">
+          Make compound clip
+        </button>
       )}
       {clips.length > 0 && (
         <Slider
