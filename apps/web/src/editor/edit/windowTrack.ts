@@ -46,7 +46,7 @@ export async function trackWindow(id: string, at: number, onProgress?: (ratio: n
   for (let i = 0; i < all.length; i += BATCH) {
     const batch = all.slice(i, i + BATCH);
     // The clip's own picture: the window's grade would follow it into the match.
-    for (const f of await engineHost.framePixels(batch, ANALYSIS_WIDTH, [id])) frames.set(f.t, grayOf(f.image.data, f.image.width, f.image.height));
+    for (const f of await engineHost.framePixels(batch, ANALYSIS_WIDTH, { hide: [id] })) frames.set(f.t, grayOf(f.image.data, f.image.width, f.image.height));
     onProgress?.(Math.min(1, (i + batch.length) / all.length));
   }
   const frame = (t: number) => frames.get(t)!;

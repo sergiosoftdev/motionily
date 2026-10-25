@@ -689,13 +689,15 @@ class EngineHost {
    * The frame's pixels, `width` px wide, for scopes: at each of `times` exactly (video frames decoded),
    * or at the playhead as it is on screen when `times` is null. Restores the current frame.
    */
-  async framePixels(times: number[] | null, width = 256, without: string[] = []): Promise<{ t: number; image: ImageData }[]> {
+  async framePixels(times: number[] | null, width = 256, temp: { hide?: string[]; ops?: Op[] } = {}): Promise<{ t: number; image: ImageData }[]> {
     const canvas = this.canvas;
     const engine = this.engine;
     if (!canvas || !engine) return [];
-    // Measured without some layers (a window tracks the picture, not its own grade): hidden for these frames only.
-    const saved = without.length ? engine.sceneJson() : null;
-    if (saved) engine.applyOps(JSON.stringify(without.map((id) => ({ op: OpName.Patch, id, fields: { visible: false } }))));
+    // Measured as the scene would be with some layers hidden (a window tracks the picture, not its own grade)
+    // or some ops applied (a grade being tried): for these frames only, the scene is restored after.
+    const trial = [...(temp.hide ?? []).map((id) => ({ op: OpName.Patch, id, fields: { visible: false } })), ...(temp.ops ?? [])];
+    const saved = trial.length ? engine.sceneJson() : null;
+    if (saved) engine.applyOps(JSON.stringify(trial));
     try {
       return await this.pixelsOf(canvas, engine, times, width);
     } finally {

@@ -27,6 +27,7 @@ import { SidePanel } from "./SidePanel";
 import { AUDIO_LAYER, ClipKind, FOOTAGE_GROUP, appendClipOps, clipLayer, editTracks, freshId, mediaLayer, placeMediaOps, reframeClipOps } from "./tracks";
 import { ActivitySource, logActivity } from "../../store";
 import { useEditActions } from "./useEditActions";
+import { copyGrade, pasteGradeOps } from "./gradeClipboard";
 import { useEditOps } from "./useEditOps";
 import { useAgentName } from "../../agentName";
 
@@ -119,7 +120,14 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
       const t = useEditor.getState().time;
       const wa = (JSON.parse(engineHost.sceneJson()) as { work_area?: [number, number] | null }).work_area ?? null;
       const dur = useEditor.getState().duration;
+      const clipIds = sel?.kind === "clip" ? [sel.clip.id] : sel?.kind === "many" ? sel.clips.map((c) => c.id) : [];
       if (meta && e.key.toLowerCase() === "z") (e.shiftKey ? ed2.redo() : ed2.undo());
+      // ⌥⌘C / ⌥⌘V: copy the selected clip's grade, paste it on the selected clips.
+      else if (meta && e.altKey && e.code === "KeyC" && clipIds.length === 1) copyGrade(clipIds[0]!);
+      else if (meta && e.altKey && e.code === "KeyV" && clipIds.length) {
+        const pasted = pasteGradeOps(clipIds);
+        if (pasted) ed2.apply(pasted, `Pastes a grade on ${clipIds.join(", ")}`, false);
+      }
       else if (!meta && !e.altKey && e.key.toLowerCase() === "i") ed2.apply([{ op: OpName.SetWorkArea, work_area: [t, Math.max(wa?.[1] ?? dur, t + 0.1)] }], `Mark in at ${t.toFixed(2)} s`, false);
       else if (!meta && !e.altKey && e.key.toLowerCase() === "o") ed2.apply([{ op: OpName.SetWorkArea, work_area: [Math.min(wa?.[0] ?? 0, Math.max(0, t - 0.1)), t] }], `Mark out at ${t.toFixed(2)} s`, false);
       else if (!meta && !e.altKey && e.key.toLowerCase() === "m") {

@@ -6,6 +6,8 @@ import { ColorSection } from "./ColorSection";
 import { Scopes } from "./ScopesPanel";
 import type { EditActions } from "./useEditActions";
 import { trackWindow } from "./windowTrack";
+import { matchColor } from "./colorMatch";
+import { copyGrade, pasteGradeOps } from "./gradeClipboard";
 
 /** Shapes a window can take (the engine's shape layers). */
 const WindowShape = { Ellipse: "ellipse", Rect: "rect" } as const;
@@ -62,6 +64,7 @@ export function ColorTab({ clipId, allClipIds, edits, luts }: { clipId: string; 
   return (
     <div className="flex flex-col gap-3">
       <Scopes />
+      <GradeTools clipId={clipId} allClipIds={allClipIds} edits={edits} />
       <div className="flex flex-wrap items-center gap-1">
         <Chip on={target === clipId} onClick={() => setTarget(clipId)}>
           Clip
@@ -80,6 +83,62 @@ export function ColorTab({ clipId, allClipIds, edits, luts }: { clipId: string; 
       </div>
       {current && <WindowControls win={current} edits={edits} />}
       <ColorSection key={target} clipId={target} allClipIds={target === clipId ? allClipIds : []} edits={edits} luts={luts} />
+    </div>
+  );
+}
+
+/** Match this clip to another one, and copy / paste whole grades between clips (⌥⌘C / ⌥⌘V). */
+function GradeTools({ clipId, allClipIds, edits }: { clipId: string; allClipIds: string[]; edits: EditActions }) {
+  const others = allClipIds.filter((id) => id !== clipId);
+  const [source, setSource] = useState(others[0] ?? "");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const copied = useEditor((s) => s.gradeClipboard !== null);
+  useEffect(() => setNote(null), [clipId]);
+  const from = others.includes(source) ? source : (others[0] ?? "");
+  const match = async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      const r = await matchColor(from, [clipId]);
+      edits.apply(r.ops, `Matches ${clipId} to ${from}`, false);
+      setNote(r.lines.join(" "));
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const paste = () => {
+    const ops = pasteGradeOps([clipId]);
+    if (ops) edits.apply(ops, `Pastes a grade on ${clipId}`, false);
+  };
+  return (
+    <div className="flex flex-col gap-1.5 text-xs">
+      {others.length > 0 && (
+        <div className="flex items-center gap-2">
+          <span className="text-neutral-400">Match to</span>
+          <select value={from} onChange={(e) => setSource(e.target.value)} className="min-w-0 flex-1 rounded-md bg-neutral-800 px-2 py-1 text-neutral-100">
+            {others.map((id) => (
+              <option key={id} value={id}>
+                {id}
+              </option>
+            ))}
+          </select>
+          <button type="button" disabled={busy} onClick={() => void match()} className="rounded-md bg-neutral-800 px-3 py-1 text-neutral-100 hover:bg-neutral-700 disabled:opacity-50">
+            {busy ? "Matching…" : "Match"}
+          </button>
+        </div>
+      )}
+      <div className="flex items-center gap-3 text-[11px]">
+        <button type="button" onClick={() => setNote(copyGrade(clipId) ? `Copied the grade of ${clipId}.` : `${clipId} has no grade to copy.`)} className="text-neutral-400 hover:text-white" title="⌥⌘C">
+          Copy grade
+        </button>
+        <button type="button" disabled={!copied} onClick={paste} className="text-neutral-400 hover:text-white disabled:opacity-40" title="⌥⌘V">
+          Paste grade
+        </button>
+      </div>
+      {note && <p className="text-[11px] text-neutral-500">{note}</p>}
     </div>
   );
 }

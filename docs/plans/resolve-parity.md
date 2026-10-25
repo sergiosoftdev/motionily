@@ -89,5 +89,6 @@ terminarlo, con su commit.
 - [x] 3.4 bus de mezcla con master (`set_mix`) y `normalize_loudness` (BS.1770, medido igual que ffmpeg ebur128) (a6baab0)
 - [x] 4.4 SRT/VTT y 4.5 FCPXML/OTIO/EDL (`export_file`; OTIO validado con opentimelineio, FCPXML con xmllint) (dae2456)
 - [x] 2.3 LUTs `.cube` (pool, textura 3D en motor web y nativo, `lut`/`lut_mix`)
-- [~] 2.4 ventanas: capa de ajuste rect/elipse con `soft`, `invert`, `attach` al clip; pestaña Color (Clip / Window n), tracking NCC (`track_window`). Motor con tests; FALTA probar el tracking de punta a punta (proyecto "Tracking test" 6add2592…, clip con sujeto que va de (420,540) a (1095,720) en 3 s)
-- [ ] Siguiente: 2.5 → 2.6 → 3.1–3.3 → 1.5–1.7 → 4.1 → 5.1–5.3 → 6
+- [x] 2.4 ventanas: capa de ajuste rect/elipse con `soft`, `invert`, `attach` al clip; pestaña Color (Clip / Window n), tracking NCC (`track_window`) probado de punta a punta en "Tracking test": error < 1,5 px (0fdf003, 303b400)
+- [x] 2.5 `match_color` (media y desviación por canal → `gain`/`offset`, 3 rondas medidas; ΔE 8,0 → 1,1 en la prueba) y copiar/pegar grade (`copy_grade`, ⌥⌘C/⌥⌘V, botones en Color)
+- [ ] Siguiente: 2.6 → 3.1–3.3 → 1.5–1.7 → 4.1 → 5.1–5.3 → 6

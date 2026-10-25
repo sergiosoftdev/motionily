@@ -97,6 +97,8 @@ export const ServerMessageType = {
   SideFile: "side_file",
   /** Track a color window over its clip from an instant: keys its x / y (answers with a summary in `text`). */
   TrackWindow: "track_window",
+  /** Match clips' color to another clip's (writes their grade; answers with the difference before and after in `text`). */
+  MatchColor: "match_color",
 } as const;
 export type ServerMessageType = (typeof ServerMessageType)[keyof typeof ServerMessageType];
 
@@ -114,7 +116,8 @@ export type ServerMessage =
   | { type: typeof ServerMessageType.Scopes; requestId: string; projectId: string; times?: number[] }
   | { type: typeof ServerMessageType.Loudness; requestId: string; projectId: string }
   | { type: typeof ServerMessageType.SideFile; requestId: string; projectId: string; kind: SideFile }
-  | { type: typeof ServerMessageType.TrackWindow; requestId: string; projectId: string; id: string; at?: number };
+  | { type: typeof ServerMessageType.TrackWindow; requestId: string; projectId: string; id: string; at?: number }
+  | { type: typeof ServerMessageType.MatchColor; requestId: string; projectId: string; from: string; to: string[] };
 
 /** Files exported beside the video: subtitles, and the Edit timeline for other editors. */
 export const SideFile = { Srt: "srt", Vtt: "vtt", Fcpxml: "fcpxml", Otio: "otio", Edl: "edl" } as const;
@@ -410,6 +413,16 @@ export function effectsWithGrade(effects: unknown[] | undefined, grade: Grade, e
     if (Math.abs(lut.mix - 1) > 1e-4) out.lut_mix = Math.round(lut.mix * 1000) / 1000;
   }
   return Object.keys(out).length > 1 ? [...others, out] : others;
+}
+
+/**
+ * A clip's effects with its grade replaced by another clip's: every `color` effect of `source` (sliders,
+ * wheels, curves, LUT) takes the place of the target's; its other effects (blur, glow…) stay. Copy and
+ * paste of a grade, in the Color tab and for agents (`copy_grade`).
+ */
+export function effectsWithGradeOf(target: unknown[] | undefined, source: unknown[] | undefined): Record<string, unknown>[] {
+  const grade = ((source ?? []) as Record<string, unknown>[]).filter((e) => e.fx === "color").map((e) => JSON.parse(JSON.stringify(e)) as Record<string, unknown>);
+  return [...((target ?? []) as Record<string, unknown>[]).filter((e) => e.fx !== "color"), ...grade];
 }
 
 /** `id` is the new instance layer; it spans the layers' time range at the topmost one's stacking position. */

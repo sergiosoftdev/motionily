@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { z } from "zod";
-import { DEFAULT_TARGET_LUFS, GRADE_NEUTRAL, LOOKS, OpName, PEAK_CEILING_DB, SideFile, normalization, type ScopeStats, OutputCodec, OUTPUT_SHORT_SIDES, effectsWithGrade, type FootageClip, type Grade, type MediaItem, type Op, type Project } from "@motionily/protocol";
+import { DEFAULT_TARGET_LUFS, GRADE_NEUTRAL, LOOKS, OpName, PEAK_CEILING_DB, SideFile, normalization, type ScopeStats, OutputCodec, OUTPUT_SHORT_SIDES, effectsWithGrade, effectsWithGradeOf, type FootageClip, type Grade, type MediaItem, type Op, type Project } from "@motionily/protocol";
 import type { ProjectApi } from "./api.js";
 import type { EditorBridge } from "./bridge.js";
 
@@ -222,6 +222,42 @@ export function registerStudioTools(server: Server, d: StudioDeps) {
       const res = await d.bridge().trackWindow(id, at);
       if (!res.ok) throw new Error(res.error ?? "the editor did not track it");
       return d.text(res.text ?? "Tracked.");
+    }),
+  );
+
+  server.registerTool(
+    "match_color",
+    {
+      description:
+        "Match clips' color to another clip, like the Color tab's Match: the middle frame of each clip in `to` is brought to the middle frame of `from` (each clip measured alone, inside its box) by transferring the mean and spread of every channel, written as its color effect's `gain` and `offset` wheels and corrected on the real render 3 times. Answers with the ΔE (CIELAB) of the mean color before → after (under 2 reads as the same). Refine with color_scopes and a patch of the color effect.",
+      inputSchema: { from: z.string().min(1), to: z.array(z.string().min(1)).min(1) },
+    },
+    d.guard(async ({ from, to }: { from: string; to: string[] }) => {
+      const res = await d.bridge().matchColor(from, to);
+      if (!res.ok) throw new Error(res.error ?? "the editor did not match them");
+      return d.text(res.text ?? "Matched.");
+    }),
+  );
+
+  server.registerTool(
+    "copy_grade",
+    {
+      description:
+        "Copy a clip's whole grade onto other clips, like the Color tab's Copy grade / Paste grade (⌥⌘C / ⌥⌘V): every color effect of `from` (sliders, wheels, curves, LUT) replaces the color effects of each clip in `to`; their other effects stay.",
+      inputSchema: { from: z.string().min(1), to: z.array(z.string().min(1)).min(1) },
+    },
+    d.guard(async ({ from, to }: { from: string; to: string[] }) => {
+      const bridge = d.bridge();
+      const scene = JSON.parse(await bridge.freshScene()) as { layers?: { id: string; effects?: unknown[] }[] };
+      const layers = scene.layers ?? [];
+      const source = layers.find((l) => l.id === from);
+      if (!source) throw new Error(`no layer ${from}`);
+      const missing = to.filter((id) => !layers.some((l) => l.id === id));
+      if (missing.length) throw new Error(`no layer ${missing.join(", ")}`);
+      const ops: Op[] = to.map((id) => ({ op: OpName.Patch, id, fields: { effects: effectsWithGradeOf(layers.find((l) => l.id === id)!.effects, source.effects) } }));
+      const res = await bridge.applyOps(ops);
+      if (!res.ok) throw new Error(res.error ?? "the grade did not apply");
+      return d.text(`Grade of ${from} on ${to.join(", ")}.`);
     }),
   );
 

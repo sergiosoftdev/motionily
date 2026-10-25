@@ -44,6 +44,8 @@ type EditorState = {
   pinnedMoment: boolean;
   /** Live state of the agent run (shared by the side panel and the canvas overlay). */
   agentRun: GenerateState | null;
+  /** A copied grade (a clip's color effects), pasted onto other clips with ⌥⌘V. */
+  gradeClipboard: Record<string, unknown>[] | null;
 };
 
 let nextId = 0;
@@ -64,6 +66,7 @@ export const useEditor = create<EditorState>(() => ({
   selectedGroup: null,
   pinnedMoment: false,
   agentRun: null,
+  gradeClipboard: null,
   sceneSize: [1080, 1920],
 }));
 

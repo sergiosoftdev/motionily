@@ -122,6 +122,10 @@ export class EditorBridge {
     return this.request({ type: ServerMessageType.TrackWindow, requestId: randomUUID(), projectId: this.projectId, id, at }, TRACK_TIMEOUT_MS);
   }
 
+  matchColor(from: string, to: string[]) {
+    return this.request({ type: ServerMessageType.MatchColor, requestId: randomUUID(), projectId: this.projectId, from, to }, TRACK_TIMEOUT_MS);
+  }
+
   loudness() {
     return this.request({ type: ServerMessageType.Loudness, requestId: randomUUID(), projectId: this.projectId }, LOUDNESS_TIMEOUT_MS);
   }
