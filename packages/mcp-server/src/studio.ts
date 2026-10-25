@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { z } from "zod";
-import { DEFAULT_TARGET_LUFS, GRADE_NEUTRAL, LOOKS, OpName, PEAK_CEILING_DB, SideFile, normalization, type ScopeStats, OutputCodec, OUTPUT_SHORT_SIDES, effectsWithGrade, effectsWithGradeOf, limitedNormalization, type Mix, type FootageClip, type Grade, type MediaItem, type Op, type Project } from "@motionily/protocol";
+import { DEFAULT_TARGET_LUFS, GRADE_NEUTRAL, LOOKS, OpName, PEAK_CEILING_DB, SideFile, normalization, type ScopeStats, OutputCodec, OUTPUT_SHORT_SIDES, effectsWithGrade, effectsWithGradeOf, limitedNormalization, SPEED_RAMPS, speedRampKeys, type RampPoint, type Mix, type FootageClip, type Grade, type MediaItem, type Op, type Project } from "@motionily/protocol";
 import type { ProjectApi } from "./api.js";
 import type { EditorBridge } from "./bridge.js";
 
@@ -89,6 +89,51 @@ export function registerStudioTools(server: Server, d: StudioDeps) {
       const r = await d.api().route<MediaItem | { voice: string; original: MediaItem }>("POST", "/media/clean", { source, mode, strength });
       if ("voice" in r) return d.text(`The voice-over is now ${r.voice} (${mode === "voice" ? "voice isolated" : "denoised"}); the original is ${r.original.id} (src=${r.original.url}) in the pool.`);
       return d.text(`Cleaned into ${r.id}: src=${r.url}${r.duration != null ? `, ${r.duration.toFixed(2)} s` : ""}. Place it where the original plays.`);
+    }),
+  );
+
+  server.registerTool(
+    "speed_ramp",
+    {
+      description: `Ramp a video clip's speed like the clip inspector's Speed ramp: its \`time\` remap is written so the speed eases (smoothstep) between points and the clip keeps its length on the timeline. \`ramp\` names one (${SPEED_RAMPS.map((r) => r.name).join("; ")}) or \`points\` gives your own: [{at: 0..1 of the clip, speed: × its speed}], e.g. [{"at":0,"speed":1},{"at":0.5,"speed":0.3},{"at":1,"speed":1}]. \`ramp: "none"\` removes it. Past the file's end the last frame holds.`,
+      inputSchema: { id: z.string().min(1), ramp: z.string().optional(), points: z.array(z.object({ at: z.number().min(0).max(1), speed: z.number().min(0.05).max(16) })).min(1).max(12).optional() },
+    },
+    d.guard(async ({ id, ramp, points }: { id: string; ramp?: string; points?: RampPoint[] }) => {
+      const bridge = d.bridge();
+      const scene = JSON.parse(await bridge.freshScene()) as { layers?: { id: string; type: string; start?: number; end?: number | null; in?: number; speed?: number }[]; duration: number };
+      const layer = scene.layers?.find((l) => l.id === id);
+      if (!layer || layer.type !== "video") throw new Error(`${id} is not a video clip`);
+      if (ramp === "none") {
+        const res = await bridge.applyOps([{ op: OpName.Patch, id, fields: { time: null } }]);
+        if (!res.ok) throw new Error(res.error ?? "it did not apply");
+        return d.text(`No speed ramp on ${id}.`);
+      }
+      const chosen = points ?? SPEED_RAMPS.find((r) => r.name.toLowerCase() === (ramp ?? "").toLowerCase())?.points;
+      if (!chosen) throw new Error(`name a ramp (${SPEED_RAMPS.map((r) => r.name).join("; ")}) or give points`);
+      const length = (layer.end ?? scene.duration) - (layer.start ?? 0);
+      const { keys, plays } = speedRampKeys(length, chosen);
+      const res = await bridge.applyOps([{ op: OpName.Patch, id, fields: { time: keys } }]);
+      if (!res.ok) throw new Error(res.error ?? "the ramp did not apply");
+      return d.text(`Ramped ${id}: its ${length.toFixed(2)} s play ${(plays * (layer.speed ?? 1)).toFixed(2)} s of the file from ${(layer.in ?? 0).toFixed(2)} s.`);
+    }),
+  );
+
+  server.registerTool(
+    "stabilize_clip",
+    {
+      description:
+        "Stabilize a shaky video clip (ffmpeg vid.stab, two passes: the motion measured, the camera path smoothed, the borders filled by a slight zoom; deshake where vid.stab is missing). `strength` 0..1 (default 0.5 ≈ a 1 s smoothing window; 1 = a locked-off look). The stabilized copy becomes a new clip with the same timing, sound and transcript, and the layer `id` switches to it (the original stays in the pool).",
+      inputSchema: { id: z.string().min(1), strength: z.number().min(0).max(1).optional() },
+    },
+    d.guard(async ({ id, strength }: { id: string; strength?: number }) => {
+      const bridge = d.bridge();
+      const scene = JSON.parse(await bridge.freshScene()) as { layers?: { id: string; type: string; src?: string }[] };
+      const layer = scene.layers?.find((l) => l.id === id);
+      if (!layer || layer.type !== "video" || !layer.src) throw new Error(`${id} is not a video clip`);
+      const r = await d.api().route<{ footage: string; url: string; method: string }>("POST", "/media/stabilize", { source: layer.src, strength });
+      const res = await bridge.applyOps([{ op: OpName.Patch, id, fields: { src: r.url } }]);
+      if (!res.ok) throw new Error(res.error ?? "the clip did not switch to the stabilized copy");
+      return d.text(`Stabilized ${id} (${r.method}): it now plays clip ${r.footage} (src=${r.url}).`);
     }),
   );
 

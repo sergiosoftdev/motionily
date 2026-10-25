@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { FORMAT_SIZE, MediaKind, OpName, effectsWithGrade, type VideoFormat } from "@motionily/protocol";
 import { readGrade } from "./colorGrade";
 import { VIDEO_LAYER } from "../../engine/video";
-import { mediaUrl } from "../../api/client";
+import { api, mediaUrl } from "../../api/client";
 import type { SfxCue } from "../../audio/sfxPlayer";
 import { Logo } from "../../components/Logo";
 import { engineHost } from "../../engine/host";
@@ -24,7 +24,7 @@ import { mmss, useClipUpload, useMusicUpload } from "./MediaPanel";
 import { MediaPool, PoolEdit, useMediaPool, type PoolDrop } from "./MediaPool";
 import { ProjectInspector } from "./ProjectInspector";
 import { SidePanel } from "./SidePanel";
-import { AUDIO_LAYER, ClipKind, FOOTAGE_GROUP, appendClipOps, clipLayer, editTracks, freshId, mediaLayer, placeMediaOps, reframeClipOps } from "./tracks";
+import { AUDIO_LAYER, ClipKind, FOOTAGE_GROUP, appendClipOps, clipLayer, editTracks, freshId, mediaLayer, placeMediaOps, reframeClipOps, type EditClip } from "./tracks";
 import { ActivitySource, logActivity } from "../../store";
 import { useEditActions } from "./useEditActions";
 import { copyGrade, pasteGradeOps } from "./gradeClipboard";
@@ -100,6 +100,13 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
   }, [selectedLayer, selectedGroup]);
 
   const ops = useEditOps(scene, tracks, edits);
+  /** A steadied copy of a clip (a new footage clip, same timing) takes its place. */
+  const stabilize = async (clip: EditClip) => {
+    if (!project) return;
+    const r = await api.stabilize(project.id, { source: clip.src });
+    ed.setProject(await api.project(project.id));
+    edits.apply([{ op: OpName.Patch, id: clip.id, fields: { src: r.url } }], `Stabilizes ${clip.id}`, true);
+  };
   const deselect = () => {
     useEditor.setState({ selectedLayerId: null, selectedGroup: null });
     setCue(null);
@@ -335,7 +342,7 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
           running={ed.g.running}
           inspector={
             selection ? (
-              <Inspector selection={selection} ops={ops} edits={edits} songLength={project?.music?.duration ?? null} clipIds={tracks?.clips.map((c) => c.id) ?? []} luts={pool.items.filter((m) => m.kind === MediaKind.Lut)} onClose={deselect} />
+              <Inspector selection={selection} ops={ops} edits={edits} songLength={project?.music?.duration ?? null} clipIds={tracks?.clips.map((c) => c.id) ?? []} luts={pool.items.filter((m) => m.kind === MediaKind.Lut)} onClose={deselect} onStabilize={stabilize} />
             ) : (
               <ProjectInspector ed={ed} scene={scene} edits={edits} onFormat={(f) => void changeFormat(f)} />
             )

@@ -9,7 +9,7 @@ import { engineHost } from "../../engine/host";
 import { compoundOps, decomposeOps } from "./tracks";
 import type { SceneView } from "../sceneView";
 import { AudioFxControls } from "./AudioFxControls";
-import type { AudioFx } from "@motionily/protocol";
+import { SPEED_RAMPS, speedRampKeys, type AudioFx } from "@motionily/protocol";
 import type { EditActions } from "./useEditActions";
 import type { EditOps } from "./useEditOps";
 import { useAgentName } from "../../agentName";
@@ -21,7 +21,7 @@ const DEFAULT_SONG_RANGE = 180;
 const KIND_LABEL: Record<NonNullable<EditSelection>["kind"], string> = { clip: "Clip", block: "Motion graphics", cue: "Sound effect", music: "Music", many: "Selection" };
 
 /** Settings of what is selected in the timeline, as a card on top of the Claude panel (nothing when nothing is selected). */
-export function Inspector({ selection, ops, edits, songLength, clipIds, luts, onClose }: { selection: EditSelection; ops: EditOps; edits: EditActions; songLength: number | null; clipIds: string[]; luts: MediaItem[]; onClose: () => void }) {
+export function Inspector({ selection, ops, edits, songLength, clipIds, luts, onClose, onStabilize }: { selection: EditSelection; ops: EditOps; edits: EditActions; songLength: number | null; clipIds: string[]; luts: MediaItem[]; onClose: () => void; onStabilize?: (clip: EditClip) => Promise<void> }) {
   if (!selection) return null;
   return (
     <div className="flex flex-col gap-3 text-sm">
@@ -32,7 +32,7 @@ export function Inspector({ selection, ops, edits, songLength, clipIds, luts, on
         </button>
       </div>
       {selection.kind === "clip" ? (
-        <ClipInspector clip={selection.clip} ops={ops} edits={edits} clipIds={clipIds} luts={luts} />
+        <ClipInspector onStabilize={onStabilize} clip={selection.clip} ops={ops} edits={edits} clipIds={clipIds} luts={luts} />
       ) : selection.kind === "block" ? (
         <BlockInspector block={selection.block} ops={ops} />
       ) : selection.kind === "cue" ? (
@@ -132,6 +132,64 @@ function fadeKeys(level: number, len: number, fadeIn: number, fadeOut: number): 
   ];
 }
 
+/**
+ * Speed ramps (Resolve's retime curves): the clip's `time` remap written from a ramp, the speed easing
+ * between points so the picture never jumps. The clip keeps its length on the timeline.
+ */
+function RampControl({ clip, fileEnd, edits }: { clip: EditClip; fileEnd: number; edits: EditActions }) {
+  const time = engineHost.layer(clip.id)?.time;
+  const ramped = Array.isArray(time);
+  const length = clip.end - clip.start;
+  const apply = (name: string) => {
+    if (!name) return edits.apply([{ op: OpName.Patch, id: clip.id, fields: { time: null } }], `No speed ramp on ${clip.id}`, true);
+    const ramp = SPEED_RAMPS.find((r) => r.name === name)!;
+    const { keys } = speedRampKeys(length, ramp.points);
+    edits.apply([{ op: OpName.Patch, id: clip.id, fields: { time: keys } }], `${ramp.name} on ${clip.id}`, true);
+  };
+  const plays = (name: string) => speedRampKeys(length, SPEED_RAMPS.find((r) => r.name === name)!.points).plays * clip.speed;
+  return (
+    <label className="flex flex-col gap-1 text-xs text-neutral-400">
+      Speed ramp
+      <select value={ramped ? "custom" : ""} onChange={(e) => e.target.value !== "custom" && apply(e.target.value)} className="rounded-md bg-neutral-800 px-2 py-1.5 text-sm text-white">
+        <option value="">None</option>
+        {SPEED_RAMPS.map((r) => (
+          <option key={r.name} value={r.name}>
+            {r.name}
+            {clip.in + plays(r.name) > fileEnd + 0.05 ? " (holds the last frame)" : ""}
+          </option>
+        ))}
+        {ramped && <option value="custom">Ramped (keys)</option>}
+      </select>
+    </label>
+  );
+}
+
+/** Stabilize a shaky clip: a steadied copy (ffmpeg vid.stab) takes its place; the original stays in the pool. */
+function StabilizeButton({ clip, onStabilize }: { clip: EditClip; onStabilize: (clip: EditClip) => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const run = async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      await onStabilize(clip);
+      setNote("Stabilized: the clip plays the steadied copy (the original is still in the pool).");
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-1">
+      <button type="button" disabled={busy} onClick={() => void run()} className="self-start rounded-md bg-neutral-800 px-3 py-1.5 text-xs text-neutral-100 hover:bg-neutral-700 disabled:opacity-50">
+        {busy ? "Stabilizing…" : "Stabilize"}
+      </button>
+      {note && <p className="text-[11px] text-neutral-500">{note}</p>}
+    </div>
+  );
+}
+
 /** A compound clip: several clips moved and trimmed as one (Resolve's), broken back apart in place. */
 function CompoundInspector({ clip, edits }: { clip: EditClip; edits: EditActions }) {
   return (
@@ -150,7 +208,7 @@ function CompoundInspector({ clip, edits }: { clip: EditClip; edits: EditActions
   );
 }
 
-function ClipInspector({ clip, ops, edits, clipIds, luts }: { clip: EditClip; ops: EditOps; edits: EditActions; clipIds: string[]; luts: MediaItem[] }) {
+function ClipInspector({ clip, ops, edits, clipIds, luts, onStabilize }: { clip: EditClip; ops: EditOps; edits: EditActions; clipIds: string[]; luts: MediaItem[]; onStabilize?: (clip: EditClip) => Promise<void> }) {
   if (clip.kind === ClipKind.Compound) return <CompoundInspector clip={clip} edits={edits} />;
   const tabs = TABS_OF[clip.kind];
   const [tab, setTab] = useState<ClipTab>(tabs[0]!);
@@ -321,6 +379,8 @@ function ClipInspector({ clip, ops, edits, clipIds, luts }: { clip: EditClip; op
           </select>
         </label>
       )}
+      {tab === ClipTab.Video && clip.kind === ClipKind.Video && <RampControl clip={clip} fileEnd={clip.fileLength ?? Infinity} edits={edits} />}
+      {tab === ClipTab.Video && clip.kind === ClipKind.Video && clip.footage && onStabilize && <StabilizeButton clip={clip} onStabilize={onStabilize} />}
       {tab === ClipTab.Color && <ColorTab clipId={clip.id} allClipIds={clipIds.filter((id) => id !== clip.id).concat(clip.id)} edits={edits} luts={luts} />}
       <div className="flex gap-2">
         <button type="button" onClick={() => ops.split(clip)} className="flex-1 rounded-md bg-neutral-800 px-2 py-1.5 text-xs font-semibold hover:bg-neutral-700">

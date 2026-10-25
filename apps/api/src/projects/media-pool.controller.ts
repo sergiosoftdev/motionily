@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { copyFile, readFile, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, extname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, NotFoundException, Param, Post, UploadedFile, UseInterceptors } from "@nestjs/common";
@@ -78,6 +79,23 @@ class CleanAudioDto {
   @IsIn(Object.values(CleanMode)) mode: CleanMode;
   /** 0..1 (default 0.5): how hard `denoise` works; `voice` mixes the original back in below 1. */
   @IsOptional() @IsNumber() @Min(0) @Max(1) strength?: number;
+}
+
+class StabilizeDto {
+  /** A clip of this video (`/media/…`, from list_media). */
+  @IsString() @MinLength(1) @MaxLength(200) source: string;
+  /** 0..1 (default 0.5): how much of the camera's own motion is smoothed away (0.5 ≈ a 1 s window). */
+  @IsOptional() @IsNumber() @Min(0) @Max(1) strength?: number;
+}
+
+/** Frames vidstab averages the camera path over at strength 0 and 1. */
+const SMOOTHING: [number, number] = [6, 60];
+
+/** Whether this ffmpeg has vid.stab (the desktop app's does; some builds only have deshake). */
+let vidstab: Promise<boolean> | null = null;
+function hasVidstab(): Promise<boolean> {
+  vidstab ??= run(FFMPEG, ["-hide_banner", "-filters"]).then((r) => r.stdout.includes("vidstabdetect"), () => false);
+  return vidstab;
 }
 
 /** The ffmpeg filter for a cleaning (paths escaped for the filter syntax). */
@@ -262,6 +280,55 @@ export class MediaPoolController {
     await this.model.updateOne({ _id: project._id }, { $set: { audio: { ...project.audio!, file: out, mime: "audio/wav" } } });
     BridgeHub.instance?.notifyProjectChanged(id);
     return { voice: `/media/${out}`, original };
+  }
+
+  /**
+   * A stabilized copy of a clip (non-destructive): vid.stab's two passes (motion measured, then the camera
+   * path smoothed; borders filled by a slight zoom), or ffmpeg's deshake where vid.stab is missing. The
+   * copy is a new clip with the same length, sound and transcript, to swap in (Replace).
+   */
+  @Post(":id/media/stabilize")
+  async stabilize(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: StabilizeDto) {
+    poolWriter(user);
+    const project = await this.projects.get(user.id, id);
+    const clip = (project.footage ?? []).find((c) => `/media/${c.file}` === dto.source);
+    if (!clip) throw new BadRequestException(`${dto.source} is not a clip of this video (list_media shows them)`);
+    const input = join(MEDIA_DIR, clip.file);
+    const out = mediaName(`${clip.name}.mp4`);
+    const strength = dto.strength ?? 0.5;
+    const dir = await mkdtemp(join(tmpdir(), "stab-"));
+    const encode = ["-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart"];
+    let how: string;
+    try {
+      if (await hasVidstab()) {
+        const trf = join(dir, "motion.trf");
+        await run(FFMPEG, ["-v", "error", "-y", "-i", input, "-vf", `vidstabdetect=shakiness=6:accuracy=15:result=${trf}`, "-f", "null", "-"], { maxBuffer: 16 * 1024 * 1024 });
+        const smoothing = Math.round(SMOOTHING[0] + (SMOOTHING[1] - SMOOTHING[0]) * strength);
+        await run(FFMPEG, ["-v", "error", "-y", "-i", input, "-vf", `vidstabtransform=input=${trf}:smoothing=${smoothing}:optzoom=1:interpol=bicubic,unsharp=5:5:0.6:3:3:0.3`, ...encode, join(MEDIA_DIR, out)], { maxBuffer: 16 * 1024 * 1024 });
+        how = "vid.stab";
+      } else {
+        // Search range: 16..64 px, in steps of 16 (what deshake takes).
+        const r = 16 * Math.round(1 + 3 * strength);
+        await run(FFMPEG, ["-v", "error", "-y", "-i", input, "-vf", `deshake=rx=${r}:ry=${r}:edge=mirror`, ...encode, join(MEDIA_DIR, out)], { maxBuffer: 16 * 1024 * 1024 });
+        how = "deshake";
+      }
+    } catch (e) {
+      await removeMedia(out);
+      throw new BadRequestException(`ffmpeg could not stabilize it: ${(e as { stderr?: string }).stderr?.trim() || String(e)}`);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+    const facts = await describeVideo(join(MEDIA_DIR, out));
+    const size = (await stat(join(MEDIA_DIR, out))).size;
+    const p = await this.projects.addFootage(user.id, id, {
+      file: out, name: `${clip.name} (stabilized)`, mime: "video/mp4", size,
+      duration: facts?.duration ?? clip.duration, width: facts?.width ?? clip.width, height: facts?.height ?? clip.height, poster: facts?.poster ?? null,
+      // Same picture timing: the transcript carries over.
+      language: clip.language, words: clip.words,
+    });
+    this.changed(user, id);
+    const made = p.footage.at(-1)!;
+    return { footage: made.id, url: `/media/${made.file}`, method: how };
   }
 
   /** A finished export from the browser editor, so the agent that asked for it gets a URL back. */

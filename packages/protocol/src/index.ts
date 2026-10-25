@@ -785,3 +785,49 @@ export type User = { id: string; email: string; name: string; avatarUrl: string 
 
 /** Short-form attention curve: devices, measurement and checks (see attention.ts). */
 export * from "./attention.js";
+
+/** A speed ramp point: from `at` (0..1 of the clip's length on the timeline) the clip plays at `speed` (× its own speed). */
+export type RampPoint = { at: number; speed: number };
+/** Speed ramps the editor offers (and agents may name), as points along the clip. */
+export const SPEED_RAMPS: { name: string; points: RampPoint[] }[] = [
+  { name: "Slow motion in the middle", points: [{ at: 0, speed: 1 }, { at: 0.35, speed: 0.25 }, { at: 0.65, speed: 0.25 }, { at: 1, speed: 1 }] },
+  { name: "Speed up", points: [{ at: 0, speed: 1 }, { at: 1, speed: 3 }] },
+  { name: "Slow down", points: [{ at: 0, speed: 1 }, { at: 1, speed: 0.3 }] },
+  { name: "Bullet time", points: [{ at: 0, speed: 2 }, { at: 0.3, speed: 0.2 }, { at: 0.7, speed: 0.2 }, { at: 1, speed: 2 }] },
+];
+/** Samples a ramp's time remap is written with (straight keys between them; smooth to the eye). */
+const RAMP_KEYS = 24;
+
+/**
+ * The `time` remap keys of a speed ramp over a clip `length` seconds long on the timeline: the speed
+ * eases (smoothstep) from one point to the next, and the layer clock is its running integral, so the
+ * picture speeds up and slows down without jumps. Also returns how many seconds of the clip's own
+ * clock it plays (× `speed` and from `in`, that is the file it needs).
+ */
+export function speedRampKeys(length: number, points: RampPoint[]): { keys: { t: number; v: number; ease: string }[]; plays: number } {
+  const pts = [...points].sort((a, b) => a.at - b.at);
+  const speedAt = (u: number) => {
+    if (!pts.length) return 1;
+    if (u <= pts[0]!.at) return pts[0]!.speed;
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1]!;
+      const b = pts[i]!;
+      if (u <= b.at) {
+        const k = b.at > a.at ? (u - a.at) / (b.at - a.at) : 1;
+        return a.speed + (b.speed - a.speed) * k * k * (3 - 2 * k);
+      }
+    }
+    return pts.at(-1)!.speed;
+  };
+  const keys: { t: number; v: number; ease: string }[] = [{ t: 0, v: 0, ease: "linear" }];
+  let v = 0;
+  const steps = RAMP_KEYS * 8;
+  for (let i = 1; i <= steps; i++) {
+    const u0 = (i - 1) / steps;
+    const u1 = i / steps;
+    // Midpoint rule over each small step.
+    v += speedAt((u0 + u1) / 2) * (u1 - u0) * length;
+    if (i % 8 === 0) keys.push({ t: Math.round(u1 * length * 1000) / 1000, v: Math.round(v * 1000) / 1000, ease: "linear" });
+  }
+  return { keys, plays: v };
+}

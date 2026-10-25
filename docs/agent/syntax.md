@@ -259,6 +259,8 @@ badge shader .5 x=1500 y=300 w=320 h=320 s=0>1@0-.6:b fill=accent "fn shade(uv: 
 - Defaults: `fit=cover` (crop to fill the box; `contain` letterboxes), `in=0`, `speed=1` (0 < speed ≤ 16), `loop` off,
   `volume=0` = **muted** (0..1 plays the clip's own sound, following in/out/speed/loop; the `time=` remap is followed in
   export only in straight stretches). Freeze, reverse or ramp with `time=` keys: `time=0:0,1:1:h,2.5:1` freezes 1 s.
+  `speed_ramp` writes eased ramps for you (`[{"at":0,"speed":1},{"at":0.5,"speed":0.3},{"at":1,"speed":1}]`: speed × the
+  clip's own, smoothstep between points, 24 straight keys of the running integral, the clip's length unchanged).
 - Bounds/`get_layout` = the layer box (like an image); layout rows add `video@S/LENs` (file second on screen / file length)
   or `VIDEO failed to load: …`. `review_video` flags clips that fail to load, start past the file end, or run out and
   freeze while the layer is still on (fix: end the layer at `start + (out − in)/speed`, `loop=1`, or a lower speed).
