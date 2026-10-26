@@ -136,6 +136,19 @@ describe("media pool", () => {
     assert.deepEqual((await http.get(`${base}/missing`).set(auth).expect(200)).body, []);
   });
 
+  it("puts pool items in bins and back at the top", async () => {
+    const login = await http.post("/auth/mock-google").send({ email: "bins@motionily.local" }).expect(201);
+    const auth = { Authorization: `Bearer ${login.body.token as string}` };
+    const project = await http.post("/projects").set(auth).send({ name: "Bins", format: "square_1_1" }).expect(201);
+    const base = `/projects/${project.body.id as string}/media`;
+    const a = await http.post(base).set(auth).attach("file", wav(1), { filename: "a.wav", contentType: "audio/wav" }).expect(201);
+    await http.post(`${base}/bin`).set(auth).send({ ids: [a.body.id], bin: "Room tone" }).expect(201);
+    assert.equal((await http.get(base).set(auth).expect(200)).body[0].bin, "Room tone");
+    await http.post(`${base}/bin`).set(auth).send({ ids: [a.body.id], bin: null }).expect(201);
+    assert.equal((await http.get(base).set(auth).expect(200)).body[0].bin, null);
+    await http.post(`${base}/bin`).set(auth).send({ ids: ["m99"], bin: "x" }).expect(400);
+  });
+
   it("lets the video's agent import from a URL, and keeps account tokens out", async () => {
     const login = await http.post("/auth/mock-google").send({ email: "pool-agent@motionily.local" }).expect(201);
     const auth = { Authorization: `Bearer ${login.body.token as string}` };

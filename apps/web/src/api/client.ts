@@ -201,6 +201,8 @@ export const api = {
   projectMedia: (id: string) => call<MediaItem[]>(HttpMethod.Get, `/projects/${id}/media`),
   uploadMedia: (id: string, file: File) => upload<MediaItem>(`/projects/${id}/media`, file),
   removeMedia: (id: string, mediaId: string) => call<{ ok: true }>(HttpMethod.Delete, `/projects/${id}/media/${mediaId}`),
+  /** Put clips (c1…) and pool items (m1…) in a bin, or back at the top (null). */
+  setBin: (id: string, ids: string[], bin: string | null) => call<{ moved: number }>(HttpMethod.Post, `/projects/${id}/media/bin`, { ids, bin }),
   /** Clips, sounds and the voice-over whose files are gone from the media folder. */
   missingMedia: (id: string) => call<{ kind: string; id: string; name: string; file: string; size: number | null }[]>(HttpMethod.Get, `/projects/${id}/media/missing`),
   /** Look for missing files in a folder (desktop app) by name and size and copy them back in. */

@@ -72,6 +72,8 @@ export type MediaItem = {
   /** Images: pixels. */
   width: number | null;
   height: number | null;
+  /** The pool folder (bin) it sits in; none = the top. */
+  bin?: string | null;
 };
 
 export type FootageClip = {
@@ -91,6 +93,8 @@ export type FootageClip = {
   words: { text: string; start: number; end: number }[] | null;
   /** Preview proxy (a 540p copy in the media folder) the editor plays instead; exports use `file`. */
   proxy?: string | null;
+  /** The pool folder (bin) it sits in; none = the top. */
+  bin?: string | null;
 };
 
 @Schema({ timestamps: true })

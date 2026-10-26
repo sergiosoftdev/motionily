@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { basename, extname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, NotFoundException, Param, Post, UploadedFile, UseInterceptors } from "@nestjs/common";
-import { IsIn, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
+import { ArrayMaxSize, IsArray, IsIn, IsNumber, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { InjectModel } from "@nestjs/mongoose";
 import { diskStorage } from "multer";
@@ -108,6 +108,13 @@ async function walk(dir: string, depth = 0, out: { path: string; name: string; s
     }
   }
   return out;
+}
+
+class BinDto {
+  /** Clips (c1…) and pool items (m1…) to move. */
+  @IsArray() @ArrayMaxSize(500) @IsString({ each: true }) ids: string[];
+  /** The bin (folder) name; null = back to the top. */
+  @IsOptional() @IsString() @MaxLength(60) bin?: string | null;
 }
 
 class ProxyDto {
@@ -363,6 +370,23 @@ export class MediaPoolController {
     this.changed(user, id);
     const made = p.footage.at(-1)!;
     return { footage: made.id, url: `/media/${made.file}`, method: how };
+  }
+
+  /** Put clips and pool items in a bin (folder of the media pool), or back at the top. */
+  @Post(":id/media/bin")
+  async bin(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: BinDto) {
+    poolWriter(user);
+    const project = await this.projects.get(user.id, id);
+    const bin = dto.bin?.trim() || null;
+    const ids = new Set(dto.ids);
+    const known = new Set([...(project.footage ?? []).map((c) => c.id), ...(project.media ?? []).map((m) => m.id)]);
+    const unknown = dto.ids.filter((x) => !known.has(x));
+    if (unknown.length) throw new BadRequestException(`not in this video's pool: ${unknown.join(", ")}`);
+    const footage = (project.footage ?? []).map((c) => (ids.has(c.id) ? { ...c, bin } : c));
+    const media = (project.media ?? []).map((m) => (ids.has(m.id) ? { ...m, bin } : m));
+    await this.model.updateOne({ _id: project._id }, { $set: { footage, media } });
+    this.changed(user, id);
+    return { moved: dto.ids.length, bin };
   }
 
   /** The video's clips, sounds and voice-over whose files are gone from the media folder. */

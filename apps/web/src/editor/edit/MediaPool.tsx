@@ -40,6 +40,12 @@ export function readPoolDrop(e: DragEvent): PoolDrop | null {
   }
 }
 
+/** Bin filter value showing every bin. */
+const ALL_BINS = "\u0000all";
+/** BinMenu choices that are not bin names. */
+const NEW_BIN = "\u0000new";
+const TOP_BIN = "\u0000top";
+
 /** The video's sounds and pictures, kept in sync with the API. */
 export function useMediaPool(projectId: string | undefined, version?: string) {
   const [items, setItems] = useState<MediaItem[]>([]);
@@ -95,7 +101,11 @@ export function useMediaPool(projectId: string | undefined, version?: string) {
     },
     [projectId],
   );
-  return { items, busy, error, upload, remove, clean };
+  /** Read the pool again (after a change made elsewhere, like a bin move). */
+  const reload = useCallback(async () => {
+    if (projectId) setItems(await api.projectMedia(projectId));
+  }, [projectId]);
+  return { items, busy, error, upload, remove, clean, reload };
 }
 export type MediaPoolState = ReturnType<typeof useMediaPool>;
 
@@ -129,11 +139,26 @@ export function MediaPool({
 }) {
   const agent = useAgentName();
   const [filter, setFilter] = useState<PoolFilter>(PoolFilter.All);
+  /** Search over names, and the bin shown (ALL_BINS = everything, null = the top level only). */
+  const [query, setQuery] = useState("");
+  const [bin, setBin] = useState<string | null | typeof ALL_BINS>(ALL_BINS);
+  /** Move a tile to a bin (asks a name for a new one) and reload the pool and the clips. */
+  const moveToBin = async (id: string, to: string | null) => {
+    if (!project) return;
+    await api.setBin(project.id, [id], to);
+    ed.setProject(await api.project(project.id));
+    await pool.reload();
+  };
   const [suno, setSuno] = useState(false);
   const project = ed.project;
   const used = new Set((scene?.layers ?? []).map((l) => String(l.src ?? "")));
   const entries: PoolEntry[] = [...(project?.footage ?? []).map((clip): PoolEntry => ({ source: "footage", clip })), ...pool.items.map((item): PoolEntry => ({ source: "media", item }))];
+  const binOf = (e: PoolEntry) => (e.source === "footage" ? e.clip.bin : e.item.bin) ?? null;
+  const bins = [...new Set(entries.map(binOf).filter((b): b is string => !!b))].sort((a, b) => a.localeCompare(b));
+  const needle = query.trim().toLowerCase();
   const shown = entries.filter((e) => {
+    if (bin !== ALL_BINS && binOf(e) !== bin) return false;
+    if (needle && !(e.source === "footage" ? e.clip.name : e.item.name).toLowerCase().includes(needle)) return false;
     if (filter === PoolFilter.All) return true;
     if (e.source === "footage") return filter === PoolFilter.Video;
     return filter === (e.item.kind === MediaKind.Audio ? PoolFilter.Audio : e.item.kind === MediaKind.Lut ? PoolFilter.Luts : PoolFilter.Images);
@@ -169,6 +194,20 @@ export function MediaPool({
           </button>
         ))}
       </div>
+      {entries.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search media" className="rounded-md bg-neutral-950 px-2 py-1 text-[11px] text-neutral-200 placeholder:text-neutral-600" aria-label="Search media" />
+          {bins.length > 0 && (
+            <div className="flex flex-wrap gap-1 text-[11px]">
+              {([[ALL_BINS, "All"], [null, "Top level"], ...bins.map((b) => [b, b])] as [string | null, string][]).map(([key, label]) => (
+                <button key={String(key)} type="button" onClick={() => setBin(key)} className={`rounded-md px-1.5 py-0.5 ${bin === key ? "bg-neutral-700 text-white" : "text-neutral-500 hover:text-white"}`}>
+                  {key && key !== ALL_BINS ? `▸ ${label}` : label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
         {entries.length === 0 ? (
           <DropZone accept={POOL_ACCEPT} multiple busy={!!clips.progress || pool.busy} onFiles={(f) => void importFiles(f)} big>
@@ -190,6 +229,8 @@ export function MediaPool({
                   onPick={onPick}
                   onRemove={e.source === "media" ? () => void pool.remove(e.item.id) : undefined}
                   onClean={(mode) => void pool.clean(e.source === "footage" ? e.clip.url : e.item.url, mode)}
+                  bins={bins}
+                  onBin={(to) => void moveToBin(e.source === "footage" ? e.clip.id : e.item.id, to)}
                   onProxy={
                     e.source === "footage" && project
                       ? () =>
@@ -260,7 +301,7 @@ export function MediaPool({
   );
 }
 
-function Tile({ entry, used, music, onAdd, onRemove, onClean, onProxy, picked, onPick }: { entry: PoolEntry; used: Set<string>; music: MusicUpload; onAdd: (d: PoolDrop) => void; onRemove?: () => void; onClean: (mode: CleanMode) => void; onProxy?: () => void; picked: boolean; onPick: (d: PoolDrop | null) => void }) {
+function Tile({ entry, used, music, onAdd, onRemove, onClean, onProxy, bins, onBin, picked, onPick }: { entry: PoolEntry; used: Set<string>; music: MusicUpload; onAdd: (d: PoolDrop) => void; onRemove?: () => void; onClean: (mode: CleanMode) => void; onProxy?: () => void; bins: string[]; onBin: (bin: string | null) => void; picked: boolean; onPick: (d: PoolDrop | null) => void }) {
   const [making, setMaking] = useState(false);
   const drop: PoolDrop = entry.source === "footage" ? { source: "footage", id: entry.clip.id } : { source: "media", id: entry.item.id };
   const url = entry.source === "footage" ? entry.clip.url : entry.item.url;
@@ -313,6 +354,7 @@ function Tile({ entry, used, music, onAdd, onRemove, onClean, onProxy, picked, o
       </span>
       <span className="truncate px-0.5 text-[11px] text-neutral-300">{name}</span>
       {(isAudio || entry.source === "footage") && <CleanMenu onClean={onClean} />}
+      <BinMenu bins={bins} current={(entry.source === "footage" ? entry.clip.bin : entry.item.bin) ?? null} onBin={onBin} />
       {onProxy && entry.source === "footage" && !entry.clip.proxy && (
         <button
           type="button"
@@ -414,5 +456,50 @@ function MissingMedia({ projectId, version, onRelinked }: { projectId: string; v
       )}
       {note && <span className="text-amber-100/80">{note}</span>}
     </div>
+  );
+}
+
+/** "Move to bin…": an existing bin, a new one (named here), or back to the top. */
+function BinMenu({ bins, current, onBin }: { bins: string[]; current: string | null; onBin: (bin: string | null) => void }) {
+  const [naming, setNaming] = useState(false);
+  if (naming)
+    return (
+      <input
+        autoFocus
+        placeholder="Bin name, then Enter"
+        onClick={(e) => e.stopPropagation()}
+        onBlur={() => setNaming(false)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") setNaming(false);
+          if (e.key !== "Enter") return;
+          const name = e.currentTarget.value.trim();
+          setNaming(false);
+          if (name) onBin(name);
+        }}
+        className="w-full rounded bg-neutral-950 px-1 text-[10px] text-neutral-200"
+      />
+    );
+  return (
+    <select
+      value=""
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => {
+        const v = e.target.value;
+        if (v === NEW_BIN) setNaming(true);
+        else if (v === TOP_BIN) onBin(null);
+        else if (v) onBin(v);
+      }}
+      className="self-start bg-transparent px-0.5 text-[10px] text-neutral-500 hover:text-white"
+      title="Put it in a folder of the media pool"
+    >
+      <option value="">{current ? `▸ ${current}` : "Move to bin…"}</option>
+      {bins.filter((b) => b !== current).map((b) => (
+        <option key={b} value={b}>
+          {b}
+        </option>
+      ))}
+      <option value={NEW_BIN}>New bin…</option>
+      {current && <option value={TOP_BIN}>Back to the top</option>}
+    </select>
   );
 }

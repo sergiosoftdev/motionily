@@ -772,6 +772,8 @@ export type MediaItem = {
   /** Pictures: pixels. */
   width: number | null;
   height: number | null;
+  /** The pool folder (bin) it sits in; none = the top. */
+  bin?: string | null;
 };
 
 export type FootageClip = {
@@ -780,6 +782,8 @@ export type FootageClip = {
   url: string;
   /** Preview proxy (540p copy) the editor plays instead of `url` while editing; exports use `url`. */
   proxy?: string | null;
+  /** The pool folder (bin) it sits in; none = the top. */
+  bin?: string | null;
   mime: string;
   size: number;
   duration: number | null;

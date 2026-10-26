@@ -26,8 +26,9 @@ export type StudioDeps = {
 /** Video clips the agent may lay on the timeline (footage) and the pool's sounds and pictures. */
 export function mediaLines(project: Pick<Project, "footage">, media: MediaItem[], scene?: string | null): string {
   const used = (url: string) => (scene?.includes(url) ? " | in the edit" : "");
-  const clips = (project.footage ?? []).map((c: FootageClip) => `${c.id} | video | ${c.url} | ${c.name} | ${c.duration?.toFixed(2) ?? "?"} s | ${c.width ?? "?"}x${c.height ?? "?"}${used(c.url)}`);
-  const items = media.map((m) => `${m.id} | ${m.kind} | ${m.url} | ${m.name} | ${m.duration != null ? `${m.duration.toFixed(2)} s` : "-"} | ${m.width ? `${m.width}x${m.height}` : "-"}${used(m.url)}`);
+  const bin = (b?: string | null) => (b ? ` | bin ${b}` : "");
+  const clips = (project.footage ?? []).map((c: FootageClip) => `${c.id} | video | ${c.url} | ${c.name} | ${c.duration?.toFixed(2) ?? "?"} s | ${c.width ?? "?"}x${c.height ?? "?"}${used(c.url)}${bin(c.bin)}`);
+  const items = media.map((m) => `${m.id} | ${m.kind} | ${m.url} | ${m.name} | ${m.duration != null ? `${m.duration.toFixed(2)} s` : "-"} | ${m.width ? `${m.width}x${m.height}` : "-"}${used(m.url)}${bin(m.bin)}`);
   const rows = [...clips, ...items];
   return rows.length ? `Media pool (id | kind | src | name | length | size):\n${rows.join("\n")}` : "Media pool: empty (import_media brings files in).";
 }
@@ -149,6 +150,18 @@ export function registerStudioTools(server: Server, d: StudioDeps) {
       if (!folder) return d.text(missing.length ? `Missing: ${missing.map((m) => `${m.name} (${m.kind})`).join(", ")}.` : "Nothing is missing.");
       const r = await d.api().route<{ relinked: string[]; missing: string[] }>("POST", "/media/relink", { folder });
       return d.text(`${r.relinked.length ? `Relinked: ${r.relinked.join("; ")}.` : "Nothing relinked."}${r.missing.length ? ` Still missing: ${r.missing.join(", ")}.` : ""}`);
+    }),
+  );
+
+  server.registerTool(
+    "set_bin",
+    {
+      description: "Organize the media pool like the user's bins: put clips (c1…) and pool items (m1…) in a bin (folder) by name, or back at the top with bin null. list_media shows each one's bin.",
+      inputSchema: { ids: z.array(z.string().regex(/^[cm]\d+$/)).min(1), bin: z.string().max(60).nullable() },
+    },
+    d.guard(async ({ ids, bin }: { ids: string[]; bin: string | null }) => {
+      await d.api().route("POST", "/media/bin", { ids, bin });
+      return d.text(bin ? `${ids.join(", ")} in bin ${bin}.` : `${ids.join(", ")} back at the top.`);
     }),
   );
 
