@@ -17,6 +17,7 @@ import { AUDIO_LAYER, VIDEO_LAYER, VideoLibrary, VideoStatus, clipSounds, hasSou
 import { decodeMono, type AudioAnalysisInfo } from "./audioReactive";
 import type { AudioTrack } from "../audio/track";
 import { nativeViewer } from "../native/viewer";
+import { RenderCache } from "./renderCache";
 
 /** A layer under the pointer (see `pickStack`). */
 export type PickHit = { id: string; cover: boolean };
@@ -49,6 +50,27 @@ function readProxyPref(): boolean {
     return true;
   }
 }
+/** One display frame (a 60 Hz screen), what lateness is measured against. */
+const DISPLAY_FRAME_MS = 1000 / 60;
+/** Stillness (ms) before heavy frames are rendered ahead, and frames rendered between yields. */
+const FILL_IDLE_MS = 600;
+const FILL_BATCH = 4;
+
+/** The canvas cached frames are shown on: over the engine's, same box, never in the way of the pointer. */
+function makeOverlay(canvas: HTMLCanvasElement): HTMLCanvasElement | null {
+  const parent = canvas.parentElement;
+  if (!parent) return null;
+  const o = document.createElement("canvas");
+  o.dataset.renderCache = "";
+  Object.assign(o.style, { position: "absolute", pointerEvents: "none", visibility: "hidden" });
+  const place = () => Object.assign(o.style, { left: `${canvas.offsetLeft}px`, top: `${canvas.offsetTop}px`, width: `${canvas.offsetWidth}px`, height: `${canvas.offsetHeight}px`, borderRadius: getComputedStyle(canvas).borderRadius });
+  if (getComputedStyle(parent).position === "static") parent.style.position = "relative";
+  canvas.after(o);
+  place();
+  new ResizeObserver(place).observe(canvas);
+  return o;
+}
+
 /** Quiet time after a soundtrack edit before it is rescheduled while playing. */
 const REMIX_MS = 150;
 const EMPTY_SCENE = JSON.stringify({ width: 1080, height: 1920, fps: 30, duration: 6, layers: [] });
@@ -93,6 +115,7 @@ type SceneMeta = {
   duration: number;
   width: number;
   height: number;
+  fps?: number;
   audio?: AudioTrack | null;
   music?: MusicTrack | null;
   captions?: { words?: { start: number; end: number }[] } | null;
@@ -129,6 +152,12 @@ class EngineHost {
   private lutsLoading: Promise<void> = Promise.resolve();
   private imageCache = new Map<string, Promise<Pixels | null>>();
 
+  /** Heavy frames rendered ahead while paused, shown on `overlay` during playback (see renderCache). */
+  private cache = new RenderCache();
+  private sceneVersion = 0;
+  private sceneFps = 30;
+  private overlay: HTMLCanvasElement | null = null;
+  private fillTimer = 0;
   /** The soundtrack (voice, music, effects, clip sound), scheduled as the export mixes it; also the playback clock. */
   private mix = new PreviewMix();
   private mixKey = "";
@@ -187,6 +216,8 @@ class EngineHost {
       this.loadingImages.clear();
       this.engine.loadScene(sceneJson ?? EMPTY_SCENE);
       void this.ensureFonts(DEFAULT_FONT_FAMILY);
+      this.cache.clear();
+      this.overlay = makeOverlay(canvas);
       this.resizeObserver = new ResizeObserver(() => this.fitCanvas());
       this.resizeObserver.observe(canvas);
       useEditor.setState({ engineStatus: EngineStatus.Ready, adapter: this.engine.adapterInfo() });
@@ -207,6 +238,10 @@ class EngineHost {
     this.originals = new VideoLibrary(mediaSrc);
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
+    window.clearTimeout(this.fillTimer);
+    this.overlay?.remove();
+    this.overlay = null;
+    this.cache.clear();
     this.engine?.free();
     this.engine = null;
     this.canvas = null;
@@ -641,6 +676,7 @@ class EngineHost {
     useEditor.setState({ playing: false });
     // The editor's canvas comes back where playback stopped (the native viewer drew the frames meanwhile).
     if (wasPlaying) this.draw();
+    this.fillSoon();
   }
 
   seek(t: number) {
@@ -649,6 +685,7 @@ class EngineHost {
     this.lastTick = performance.now();
     if (nativeViewer.active) nativeViewer.frame(useEditor.getState().time);
     this.draw();
+    if (!useEditor.getState().playing) this.fillSoon();
   }
 
   /** The scene's sound effect cues. */
@@ -693,6 +730,8 @@ class EngineHost {
 
   private tick = (now: number) => {
     const { time } = useEditor.getState();
+    // A frame that came late marks its beat heavy: it is rendered ahead the next time playback stops.
+    if (!nativeViewer.active) this.cache.note(time, this.fps(), now - this.lastTick, DISPLAY_FRAME_MS);
     const elapsed = ((now - this.lastTick) / 1000) * this.rate;
     this.lastTick = now;
     const [from, to] = this.playRange();
@@ -722,11 +761,57 @@ class EngineHost {
     this.raf = requestAnimationFrame(this.tick);
   };
 
+  private fps() {
+    return this.sceneFps;
+  }
+
+  /** Render the heavy frames ahead once the editor has been still a moment (paused, not editing). */
+  private fillSoon() {
+    window.clearTimeout(this.fillTimer);
+    this.fillTimer = window.setTimeout(() => void this.fill(), FILL_IDLE_MS);
+  }
+
+  private async fill() {
+    const engine = this.engine;
+    const canvas = this.canvas;
+    if (!engine || !canvas || useEditor.getState().playing || nativeViewer.active) return;
+    const version = this.sceneVersion;
+    const fps = this.fps();
+    const [w, h] = RenderCache.size(canvas.width, canvas.height);
+    const still = () => engine === this.engine && version === this.sceneVersion && !useEditor.getState().playing;
+    let rendered = 0;
+    for (const i of this.cache.pending(useEditor.getState().time, fps)) {
+      if (!still()) break;
+      await this.renderExact(i / fps);
+      // Copied in the same task as the render (a WebGPU canvas is cleared once presented).
+      const bitmap = await createImageBitmap(canvas, { resizeWidth: w, resizeHeight: h, resizeQuality: "high" });
+      if (!this.cache.put(i, bitmap, version)) break;
+      rendered++;
+      // Yield so the editor stays responsive.
+      if (rendered % FILL_BATCH === 0) await new Promise((r) => setTimeout(r, 0));
+    }
+    if (rendered && engine === this.engine && !useEditor.getState().playing) this.draw();
+  }
+
+  /** Seconds of the video already rendered ahead (for the timeline). */
+  cachedRanges(): [number, number][] {
+    return this.cache.ranges(this.fps());
+  }
+
   /** Put the playhead at `t` while playing and draw it (with the desktop app's native viewer on screen, it draws instead). */
   private show(t: number) {
     useEditor.setState({ time: t });
-    if (nativeViewer.active) nativeViewer.frame(t);
-    else this.draw();
+    if (nativeViewer.active) return nativeViewer.frame(t);
+    const cached = this.cache.get(t, this.fps());
+    if (cached && this.overlay) {
+      // Rendered ahead: show the bitmap, skip the render.
+      const g = this.overlay.getContext("2d")!;
+      if (this.overlay.width !== cached.width || this.overlay.height !== cached.height) [this.overlay.width, this.overlay.height] = [cached.width, cached.height];
+      g.drawImage(cached, 0, 0);
+      this.overlay.style.visibility = "visible";
+      return;
+    }
+    this.draw();
   }
 
   /** Render the exact frame at `t` (video frames decoded, audio analysed) into the canvas. */
@@ -1164,6 +1249,7 @@ class EngineHost {
   private draw() {
     const engine = this.engine;
     if (!engine) return;
+    if (this.overlay) this.overlay.style.visibility = "hidden";
     const t = useEditor.getState().time;
     const exact = this.videos.show(engine, t, this.frames);
     engine.render(t);
@@ -1173,6 +1259,7 @@ class EngineHost {
   }
 
   private changed() {
+    this.cache.invalidate(++this.sceneVersion);
     this.syncMeta();
     // An edit of the soundtrack while playing: reschedule it from the playhead.
     if (useEditor.getState().playing && this.rate === 1 && this.mixState() !== this.mixKey) this.remixSoon();
@@ -1187,6 +1274,7 @@ class EngineHost {
   private syncMeta() {
     const meta = JSON.parse(this.require().sceneJson()) as SceneMeta;
     this.size = [meta.width, meta.height];
+    this.sceneFps = meta.fps ?? 30;
     this.range = meta.work_area ?? null;
     this.marks = meta.markers ?? [];
     audioBus.setMaster(10 ** ((meta.mix?.master_db ?? 0) / 20));

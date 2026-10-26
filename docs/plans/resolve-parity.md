@@ -102,4 +102,5 @@ terminarlo, con su commit.
 - [x] 5.1 proxies 540p (H.264, GOP 0,5 s): automáticos al subir clips con lado largo > 1920, "Make proxy" en el pool, interruptor "Preview with proxies"; el preview web y el visor nativo los reproducen, los exports usan siempre los originales (comprobado)
 - [x] 5.2 re-enlazar: `GET media/missing`, `POST media/relink` (escritorio; nombre original + tamaño, o tamaño único), aviso "N files are missing · Relink…" con selector de carpeta nativo (`pick_folder`), `relink_media`; test e2e
 - [x] 5.3 bins y búsqueda: campo `bin` en clips y medios, `POST media/bin`, `set_bin`, list_media muestra el bin; en el pool búsqueda por nombre, chips de bins y "Move to bin…" (nuevo bin en línea); test e2e
-- [ ] Siguiente: 6 (6.1 Windows/Linux necesita esas máquinas; 6.2 caché de render) → 1.5–1.7 → 4.1 → 5.1–5.3 → 6
+- [x] 6.2 caché de render: los frames que llegan tarde al reproducir marcan su tramo (±0,5 s); en pausa se pre-renderizan a bitmaps (≤1280 px, 384 MB) y la siguiente reproducción los muestra en una capa encima; cualquier edición la vacía. Tramo de 45 ms/frame: 47 → 16,7 ms por frame
+- [ ] Siguiente: 6.1 (visor nativo Windows/Linux) → 1.5–1.7 → 4.1 → 5.1–5.3 → 6
