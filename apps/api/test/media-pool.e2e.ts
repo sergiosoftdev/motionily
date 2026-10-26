@@ -10,6 +10,10 @@ import type { AddressInfo } from "node:net";
 import { testDatabase } from "./db";
 import { AppModule } from "../src/app.module";
 import { configureApp } from "../src/setup";
+import { MEDIA_DIR } from "../src/media";
+import { mkdir, mkdtemp, readFile, unlink, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 let db: Awaited<ReturnType<typeof testDatabase>>;
 let app: INestApplication;
@@ -101,6 +105,35 @@ describe("media pool", () => {
     await http.post(`${base}/clean`).set(auth).send({ source: "/media/not-mine.wav", mode: "voice" }).expect(400);
     await http.post(`${base}/clean`).set(auth).send({ source: "voice", mode: "denoise" }).expect(400);
     await http.post(`${base}/clean`).set(auth).send({ source: sound.body.url, mode: "louder" }).expect(400);
+  });
+
+  it("lists missing files and relinks them from a folder by name and size (desktop app)", async () => {
+    const login = await http.post("/auth/mock-google").send({ email: "relink@motionily.local" }).expect(201);
+    const auth = { Authorization: `Bearer ${login.body.token as string}` };
+    const project = await http.post("/projects").set(auth).send({ name: "Relink", format: "square_1_1" }).expect(201);
+    const base = `/projects/${project.body.id as string}/media`;
+    const bytes = wav(1);
+    const sound = await http.post(base).set(auth).attach("file", bytes, { filename: "take 3.wav", contentType: "audio/wav" }).expect(201);
+    assert.deepEqual((await http.get(`${base}/missing`).set(auth).expect(200)).body, []);
+    // The file goes missing; a copy sits in a folder with its original name.
+    await unlink(join(MEDIA_DIR, sound.body.file as string));
+    const missing = (await http.get(`${base}/missing`).set(auth).expect(200)).body;
+    assert.equal(missing.length, 1);
+    assert.equal(missing[0].name, "take 3.wav");
+    const folder = await mkdtemp(join(tmpdir(), "relink-"));
+    await mkdir(join(folder, "day 2"));
+    await writeFile(join(folder, "day 2", "Take 3.wav"), bytes);
+    const prev = process.env.MOTIONILY_DESKTOP;
+    process.env.MOTIONILY_DESKTOP = "1";
+    try {
+      const r = await http.post(`${base}/relink`).set(auth).send({ folder }).expect(201);
+      assert.equal(r.body.relinked.length, 1);
+      assert.deepEqual(r.body.missing, []);
+    } finally {
+      process.env.MOTIONILY_DESKTOP = prev;
+    }
+    assert.ok((await readFile(join(MEDIA_DIR, sound.body.file as string))).equals(bytes), "the file is back under its name");
+    assert.deepEqual((await http.get(`${base}/missing`).set(auth).expect(200)).body, []);
   });
 
   it("lets the video's agent import from a URL, and keeps account tokens out", async () => {

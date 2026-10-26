@@ -201,6 +201,10 @@ export const api = {
   projectMedia: (id: string) => call<MediaItem[]>(HttpMethod.Get, `/projects/${id}/media`),
   uploadMedia: (id: string, file: File) => upload<MediaItem>(`/projects/${id}/media`, file),
   removeMedia: (id: string, mediaId: string) => call<{ ok: true }>(HttpMethod.Delete, `/projects/${id}/media/${mediaId}`),
+  /** Clips, sounds and the voice-over whose files are gone from the media folder. */
+  missingMedia: (id: string) => call<{ kind: string; id: string; name: string; file: string; size: number | null }[]>(HttpMethod.Get, `/projects/${id}/media/missing`),
+  /** Look for missing files in a folder (desktop app) by name and size and copy them back in. */
+  relinkMedia: (id: string, folder: string) => call<{ relinked: string[]; missing: string[] }>(HttpMethod.Post, `/projects/${id}/media/relink`, { folder }),
   /** Make (or remake) a clip's 540p preview proxy. */
   makeProxy: (id: string, source: string) => call<{ proxy: string }>(HttpMethod.Post, `/projects/${id}/media/proxy`, { source }),
   /** A stabilized copy of a clip (a new clip, same timing); `method` = vid.stab or deshake. */

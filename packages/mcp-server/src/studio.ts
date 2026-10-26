@@ -138,6 +138,21 @@ export function registerStudioTools(server: Server, d: StudioDeps) {
   );
 
   server.registerTool(
+    "relink_media",
+    {
+      description:
+        "Desktop app: find the video's missing files (clips, sounds, the voice-over gone from the media folder, e.g. a project folder opened on another machine) in `folder` (absolute path, searched with its subfolders) by their original name and size, and copy them back in. Without `folder` it only lists what is missing.",
+      inputSchema: { folder: z.string().min(1).optional() },
+    },
+    d.guard(async ({ folder }: { folder?: string }) => {
+      const missing = await d.api().route<{ kind: string; name: string }[]>("GET", "/media/missing");
+      if (!folder) return d.text(missing.length ? `Missing: ${missing.map((m) => `${m.name} (${m.kind})`).join(", ")}.` : "Nothing is missing.");
+      const r = await d.api().route<{ relinked: string[]; missing: string[] }>("POST", "/media/relink", { folder });
+      return d.text(`${r.relinked.length ? `Relinked: ${r.relinked.join("; ")}.` : "Nothing relinked."}${r.missing.length ? ` Still missing: ${r.missing.join(", ")}.` : ""}`);
+    }),
+  );
+
+  server.registerTool(
     "remove_media",
     {
       description: "Take a sound or picture (m1…) out of the media pool. Layers that still use it keep working until you remove them.",

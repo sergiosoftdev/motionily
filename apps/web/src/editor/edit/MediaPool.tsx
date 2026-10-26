@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState, type DragEvent } from "react";
 import { MediaKind, type FootageClip, type MediaItem } from "@motionily/protocol";
 import { CleanMode, api, mediaUrl } from "../../api/client";
 import { engineHost } from "../../engine/host";
+import { invoke } from "@tauri-apps/api/core";
+import { desktop } from "../../desktop";
 import { useAgentName } from "../../agentName";
 import { LANGUAGES } from "../../footage/languages";
 import { ActivitySource, logActivity } from "../../store";
@@ -220,6 +222,7 @@ export function MediaPool({
         {(clips.error || pool.error || music.error) && <p className="px-1 text-xs text-red-400">{clips.error ?? pool.error ?? music.error}</p>}
       </div>
       <div className="flex flex-col gap-2 border-t border-white/[0.06] pt-2">
+        {desktop && project && <MissingMedia projectId={project.id} version={project.updatedAt} onRelinked={async () => ed.setProject(await api.project(project.id))} />}
         <ProxyToggle />
         <label className="flex items-center justify-between gap-2 px-1 text-[11px] text-neutral-500">
           Clips spoken in
@@ -371,5 +374,45 @@ function ProxyToggle() {
         className="accent-white"
       />
     </label>
+  );
+}
+
+/**
+ * Files the video uses that are gone from the media folder (moved, a project folder opened on another
+ * machine): relink them from a folder, matched by name and size.
+ */
+function MissingMedia({ projectId, version, onRelinked }: { projectId: string; version: string; onRelinked: () => Promise<void> }) {
+  const [missing, setMissing] = useState<{ name: string }[]>([]);
+  const [note, setNote] = useState<string | null>(null);
+  useEffect(() => {
+    void api.missingMedia(projectId).then(setMissing, () => setMissing([]));
+  }, [projectId, version]);
+  if (!missing.length && !note) return null;
+  const relink = async () => {
+    const folder = await invoke<string | null>("pick_folder", { title: "Where are the missing files?" });
+    if (!folder) return;
+    try {
+      const r = await api.relinkMedia(projectId, folder);
+      setNote(r.relinked.length ? `Relinked ${r.relinked.length}${r.missing.length ? `; still missing: ${r.missing.join(", ")}` : ""}.` : `None of them is in ${folder}.`);
+      setMissing(r.missing.map((name) => ({ name })));
+      if (r.relinked.length) await onRelinked();
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : String(e));
+    }
+  };
+  return (
+    <div className="flex flex-col gap-1 rounded-lg bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-200">
+      {missing.length > 0 && (
+        <span className="flex items-center justify-between gap-2">
+          <span className="truncate" title={missing.map((m) => m.name).join(", ")}>
+            {missing.length} {missing.length === 1 ? "file is" : "files are"} missing
+          </span>
+          <button type="button" onClick={() => void relink()} className="shrink-0 font-semibold hover:text-white">
+            Relink…
+          </button>
+        </span>
+      )}
+      {note && <span className="text-amber-100/80">{note}</span>}
+    </div>
   );
 }

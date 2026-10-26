@@ -293,6 +293,15 @@ fn viewer_hide() {
     });
 }
 
+/// The folder the user picks (None when they cancel): what the editor asks for to relink missing media.
+#[tauri::command]
+async fn pick_folder(app: tauri::AppHandle, title: String) -> Option<String> {
+    tauri::async_runtime::spawn_blocking(move || app.dialog().file().set_title(title).blocking_pick_folder()?.into_path().ok().map(|p| p.display().to_string()))
+        .await
+        .ok()
+        .flatten()
+}
+
 /// Writes a subtitle or timeline file next to the exports (`<Movies>/Motionily/<name>.<ext>`) and returns its path.
 #[tauri::command]
 fn save_side_file(app: tauri::AppHandle, name: String, kind: export::SideFile, contents: String) -> Result<String, String> {
@@ -388,7 +397,7 @@ pub fn run() {
             app.manage(Runtime(Mutex::new(api.ok())));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![engine_add_asset, engine_missing_assets, engine_audio_analysis, export_audio, export_video, export_cancel, save_side_file, reveal, viewer_supported, viewer_show, viewer_place, viewer_frame, viewer_hide, desktop_route])
+        .invoke_handler(tauri::generate_handler![engine_add_asset, engine_missing_assets, engine_audio_analysis, export_audio, export_video, export_cancel, save_side_file, reveal, viewer_supported, viewer_show, viewer_place, viewer_frame, viewer_hide, desktop_route, pick_folder])
         .build(tauri::generate_context!())
         .expect("error while building Motionily");
     app.run(|handle, event| {

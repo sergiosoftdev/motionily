@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { copyFile, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, extname, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
@@ -79,6 +79,35 @@ class CleanAudioDto {
   @IsIn(Object.values(CleanMode)) mode: CleanMode;
   /** 0..1 (default 0.5): how hard `denoise` works; `voice` mixes the original back in below 1. */
   @IsOptional() @IsNumber() @Min(0) @Max(1) strength?: number;
+}
+
+class RelinkDto {
+  /** A folder on this machine to look in (desktop app), searched with its subfolders. */
+  @IsString() @MinLength(1) @MaxLength(4000) folder: string;
+}
+
+/** How deep and how many files a relink search walks. */
+const RELINK_DEPTH = 8;
+const RELINK_FILES = 50_000;
+
+/** A file of the video that is not in the media folder any more. */
+type Missing = { kind: "clip" | "sound" | "voice"; id: string; name: string; file: string; size: number | null };
+
+/** Every file under `dir` (depth- and count-limited), with its size. */
+async function walk(dir: string, depth = 0, out: { path: string; name: string; size: number }[] = []) {
+  if (depth > RELINK_DEPTH || out.length >= RELINK_FILES) return out;
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  for (const e of entries) {
+    if (out.length >= RELINK_FILES) break;
+    if (e.name.startsWith(".")) continue;
+    const path = join(dir, e.name);
+    if (e.isDirectory()) await walk(path, depth + 1, out);
+    else if (e.isFile()) {
+      const st = await stat(path).catch(() => null);
+      if (st) out.push({ path, name: e.name.toLowerCase(), size: st.size });
+    }
+  }
+  return out;
 }
 
 class ProxyDto {
@@ -334,6 +363,53 @@ export class MediaPoolController {
     this.changed(user, id);
     const made = p.footage.at(-1)!;
     return { footage: made.id, url: `/media/${made.file}`, method: how };
+  }
+
+  /** The video's clips, sounds and voice-over whose files are gone from the media folder. */
+  @Get(":id/media/missing")
+  async missing(@CurrentUser() user: AuthUser, @Param("id") id: string): Promise<Missing[]> {
+    return this.missingOf(await this.projects.get(user.id, id));
+  }
+
+  private missingOf(project: Project): Missing[] {
+    const gone = (file: string) => !existsSync(join(MEDIA_DIR, file));
+    return [
+      ...(project.footage ?? []).filter((c) => gone(c.file)).map((c) => ({ kind: "clip" as const, id: c.id, name: c.name, file: c.file, size: c.size })),
+      ...(project.media ?? []).filter((m) => gone(m.file)).map((m) => ({ kind: "sound" as const, id: m.id, name: m.name, file: m.file, size: m.size })),
+      ...(project.audio && gone(project.audio.file) ? [{ kind: "voice" as const, id: "voice", name: project.audio.name, file: project.audio.file, size: null }] : []),
+    ];
+  }
+
+  /**
+   * Re-link missing files (desktop app): `folder` and its subfolders are searched for each one by its
+   * original name and size (size alone when the name changed but only one file of that size and kind
+   * matches); a match is copied back in under the name the video uses, so every layer works again.
+   */
+  @Post(":id/media/relink")
+  async relink(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: RelinkDto) {
+    poolWriter(user);
+    if (process.env.MOTIONILY_DESKTOP !== "1") throw new BadRequestException("relinking reads folders on this machine: it works in the desktop app");
+    if (!isAbsolute(dto.folder)) throw new BadRequestException("folder must be an absolute path");
+    const project = await this.projects.get(user.id, id);
+    const missing = this.missingOf(project);
+    if (!missing.length) return { relinked: [], missing: [] };
+    const files = await walk(dto.folder);
+    const relinked: string[] = [];
+    const still: string[] = [];
+    for (const m of missing) {
+      const ext = extname(m.file).toLowerCase();
+      const byName = files.filter((f) => f.name === m.name.toLowerCase() && (m.size == null || f.size === m.size));
+      const bySize = m.size != null ? files.filter((f) => f.size === m.size && extname(f.name) === ext) : [];
+      const hit = byName[0] ?? (bySize.length === 1 ? bySize[0] : undefined);
+      if (!hit) {
+        still.push(m.name);
+        continue;
+      }
+      await copyFile(hit.path, join(MEDIA_DIR, m.file));
+      relinked.push(`${m.name} ← ${hit.path}`);
+    }
+    if (relinked.length) BridgeHub.instance?.notifyProjectChanged(id);
+    return { relinked, missing: still };
   }
 
   /** Make (or remake) a clip's 540p preview proxy now; big clips get one on upload on their own. */

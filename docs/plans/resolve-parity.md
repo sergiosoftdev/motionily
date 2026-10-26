@@ -100,4 +100,5 @@ terminarlo, con su commit.
 - [x] 1.7 sincronizar audio por forma de onda (`sync_audio` / "Sync audio by waveform": envolventes + correlación normalizada ±30 s, refinado a muestra; 6,500 s exactos en la prueba con archivos reales)
 - [x] 4.1 cola de render: presets (`EXPORT_PRESETS`), cola secuencial en el editor (Export › Queue, insignia en el botón, cancelar), `queue_export`; probado con 2 renders seguidos
 - [x] 5.1 proxies 540p (H.264, GOP 0,5 s): automáticos al subir clips con lado largo > 1920, "Make proxy" en el pool, interruptor "Preview with proxies"; el preview web y el visor nativo los reproducen, los exports usan siempre los originales (comprobado)
-- [ ] Siguiente: 5.2–5.3 → 6 → 1.5–1.7 → 4.1 → 5.1–5.3 → 6
+- [x] 5.2 re-enlazar: `GET media/missing`, `POST media/relink` (escritorio; nombre original + tamaño, o tamaño único), aviso "N files are missing · Relink…" con selector de carpeta nativo (`pick_folder`), `relink_media`; test e2e
+- [ ] Siguiente: 5.3 → 6 → 1.5–1.7 → 4.1 → 5.1–5.3 → 6
