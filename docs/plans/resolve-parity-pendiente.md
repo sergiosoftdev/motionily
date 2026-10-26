@@ -74,5 +74,5 @@ Fase 0 · 1.1–1.4 · 2.1 scopes · 2.2 ruedas y curvas · 2.3 LUTs · 3.4 bus 
 - Tras cambiar ops del motor: `pnpm wasm`.
 - App empaquetada: `pnpm --filter @motionily/desktop build` → `target/release/bundle/macos/Motionily.app`, copiar a
   `/Applications` con la app cerrada.
-- La música del preview sigue siendo un `<audio>` por el bus con resincronización por deriva; si da tirones en
-  WebKit, pasarla a buffer como la voz (`apps/web/src/audio/voice.ts`).
+- El preview reproduce todo el sonido (voz, música, efectos, sonido de clips) desde buffers decodificados con el mismo
+  planificador que el export (`apps/web/src/audio/mix.ts`); el reloj de reproducción es el del audio que sale.
