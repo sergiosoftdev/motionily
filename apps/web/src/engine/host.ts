@@ -40,6 +40,15 @@ type LayerType = (typeof LayerType)[keyof typeof LayerType];
 const mediaSrc = (src: string) => (src.startsWith("/media/") ? mediaUrl(src) : src);
 
 /** A new video starts blank: the agent designs everything. */
+/** Per-viewer switch for preview proxies (on by default). */
+const PROXY_PREF = "motionily.proxies";
+function readProxyPref(): boolean {
+  try {
+    return localStorage.getItem(PROXY_PREF) !== "off";
+  } catch {
+    return true;
+  }
+}
 /** Quiet time after a soundtrack edit before it is rescheduled while playing. */
 const REMIX_MS = 150;
 const EMPTY_SCENE = JSON.stringify({ width: 1080, height: 1920, fps: 30, duration: 6, layers: [] });
@@ -128,7 +137,12 @@ class EngineHost {
   private audioAnalysis: Promise<void> = Promise.resolve();
   audioInfo: AudioAnalysisInfo | null = null;
   /** Video files (decoders shared with export engines), frames uploaded to this engine, clip sounds. */
-  private videos = new VideoLibrary(mediaSrc, () => this.draw());
+  private videos = new VideoLibrary((src) => this.previewSrc(src), () => this.draw());
+  /** The original files, for exports (the preview may play proxies instead). */
+  private originals = new VideoLibrary(mediaSrc);
+  /** Preview proxies by clip src, and whether the preview plays them. */
+  private proxies: Record<string, string> = {};
+  private useProxies = readProxyPref();
   private frames: FrameCache = new Map();
   private size: [number, number] = [1080, 1920];
 
@@ -188,7 +202,9 @@ class EngineHost {
     this.loop = false;
     void this.setAudio(null);
     this.videos.dispose();
-    this.videos = new VideoLibrary(mediaSrc, () => this.draw());
+    this.videos = new VideoLibrary((src) => this.previewSrc(src), () => this.draw());
+    this.originals.dispose();
+    this.originals = new VideoLibrary(mediaSrc);
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     this.engine?.free();
@@ -479,6 +495,49 @@ class EngineHost {
     this.draw();
   }
 
+  /** What the preview opens for a clip: its proxy when it has one (and proxies are on), else the file. */
+  private previewSrc(src: string): string {
+    return mediaSrc(this.useProxies ? (this.proxies[src] ?? src) : src);
+  }
+
+  /** Clip src → proxy src (from the project's footage); the preview reopens its clips when they change. */
+  setProxies(map: Record<string, string>) {
+    if (JSON.stringify(map) === JSON.stringify(this.proxies)) return;
+    this.proxies = map;
+    this.reopenPreviewClips();
+  }
+
+  /** Play proxies in the preview (a per-viewer choice; exports always use the originals). */
+  setUseProxies(on: boolean) {
+    if (on === this.useProxies) return;
+    this.useProxies = on;
+    try {
+      localStorage.setItem(PROXY_PREF, on ? "on" : "off");
+    } catch {
+      // Storage blocked: the choice lasts this session.
+    }
+    this.reopenPreviewClips();
+  }
+
+  get proxiesOn() {
+    return this.useProxies;
+  }
+
+  /** The scene for the desktop app's native viewer: clip sources swapped for their proxies (decoded by ffmpeg there). */
+  private viewerScene(): string {
+    let json = this.sceneJson();
+    if (!this.useProxies) return json;
+    for (const [src, proxy] of Object.entries(this.proxies)) json = json.split(JSON.stringify(src)).join(JSON.stringify(proxy));
+    return json;
+  }
+
+  private reopenPreviewClips() {
+    this.videos.dispose();
+    this.videos = new VideoLibrary((src) => this.previewSrc(src), () => this.draw());
+    this.frames = new Map();
+    this.draw();
+  }
+
   /** Resolves once the audio is analysed and every video file is open: export and agent renders wait for it. */
   async mediaReady() {
     await this.audioAnalysis;
@@ -488,7 +547,7 @@ class EngineHost {
 
   /** Video decoders, for export engines. */
   videoLibrary(): VideoLibrary {
-    return this.videos;
+    return this.originals;
   }
 
   /** The Edit timeline as FCPXML, OTIO or EDL, sources under `mediaRoot`, with the voice-over as a clip. */
@@ -570,7 +629,7 @@ class EngineHost {
     this.startMix(useEditor.getState().time);
     this.lastTick = performance.now();
     this.raf = requestAnimationFrame(this.tick);
-    if (this.canvas) void nativeViewer.start(this.canvas, this.sceneJson(), this, useEditor.getState().time);
+    if (this.canvas) void nativeViewer.start(this.canvas, this.viewerScene(), this, useEditor.getState().time);
   }
 
   pause() {
@@ -1117,7 +1176,7 @@ class EngineHost {
     this.syncMeta();
     // An edit of the soundtrack while playing: reschedule it from the playhead.
     if (useEditor.getState().playing && this.rate === 1 && this.mixState() !== this.mixKey) this.remixSoon();
-    if (nativeViewer.active) void nativeViewer.reload(this.sceneJson(), this, useEditor.getState().time);
+    if (nativeViewer.active) void nativeViewer.reload(this.viewerScene(), this, useEditor.getState().time);
     this.draw();
     void this.ensureModels();
     void this.ensureImages();

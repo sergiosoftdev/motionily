@@ -81,6 +81,11 @@ class CleanAudioDto {
   @IsOptional() @IsNumber() @Min(0) @Max(1) strength?: number;
 }
 
+class ProxyDto {
+  /** A clip of this video (`/media/…`). */
+  @IsString() @MinLength(1) @MaxLength(200) source: string;
+}
+
 class StabilizeDto {
   /** A clip of this video (`/media/…`, from list_media). */
   @IsString() @MinLength(1) @MaxLength(200) source: string;
@@ -329,6 +334,20 @@ export class MediaPoolController {
     this.changed(user, id);
     const made = p.footage.at(-1)!;
     return { footage: made.id, url: `/media/${made.file}`, method: how };
+  }
+
+  /** Make (or remake) a clip's 540p preview proxy now; big clips get one on upload on their own. */
+  @Post(":id/media/proxy")
+  async proxy(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: ProxyDto) {
+    poolWriter(user);
+    const project = await this.projects.get(user.id, id);
+    const clip = (project.footage ?? []).find((c) => `/media/${c.file}` === dto.source);
+    if (!clip) throw new BadRequestException(`${dto.source} is not a clip of this video`);
+    try {
+      return { proxy: `/media/${await this.projects.makeProxy(user.id, id, clip.id)}` };
+    } catch (e) {
+      throw new BadRequestException(`ffmpeg could not make the proxy: ${(e as { stderr?: string }).stderr?.trim() || String(e)}`);
+    }
   }
 
   /** A finished export from the browser editor, so the agent that asked for it gets a URL back. */

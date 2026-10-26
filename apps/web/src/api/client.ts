@@ -201,6 +201,8 @@ export const api = {
   projectMedia: (id: string) => call<MediaItem[]>(HttpMethod.Get, `/projects/${id}/media`),
   uploadMedia: (id: string, file: File) => upload<MediaItem>(`/projects/${id}/media`, file),
   removeMedia: (id: string, mediaId: string) => call<{ ok: true }>(HttpMethod.Delete, `/projects/${id}/media/${mediaId}`),
+  /** Make (or remake) a clip's 540p preview proxy. */
+  makeProxy: (id: string, source: string) => call<{ proxy: string }>(HttpMethod.Post, `/projects/${id}/media/proxy`, { source }),
   /** A stabilized copy of a clip (a new clip, same timing); `method` = vid.stab or deshake. */
   stabilize: (id: string, body: { source: string; strength?: number }) => call<{ footage: string; url: string; method: string }>(HttpMethod.Post, `/projects/${id}/media/stabilize`, body),
   /** A cleaned copy of a sound or clip (new pool sound), or of the voice-over (`source` "voice", replaced in place). */

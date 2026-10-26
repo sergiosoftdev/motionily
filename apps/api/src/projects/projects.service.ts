@@ -6,6 +6,8 @@ import { BrickSlot, SLOT_CARDINALITY, SlotCardinality } from "../bricks/brick.en
 import { Build, Feedback, FeedbackKind, Project, ProjectDocument, type AgentRunUsage, type FootageClip, type PostCopyDraft, type SunoPrompt } from "./project.schema";
 import type { AssetCredit } from "../assets/asset-types";
 import { removeMedia } from "../media";
+import { BridgeHub } from "../bridge-hub";
+import { createProxy, wantsProxy } from "./proxy";
 import type { CreateFeedbackDto, CreateProjectDto, SaveSceneDto, SetSlotDto, UpdateProjectDto } from "./projects.dto";
 import { VersionsService } from "./versions";
 
@@ -272,10 +274,34 @@ export class ProjectsService {
   async addFootage(ownerId: Types.ObjectId, id: string, clip: Omit<FootageClip, "id">) {
     const project = await this.get(ownerId, id);
     const taken = (project.footage ?? []).map((c) => Number(c.id.slice(1)) || 0);
-    project.footage = [...(project.footage ?? []), { id: `c${Math.max(0, ...taken) + 1}`, ...clip }];
+    const clipId = `c${Math.max(0, ...taken) + 1}`;
+    project.footage = [...(project.footage ?? []), { id: clipId, ...clip }];
     project.markModified("footage");
     await project.save();
+    // Big clips (4K…) get a light preview copy in the background.
+    if (!clip.proxy && wantsProxy(clip.width, clip.height)) void this.makeProxy(ownerId, id, clipId).catch(() => undefined);
     return project;
+  }
+
+  /** Make (or remake) a clip's preview proxy; the editors reload the video when it is ready. */
+  async makeProxy(ownerId: Types.ObjectId, id: string, clipId: string): Promise<string> {
+    const before = (await this.get(ownerId, id)).footage?.find((c) => c.id === clipId);
+    if (!before) throw new NotFoundException(`no clip '${clipId}' in this video`);
+    const proxy = await createProxy(before.file);
+    // Read again: the project may have changed while ffmpeg ran.
+    const project = await this.get(ownerId, id);
+    const clip = (project.footage ?? []).find((c) => c.id === clipId);
+    if (!clip) {
+      await removeMedia(proxy);
+      throw new NotFoundException(`clip '${clipId}' went away`);
+    }
+    const old = clip.proxy;
+    clip.proxy = proxy;
+    project.markModified("footage");
+    await project.save();
+    await removeMedia(old ?? undefined);
+    BridgeHub.instance?.notifyProjectChanged(id);
+    return proxy;
   }
 
   async setFootageWords(ownerId: Types.ObjectId, id: string, clipId: string, words: FootageClip["words"]) {

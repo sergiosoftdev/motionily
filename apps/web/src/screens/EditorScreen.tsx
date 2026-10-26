@@ -128,6 +128,11 @@ export function EditorScreen({ id }: { id: string }) {
     };
   }, []);
 
+  // Clips with a preview proxy play it in the preview (exports keep the originals).
+  useEffect(() => {
+    engineHost.setProxies(Object.fromEntries((project?.footage ?? []).filter((c) => c.proxy).map((c) => [c.url, c.proxy!])));
+  }, [project?.footage]);
+
   // The agent changed options or format: reload the project and re-apply them to the engine.
   useEffect(() => {
     agentBridge.onProjectChanged = () => {

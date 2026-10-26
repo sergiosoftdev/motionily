@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type DragEvent } from "react";
 import { MediaKind, type FootageClip, type MediaItem } from "@motionily/protocol";
 import { CleanMode, api, mediaUrl } from "../../api/client";
+import { engineHost } from "../../engine/host";
 import { useAgentName } from "../../agentName";
 import { LANGUAGES } from "../../footage/languages";
 import { ActivitySource, logActivity } from "../../store";
@@ -187,6 +188,15 @@ export function MediaPool({
                   onPick={onPick}
                   onRemove={e.source === "media" ? () => void pool.remove(e.item.id) : undefined}
                   onClean={(mode) => void pool.clean(e.source === "footage" ? e.clip.url : e.item.url, mode)}
+                  onProxy={
+                    e.source === "footage" && project
+                      ? () =>
+                          void api.makeProxy(project.id, e.clip.url).then(
+                            async () => ed.setProject(await api.project(project.id)),
+                            () => undefined,
+                          )
+                      : undefined
+                  }
                 />
               ))}
             </ul>
@@ -210,6 +220,7 @@ export function MediaPool({
         {(clips.error || pool.error || music.error) && <p className="px-1 text-xs text-red-400">{clips.error ?? pool.error ?? music.error}</p>}
       </div>
       <div className="flex flex-col gap-2 border-t border-white/[0.06] pt-2">
+        <ProxyToggle />
         <label className="flex items-center justify-between gap-2 px-1 text-[11px] text-neutral-500">
           Clips spoken in
           <select value={clips.language} onChange={(e) => clips.setLanguage(e.target.value)} className="rounded-md bg-neutral-950 px-2 py-1 text-[11px] text-neutral-200">
@@ -246,7 +257,8 @@ export function MediaPool({
   );
 }
 
-function Tile({ entry, used, music, onAdd, onRemove, onClean, picked, onPick }: { entry: PoolEntry; used: Set<string>; music: MusicUpload; onAdd: (d: PoolDrop) => void; onRemove?: () => void; onClean: (mode: CleanMode) => void; picked: boolean; onPick: (d: PoolDrop | null) => void }) {
+function Tile({ entry, used, music, onAdd, onRemove, onClean, onProxy, picked, onPick }: { entry: PoolEntry; used: Set<string>; music: MusicUpload; onAdd: (d: PoolDrop) => void; onRemove?: () => void; onClean: (mode: CleanMode) => void; onProxy?: () => void; picked: boolean; onPick: (d: PoolDrop | null) => void }) {
+  const [making, setMaking] = useState(false);
   const drop: PoolDrop = entry.source === "footage" ? { source: "footage", id: entry.clip.id } : { source: "media", id: entry.item.id };
   const url = entry.source === "footage" ? entry.clip.url : entry.item.url;
   const name = entry.source === "footage" ? entry.clip.name : entry.item.name;
@@ -280,6 +292,11 @@ function Tile({ entry, used, music, onAdd, onRemove, onClean, picked, onPick }: 
         )}
         {duration != null && <span className="absolute right-1 bottom-1 rounded bg-black/70 px-1 text-[10px] text-white tabular-nums">{mmss(duration)}</span>}
         {inEdit && <span className="absolute top-1 left-1 size-2 rounded-full bg-emerald-400 ring-2 ring-black/60" title="In the edit" />}
+        {entry.source === "footage" && entry.clip.proxy && (
+          <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1 text-[9px] font-semibold text-sky-200" title="Plays a light 540p proxy while editing; exports use the original">
+            PROXY
+          </span>
+        )}
         <span className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100">
           <button type="button" onClick={() => onAdd(drop)} title="Add at the playhead" aria-label={`Add ${name} at the playhead`} className="flex size-6 items-center justify-center rounded-full bg-white text-neutral-900">
             <Icon d={ICON.plus} className="size-3.5" />
@@ -293,6 +310,21 @@ function Tile({ entry, used, music, onAdd, onRemove, onClean, picked, onPick }: 
       </span>
       <span className="truncate px-0.5 text-[11px] text-neutral-300">{name}</span>
       {(isAudio || entry.source === "footage") && <CleanMenu onClean={onClean} />}
+      {onProxy && entry.source === "footage" && !entry.clip.proxy && (
+        <button
+          type="button"
+          disabled={making}
+          onClick={(e) => {
+            e.stopPropagation();
+            setMaking(true);
+            onProxy();
+          }}
+          className="self-start px-0.5 text-[10px] text-neutral-500 hover:text-white disabled:opacity-50"
+          title="A light 540p copy to play while editing (exports use the original)"
+        >
+          {making ? "Making proxy…" : "Make proxy"}
+        </button>
+      )}
       {isAudio && entry.source === "media" && (
         <button
           type="button"
@@ -320,5 +352,24 @@ function CleanMenu({ onClean, label = "Clean sound…" }: { onClean: (mode: Clea
       <option value={CleanMode.Denoise}>Reduce noise</option>
       <option value={CleanMode.Voice}>Isolate voice</option>
     </select>
+  );
+}
+
+/** Play clips' proxies while editing (per viewer; exports always use the originals). */
+function ProxyToggle() {
+  const [on, setOn] = useState(() => engineHost.proxiesOn);
+  return (
+    <label className="flex items-center justify-between gap-2 px-1 text-[11px] text-neutral-500" title="Big clips get a light 540p copy to play while editing; exports always use the originals">
+      Preview with proxies
+      <input
+        type="checkbox"
+        checked={on}
+        onChange={(e) => {
+          engineHost.setUseProxies(e.target.checked);
+          setOn(e.target.checked);
+        }}
+        className="accent-white"
+      />
+    </label>
   );
 }

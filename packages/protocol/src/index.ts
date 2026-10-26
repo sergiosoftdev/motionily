@@ -778,6 +778,8 @@ export type FootageClip = {
   id: string;
   name: string;
   url: string;
+  /** Preview proxy (540p copy) the editor plays instead of `url` while editing; exports use `url`. */
+  proxy?: string | null;
   mime: string;
   size: number;
   duration: number | null;

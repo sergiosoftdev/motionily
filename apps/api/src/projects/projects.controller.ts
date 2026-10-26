@@ -297,7 +297,7 @@ export class ProjectsController {
   async removeFootage(@CurrentUser() user: AuthUser, @Param("id") id: string, @Param("clipId") clipId: string) {
     userOnly(user);
     const { project, clip } = await this.projects.removeFootage(user.id, id, clipId);
-    await Promise.all([removeMedia(clip.file), removeMedia(clip.poster?.replace(/^\/media\//, ""))]);
+    await Promise.all([removeMedia(clip.file), removeMedia(clip.poster?.replace(/^\/media\//, "")), removeMedia(clip.proxy ?? undefined)]);
     return this.view(project);
   }
 
@@ -407,7 +407,7 @@ export class ProjectsController {
       music: p.music ? { url: `/media/${p.music.file}`, name: p.music.name, trimIn: p.music.trimIn ?? 0, summary: p.music.summary ?? null, duration: p.music.duration ?? null } : null,
       sunoPrompt: p.sunoPrompt ?? null,
       postCopy: p.postCopy ?? [],
-      footage: (p.footage ?? []).map((c) => ({ id: c.id, name: c.name, url: `/media/${c.file}`, mime: c.mime, size: c.size, duration: c.duration, width: c.width, height: c.height, poster: c.poster, language: c.language, words: c.words })),
+      footage: (p.footage ?? []).map((c) => ({ id: c.id, name: c.name, url: `/media/${c.file}`, mime: c.mime, size: c.size, duration: c.duration, width: c.width, height: c.height, poster: c.poster, language: c.language, words: c.words, proxy: c.proxy ? `/media/${c.proxy}` : null })),
       sceneRevision: p.sceneRevision,
       agentRuns: p.agentRuns ?? [],
       imageCredits: p.imageCredits ?? [],
