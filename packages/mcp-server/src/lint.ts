@@ -79,6 +79,27 @@ export function resolveColor(v: unknown, palette: Palette): string | null {
   return null;
 }
 
+/**
+ * A color value at layer time `lt`: animated lists (`[{t, c}]`) are followed between their keys (straight
+ * in RGB, which is close to what the eye reads), so a background that turns from dark to light is judged
+ * as it is when the text shows, not by its first key.
+ */
+export function colorAt(v: unknown, lt: number, palette: Palette): string | null {
+  if (!Array.isArray(v)) return resolveColor(v, palette);
+  const keys = (v as { t?: unknown; c?: unknown }[]).filter((k) => typeof k?.t === "number").sort((a, b) => (a.t as number) - (b.t as number));
+  if (!keys.length) return resolveColor(v, palette);
+  const after = keys.findIndex((k) => (k.t as number) > lt);
+  if (after <= 0) return resolveColor((after === 0 ? keys[0] : keys.at(-1))!.c, palette);
+  const [a, b] = [keys[after - 1]!, keys[after]!];
+  const [ca, cb] = [resolveColor(a.c, palette), resolveColor(b.c, palette)];
+  if (!ca || !cb) return ca ?? cb;
+  const k = (lt - (a.t as number)) / Math.max(1e-6, (b.t as number) - (a.t as number));
+  const [ra, ga, ba] = rgb(ca);
+  const [rb, gb, bb] = rgb(cb);
+  const mix = (x: number, y: number) => Math.round(x + (y - x) * k).toString(16).padStart(2, "0");
+  return `#${mix(ra, rb)}${mix(ga, gb)}${mix(ba, bb)}`;
+}
+
 const area = (x0: number, y0: number, x1: number, y1: number) => Math.max(0, x1 - x0) * Math.max(0, y1 - y0);
 
 /** Area of a screen box inside the frame. */
@@ -183,8 +204,10 @@ export function lintLayers({ layers, frames, palette, size }: LintInput): Issue[
       const [x0, y0, x1, y1] = row.screen;
       const total = area(x0, y0, x1, y1);
       const inside = insideArea(row, size);
-      // Entirely off screen is normal (waiting to enter); a box mostly past an edge is the bug.
-      if (total > 0 && inside > 0 && 1 - inside / total > OFF_SHARE) {
+      // Entirely off screen is normal (waiting to enter); a box mostly past an edge is the bug. A box as wide or as
+      // tall as the frame (a wall, a band, a backdrop) bleeds off it on purpose.
+      const bleeds = x1 - x0 >= w || y1 - y0 >= h;
+      if (total > 0 && inside > 0 && !bleeds && 1 - inside / total > OFF_SHARE) {
         const fields: Record<string, unknown> = {};
         if (typeof layer.x === "number" && !layer.parent) {
           if (x0 < 0) fields.x = +((layer.x as number) - x0).toFixed(1);
@@ -198,7 +221,8 @@ export function lintLayers({ layers, frames, palette, size }: LintInput): Issue[
       if (layer.type === "text") texts.push({ id, row });
       if (layer.type === "text" && !layer.gradient) {
         const fill = layer.fill ?? "primary";
-        const ink = resolveColor(fill, palette);
+        const localT = (l: Layer) => t - (typeof l.start === "number" ? l.start : 0);
+        const ink = colorAt(fill, localT(layer), palette);
         const cx = (x0 + x1) / 2;
         const cy = (y0 + y1) / 2;
         // What the text sits on: the topmost non-text layer behind it at its center, else the background.
@@ -210,7 +234,8 @@ export function lintLayers({ layers, frames, palette, size }: LintInput): Issue[
           const [bx0, by0, bx1, by1] = br.screen;
           if (cx >= bx0 && cx <= bx1 && cy >= by0 && cy <= by1 && (!behind || b.index > byId.get(behind.id)!.index)) behind = { id: bid, fill: b.layer.fill };
         }
-        const bgHex = behind ? resolveColor(behind.fill ?? "surface", palette) : hex6(palette.background);
+        const behindLayer = behind ? byId.get(behind.id)!.layer : null;
+        const bgHex = behind ? colorAt(behind.fill ?? "surface", localT(behindLayer!), palette) : hex6(palette.background);
         if (ink && bgHex) {
           const ratio = contrast(ink, bgHex);
           if (ratio < MIN_CONTRAST) {

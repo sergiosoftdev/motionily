@@ -32,7 +32,9 @@ fn main() {
     let fonts_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/web/public/fonts");
 
     let pixels = pollster::block_on(async {
-        let mut renderer = engine::Renderer::new_headless(scene.width, scene.height).await.expect("gpu adapter");
+        // STILL_SIZE=WxH renders at another output size (the native viewer draws at the preview's size).
+        let (w, h) = std::env::var("STILL_SIZE").ok().and_then(|v| v.split_once('x').map(|(a, b)| (a.parse().ok(), b.parse().ok()))).and_then(|(a, b)| Some((a?, b?))).unwrap_or((scene.width, scene.height));
+        let mut renderer = engine::Renderer::new_headless(w, h).await.expect("gpu adapter");
         renderer.set_supersample(args.get(4).map_or(1, |s| s.parse().expect("supersample 1 or 2")));
         for (family, weight, file) in FONTS {
             let bytes = std::fs::read(fonts_dir.join(file)).expect("read font");
@@ -48,18 +50,45 @@ fn main() {
                 }
             }
         }
-        load_media(&mut renderer, &json, &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/api/uploads"));
+        let uploads = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/api/uploads");
+        load_media(&mut renderer, &json, &uploads);
+        load_video_frames(&mut renderer, &scene, t, &uploads);
         for (id, why) in renderer.shader_failures(&scene) {
             eprintln!("shader on '{id}' draws nothing: {why}");
         }
         renderer.render_rgba(&scene, t)
     });
 
-    let mut encoder = png::Encoder::new(BufWriter::new(File::create(&args[3]).expect("create png")), scene.width, scene.height);
+    let (w, h) = std::env::var("STILL_SIZE").ok().and_then(|v| v.split_once('x').map(|(a, b)| (a.parse().ok(), b.parse().ok()))).and_then(|(a, b)| Some((a?, b?))).unwrap_or((scene.width, scene.height));
+    let mut encoder = png::Encoder::new(BufWriter::new(File::create(&args[3]).expect("create png")), w, h);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
     encoder.write_header().expect("png header").write_image_data(&pixels).expect("png data");
     println!("{} ({}x{}, t={t}s)", args[3], scene.width, scene.height);
+}
+
+/// Video layers: each frame the render needs, decoded by the ffmpeg on PATH as the desktop app does
+/// (RGBA at the file's own size), so a still shows clips the way the native viewer and exporter do.
+fn load_video_frames(renderer: &mut engine::Renderer, scene: &scene::Scene, t: f32, uploads: &Path) {
+    for need in scene.video_frames(t) {
+        let file = uploads.join(need.src.trim_start_matches("/media/"));
+        let probe = std::process::Command::new("ffprobe")
+            .args(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "csv=p=0"])
+            .arg(&file)
+            .output()
+            .expect("run ffprobe");
+        let dims = String::from_utf8_lossy(&probe.stdout);
+        let mut wh = dims.trim().split(',').map(|v| v.parse::<u32>().expect("video size"));
+        let (w, h) = (wh.next().expect("width"), wh.next().expect("height"));
+        let out = std::process::Command::new("ffmpeg")
+            .args(["-v", "error", "-ss", &format!("{:.4}", need.time), "-i"])
+            .arg(&file)
+            .args(["-frames:v", "1", "-vf", &format!("scale={w}:{h}"), "-f", "rawvideo", "-pix_fmt", "rgba", "-"])
+            .output()
+            .expect("run ffmpeg");
+        assert_eq!(out.stdout.len(), (w * h * 4) as usize, "frame of {} at {}s", need.src, need.time);
+        renderer.add_video_frame(&need.key, &out.stdout, w, h);
+    }
 }
 
 /// Image layers name their file as `/media/<name>`; the web host decodes those from the API's upload folder
@@ -71,7 +100,7 @@ fn load_media(renderer: &mut engine::Renderer, json: &str, uploads: &Path) {
         let end = tail.find('"').expect("closing quote of media src");
         let src = &tail[..end];
         rest = &tail[end..];
-        if renderer.has_image(src) {
+        if renderer.has_image(src) || !src.ends_with(".png") {
             continue;
         }
         let file = uploads.join(src.trim_start_matches("/media/"));

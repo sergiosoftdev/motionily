@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { contrast, formatIssues, lintLayers, readableOn, resolveColor, type Layer, type Palette, detachedChildren } from "../src/lint.js";
+import { colorAt, contrast, formatIssues, lintLayers, readableOn, resolveColor, type Layer, type Palette, detachedChildren } from "../src/lint.js";
 import type { FrameLayout, LayoutRow } from "@motionily/protocol";
 
 const palette: Palette = { background: "#fbf7fb", surface: "#ffffff", primary: "#0f1733", accent: "#ffb347", text: "#0f1733" };
@@ -80,4 +80,25 @@ test("a child written in scene coordinates is reported, a hand at the end of its
   assert.equal(detachedChildren([arm, { id: "hand_l", type: "shape", parent: "arm_l", w: 70, h: 70, x: 0, y: 115 }]).length, 0);
   // Camera and pivot nulls: children far from a 1 px parent are the point.
   assert.equal(detachedChildren([{ id: "rig", type: "shape", w: 1, h: 1 }, { id: "far", type: "shape", parent: "rig", w: 100, h: 100, x: 900, y: 0 }]).length, 0);
+});
+
+test("a wall or band as big as the frame bleeds off it without an off-frame fix", () => {
+  const layers: Layer[] = [{ id: "wall", type: "video", x: 540, y: 1242 }, { id: "band", type: "shape", x: 540, y: 1900, w: 1500, h: 300 }];
+  const f = frame(1, [row("wall", [0, 0, 1080, 2484]), row("band", [-210, 1750, 1290, 2050])]);
+  assert.equal(lintLayers({ layers, frames: [f], palette, size }).filter((i) => i.kind === "off_frame").length, 0);
+});
+
+test("contrast reads an animated background at the text's time, not its first key", () => {
+  assert.equal(colorAt([{ t: 0, c: "#000000" }, { t: 2, c: "#ffffff" }], 1, palette), "#808080");
+  assert.equal(colorAt([{ t: 0, c: "#000000" }, { t: 2, c: "#ffffff" }], 5, palette), "#ffffff");
+  // The backdrop starts dark and turns light by 2 s; dark text shows at 3 s: it reads.
+  const layers: Layer[] = [
+    { id: "bg", type: "shape", start: 0, fill: [{ t: 0, c: "#0f1733" }, { t: 2, c: "#fbf7fb" }] },
+    { id: "title", type: "text", start: 2.5, fill: "#0f1733", size: 80 },
+  ];
+  const f = frame(3, [row("bg", [0, 0, 1080, 1920]), row("title", [100, 800, 980, 900], { ink: true })]);
+  assert.equal(lintLayers({ layers, frames: [f], palette, size }).filter((i) => i.kind === "low_contrast").length, 0);
+  // At 0.5 s the same text would sit on the dark start.
+  const early = frame(0.5, [row("bg", [0, 0, 1080, 1920]), row("title", [100, 800, 980, 900], { ink: true })]);
+  assert.equal(lintLayers({ layers: [layers[0]!, { ...layers[1]!, start: 0 }], frames: [early], palette, size }).filter((i) => i.kind === "low_contrast").length, 1);
 });

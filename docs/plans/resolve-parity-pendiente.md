@@ -60,11 +60,13 @@ Fase 0 · 1.1–1.4 · 2.1 scopes · 2.2 ruedas y curvas · 2.3 LUTs · 3.4 bus 
 - 6.2 Caché de render en segundo plano para tramos pesados.
 
 ## Bugs vistos
-- Motor nativo (visor de escritorio y export nativo): una capa de vídeo más alta que el cuadro (p. ej. 1080×2484 en
-  9:16) se dibuja cortada abajo con cámara (franja con otro encuadre). El motor web lo pinta bien. Esquivado en el vídeo
-  "Every AI Video Looks the Same" con un muro de 1080×1920; arreglar en el motor nativo (cf. el bug de texto >1920 px).
-- El lint auto-corrige capas que salen del cuadro a propósito (muros, bandas) y colores sobre fondos con keys de color
-  (lee el primer color): debería respetar capas mayores que el cuadro y evaluar el fondo en el instante del texto.
+- Motor nativo y capa de vídeo más alta que el cuadro (1080×2484 en 9:16) con cámara: NO se reproduce (2026-10-26) con
+  la escena real de "Never The Same Twice" (versión con el muro 1080×2484 y su archivo) renderizada en nativo con el
+  ejemplo `still` (ahora decodifica vídeo con ffmpeg como el escritorio; `STILL_SIZE=WxH` para el tamaño del visor), a
+  tamaño de escena y de visor, en varios tiempos; ni con decodificación por hardware. Si vuelve a verse, apuntar el
+  tiempo exacto y el tamaño de la ventana.
+- Lint: corregido (2026-10-26). Las capas tan anchas o altas como el cuadro (muros, bandas, fondos) ya no se dan por
+  "off frame", y el contraste lee los colores animados en el instante del texto (`colorAt`), no su primera clave.
 
 ## Notas técnicas
 - La API local (3100) corre desde `apps/api/dist`; su `tsc -w` se queda colgado: recompilar con
