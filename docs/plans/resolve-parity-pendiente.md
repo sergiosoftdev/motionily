@@ -4,6 +4,13 @@ Plan completo y reglas en [resolve-parity.md](resolve-parity.md) (cada punto: op
 `docs/agent` + test + prueba real; commit por punto en `main`).
 
 ## Hecho
+Todo el plan salvo lo marcado abajo (ver Estado en resolve-parity.md, 2026-10-26).
+
+## Queda
+- 6.1 Windows: implementado y compilado, sin probar en Windows. Linux: sin visor nativo.
+- 2.4: revisar a mano en la app de escritorio la pestaña Color › Window (no se pudo con la pantalla bloqueada).
+
+## Histórico (2026-10-25)
 Fase 0 · 1.1–1.4 · 2.1 scopes · 2.2 ruedas y curvas · 2.3 LUTs · 3.4 bus master y normalizar · 4.2–4.6 · 5.4 versiones.
 2.4 ventanas: hecho (0fdf003) salvo la prueba del tracking.
 

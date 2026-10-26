@@ -213,10 +213,19 @@ thread_local! {
     static VIEWER: std::cell::RefCell<Option<viewer::Viewer>> = const { std::cell::RefCell::new(None) };
 }
 
-/// Whether this system has the native playback viewer (macOS for now).
+/// Whether this system has the native playback viewer (macOS and Windows).
 #[tauri::command]
 fn viewer_supported() -> bool {
     viewer::Viewer::SUPPORTED
+}
+
+/// The window's native content view the viewer goes on: its NSView (macOS) or HWND (Windows).
+#[cfg(any(target_os = "macos", windows))]
+fn content_view(window: &tauri::WebviewWindow) -> Result<*mut std::ffi::c_void, String> {
+    #[cfg(target_os = "macos")]
+    return window.ns_view().map_err(|e| e.to_string());
+    #[cfg(windows)]
+    return window.hwnd().map(|h| h.0 as *mut std::ffi::c_void).map_err(|e| e.to_string());
 }
 
 /// Puts the viewer over the preview canvas at `rect` with `scene_json` loaded and its frame at `t`
@@ -224,7 +233,7 @@ fn viewer_supported() -> bool {
 #[tauri::command]
 #[allow(unused_variables)]
 async fn viewer_show(app: tauri::AppHandle, window: tauri::WebviewWindow, native: tauri::State<'_, Native>, rect: viewer::Rect, scene_json: String, t: f32) -> Result<String, String> {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     {
         let (tools, resolver, assets) = (native.tools.clone(), native.resolver(), native.assets.clone());
         let (tx, rx) = std::sync::mpsc::channel();
@@ -232,7 +241,7 @@ async fn viewer_show(app: tauri::AppHandle, window: tauri::WebviewWindow, native
             let made = VIEWER.with(|v| -> Result<(viewer::Worker, String), String> {
                 let mut v = v.borrow_mut();
                 if v.is_none() {
-                    let content = window.ns_view().map_err(|e| e.to_string())?;
+                    let content = content_view(&window)?;
                     *v = Some(viewer::Viewer::new(content, rect, ffmpeg::Clips::new(tools, resolver), assets)?);
                 }
                 let viewer = v.as_mut().expect("created above");
@@ -255,7 +264,7 @@ async fn viewer_show(app: tauri::AppHandle, window: tauri::WebviewWindow, native
         eprintln!("[motionily] native viewer on {adapter} at {:.0}x{:.0}@{}x", rect.width, rect.height, rect.scale);
         Ok(adapter)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", windows)))]
     Err("the native viewer is not available on this system".into())
 }
 
@@ -263,7 +272,7 @@ async fn viewer_show(app: tauri::AppHandle, window: tauri::WebviewWindow, native
 #[tauri::command]
 #[allow(unused_variables)]
 fn viewer_place(rect: viewer::Rect) {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     VIEWER.with(|v| {
         if let Some(v) = v.borrow_mut().as_mut() {
             v.place(rect);
@@ -275,7 +284,7 @@ fn viewer_place(rect: viewer::Rect) {
 #[tauri::command]
 #[allow(unused_variables)]
 fn viewer_frame(t: f32) {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     VIEWER.with(|v| {
         if let Some(v) = v.borrow().as_ref() {
             v.worker().frame(t);
@@ -285,7 +294,7 @@ fn viewer_frame(t: f32) {
 
 #[tauri::command]
 fn viewer_hide() {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", windows))]
     VIEWER.with(|v| {
         if let Some(v) = v.borrow().as_ref() {
             v.set_hidden(true);

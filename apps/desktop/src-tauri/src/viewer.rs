@@ -1,7 +1,11 @@
-//! Native playback viewer (macOS): while the editor plays, a Metal-backed view sits exactly over the
-//! preview canvas and the native engine draws each frame (full resolution, clips decoded by ffmpeg).
-//! It lets every click through to the web editor underneath. Paused, it hides and the editor's own
-//! canvas (with its gizmos and selection) is back. Other systems keep the editor's WebGPU canvas.
+//! Native playback viewer: while the editor plays, a native view sits exactly over the preview canvas
+//! and the native engine draws each frame (full resolution, clips decoded by ffmpeg). It lets every
+//! click through to the web editor underneath. Paused, it hides and the editor's own canvas (with its
+//! gizmos and selection) is back.
+//!
+//! macOS: a layer-backed NSView over the webview (Metal). Windows: a disabled child window over the
+//! WebView2 (Direct3D 12; disabled windows take no mouse input, so clicks reach the editor). Other
+//! systems keep the editor's WebGPU canvas.
 //!
 //! The view belongs to the main thread; decoding and drawing run on the viewer's own thread, so a
 //! heavy frame never stalls the window (and the web editor in it). Frames asked for while one draws
@@ -20,55 +24,31 @@ pub struct Rect {
     pub scale: f64,
 }
 
-#[cfg(target_os = "macos")]
-pub use mac::{Viewer, Worker};
+#[cfg(any(target_os = "macos", windows))]
+pub use native::{Viewer, Worker};
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", windows)))]
 pub struct Viewer;
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", windows)))]
 impl Viewer {
     pub const SUPPORTED: bool = false;
 }
 
-#[cfg(target_os = "macos")]
-mod mac {
-    use std::ptr::NonNull;
+/// Physical size of a CSS rect.
+#[cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
+fn physical(r: Rect) -> (u32, u32) {
+    (((r.width * r.scale).round() as u32).max(1), ((r.height * r.scale).round() as u32).max(1))
+}
+
+#[cfg(any(target_os = "macos", windows))]
+mod native {
     use std::sync::mpsc::{self, Receiver, Sender};
     use std::sync::{Arc, Mutex};
 
-    use objc2::rc::Retained;
-    use objc2::runtime::AnyObject;
-    use objc2::{define_class, msg_send, MainThreadMarker, MainThreadOnly};
-    use objc2_app_kit::NSView;
-    use objc2_foundation::{NSPoint, NSRect, NSSize};
-    use raw_window_handle::{AppKitDisplayHandle, AppKitWindowHandle, RawDisplayHandle, RawWindowHandle};
-
-    use super::Rect;
+    use super::{physical, platform, Rect};
     use crate::assets::Assets;
     use crate::ffmpeg::Clips;
-
-    define_class!(
-        // A plain layer-backed view that is invisible to the mouse: clicks reach the webview below.
-        #[unsafe(super(NSView))]
-        #[thread_kind = MainThreadOnly]
-        #[name = "MotionilyViewerView"]
-        struct PassthroughView;
-
-        impl PassthroughView {
-            #[unsafe(method(hitTest:))]
-            fn hit_test(&self, _point: NSPoint) -> *mut NSView {
-                std::ptr::null_mut()
-            }
-        }
-    );
-
-    impl PassthroughView {
-        fn new(mtm: MainThreadMarker, frame: NSRect) -> Retained<Self> {
-            let this = Self::alloc(mtm).set_ivars(());
-            unsafe { msg_send![super(this), initWithFrame: frame] }
-        }
-    }
 
     /// What the main thread asks the viewer's thread to do.
     enum Command {
@@ -97,7 +77,7 @@ mod mac {
     }
 
     pub struct Viewer {
-        view: Retained<PassthroughView>,
+        view: platform::View,
         worker: Worker,
         adapter: String,
         /// Physical size the surface is configured at.
@@ -107,21 +87,10 @@ mod mac {
     impl Viewer {
         pub const SUPPORTED: bool = true;
 
-        /// Adds the view on top of the window's content view and starts its thread with a renderer on it.
-        /// `content` is the window's NSView (tauri's `ns_view()`). Main thread only.
+        /// Adds the view over the window's content and starts its thread with a renderer on it. `content`
+        /// is the window's NSView (macOS) or HWND (Windows). Main thread only.
         pub fn new(content: *mut std::ffi::c_void, rect: Rect, clips: Clips, assets: Arc<Mutex<Assets>>) -> Result<Self, String> {
-            let mtm = MainThreadMarker::new().ok_or("the viewer must be created on the main thread")?;
-            let content: &NSView = unsafe { (content as *const NSView).as_ref() }.ok_or("no content view")?;
-            let view = PassthroughView::new(mtm, frame_in(content, rect));
-            view.setWantsLayer(true);
-            view.setHidden(true);
-            content.addSubview(&view);
-
-            let ptr = NonNull::new(Retained::as_ptr(&view) as *mut std::ffi::c_void).ok_or("null view")?;
-            let target = wgpu::SurfaceTargetUnsafe::RawHandle {
-                raw_display_handle: Some(RawDisplayHandle::AppKit(AppKitDisplayHandle::new())),
-                raw_window_handle: RawWindowHandle::AppKit(AppKitWindowHandle::new(ptr)),
-            };
+            let (view, target) = platform::View::new(content, rect)?;
             let instance = wgpu::Instance::default();
             let surface = unsafe { instance.create_surface_unsafe(target) }.map_err(|e| e.to_string())?;
             let size = physical(rect);
@@ -154,9 +123,7 @@ mod mac {
 
         /// Follows the canvas (layout changes, window resizes, zoom).
         pub fn place(&mut self, rect: Rect) {
-            if let Some(content) = unsafe { self.view.superview() } {
-                self.view.setFrame(frame_in(&content, rect));
-            }
+            self.view.place(rect);
             let size = physical(rect);
             if size != self.size {
                 self.size = size;
@@ -165,13 +132,7 @@ mod mac {
         }
 
         pub fn set_hidden(&self, hidden: bool) {
-            self.view.setHidden(hidden);
-        }
-    }
-
-    impl Drop for Viewer {
-        fn drop(&mut self) {
-            self.view.removeFromSuperview();
+            self.view.set_hidden(hidden);
         }
     }
 
@@ -248,9 +209,78 @@ mod mac {
             self.renderer.render(scene, t);
         }
     }
+}
 
-    fn physical(r: Rect) -> (u32, u32) {
-        (((r.width * r.scale).round() as u32).max(1), ((r.height * r.scale).round() as u32).max(1))
+#[cfg(target_os = "macos")]
+mod platform {
+    use std::ptr::NonNull;
+
+    use objc2::rc::Retained;
+    use objc2::runtime::AnyObject;
+    use objc2::{define_class, msg_send, MainThreadMarker, MainThreadOnly};
+    use objc2_app_kit::NSView;
+    use objc2_foundation::{NSPoint, NSRect, NSSize};
+    use raw_window_handle::{AppKitDisplayHandle, AppKitWindowHandle, RawDisplayHandle, RawWindowHandle};
+
+    use super::Rect;
+
+    define_class!(
+        // A plain layer-backed view that is invisible to the mouse: clicks reach the webview below.
+        #[unsafe(super(NSView))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "MotionilyViewerView"]
+        struct PassthroughView;
+
+        impl PassthroughView {
+            #[unsafe(method(hitTest:))]
+            fn hit_test(&self, _point: NSPoint) -> *mut NSView {
+                std::ptr::null_mut()
+            }
+        }
+    );
+
+    impl PassthroughView {
+        fn new(mtm: MainThreadMarker, frame: NSRect) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(());
+            unsafe { msg_send![super(this), initWithFrame: frame] }
+        }
+    }
+
+    /// The viewer's NSView on top of the window's content view.
+    pub struct View(Retained<PassthroughView>);
+
+    impl View {
+        /// `content` is the window's NSView (tauri's `ns_view()`). Main thread only.
+        pub fn new(content: *mut std::ffi::c_void, rect: Rect) -> Result<(Self, wgpu::SurfaceTargetUnsafe), String> {
+            let mtm = MainThreadMarker::new().ok_or("the viewer must be created on the main thread")?;
+            let content: &NSView = unsafe { (content as *const NSView).as_ref() }.ok_or("no content view")?;
+            let view = PassthroughView::new(mtm, frame_in(content, rect));
+            view.setWantsLayer(true);
+            view.setHidden(true);
+            content.addSubview(&view);
+            let ptr = NonNull::new(Retained::as_ptr(&view) as *mut std::ffi::c_void).ok_or("null view")?;
+            let target = wgpu::SurfaceTargetUnsafe::RawHandle {
+                raw_display_handle: Some(RawDisplayHandle::AppKit(AppKitDisplayHandle::new())),
+                raw_window_handle: RawWindowHandle::AppKit(AppKitWindowHandle::new(ptr)),
+            };
+            Ok((Self(view), target))
+        }
+
+        pub fn place(&self, rect: Rect) {
+            if let Some(content) = unsafe { self.0.superview() } {
+                self.0.setFrame(frame_in(&content, rect));
+            }
+        }
+
+        pub fn set_hidden(&self, hidden: bool) {
+            self.0.setHidden(hidden);
+        }
+    }
+
+    impl Drop for View {
+        fn drop(&mut self) {
+            self.0.removeFromSuperview();
+        }
     }
 
     /// CSS rect (top-left origin) to the content view's coordinates (bottom-left unless flipped).
@@ -259,5 +289,77 @@ mod mac {
         let flipped: bool = unsafe { msg_send![content as &AnyObject, isFlipped] };
         let y = if flipped { r.y } else { h - r.y - r.height };
         NSRect::new(NSPoint::new(r.x, y), NSSize::new(r.width, r.height))
+    }
+}
+
+#[cfg(windows)]
+mod platform {
+    use std::num::NonZeroIsize;
+
+    use raw_window_handle::{RawDisplayHandle, RawWindowHandle, Win32WindowHandle, WindowsDisplayHandle};
+    use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DefWindowProcW, DestroyWindow, RegisterClassW, SetWindowPos, ShowWindow, HWND_TOP, SWP_NOACTIVATE, SW_HIDE, SW_SHOWNA, WNDCLASSW, WS_CHILD, WS_CLIPSIBLINGS, WS_DISABLED,
+    };
+
+    use super::{physical, Rect};
+
+    const CLASS: &[u16] = &[b'M' as u16, b'o' as u16, b't' as u16, b'i' as u16, b'o' as u16, b'n' as u16, b'i' as u16, b'l' as u16, b'y' as u16, b'V' as u16, b'i' as u16, b'e' as u16, b'w' as u16, 0];
+
+    unsafe extern "system" fn proc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESULT {
+        unsafe { DefWindowProcW(hwnd, msg, w, l) }
+    }
+
+    /// A disabled child window over the WebView2: disabled windows take no mouse input (Windows' hit
+    /// testing passes over them), so every click reaches the editor below.
+    pub struct View(HWND);
+
+    impl View {
+        /// `content` is the window's HWND (tauri's `hwnd()`). Main thread only.
+        pub fn new(content: *mut std::ffi::c_void, rect: Rect) -> Result<(Self, wgpu::SurfaceTargetUnsafe), String> {
+            let parent = content as HWND;
+            unsafe {
+                let instance = GetModuleHandleW(std::ptr::null());
+                let class = WNDCLASSW { lpfnWndProc: Some(proc), hInstance: instance, lpszClassName: CLASS.as_ptr(), ..std::mem::zeroed() };
+                // A second registration fails harmlessly (the class exists).
+                RegisterClassW(&class);
+                let (x, y, w, h) = pixels(rect);
+                let hwnd = CreateWindowExW(0, CLASS.as_ptr(), std::ptr::null(), WS_CHILD | WS_CLIPSIBLINGS | WS_DISABLED, x, y, w, h, parent, std::ptr::null_mut(), instance, std::ptr::null());
+                if hwnd.is_null() {
+                    return Err("could not create the viewer window".into());
+                }
+                let handle = NonZeroIsize::new(hwnd as isize).ok_or("null window")?;
+                let mut win = Win32WindowHandle::new(handle);
+                win.hinstance = NonZeroIsize::new(instance as isize);
+                let target = wgpu::SurfaceTargetUnsafe::RawHandle { raw_display_handle: Some(RawDisplayHandle::Windows(WindowsDisplayHandle::new())), raw_window_handle: RawWindowHandle::Win32(win) };
+                Ok((Self(hwnd), target))
+            }
+        }
+
+        pub fn place(&self, rect: Rect) {
+            let (x, y, w, h) = pixels(rect);
+            // On top of the webview's own child windows, without taking focus.
+            unsafe { SetWindowPos(self.0, HWND_TOP, x, y, w, h, SWP_NOACTIVATE) };
+        }
+
+        pub fn set_hidden(&self, hidden: bool) {
+            unsafe { ShowWindow(self.0, if hidden { SW_HIDE } else { SW_SHOWNA }) };
+            if !hidden {
+                unsafe { SetWindowPos(self.0, HWND_TOP, 0, 0, 0, 0, SWP_NOACTIVATE | windows_sys::Win32::UI::WindowsAndMessaging::SWP_NOMOVE | windows_sys::Win32::UI::WindowsAndMessaging::SWP_NOSIZE) };
+            }
+        }
+    }
+
+    impl Drop for View {
+        fn drop(&mut self) {
+            unsafe { DestroyWindow(self.0) };
+        }
+    }
+
+    /// CSS rect to the parent's client area in physical pixels (child windows are placed in pixels).
+    fn pixels(r: Rect) -> (i32, i32, i32, i32) {
+        let (w, h) = physical(r);
+        ((r.x * r.scale).round() as i32, (r.y * r.scale).round() as i32, w as i32, h as i32)
     }
 }
