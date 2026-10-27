@@ -37,6 +37,9 @@ struct Params {
     curve: array<vec4<f32>, 12>,
     // LUT mix (x; 0 = none), input transform (y: 1 Apple Log, 2 S-Log3, 3 V-Log, 4 Canon Log 3). The cube is group 1.
     lut: vec4<f32>,
+    // Keyer: mode (0 none, 1 chroma, 2 luma), tolerance, softness, spill; key color (rgb) and invert (w).
+    key: vec4<f32>,
+    key_color: vec4<f32>,
 };
 
 @group(0) @binding(0) var src: texture_2d<f32>;
@@ -221,6 +224,40 @@ fn lum_of(c: vec4<f32>) -> f32 {
     return dot(select(vec3(0.0), c.rgb / c.a, c.a > 1e-5), vec3(0.2126, 0.7152, 0.0722));
 }
 
+/// Chroma (Cb, Cr) of an RGB color, BT.709.
+fn chroma_of(rgb: vec3<f32>) -> vec2<f32> {
+    let y = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+    return vec2((rgb.b - y) / 1.8556, (rgb.r - y) / 1.5748);
+}
+
+/// The keyer on a premultiplied pixel: chroma keys out what is near the key color in chroma (and
+/// takes the key color's spill out of what stays); luma keys out what is darker than the threshold.
+fn key_out(c: vec4<f32>) -> vec4<f32> {
+    var rgb = c.rgb / c.a;
+    let tolerance = p.key.y;
+    let soft = max(p.key.z, 0.001);
+    var keep: f32;
+    if (p.key.x < 1.5) {
+        let ck = chroma_of(p.key_color.rgb);
+        let cp = chroma_of(rgb);
+        keep = smoothstep(tolerance, tolerance + soft, distance(cp, ck));
+        // Spill: the part of the pixel's chroma that points at the key color, taken out (luma kept).
+        let dir = select(vec2(0.0), normalize(ck), length(ck) > 1e-4);
+        let toward = max(dot(cp, dir), 0.0) * p.key.w;
+        let fixed = cp - dir * toward;
+        let y = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+        rgb = vec3(y + 1.5748 * fixed.y, y - 0.1873 * fixed.x - 0.4681 * fixed.y, y + 1.8556 * fixed.x);
+    } else {
+        let y = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+        keep = smoothstep(tolerance - soft * 0.5, tolerance + soft * 0.5, y);
+    }
+    if (p.key_color.w > 0.5) {
+        keep = 1.0 - keep;
+    }
+    let a = c.a * keep;
+    return vec4(clamp(rgb, vec3(0.0), vec3(1.0)) * a, a);
+}
+
 @fragment
 fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
     let mode = i32(p.a.x + 0.5);
@@ -252,6 +289,9 @@ fn fs_composite(in: VsOut) -> @location(0) vec4<f32> {
         let r = sample_in(uv + vec2(p.warp.w, 0.0));
         let b = sample_in(uv - vec2(p.warp.w, 0.0));
         c = vec4(r.r, c.g, b.b, max(c.a, max(r.a, b.a)));
+    }
+    if (mode == 0 && p.key.x > 0.5 && c.a > 0.0) {
+        c = key_out(c);
     }
     let wheels = any(p.lift != vec4(0.0)) || any(p.gamma != vec4(0.0)) || any(p.gain != vec4(0.0)) || any(p.offset != vec4(0.0));
     let curves = any(p.curve_n != vec4(0.0));

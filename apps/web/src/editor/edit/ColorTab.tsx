@@ -3,6 +3,7 @@ import { OpName, type MediaItem } from "@motionily/protocol";
 import { engineHost } from "../../engine/host";
 import { useEditor } from "../../store";
 import { ColorSection } from "./ColorSection";
+import { KeySection } from "./KeySection";
 import { Scopes } from "./ScopesPanel";
 import type { EditActions } from "./useEditActions";
 import { trackWindow } from "./windowTrack";
@@ -82,6 +83,7 @@ export function ColorTab({ clipId, allClipIds, edits, luts }: { clipId: string; 
         </button>
       </div>
       {current && <WindowControls win={current} edits={edits} />}
+      {target === clipId && <KeySection key={`key-${clipId}`} clipId={clipId} edits={edits} />}
       <ColorSection key={target} clipId={target} allClipIds={target === clipId ? allClipIds : []} edits={edits} luts={luts} />
     </div>
   );

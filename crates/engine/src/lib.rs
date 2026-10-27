@@ -1090,6 +1090,7 @@ fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, glass: &mut GlassPass, s
     let mut warp = [0.0f32; 4];
     let mut grain = [0.0f32; 4];
     let mut turb = [0.0f32; 4];
+    let (mut key, mut key_color) = ([0.0f32; 4], [0.0f32; 4]);
     let (h0, h1, h2) = f.perspective.map_or(([0.0; 4], [0.0; 4], [0.0; 4]), |m| {
         ([m[0], m[1], m[2], 1.0], [m[3], m[4], m[5], screen[0]], [m[6], m[7], m[8], screen[1]])
     });
@@ -1163,6 +1164,11 @@ fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, glass: &mut GlassPass, s
                 grade.add(&g);
             }
             DrawEffect::Chromatic { amount } => warp[3] += amount / scene_w,
+            DrawEffect::Key { luma, color, tolerance, softness, spill, invert } => {
+                let [r, g, b, _] = tint(scene::Rgba([color[0], color[1], color[2], 1.0]));
+                key = [if luma { 2.0 } else { 1.0 }, tolerance, softness, spill];
+                key_color = [r, g, b, if invert { 1.0 } else { 0.0 }];
+            }
             DrawEffect::Wave { amplitude, wavelength, phase } => warp = [amplitude / scene_w, scene_h / wavelength, phase, warp[3]],
             DrawEffect::Grain { amount, seed } => grain = [amount, seed, 0.0, 0.0],
             DrawEffect::Turbulence { amount, size, phase } => turb = [amount / scene_w, amount / scene_h, scene_w / size, phase],
@@ -1170,7 +1176,7 @@ fn plan_fx(fx: &mut FxPass, custom: &mut CustomShaders, glass: &mut GlassPass, s
     }
     // Warps pull pixels from around them: at the frame edge, repeat the edge instead of emptiness.
     let clamp_edges = if f.adjust || turb[0] != 0.0 { 1.0 } else { 0.0 };
-    plan.layer = fx.push(FxParams { a: [0.0, matte, 1.0, 0.0], b: [0.0, 0.0, clamp_edges, if f.adjust { 1.0 } else { 0.0 }], adj: [hue, sat - 1.0, bright, contrast - 1.0], warp, grain, turb, h0, h1, h2, origin, grade: [grade.exposure, grade.temperature, grade.tint, grade.vibrance], tone: [grade.shadows, grade.highlights, grade.vignette, 0.0], lift: wheel(grade.lift, 0.0), gamma: wheel(grade.gamma, 1.0), gain: wheel(grade.gain, 1.0), offset: wheel(grade.offset, 0.0), curve_n: grade.curve_points.map(|n| n as f32), curve: curve_vecs(&grade.curves), lut: [grade.lut_mix, grade.input as f32, 0.0, 0.0], ..Default::default() });
+    plan.layer = fx.push(FxParams { a: [0.0, matte, 1.0, 0.0], b: [0.0, 0.0, clamp_edges, if f.adjust { 1.0 } else { 0.0 }], adj: [hue, sat - 1.0, bright, contrast - 1.0], warp, grain, turb, h0, h1, h2, origin, grade: [grade.exposure, grade.temperature, grade.tint, grade.vibrance], tone: [grade.shadows, grade.highlights, grade.vignette, 0.0], lift: wheel(grade.lift, 0.0), gamma: wheel(grade.gamma, 1.0), gain: wheel(grade.gain, 1.0), offset: wheel(grade.offset, 0.0), curve_n: grade.curve_points.map(|n| n as f32), curve: curve_vecs(&grade.curves), lut: [grade.lut_mix, grade.input as f32, 0.0, 0.0], key, key_color, ..Default::default() });
     plan.lut = grade.lut;
     if f.adjust {
         plan.copy = fx.push(FxParams::default());

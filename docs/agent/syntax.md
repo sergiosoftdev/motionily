@@ -49,6 +49,7 @@ id type start[-end] key=value… "text or path data" {optional JSON merged into 
 | `turb=AMOUNT,CELL_PX,SPEED` | turbulent displacement (on huge soft blobs = liquid/cloud backgrounds) |
 | `fx="WGSL" fx0=… fx7=` | custom shader effect (your own distortion/color/glitch; on `adj=1` a full-frame post effect or transition) — see Custom shaders |
 | `blend=MODE` | normal, add (light), screen, multiply, darken, lighten, difference, exclusion, overlay, soft_light, hard_light, color_dodge, color_burn, linear_burn, hue, saturation, color, luminosity. Modes after multiply read what is below (one extra copy of the scene per layer): use them for texture, tint and grade, not on every layer |
+| keyer (JSON) | `{"fx":"key","color":"#00b140","tolerance":0.25,"softness":0.1,"spill":0.6}` makes a green (or any) screen transparent and takes its spill out of the subject; `{"fx":"key","mode":"luma","tolerance":0.15,"softness":0.1}` makes the dark end transparent (fire, smoke, light leaks shot on black). `"invert":true` keeps what would go. It keys the clip's own colors, before any color effect |
 | `adj=1` | adjustment layer: its effects apply to everything below, inside its own shape (full-frame rect = whole picture) |
 | `matte=ID[:inv|:luma|:lumainv]` | that layer's alpha/brightness masks this one (give the matte `vis=0`) |
 | `inner=X,Y,BLUR,COLOR,OP` | inner shadow (light color + 0,0 = inner glow) — rect/ellipse |

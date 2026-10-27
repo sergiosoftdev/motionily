@@ -41,6 +41,10 @@ pub struct FxParams {
     /// LUT: how much of it shows (x; 0 = off), input transform (y: `LogInput::id`, 0 = none), the rest
     /// unused. The LUT itself is bind group 1.
     pub lut: [f32; 4],
+    /// Keyer: mode (0 none, 1 chroma, 2 luma), tolerance, softness, spill.
+    pub key: [f32; 4],
+    /// Keyer: the key color (rgb, in the texture's space) and invert (w).
+    pub key_color: [f32; 4],
 }
 
 /// The `.cube` LUTs the color effects use, as 3D textures (bind group 1 of every fx pipeline), shared by
@@ -124,7 +128,8 @@ impl Luts {
 }
 
 /// Uniform slot stride (WebGPU's minimum dynamic-offset alignment).
-const SLOT: u64 = 512;
+/// Bytes per uniform slot: `FxParams` rounded up to the 256-byte offset alignment.
+const SLOT: u64 = 768;
 const INITIAL_SLOTS: u64 = 64;
 
 /// Which offscreen texture a pass reads.

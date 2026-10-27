@@ -15,7 +15,7 @@ en la app real y un commit por punto en `main`.
 | 3 | Decodificación nativa en escritorio (VideoToolbox / Media Foundation) en lugar de ffmpeg por tubería | hecho (Windows sin probar en una máquina Windows) |
 | 4 | El motor de reproducción en un worker con `OffscreenCanvas` | pendiente |
 | 5 | Caché de capas estáticas y exportación que reutiliza la caché de render | hecho (ver notas) |
-| 8 | Chroma key y luma key | pendiente |
+| 8 | Chroma key y luma key | hecho |
 | 9 | Multicámara | pendiente |
 | 10 | Importar timelines (FCPXML, OTIO) | pendiente |
 

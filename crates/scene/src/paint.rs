@@ -399,6 +399,28 @@ pub enum Effect {
     },
     /// RGB split: red and blue shifted apart by `amount` px (glitch, lens edge).
     Chromatic { amount: Animated },
+    /// Keyer: makes a color (chroma: green/blue screen) or the dark end (luma: black backgrounds,
+    /// fire and smoke on black) transparent. Runs on the layer's own colors, before any color effect.
+    Key {
+        #[serde(default)]
+        mode: KeyMode,
+        /// Chroma: the screen's color.
+        #[serde(default = "key_color")]
+        color: ColorRef,
+        /// Chroma: how far (0..1, in chroma) from the key color is still keyed out. Luma: the luma
+        /// (0..1) under which pixels go transparent.
+        #[serde(default = "key_tolerance")]
+        tolerance: Animated,
+        /// Width (0..1) of the soft edge between keyed out and kept.
+        #[serde(default = "key_softness")]
+        softness: Animated,
+        /// Chroma: how much of the key color's spill is taken out of what stays (0..1).
+        #[serde(default = "key_spill")]
+        spill: Animated,
+        /// Keep what would be keyed out instead (luma: keep the dark end).
+        #[serde(default)]
+        invert: bool,
+    },
     /// Wave warp: pixels pushed sideways by a travelling sine (heat haze, flags, liquid).
     Wave {
         /// Displacement in px.
@@ -536,6 +558,30 @@ fn shadow_y() -> Animated {
 fn shadow_blur() -> Animated {
     Animated::Static(36.0)
 }
+/// What a keyer keys out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KeyMode {
+    /// A screen color (green, blue…).
+    #[default]
+    Chroma,
+    /// The dark end (pixels under the luma threshold).
+    Luma,
+}
+
+fn key_color() -> ColorRef {
+    ColorRef::Raw(Rgba([0.0, 1.0, 0.0, 1.0]))
+}
+fn key_tolerance() -> Animated {
+    Animated::Static(0.25)
+}
+fn key_softness() -> Animated {
+    Animated::Static(0.1)
+}
+fn key_spill() -> Animated {
+    Animated::Static(0.6)
+}
+
 fn shadow_color() -> ColorRef {
     ColorRef::Raw(Rgba([0.06, 0.07, 0.12, 1.0]))
 }
@@ -664,6 +710,8 @@ pub enum DrawEffect {
     Shadow { offset: [f32; 2], blur: f32, color: Rgba },
     Color { hue: f32, saturation: f32, brightness: f32, contrast: f32, grade: ColorGrade },
     Chromatic { amount: f32 },
+    /// Keyer (see `Effect::Key`): `color` straight RGB.
+    Key { luma: bool, color: [f32; 3], tolerance: f32, softness: f32, spill: f32, invert: bool },
     /// `phase` in radians.
     Wave { amplitude: f32, wavelength: f32, phase: f32 },
     /// `seed` changes every frame so the grain moves.
@@ -699,7 +747,7 @@ impl DrawEffect {
                 *size *= s;
             }
             DrawEffect::Shader { zoom, .. } => *zoom *= s,
-            DrawEffect::Color { .. } | DrawEffect::Grain { .. } => {}
+            DrawEffect::Color { .. } | DrawEffect::Grain { .. } | DrawEffect::Key { .. } => {}
         }
     }
 }
@@ -763,6 +811,17 @@ impl Effect {
                 },
             },
             Effect::Chromatic { amount } => DrawEffect::Chromatic { amount: amount.sample(t) },
+            Effect::Key { mode, color, tolerance, softness, spill, invert } => {
+                let c = color.resolve(palette).0;
+                DrawEffect::Key {
+                    luma: *mode == KeyMode::Luma,
+                    color: [c[0], c[1], c[2]],
+                    tolerance: tolerance.sample(t).clamp(0.0, 1.0),
+                    softness: softness.sample(t).clamp(0.001, 1.0),
+                    spill: spill.sample(t).clamp(0.0, 1.0),
+                    invert: *invert,
+                }
+            }
             Effect::Wave { amplitude, wavelength, speed } => DrawEffect::Wave {
                 amplitude: amplitude.sample(t),
                 wavelength: wavelength.sample(t).max(1.0),
@@ -1072,7 +1131,7 @@ impl DrawFx {
                 DrawEffect::Chromatic { amount } => grow(r, amount.abs()),
                 DrawEffect::Wave { amplitude, .. } => grow(r, amplitude.abs()),
                 DrawEffect::Turbulence { amount, .. } => grow(r, amount.abs()),
-                DrawEffect::Color { .. } | DrawEffect::Grain { .. } => r,
+                DrawEffect::Color { .. } | DrawEffect::Grain { .. } | DrawEffect::Key { .. } => r,
                 DrawEffect::Shader { .. } => return None,
             };
         }
