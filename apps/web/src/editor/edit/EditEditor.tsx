@@ -134,8 +134,9 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
       const wa = (JSON.parse(engineHost.sceneJson()) as { work_area?: [number, number] | null }).work_area ?? null;
       const dur = useEditor.getState().duration;
       const clipIds = sel?.kind === "clip" ? [sel.clip.id] : sel?.kind === "many" ? sel.clips.map((c) => c.id) : [];
-      // Over a multicam clip, 1–9 cut to that angle at the playhead (live switching while it plays).
-      if (/^[1-9]$/.test(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey && multicamClip(t)) {
+      // Playing over a multicam clip, 1–9 cut to that angle at the playhead (live switching). Paused, digits
+      // type a timecode to go to (a cut there is a click on the angle viewer).
+      if (/^[1-9]$/.test(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey && useEditor.getState().playing && multicamClip(t)) {
         e.preventDefault();
         e.stopImmediatePropagation();
         try {
