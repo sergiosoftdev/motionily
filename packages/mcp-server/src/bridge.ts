@@ -123,6 +123,11 @@ export class EditorBridge {
     return this.request({ type: ServerMessageType.ImportTimeline, requestId: randomUUID(), projectId: this.projectId, text }, LOUDNESS_TIMEOUT_MS);
   }
 
+  /** Syncing decodes every angle's sound. */
+  multicam(req: { clip?: string; angles?: string[]; angle?: number; at?: number }) {
+    return this.request({ type: ServerMessageType.Multicam, requestId: randomUUID(), projectId: this.projectId, ...req }, LOUDNESS_TIMEOUT_MS);
+  }
+
   trackWindow(id: string, at?: number) {
     return this.request({ type: ServerMessageType.TrackWindow, requestId: randomUUID(), projectId: this.projectId, id, at }, TRACK_TIMEOUT_MS);
   }

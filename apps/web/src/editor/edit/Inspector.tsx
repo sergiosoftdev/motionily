@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { MediaItem } from "@motionily/protocol";
+import type { FootageClip, MediaItem } from "@motionily/protocol";
 import { OpName } from "@motionily/protocol";
 import type { SfxCue } from "../../audio/sfxPlayer";
 import type { MusicTrack } from "../../audio/music";
@@ -17,6 +17,7 @@ import type { EditActions } from "./useEditActions";
 import type { EditOps } from "./useEditOps";
 import { useAgentName } from "../../agentName";
 import { ColorTab } from "./ColorTab";
+import { MulticamSection } from "./MulticamSection";
 
 /** Range of the song-start slider when the song's length is unknown (s). */
 const DEFAULT_SONG_RANGE = 180;
@@ -24,7 +25,7 @@ const DEFAULT_SONG_RANGE = 180;
 const KIND_LABEL: Record<NonNullable<EditSelection>["kind"], string> = { clip: "Clip", block: "Motion graphics", cue: "Sound effect", music: "Music", many: "Selection" };
 
 /** Settings of what is selected in the timeline, as a card on top of the Claude panel (nothing when nothing is selected). */
-export function Inspector({ selection, ops, edits, songLength, clipIds, luts, onClose, onStabilize }: { selection: EditSelection; ops: EditOps; edits: EditActions; songLength: number | null; clipIds: string[]; luts: MediaItem[]; onClose: () => void; onStabilize?: (clip: EditClip) => Promise<void> }) {
+export function Inspector({ selection, ops, edits, songLength, clipIds, luts, footage = [], onClose, onStabilize }: { selection: EditSelection; ops: EditOps; edits: EditActions; songLength: number | null; clipIds: string[]; luts: MediaItem[]; footage?: FootageClip[]; onClose: () => void; onStabilize?: (clip: EditClip) => Promise<void> }) {
   if (!selection) return null;
   return (
     <div className="flex flex-col gap-3 text-sm">
@@ -35,7 +36,7 @@ export function Inspector({ selection, ops, edits, songLength, clipIds, luts, on
         </button>
       </div>
       {selection.kind === "clip" ? (
-        <ClipInspector onStabilize={onStabilize} clip={selection.clip} ops={ops} edits={edits} clipIds={clipIds} luts={luts} />
+        <ClipInspector onStabilize={onStabilize} clip={selection.clip} ops={ops} edits={edits} clipIds={clipIds} luts={luts} footage={footage} />
       ) : selection.kind === "block" ? (
         <BlockInspector block={selection.block} ops={ops} />
       ) : selection.kind === "cue" ? (
@@ -241,7 +242,7 @@ function CompoundInspector({ clip, edits }: { clip: EditClip; edits: EditActions
   );
 }
 
-function ClipInspector({ clip, ops, edits, clipIds, luts, onStabilize }: { clip: EditClip; ops: EditOps; edits: EditActions; clipIds: string[]; luts: MediaItem[]; onStabilize?: (clip: EditClip) => Promise<void> }) {
+function ClipInspector({ clip, ops, edits, clipIds, luts, footage, onStabilize }: { clip: EditClip; ops: EditOps; edits: EditActions; clipIds: string[]; luts: MediaItem[]; footage: FootageClip[]; onStabilize?: (clip: EditClip) => Promise<void> }) {
   if (clip.kind === ClipKind.Compound) return <CompoundInspector clip={clip} edits={edits} />;
   const tabs = TABS_OF[clip.kind];
   const [tab, setTab] = useState<ClipTab>(tabs[0]!);
@@ -414,6 +415,7 @@ function ClipInspector({ clip, ops, edits, clipIds, luts, onStabilize }: { clip:
       )}
       {tab === ClipTab.Video && clip.kind === ClipKind.Video && <RampControl clip={clip} fileEnd={clip.fileLength ?? Infinity} edits={edits} />}
       {tab === ClipTab.Video && clip.kind === ClipKind.Video && clip.footage && onStabilize && <StabilizeButton clip={clip} onStabilize={onStabilize} />}
+      {tab === ClipTab.Video && clip.kind === ClipKind.Video && <MulticamSection clipId={clip.id} footage={footage} edits={edits} />}
       {tab === ClipTab.Color && <ColorTab clipId={clip.id} allClipIds={clipIds.filter((id) => id !== clip.id).concat(clip.id)} edits={edits} luts={luts} />}
       <div className="flex gap-2">
         <button type="button" onClick={() => ops.split(clip)} className="flex-1 rounded-md bg-neutral-800 px-2 py-1.5 text-xs font-semibold hover:bg-neutral-700">

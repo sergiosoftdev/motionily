@@ -59,6 +59,7 @@ export function TimecodeField({
       if (e.key === "Enter") goRef.current();
       else if (e.key === "Escape") setTyping(null);
       else if (e.key === "Backspace") setTyping((v) => (v ?? "").slice(0, -1));
+      else if (/^[0-9:;.+-]$/.test(e.key) && !e.metaKey && !e.ctrlKey) setTyping((v) => (v ?? "") + e.key);
       else return;
       e.preventDefault();
       e.stopImmediatePropagation();

@@ -228,6 +228,20 @@ export function registerStudioTools(server: Server, d: StudioDeps) {
   );
 
   server.registerTool(
+    "multicam",
+    {
+      description:
+        "Multicam editing, like Edit's Multicam: (1) `clip` + `angles` makes video clip `clip` multicam: `angles` are the other cameras (clip ids c2…, their src or name), each lined up with the clip by its sound (cameras may have started up to 60 s apart); angle 1 is the clip's own file and its sound moves to an audio layer under it, so cuts never jump in the audio. (2) `angle` (1-based) cuts to that camera at `at` (s; default the playhead) on the multicam clip there (or `clip`): the clip splits at `at` and the rest shows that camera at the same moment; at the clip's start the whole clip switches. Make several cuts by calling it once per cut, in any order. Fails where that camera was not rolling.",
+      inputSchema: { clip: z.string().min(1).optional(), angles: z.array(z.string().min(1)).min(1).max(15).optional(), angle: z.number().int().min(1).max(16).optional(), at: z.number().min(0).optional() },
+    },
+    d.guard(async (req: { clip?: string; angles?: string[]; angle?: number; at?: number }) => {
+      const res = await d.bridge().multicam(req);
+      if (!res.ok) throw new Error(res.error ?? "it did not apply");
+      return d.text(res.text ?? "Done.");
+    }),
+  );
+
+  server.registerTool(
     "import_timeline",
     {
       description:

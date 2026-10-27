@@ -8,6 +8,7 @@ import { matchColor } from "./editor/edit/colorMatch";
 import { syncAudioOps, syncClipsOf } from "./editor/edit/audioSync";
 import { decodeAudio } from "./audio/decode";
 import { placeImport, prepareImport } from "./editor/edit/importTimelineFile";
+import { makeMulticam, switchAngle } from "./editor/edit/multicamActions";
 import type { SceneView } from "./editor/sceneView";
 import { JobStatus, enqueue } from "./export/queue";
 import { desktop } from "./desktop";
@@ -203,6 +204,34 @@ class AgentBridge {
           if (!r.placed) throw new Error(r.text);
           engineHost.applyOps(r.ops);
           logActivity(ActivitySource.Agent, `Imports the timeline ${pending.t.name}`);
+          return r.text;
+        })().then(
+          (text) => this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, text, scene: engineHost.sceneJson(), summary: engineHost.summary() }),
+          (e: unknown) => this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error: e instanceof Error ? e.message : String(e) }),
+        );
+        return;
+      }
+      case ServerMessageType.Multicam: {
+        void (async () => {
+          const footage = (await api.project(msg.projectId)).footage;
+          if (msg.angles?.length) {
+            if (!msg.clip) throw new Error("name the clip (`clip`) that becomes multicam");
+            const angles = msg.angles.map((a) => {
+              const f = footage.find((c) => c.id === a || c.url === a || c.name === a);
+              if (!f && !a.startsWith("/media/")) throw new Error(`${a} is not one of the clips (give its id, src or name)`);
+              return f ? { src: f.url, name: f.name } : { src: a };
+            });
+            const own = footage.find((c) => c.url === (engineHost.layer(msg.clip!)?.src as string | undefined));
+            const r = await makeMulticam(msg.clip, angles, own?.name);
+            engineHost.applyOps(r.ops);
+            logActivity(ActivitySource.Agent, `Makes ${msg.clip} multicam`);
+            return `${msg.clip} is multicam with ${angles.length + 1} angles (1 = its own file; its sound now plays from an audio layer under it). Offsets: ${r.lines.join("; ")}.`;
+          }
+          if (msg.angle == null) throw new Error("give `angles` to make a clip multicam, or `angle` to switch");
+          const at = msg.at ?? useEditor.getState().time;
+          const r = switchAngle(msg.angle - 1, at, footage, msg.clip);
+          if (r.ops.length) engineHost.applyOps(r.ops);
+          logActivity(ActivitySource.Agent, r.text);
           return r.text;
         })().then(
           (text) => this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, text, scene: engineHost.sceneJson(), summary: engineHost.summary() }),

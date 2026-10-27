@@ -16,7 +16,7 @@ en la app real y un commit por punto en `main`.
 | 4 | El motor de reproducción en un worker con `OffscreenCanvas` | pendiente |
 | 5 | Caché de capas estáticas y exportación que reutiliza la caché de render | hecho (ver notas) |
 | 8 | Chroma key y luma key | hecho |
-| 9 | Multicámara | pendiente |
+| 9 | Multicámara | hecho |
 | 10 | Importar timelines (FCPXML, OTIO) | hecho (también Final Cut Pro 7 XML, el "XML" de Premiere) |
 
 ## Notas
@@ -32,6 +32,13 @@ en la app real y un commit por punto en `main`.
   se descarta (la capa de vídeo ya suena) y los solapes pasan a la pista libre siguiente. Edit › Media › "Import
   timeline…" y la tool `import_timeline`; en escritorio se copian los archivos desde su ruta original, en el navegador
   se piden. Fuera: títulos, generadores, secuencias anidadas, multicámara y cambios de velocidad (se listan).
+
+- Punto 9: un clip de vídeo lleva sus ángulos en `multicam` (`{group, angle, angles:[{src, offset, name}]}`, sin efecto
+  en el render). "Make multicam" en el inspector sincroniza cada cámara con el sonido del clip (la sincronización por
+  forma de onda de `sync_audio`, ±60 s; −2,500 s exactos en la prueba) y pasa su sonido a una capa de audio debajo, así
+  los cortes no saltan en el audio. Cambiar de ángulo corta en el cabezal y apunta el resto a la otra cámara en el mismo
+  instante (rechaza donde esa cámara no grababa). Visor de ángulos bajo el programa (clic = corte), teclas 1–9 en
+  directo durante la reproducción y la tool `multicam`.
 
 ## Cifras de partida (punto 1, MacBook con Apple Silicon, p50 por fotograma hasta que la GPU termina)
 

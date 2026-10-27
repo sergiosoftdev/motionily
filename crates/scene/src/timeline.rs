@@ -502,4 +502,16 @@ mod tests {
             assert_eq!((ca.trim_out, cb.trim_in), (Some(7.0), 7.0));
         }
     }
+
+    #[test]
+    fn multicam_angles_ride_along_a_cut() {
+        let mut s = scene();
+        let mc = r#"{"group":"mc1","angle":0,"angles":[{"src":"/media/a.mp4","offset":0,"name":"Cam A"},{"src":"/media/b.mp4","offset":-2.5}]}"#;
+        s.apply(&Op::parse_list(&format!(r#"[{{"op":"patch","id":"clip","fields":{{"multicam":{mc}}}}},{{"op":"split_layer","id":"clip","at":6}}]"#)).unwrap()).unwrap();
+        let b = s.layer("clip_2").unwrap().multicam.as_ref().expect("the second piece keeps its angles");
+        assert_eq!((b.group.as_str(), b.angles.len(), b.angles[1].offset, b.angles[0].name.as_str()), ("mc1", 2, -2.5, "Cam A"));
+        let json = serde_json::to_value(s.layer("clip").unwrap()).unwrap();
+        assert_eq!(json["multicam"]["angles"][1]["src"], "/media/b.mp4");
+        assert!(json["multicam"]["angles"][1].get("name").is_none());
+    }
 }

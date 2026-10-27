@@ -377,6 +377,26 @@ fn is_center(a: &PlaceAlign) -> bool {
     *a == PlaceAlign::Center
 }
 
+/// `{"group":"mc1","angle":1,"angles":[{"src":"/media/a.mp4","offset":0,"name":"Cam A"},{"src":"/media/b.mp4","offset":-2.4}]}`:
+/// angle `k`'s file second for one moment is the first angle's plus `angles[k].offset`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Multicam {
+    pub group: String,
+    /// Index into `angles` of the one shown.
+    #[serde(default)]
+    pub angle: usize,
+    pub angles: Vec<MulticamAngle>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MulticamAngle {
+    pub src: String,
+    #[serde(default)]
+    pub offset: f32,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Layer {
     pub id: String,
@@ -461,6 +481,10 @@ pub struct Layer {
     /// Editing track (`V1`, `A2`… of the scene's `tracks`): its switches hide or silence the layer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub track: Option<String>,
+    /// Multicam (video clips): the camera angles this clip can switch between, lined up in time. The
+    /// editor rewrites `src` and `in` when the angle changes; no effect on the render.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub multicam: Option<Multicam>,
     /// Inherit position, rotation and scale from another layer (x/y become relative to it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<String>,

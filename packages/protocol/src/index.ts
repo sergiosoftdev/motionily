@@ -105,6 +105,8 @@ export const ServerMessageType = {
   MatchColor: "match_color",
   /** Put the clips of another editor's timeline (FCPXML, Final Cut Pro 7 XML, OTIO text) on the Edit timeline (answers in `text`). */
   ImportTimeline: "import_timeline",
+  /** Make a clip multicam (`angles`: other clips, synced by sound) or switch its angle at a time (answers in `text`). */
+  Multicam: "multicam",
 } as const;
 export type ServerMessageType = (typeof ServerMessageType)[keyof typeof ServerMessageType];
 
@@ -126,7 +128,8 @@ export type ServerMessage =
   | { type: typeof ServerMessageType.MatchColor; requestId: string; projectId: string; from: string; to: string[] }
   | { type: typeof ServerMessageType.SyncAudio; requestId: string; projectId: string; video: string; audio: string }
   | { type: typeof ServerMessageType.QueueExport; requestId: string; projectId: string; presets: string[] }
-  | { type: typeof ServerMessageType.ImportTimeline; requestId: string; projectId: string; text: string };
+  | { type: typeof ServerMessageType.ImportTimeline; requestId: string; projectId: string; text: string }
+  | { type: typeof ServerMessageType.Multicam; requestId: string; projectId: string; clip?: string; angles?: string[]; angle?: number; at?: number };
 
 /** Files exported beside the video: subtitles, and the Edit timeline for other editors. */
 export const SideFile = { Srt: "srt", Vtt: "vtt", Fcpxml: "fcpxml", Otio: "otio", Edl: "edl" } as const;

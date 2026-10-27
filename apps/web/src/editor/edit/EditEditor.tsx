@@ -26,6 +26,8 @@ import { ProjectInspector } from "./ProjectInspector";
 import { SidePanel } from "./SidePanel";
 import { AUDIO_LAYER, ClipKind, FOOTAGE_GROUP, appendClipOps, clipLayer, editTracks, freshId, mediaLayer, placeMediaOps, reframeClipOps, type EditClip } from "./tracks";
 import { ActivitySource, logActivity } from "../../store";
+import { multicamClip, switchAngle } from "./multicamActions";
+import { MulticamViewer } from "./MulticamViewer";
 import { useEditActions } from "./useEditActions";
 import { copyGrade, pasteGradeOps } from "./gradeClipboard";
 import { useEditOps } from "./useEditOps";
@@ -120,8 +122,8 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
 
   // The Edit commands of the keymap (blade, delete closing the gap on the main track, undo/redo, marks,
   // three-point edits, tools, grades). Captured first, so the canvas selection's own Delete never runs on top of it.
-  const latest = useRef({ selection, ops, edits, place: (_m: PoolEdit) => undefined as void });
-  latest.current = { selection, ops, edits, place: (m: PoolEdit) => placeFromPool(m) };
+  const latest = useRef({ selection, ops, edits, footage, place: (_m: PoolEdit) => undefined as void });
+  latest.current = { selection, ops, edits, footage, place: (m: PoolEdit) => placeFromPool(m) };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (typing(e.target)) return;
@@ -131,6 +133,18 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
       const wa = (JSON.parse(engineHost.sceneJson()) as { work_area?: [number, number] | null }).work_area ?? null;
       const dur = useEditor.getState().duration;
       const clipIds = sel?.kind === "clip" ? [sel.clip.id] : sel?.kind === "many" ? sel.clips.map((c) => c.id) : [];
+      // Over a multicam clip, 1–9 cut to that angle at the playhead (live switching while it plays).
+      if (/^[1-9]$/.test(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey && multicamClip(t)) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        try {
+          const r = switchAngle(Number(e.key) - 1, t, latest.current.footage);
+          if (r.ops.length) ed2.apply(r.ops, r.text, false);
+        } catch (err) {
+          logActivity(ActivitySource.System, err instanceof Error ? err.message : String(err));
+        }
+        return;
+      }
       const c = commandFor(e, KeyScope.Edit);
       switch (c?.id) {
         case "edit.undo":
@@ -327,6 +341,7 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
             {/* Any frame shape fits here: the viewer scales it to the space it gets. */}
             <main className="flex min-w-0 flex-1 flex-col items-center gap-2 py-1">
               <Viewer canvas={ed.canvas} error={ed.error} maxWidth={PREVIEW_MAX_WIDTH} canvasClass="rounded-xl shadow-2xl shadow-black/50" />
+              <MulticamViewer footage={footage} edits={edits} version={scene} />
               <Transport duration={scene?.duration ?? 0} fps={fps} />
               <AttentionStrip g={ed.g} projectId={ed.id} className="w-full max-w-xl" />
             </main>
@@ -383,7 +398,7 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
           running={ed.g.running}
           inspector={
             selection ? (
-              <Inspector selection={selection} ops={ops} edits={edits} songLength={project?.music?.duration ?? null} clipIds={tracks?.clips.map((c) => c.id) ?? []} luts={pool.items.filter((m) => m.kind === MediaKind.Lut)} onClose={deselect} onStabilize={stabilize} />
+              <Inspector selection={selection} ops={ops} edits={edits} songLength={project?.music?.duration ?? null} clipIds={tracks?.clips.map((c) => c.id) ?? []} luts={pool.items.filter((m) => m.kind === MediaKind.Lut)} footage={footage} onClose={deselect} onStabilize={stabilize} />
             ) : (
               <ProjectInspector ed={ed} scene={scene} edits={edits} onFormat={(f) => void changeFormat(f)} />
             )

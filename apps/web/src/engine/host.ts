@@ -564,7 +564,7 @@ class EngineHost {
   }
 
   /** What the preview opens for a clip: its proxy when it has one (and proxies are on), else the file. */
-  private previewSrc(src: string): string {
+  previewSrc(src: string): string {
     return mediaSrc(this.useProxies ? (this.proxies[src] ?? src) : src);
   }
 
