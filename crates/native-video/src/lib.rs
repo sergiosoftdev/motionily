@@ -210,8 +210,10 @@ mod tests {
             let Some(path) = rotated(degrees) else { return skip() };
             let mut r = Reader::open(path.to_str().unwrap()).expect("open");
             let info = r.info();
-            let want = ffmpeg_frame(&path, 0.5);
-            let got = r.frame_at(0.5).unwrap().to_vec();
+            // A frame's own start (frame 12 at 25 fps): ffmpeg's `-ss` gives the first frame from there and the
+            // reader the frame shown there, the same one (mid-frame times tie between two frames).
+            let want = ffmpeg_frame(&path, 0.48);
+            let got = r.frame_at(0.48).unwrap().to_vec();
             assert_eq!(got.len(), want.len(), "{degrees}°: size {}x{}", info.width, info.height);
             let mean = |x: &[u8]| x.iter().zip(&want).map(|(a, b)| (*a as f64 - *b as f64).abs()).sum::<f64>() / x.len() as f64;
             let diff = mean(&got);
