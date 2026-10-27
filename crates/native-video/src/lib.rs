@@ -155,6 +155,12 @@ mod tests {
         ok.then_some(path)
     }
 
+    /// Without ffmpeg there is nothing to compare with; CI sets `NATIVE_VIDEO_REQUIRE_FFMPEG` so it cannot pass by skipping.
+    fn skip() {
+        assert!(std::env::var_os("NATIVE_VIDEO_REQUIRE_FFMPEG").is_none(), "ffmpeg is required here");
+        eprintln!("ffmpeg not found: skipped");
+    }
+
     fn color(px: &[u8], width: u32, x: u32, y: u32) -> [u8; 3] {
         let i = ((y * width + x) * 4) as usize;
         [px[i], px[i + 1], px[i + 2]]
@@ -166,7 +172,7 @@ mod tests {
 
     #[test]
     fn frames_at_times_forward_back_and_after_jumps() {
-        let Some(path) = clip(None) else { return eprintln!("ffmpeg not found: skipped") };
+        let Some(path) = clip(None) else { return skip() };
         let mut r = Reader::open(path.to_str().unwrap()).expect("open");
         let info = r.info();
         assert_eq!((info.width, info.height), (320, 240));
@@ -200,7 +206,7 @@ mod tests {
     #[test]
     fn rotation_matches_ffmpeg() {
         for degrees in [90, 180, 270] {
-            let Some(path) = rotated(degrees) else { return eprintln!("ffmpeg not found: skipped") };
+            let Some(path) = rotated(degrees) else { return skip() };
             let mut r = Reader::open(path.to_str().unwrap()).expect("open");
             let info = r.info();
             let want = ffmpeg_frame(&path, 0.5);

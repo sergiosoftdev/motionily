@@ -38,3 +38,24 @@ jobs:
         run: pnpm --filter @motionily/api test
       - name: API tests on SQLite
         run: pnpm --filter @motionily/api test:sqlite
+
+  # The system decoders (VideoToolbox on macOS, Media Foundation on Windows) against ffmpeg's frames.
+  native-video:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      NATIVE_VIDEO_REQUIRE_FFMPEG: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: ffmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+      - name: ffmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg -y --no-progress
+      - run: cargo test -p native-video -- --nocapture
