@@ -104,5 +104,7 @@ overlay, texto, motion blur): diferencia máxima ≤ 2/255. No hecho: una caché
 La exportación web reutiliza los fotogramas ya calculados: `Engine.renderChanged(t)` no dibuja un fotograma que pinta
 exactamente lo mismo que el anterior (misma lista de capas, sin vídeo avanzando) y la exportación vuelve a codificar la
 muestra que ya tenía (`VideoSample.clone()` con otro timestamp), sin render ni lectura de la GPU. Un plano fijo de 1 s a
-30 fps: 1 fotograma dibujado, 29 reutilizados (`ExportResult.frames`). La caché de render del editor no sirve aquí:
+30 fps: 1 fotograma dibujado, 29 reutilizados (`ExportResult.frames`). Exportar 3 s a 720×1280 (12 círculos con glow y
+sombra, 1 s en movimiento y 2 s quietos) en el navegador: 5536 ms dibujando cada fotograma, 358 ms reutilizando (31
+dibujados, 59 reutilizados). La caché de render del editor no sirve aquí:
 guarda los fotogramas al tamaño de la previsualización, menor que el de exportación.
