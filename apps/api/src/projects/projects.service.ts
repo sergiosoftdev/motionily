@@ -3,7 +3,7 @@ import { InjectModel } from "@nestjs/mongoose";
 import { Model, Types } from "mongoose";
 import { BricksService } from "../bricks/bricks.service";
 import { BrickSlot, SLOT_CARDINALITY, SlotCardinality } from "../bricks/brick.enums";
-import { Build, Feedback, FeedbackKind, Project, ProjectDocument, type AgentRunUsage, type FootageClip, type PostCopyDraft, type SunoPrompt } from "./project.schema";
+import { Build, Feedback, FeedbackKind, Project, ProjectDocument, VideoFormat, type AgentRunUsage, type FootageClip, type PostCopyDraft, type SunoPrompt } from "./project.schema";
 import type { AssetCredit } from "../assets/asset-types";
 import { removeMedia } from "../media";
 import { BridgeHub } from "../bridge-hub";
@@ -106,7 +106,7 @@ export class ProjectsService {
   }
 
   /** Opening the box: the motion style fills every slot with its default bricks. */
-  async create(ownerId: Types.ObjectId, dto: CreateProjectDto) {
+  async create(ownerId: Types.ObjectId, dto: CreateProjectDto, series: { seriesId: Types.ObjectId; format: VideoFormat } | null = null) {
     // A neutral base the agent replaces with its own art direction.
     const kit = await this.bricks.get(dto.motionStyle ?? NEUTRAL_BASE);
     if (kit.slot !== BrickSlot.MotionStyle) {
@@ -115,7 +115,18 @@ export class ProjectsService {
     const build = this.buildFromKit(kit.key, kit.payload as KitPayload);
     await this.assertBricksExist(build);
     const brandId = dto.brandId ? new Types.ObjectId(dto.brandId) : undefined;
-    return this.projects.create({ ownerId, name: dto.name, brief: dto.brief ?? "", wantsScript: dto.wantsScript ?? false, voiceScript: dto.voiceScript ?? "", references: dto.references ?? [], build, format: dto.format, brandId });
+    return this.projects.create({
+      ownerId,
+      name: dto.name,
+      brief: dto.brief ?? "",
+      wantsScript: dto.wantsScript ?? false,
+      voiceScript: dto.voiceScript ?? "",
+      references: dto.references ?? [],
+      build,
+      format: dto.format ?? series?.format,
+      brandId,
+      seriesId: series?.seriesId ?? null,
+    });
   }
 
   /** The user's hidden workshop video, where the agent edits prefabs with a live preview. */

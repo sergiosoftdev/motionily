@@ -1,4 +1,4 @@
-import type { AgentRunUsage, AttentionDevice, Brick, BrickSlot, LibraryItem, MediaItem, PostLink, PostMetrics, PostPerformance, Project, ProjectListItem, ProviderKey, ProviderStatus, SocialAccount, SocialPlatform, SunoPrompt, User, VideoFormat, Voice, VoiceModel } from "@motionily/protocol";
+import type { AgentRunUsage, AttentionDevice, Brick, BrickSlot, LibraryItem, MediaItem, PostLink, PostMetrics, PostPerformance, Project, ProjectListItem, ProviderKey, ProviderStatus, Series, SeriesBlueprint, SocialAccount, SocialPlatform, SunoPrompt, User, VideoFormat, Voice, VoiceModel } from "@motionily/protocol";
 import { useSession } from "../session";
 import type { AgentPrefs, GenerateState } from "../components/GeneratePanel";
 import { desktop } from "../desktop";
@@ -139,8 +139,8 @@ export const api = {
     call<Brick[]>(HttpMethod.Get, `/bricks?${new URLSearchParams(q as Record<string, string>)}`),
   projects: () => call<ProjectListItem[]>(HttpMethod.Get, "/projects"),
   project: (id: string) => call<Project>(HttpMethod.Get, `/projects/${id}`),
-  createProject: (name: string, brief: string, format: VideoFormat, brandId: string | undefined, voiceScript = "", references: string[] = []) =>
-    call<Project>(HttpMethod.Post, "/projects", { name, brief, format, brandId, voiceScript, wantsScript: !!voiceScript, references }),
+  createProject: (name: string, brief: string, format: VideoFormat | undefined, brandId: string | undefined, voiceScript = "", references: string[] = [], seriesId?: string) =>
+    call<Project>(HttpMethod.Post, "/projects", { name, brief, format, brandId, voiceScript, wantsScript: !!voiceScript, references, seriesId }),
   concepts: (brandId: string, req: ConceptsRequest) => call<{ concepts: Concept[]; usage: AgentRunUsage | null }>(HttpMethod.Post, `/brands/${brandId}/concepts`, req),
   brands: () => call<BrandSummary[]>(HttpMethod.Get, "/brands"),
   brand: (id: string) => call<BrandKit>(HttpMethod.Get, `/brands/${id}`),
@@ -262,6 +262,11 @@ export const api = {
   syncPost: (id: string) => call<{ post: ScheduledPost; errors: string[] }>(HttpMethod.Post, `/posts/${id}/sync`),
   /** Every posted copy of this video with its numbers. */
   performance: (projectId: string) => call<PostPerformance[]>(HttpMethod.Get, `/projects/${projectId}/performance`),
+  /** Series templates: a video's structure saved to make more episodes with other content. */
+  series: (brandId?: string) => call<Series[]>(HttpMethod.Get, `/series${brandId ? `?brandId=${brandId}` : ""}`),
+  saveSeries: (projectId: string, body: { name: string; note?: string; blueprint: SeriesBlueprint }) => call<Series>(HttpMethod.Post, `/projects/${projectId}/series`, body),
+  seriesOf: (projectId: string) => call<{ series: Series | null }>(HttpMethod.Get, `/projects/${projectId}/series`),
+  deleteSeries: (id: string) => call<void>(HttpMethod.Delete, `/series/${id}`),
   /** The rendered file, tagged with the scene revision it shows. */
   uploadPostVideo: (id: string, video: Blob, filename: string, sceneRevision: number) =>
     upload<ScheduledPost>(`/posts/${id}/video`, new File([video], filename, { type: video.type }), { sceneRevision: String(sceneRevision) }),

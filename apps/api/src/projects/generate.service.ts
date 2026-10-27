@@ -91,9 +91,10 @@ const ROLE_TOOLS = {
     "examples",
     "define_component",
     "get_component",
+    "get_series",
   ],
   builder: ["run", "add_layers", "edit_layers", "apply_ops", "get_layout", "render_frames", "view_asset", "view_image", "get_brand", "find_icons", "add_vector", "add_map", "cut_out", "cut", "define_component", "get_component"],
-  finisher: ["run", "get_feedback", "cut", "edit_layers", "review_video", "get_layout", "render_frames", "inspect", "add_layers", "apply_ops", "list_sounds", "add_sfx", "get_component", "set_font", "search_fonts"],
+  finisher: ["run", "get_feedback", "cut", "edit_layers", "review_video", "get_layout", "render_frames", "inspect", "add_layers", "apply_ops", "list_sounds", "add_sfx", "get_component", "set_font", "search_fonts", "get_series"],
   sound: ["get_project", "list_sounds", "add_sfx"],
 } as const;
 

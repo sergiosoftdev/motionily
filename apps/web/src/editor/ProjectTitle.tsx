@@ -1,6 +1,7 @@
 import { BrandTab, href, RouteName } from "../router";
 import type { Project } from "@motionily/protocol";
 import { FavoriteStar } from "../components/FavoriteStar";
+import { SaveSeries } from "../series/SaveSeries";
 
 /** Back to the brand's videos, and the video's name (edit in place). */
 export function ProjectTitle({ project, onRename, className = "" }: { project: Project | null; onRename: (name: string) => void; className?: string }) {
@@ -22,6 +23,7 @@ export function ProjectTitle({ project, onRename, className = "" }: { project: P
         />
       )}
       {project && <FavoriteStar key={project.id} projectId={project.id} initial={project.favorite} />}
+      {project && <SaveSeries key={`series-${project.id}`} project={project} />}
     </>
   );
 }

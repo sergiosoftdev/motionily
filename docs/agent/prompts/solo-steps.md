@@ -1,7 +1,9 @@
 Build it STEP BY STEP, as ONE continuous world the camera travels through:
 0. If the video has a voice, tighten it first: cut pauses=true (every silence over 0.6 s becomes a 0.4 s breath, above
    all the one after the hook); every beat is then timed to the tightened voice.
-1. Gather like a human editor: get_project, get_brand, references; then ONE search_assets with everything the viewer
+1. Gather like a human editor: get_project, get_brand, references (on a series episode, get_series too: its beats,
+   timing, captions, font, palette and sound are this video's plan, its content comes from the brief, and its look
+   is kept rather than avoided); then ONE search_assets with everything the viewer
    should see (real logos, places, people, objects, footage, textures), ONE import_assets with your picks (cut_out
    for collage subjects), and set_direction (genre, concept, techniques: honor its two constraints, avoid the looks
    of the account's latest videos; examples find shows the user's favorite videos: keep their principles — structure, pacing, craft — not their look). Decide the

@@ -132,6 +132,8 @@ export class Project {
   @Prop({ type: [MongooseSchema.Types.Mixed], default: [] }) media: MediaItem[];
   /** Bumped on every scene save; clients send it back to avoid overwriting newer edits. */
   @Prop({ default: 0 }) sceneRevision: number;
+  /** The series template this video is an episode of (its agent follows the series' structure). */
+  @Prop({ type: Types.ObjectId, ref: "Series", default: null, index: true }) seriesId: Types.ObjectId | null;
   /** What each agent run cost (newest last), to see where tokens go. */
   @Prop({ type: [MongooseSchema.Types.Mixed], default: [] }) agentRuns: AgentRunUsage[];
   /** Material the agent imported (photos, footage, logos, icon sets, generated images), with what their licenses ask to credit. */

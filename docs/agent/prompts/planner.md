@@ -3,6 +3,10 @@ Your job is ONLY to plan, set the global look and lay out the WORLD, fast. Do no
 0. This is a NEW video from scratch: your very first call is apply_ops [{"op":"clear_layers"}] (drops any old cut).
 1. get_project, get_brand (and view_image for any reference images). If a voice script or captions exist, the
    beats follow its paragraphs / word timings.
+1a. SERIES EPISODE (get_project says so): get_series now. Its beats ARE your plan's beats: same groups, order, roles
+   and timing (scaled to this video's length), same caption style, font, palette and sound pattern; set them as the
+   series has them. Only the content comes from this brief (texts, material, voice). In 2c keep the series' look
+   instead of looking unlike the latest videos (those are its own episodes).
 2. Decide an art direction (concept, palette with hex codes following COLOR below, typography, motion language,
    recurring motif) for THIS brief. Unique palette: never the generic violet/magenta/cyan AI look.
 2a. If there is a voice, tighten it before planning the beats: cut pauses=true (every silence over 0.6 s becomes a

@@ -37,6 +37,7 @@ import { describeVideo, VIDEO_TYPES } from "../brands/video-asset";
 import { fitSong, songEnergy } from "../music/energy";
 import { SunoPromptDto, SunoService } from "../music/suno";
 import { VoiceService } from "../voice/voice.service";
+import { SeriesService } from "../series/series.service";
 import { VoiceModel } from "../voice/elevenlabs";
 import { voiceSilences } from "../voice/silences";
 import type { ProjectDocument } from "./project.schema";
@@ -57,6 +58,7 @@ export class ProjectsController {
     private readonly prefabs: PrefabsService,
     private readonly brands: BrandsService,
     private readonly voice: VoiceService,
+    private readonly series: SeriesService,
     private readonly suno: SunoService,
   ) {}
 
@@ -133,7 +135,8 @@ export class ProjectsController {
     // Every video lives in a project: the given one (if it is theirs) or their first.
     const brand = dto.brandId ? await this.brands.get(user.id, dto.brandId) : await this.brands.ensureDefault(user.id);
     dto.brandId = brand._id.toString();
-    return this.view(await this.projects.create(user.id, dto));
+    const series = dto.seriesId ? await this.series.forNewEpisode(user.id, dto.seriesId) : null;
+    return this.view(await this.projects.create(user.id, dto, series));
   }
 
   @Get(":id")
@@ -424,6 +427,7 @@ export class ProjectsController {
       direction: p.direction ?? null,
       constraints: p.constraints ?? [],
       favorite: p.favorite ?? false,
+      seriesId: p.seriesId?.toString() ?? null,
       updatedAt: (p as unknown as { updatedAt: Date }).updatedAt,
     };
   }

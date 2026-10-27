@@ -42,6 +42,8 @@ export class CreateProjectDto {
   @IsOptional() @IsEnum(VideoFormat) format?: VideoFormat;
   /** Project (brand kit) to put the video in; defaults to the user's first project. */
   @IsOptional() @IsMongoId() brandId?: string;
+  /** Make it an episode of this series template (its format unless another is given). */
+  @IsOptional() @IsMongoId() seriesId?: string;
 }
 
 export class FavoriteDto {

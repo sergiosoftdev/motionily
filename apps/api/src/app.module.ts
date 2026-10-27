@@ -42,6 +42,9 @@ import { SceneVersion, SceneVersionSchema, VersionsController, VersionsService }
 import { AgentSettingsController, AgentSettingsService } from "./users/agent-settings";
 import { PerformanceController, PostLinksController, SocialController } from "./social/social.controller";
 import { SocialService } from "./social/social.service";
+import { Series, SeriesSchema } from "./series/series.schema";
+import { SeriesService } from "./series/series.service";
+import { ProjectSeriesController, SeriesController } from "./series/series.controller";
 
 @Module({
   imports: [
@@ -66,6 +69,7 @@ import { SocialService } from "./social/social.service";
       { name: Post.name, schema: PostSchema },
       { name: LibraryAsset.name, schema: LibraryAssetSchema },
       { name: SceneVersion.name, schema: SceneVersionSchema },
+      { name: Series.name, schema: SeriesSchema },
     ]),
     JwtModule.registerAsync({
       global: true,
@@ -76,7 +80,7 @@ import { SocialService } from "./social/social.service";
       }),
     }),
   ],
-  controllers: [AuthController, AgentSettingsController, MediaPoolController, VersionsController, BricksController, ProjectFolderController, ProjectsController, MediaController, ReferencesController, FontsController, BrandsController, PrefabsController, SoundsController, AssetsController, LibraryController, ProviderKeysController, DirectionController, VoiceController, PostsController, SocialController, PostLinksController, PerformanceController],
-  providers: [VersionsService, AgentSettingsService, BricksService, ProjectsService, GenerateService, PrefabsService, BrandsService, ConceptsService, VoiceService, PostsService, CopywriterService, SunoService, AssetsService, LibraryService, ProviderKeysService, DirectionService, SocialService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
+  controllers: [AuthController, AgentSettingsController, MediaPoolController, VersionsController, BricksController, ProjectFolderController, ProjectsController, MediaController, ReferencesController, FontsController, BrandsController, PrefabsController, SoundsController, AssetsController, LibraryController, ProviderKeysController, DirectionController, VoiceController, PostsController, SocialController, PostLinksController, PerformanceController, SeriesController, ProjectSeriesController],
+  providers: [VersionsService, AgentSettingsService, BricksService, ProjectsService, GenerateService, PrefabsService, BrandsService, ConceptsService, VoiceService, PostsService, CopywriterService, SunoService, AssetsService, LibraryService, ProviderKeysService, DirectionService, SocialService, SeriesService, { provide: APP_GUARD, useClass: JwtAuthGuard }],
 })
 export class AppModule {}

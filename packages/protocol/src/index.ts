@@ -743,6 +743,8 @@ export type Project = {
   constraints: string[];
   /** Starred by the user: agents study favorites as their taste. */
   favorite: boolean;
+  /** The series template this video is an episode of (see series.ts). */
+  seriesId?: string | null;
   updatedAt: string;
 };
 
@@ -810,6 +812,8 @@ export * from "./attention.js";
 export * from "./appUi.js";
 /** How a posted video did on each platform and where its audience leaves (see performance.ts). */
 export * from "./performance.js";
+/** Series templates: a video's structure saved to make more episodes (see series.ts). */
+export * from "./series.js";
 
 /** A speed ramp point: from `at` (0..1 of the clip's length on the timeline) the clip plays at `speed` (× its own speed). */
 export type RampPoint = { at: number; speed: number };

@@ -4,6 +4,7 @@ import { api, AssetKind, mediaUrl, type BrandKit, type BrandPalette } from "../a
 import { BrandTab, href, navigate, RouteName } from "../router";
 import { MotionilyLayout } from "../shell/MotionilyLayout";
 import { VideoCard } from "../components/VideoCard";
+import { SeriesStrip } from "../series/SeriesStrip";
 import { EditFootageButton } from "../footage/EditFootageButton";
 
 /** Images and the clip formats video layers decode (mp4, webm, mov). */
@@ -86,10 +87,13 @@ function Videos({ brandId }: { brandId: string }) {
     );
   }
   return (
-    <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-      {videos?.map((v) => (
-        <VideoCard key={v._id} video={v} catalog={catalog} onDelete={() => void remove(v)} />
-      ))}
+    <div className="flex flex-col gap-8">
+      <SeriesStrip brandId={brandId} />
+      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+        {videos?.map((v) => (
+          <VideoCard key={v._id} video={v} catalog={catalog} onDelete={() => void remove(v)} />
+        ))}
+      </div>
     </div>
   );
 }

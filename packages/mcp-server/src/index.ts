@@ -41,7 +41,7 @@ import { frameStats } from "./review.js";
 import { attentionReport } from "./attention.js";
 import { performanceReport } from "./performance.js";
 import { LOG_CHARS, runScript, type HostApi } from "./sandbox.js";
-import { attentionCurve, attentionIssues, attentionSparkline, type PostPerformance } from "@motionily/protocol";
+import { attentionCurve, attentionIssues, attentionSparkline, blueprintLines, seriesBlueprint, seriesDrift, type PostPerformance, type Series } from "@motionily/protocol";
 import { buildEdit, DEFAULT_EDIT, FOOTAGE_GROUP, footageLines, parseSegments, transcriptLines } from "./footage.js";
 import { mediaLines, registerStudioTools } from "./studio.js";
 import { svgToVector } from "./svg.js";
@@ -1598,6 +1598,48 @@ server.registerTool(
   }),
 );
 
+server.registerTool(
+  "get_series",
+  {
+    description:
+      "When this video is an episode of a series template (get_project says so): the series' structure to follow with this video's own content — beats with their timing and roles, re-hooks, transitions, caption style, font, palette, sound effects, voice pace, why it worked — and where this episode departs from it so far. Call it before building and again before finishing.",
+    inputSchema: {},
+  },
+  guard(async () => {
+    const [{ series }, scene] = await Promise.all([api.route<{ series: Series | null }>("GET", "/series"), currentScene()]);
+    if (!series) return text("This video is not an episode of a series: build it from its brief.");
+    const duration = typeof scene?.duration === "number" ? scene.duration : undefined;
+    const drift = scene ? seriesDrift(scene, series.blueprint) : [];
+    const lines = [
+      ...blueprintLines(series, duration),
+      "",
+      "Same structure, new content: write this video's own texts, images and voice from its brief; keep the beats, their order, timing and roles, the rhythm, captions, type, palette and sound pattern. Change them only where the brief or the user asks.",
+      drift.length ? `This episode departs from the series:\n- ${drift.join("\n- ")}` : scene?.layers ? "This episode follows the series so far." : "Scene empty: build the series' beats with this brief.",
+    ];
+    return text(lines.join("\n"));
+  }),
+);
+
+server.registerTool(
+  "save_series",
+  {
+    description:
+      "Save THIS video's structure as a series template the user can make more episodes from (beats and timing, rhythm, captions, type, palette, sound, voice pace; its post numbers come along when it was posted). Only when the user asks for it.",
+    inputSchema: {
+      name: z.string().min(1).max(80).describe("the series' name"),
+      note: z.string().max(1000).optional().describe("why it worked / what every episode keeps, in the user's words"),
+    },
+  },
+  guard(async ({ name, note }) => {
+    const scene = await currentScene();
+    if (!scene?.layers) return fail("the video has no scene yet: build it first");
+    const blueprint = seriesBlueprint(scene);
+    if (!blueprint.beats.length) return fail("no beats to save: group the layers with g= (one group per beat) first");
+    const s = await api.route<Series>("POST", "/series", { name, note, blueprint });
+    return text(`Series "${s.name}" saved: ${blueprint.beats.length} beats over ${blueprint.duration}s. The user makes episodes from it in the project's page (New episode).`);
+  }),
+);
+
 // ── Code Mode: one script instead of a chain of tool calls ──
 /** Script time allowed (time waiting on the editor does not count). */
 const RUN_CPU_MS = 20_000;
@@ -1704,6 +1746,7 @@ function describeProject(p: Project): string {
   if (imported.length) lines.push(`Imported material: ${imported.map(assetLine).join("; ")}`);
   if (p.direction) lines.push(`Direction (set_direction): ${p.direction.genre} — ${p.direction.concept}${p.direction.techniques.length ? ` · techniques: ${p.direction.techniques.join(", ")}` : ""}`);
   if (p.favorite) lines.push("The user starred THIS video as a favorite: keep what they love about it when editing.");
+  if (p.seriesId) lines.push("This video is an EPISODE of a series template: call get_series and follow its structure (beats, timing, captions, type, palette, sound) with this brief's content.");
   if (p.constraints?.length) lines.push(`Creative constraints this video must honor: ${p.constraints.map((c, i) => `(${i + 1}) ${c}`).join(" ")}`);
   if (p.audio || !p.footage?.length) lines.push(p.audio ? `Voice uploaded: ${p.audio.name}. inspect's summary has its voice timeline (phrases, pauses, LONG pauses = scene changes) and captions carry word timings: time the beats to them.` : "Voice: not uploaded yet.");
   if (p.footage?.length) {
