@@ -12,6 +12,8 @@ import { ModePiece } from "../mode";
 import type { SceneView } from "../sceneView";
 import { DropZone, ICON, Icon, ProgressLine, SUNO_LOGO, THUMB_AT, mmss, type ClipUpload, type MusicUpload } from "./MediaPanel";
 import { SunoDialog } from "./SunoDialog";
+import { TimelineImport } from "./TimelineImport";
+import type { EditActions } from "./useEditActions";
 
 /** Everything the pool takes: clips (transcribed), sounds and pictures. */
 export const POOL_ACCEPT = "video/mp4,video/quicktime,video/webm,audio/*,image/png,image/jpeg,image/webp,image/gif,.cube";
@@ -124,6 +126,7 @@ export function MediaPool({
   picked,
   onPick,
   onPlace,
+  edits,
 }: {
   ed: EditorProps;
   scene: SceneView | null;
@@ -136,6 +139,7 @@ export function MediaPool({
   picked: PoolDrop | null;
   onPick: (drop: PoolDrop | null) => void;
   onPlace: (mode: PoolEdit) => void;
+  edits: EditActions;
 }) {
   const agent = useAgentName();
   const [filter, setFilter] = useState<PoolFilter>(PoolFilter.All);
@@ -264,6 +268,7 @@ export function MediaPool({
       </div>
       <div className="flex flex-col gap-2 border-t border-white/[0.06] pt-2">
         {desktop && project && <MissingMedia projectId={project.id} version={project.updatedAt} onRelinked={async () => ed.setProject(await api.project(project.id))} />}
+        <TimelineImport ed={ed} scene={scene} pool={pool} edits={edits} />
         <ProxyToggle />
         <label className="flex items-center justify-between gap-2 px-1 text-[11px] text-neutral-500">
           Clips spoken in

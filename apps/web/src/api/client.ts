@@ -203,6 +203,8 @@ export const api = {
   version: (id: string, versionId: string) => call<{ id: string; label: string; scene: Record<string, unknown> }>(HttpMethod.Get, `/projects/${id}/versions/${versionId}`),
   projectMedia: (id: string) => call<MediaItem[]>(HttpMethod.Get, `/projects/${id}/media`),
   uploadMedia: (id: string, file: File) => upload<MediaItem>(`/projects/${id}/media`, file),
+  /** A file from an http(s) URL or, in the desktop app, a path on this machine: videos become clips. */
+  importMedia: (id: string, source: string) => call<MediaItem | { footage: string }>(HttpMethod.Post, `/projects/${id}/media/import`, { source }),
   removeMedia: (id: string, mediaId: string) => call<{ ok: true }>(HttpMethod.Delete, `/projects/${id}/media/${mediaId}`),
   /** Put clips (c1…) and pool items (m1…) in a bin, or back at the top (null). */
   setBin: (id: string, ids: string[], bin: string | null) => call<{ moved: number }>(HttpMethod.Post, `/projects/${id}/media/bin`, { ids, bin }),

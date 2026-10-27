@@ -12,6 +12,7 @@ pub mod mix;
 pub mod audio_fx;
 pub mod subtitles;
 pub mod interchange;
+pub mod timeline_import;
 pub mod lut;
 pub mod tracks;
 pub mod trim;

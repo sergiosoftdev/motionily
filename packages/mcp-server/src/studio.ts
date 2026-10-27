@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { z } from "zod";
 import { DEFAULT_TARGET_LUFS, GRADE_NEUTRAL, LOOKS, OpName, PEAK_CEILING_DB, SideFile, normalization, type ScopeStats, OutputCodec, OUTPUT_SHORT_SIDES, effectsWithGrade, effectsWithGradeOf, EXPORT_PRESETS, limitedNormalization, SPEED_RAMPS, speedRampKeys, type RampPoint, type Mix, type FootageClip, type Grade, type MediaItem, type Op, type Project } from "@motionily/protocol";
 import type { ProjectApi } from "./api.js";
@@ -224,6 +224,22 @@ export function registerStudioTools(server: Server, d: StudioDeps) {
       }
       if (res.file) return d.text(`Saved to ${res.file}.`);
       return d.text(res.text);
+    }),
+  );
+
+  server.registerTool(
+    "import_timeline",
+    {
+      description:
+        "Bring a timeline from another editor onto the Edit timeline, like Media › Import timeline…: FCPXML (Final Cut Pro, DaVinci Resolve), Final Cut Pro 7 XML (Premiere's and Resolve's \"XML\") or OpenTimelineIO (.otio). Its clips go after what is already on the timeline, on the same track numbers (V1, V2…, A1…), with their in points; each finds its file in the project by name, and the desktop app copies in the ones that are not there from where the other editor had them. Titles, generators, nested sequences and speed changes stay behind (listed in the answer). `path` is the file (absolute, read here) or `text` its contents.",
+      inputSchema: { path: z.string().min(1).optional(), text: z.string().min(1).optional() },
+    },
+    d.guard(async ({ path, text }: { path?: string; text?: string }) => {
+      const contents = text ?? (path ? await readFile(path, "utf8") : null);
+      if (!contents) throw new Error("give the timeline's `path` or its `text`");
+      const res = await d.bridge().importTimeline(contents);
+      if (!res.ok) throw new Error(res.error ?? "it did not import");
+      return d.text(res.text ?? "Imported.");
     }),
   );
 

@@ -16,3 +16,5 @@ glam.workspace = true
 ttf-parser = "0.25"
 # Validates agent-written shaders at op time (same version wgpu uses).
 naga = { version = "30.0.1", features = ["wgsl-in"] }
+# Reads timelines from other editors (FCPXML, Final Cut Pro 7 XML).
+quick-xml = "0.42"

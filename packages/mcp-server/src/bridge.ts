@@ -118,6 +118,11 @@ export class EditorBridge {
     return this.request({ type: ServerMessageType.SideFile, requestId: randomUUID(), projectId: this.projectId, kind });
   }
 
+  /** Copying the clips' files into the project (desktop app) can take a while. */
+  importTimeline(text: string) {
+    return this.request({ type: ServerMessageType.ImportTimeline, requestId: randomUUID(), projectId: this.projectId, text }, LOUDNESS_TIMEOUT_MS);
+  }
+
   trackWindow(id: string, at?: number) {
     return this.request({ type: ServerMessageType.TrackWindow, requestId: randomUUID(), projectId: this.projectId, id, at }, TRACK_TIMEOUT_MS);
   }

@@ -1,4 +1,5 @@
-import init, { Engine, analyzeAudio, captionStyles, checkSceneShaders, clearAudioAnalysis, stylePalettes, stylePresets } from "./pkg/engine_wasm.js";
+import type { ImportedTimeline } from "../editor/edit/timelinePlan";
+import init, { Engine, analyzeAudio, captionStyles, checkSceneShaders, clearAudioAnalysis, parseTimeline, stylePalettes, stylePresets } from "./pkg/engine_wasm.js";
 import type { Loudness, Mix } from "@motionily/protocol";
 import { audioBus } from "../audio/bus";
 import { measureLoudness } from "../audio/loudness";
@@ -618,6 +619,12 @@ class EngineHost {
   }
 
   /** The Edit timeline as FCPXML, OTIO or EDL, sources under `mediaRoot`, with the voice-over as a clip. */
+  /** A timeline from another editor (FCPXML, Final Cut Pro 7 XML, OpenTimelineIO): its clips by track. Throws when unreadable. */
+  parseTimeline(text: string): ImportedTimeline {
+    this.require();
+    return JSON.parse(parseTimeline(text)) as ImportedTimeline;
+  }
+
   timelineFile(format: "fcpxml" | "otio" | "edl", name: string, mediaRoot: string): string {
     const voice = this.audioUrl ? new URL(this.audioUrl, location.href).pathname : undefined;
     return this.require().timelineFile(format, name, mediaRoot, voice?.startsWith("/media/") ? voice : this.audioUrl ?? undefined);

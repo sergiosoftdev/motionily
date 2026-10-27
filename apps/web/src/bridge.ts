@@ -1,5 +1,5 @@
 import { BRIDGE_PATH, BridgeClose, EXPORT_PRESETS, SIDE_FILE_LABEL, BridgeRole, HEADLESS_PARAM, EditorMessageType, ServerMessageType, type EditorMessage, type ServerMessage, type Output, type SideFile } from "@motionily/protocol";
-import { API_URL, mediaUrl } from "./api/client";
+import { API_URL, api, mediaUrl } from "./api/client";
 import { presetViolation, scenePresetViolation } from "./agentRules";
 import { engineHost } from "./engine/host";
 import { scopeStats } from "./editor/edit/colorScopes";
@@ -7,6 +7,8 @@ import { trackWindow } from "./editor/edit/windowTrack";
 import { matchColor } from "./editor/edit/colorMatch";
 import { syncAudioOps, syncClipsOf } from "./editor/edit/audioSync";
 import { decodeAudio } from "./audio/decode";
+import { placeImport, prepareImport } from "./editor/edit/importTimelineFile";
+import type { SceneView } from "./editor/sceneView";
 import { JobStatus, enqueue } from "./export/queue";
 import { desktop } from "./desktop";
 import { useSession } from "./session";
@@ -184,6 +186,26 @@ class AgentBridge {
             const text = `Synced ${msg.audio} to ${msg.video}: offset ${match.offset.toFixed(3)} s (correlation ${match.score.toFixed(2)}, ${Number.isFinite(match.margin) ? `${match.margin.toFixed(2)}× the next best` : "no other candidate"}); ${msg.audio} now plays under the clip and ${msg.video}'s own sound is muted.${doubt}`;
             this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, text, scene: engineHost.sceneJson(), summary: engineHost.summary() });
           },
+          (e: unknown) => this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error: e instanceof Error ? e.message : String(e) }),
+        );
+        return;
+      }
+      case ServerMessageType.ImportTimeline: {
+        void (async () => {
+          const load = () => Promise.all([api.project(msg.projectId), api.projectMedia(msg.projectId)]);
+          let [project, media] = await load();
+          const pending = await prepareImport(msg.text, project, media);
+          if (pending.brought) {
+            [project, media] = await load();
+            this.onProjectChanged?.();
+          }
+          const r = placeImport(pending, JSON.parse(engineHost.sceneJson()) as SceneView, project, media);
+          if (!r.placed) throw new Error(r.text);
+          engineHost.applyOps(r.ops);
+          logActivity(ActivitySource.Agent, `Imports the timeline ${pending.t.name}`);
+          return r.text;
+        })().then(
+          (text) => this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: true, text, scene: engineHost.sceneJson(), summary: engineHost.summary() }),
           (e: unknown) => this.send({ type: EditorMessageType.Result, requestId: msg.requestId, ok: false, error: e instanceof Error ? e.message : String(e) }),
         );
         return;

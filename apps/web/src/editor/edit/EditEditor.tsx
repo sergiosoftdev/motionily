@@ -323,7 +323,7 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
       <div className="flex min-h-0 flex-1 gap-3 px-3 pb-3">
         <div className="flex min-w-0 flex-1 flex-col gap-3">
           <div className="flex min-h-0 flex-1 gap-3">
-            <MediaPool ed={ed} scene={scene} clips={clips} music={music} pool={pool} onAdd={addAtPlayhead} picked={poolPick} onPick={setPoolPick} onPlace={placeFromPool} />
+            <MediaPool ed={ed} scene={scene} clips={clips} music={music} pool={pool} onAdd={addAtPlayhead} picked={poolPick} onPick={setPoolPick} onPlace={placeFromPool} edits={edits} />
             {/* Any frame shape fits here: the viewer scales it to the space it gets. */}
             <main className="flex min-w-0 flex-1 flex-col items-center gap-2 py-1">
               <Viewer canvas={ed.canvas} error={ed.error} maxWidth={PREVIEW_MAX_WIDTH} canvasClass="rounded-xl shadow-2xl shadow-black/50" />

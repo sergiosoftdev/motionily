@@ -381,6 +381,14 @@ pub fn check_scene_shaders(json: &str) -> Option<String> {
     Scene::from_json(json).ok()?.check_shaders().err()
 }
 
+/// A timeline from another editor (FCPXML, Final Cut Pro 7 XML or OpenTimelineIO) as JSON: its clips by
+/// track with their file name, original location, position and file in, plus what was skipped.
+#[wasm_bindgen(js_name = parseTimeline)]
+pub fn parse_timeline(text: &str) -> Result<String, JsError> {
+    let t = scene::timeline_import::import_timeline(text).map_err(|e| JsError::new(&e))?;
+    serde_json::to_string(&t).map_err(|e| JsError::new(&e.to_string()))
+}
+
 /// Duration (s) of a video file once the host opened it: loops and holds need it.
 #[wasm_bindgen(js_name = setMediaDuration)]
 pub fn set_media_duration(src: &str, seconds: f32) {

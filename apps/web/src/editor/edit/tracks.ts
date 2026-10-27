@@ -266,6 +266,20 @@ function settleTracks(t: EditTracks, extra: { video?: number; audio?: number } =
   return { tracks: [...video, ...audio], ops: [...t.clips.flatMap((c) => pin(c, video)), ...t.audio.flatMap((c) => pin(c, audio))] };
 }
 
+/**
+ * Enough tracks for an imported timeline (`video` V tracks, `audio` A tracks), written down with every clip
+ * pinned to its lane, and the scene track an imported "V2" / "A1" goes on.
+ */
+export function importTracksOps(t: EditTracks, video: number, audio: number): { ops: Op[]; trackOf: (id: string) => string } {
+  const { tracks, ops } = settleTracks(t, { video: Math.max(0, video - t.videoTracks.length), audio: Math.max(0, audio - t.audioTracks.length) });
+  const list = (kind: TrackKind) => tracks.filter((x) => x.kind === kind);
+  const trackOf = (id: string) => {
+    const of = list(id.startsWith("A") ? TrackKind.Audio : TrackKind.Video);
+    return of[Math.min(Math.max(0, (Number(id.slice(1)) || 1) - 1), of.length - 1)]!.id;
+  };
+  return { ops: [{ op: OpName.SetTracks, tracks }, ...ops], trackOf };
+}
+
 /** Flip one switch (hide, mute, solo, lock) of the track of `lane`. */
 export function trackSwitchOps(t: EditTracks, kind: TrackKind, lane: number, sw: TrackSwitch): Op[] {
   const { tracks, ops } = settleTracks(t);

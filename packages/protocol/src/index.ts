@@ -103,6 +103,8 @@ export const ServerMessageType = {
   SyncAudio: "sync_audio",
   /** Match clips' color to another clip's (writes their grade; answers with the difference before and after in `text`). */
   MatchColor: "match_color",
+  /** Put the clips of another editor's timeline (FCPXML, Final Cut Pro 7 XML, OTIO text) on the Edit timeline (answers in `text`). */
+  ImportTimeline: "import_timeline",
 } as const;
 export type ServerMessageType = (typeof ServerMessageType)[keyof typeof ServerMessageType];
 
@@ -123,7 +125,8 @@ export type ServerMessage =
   | { type: typeof ServerMessageType.TrackWindow; requestId: string; projectId: string; id: string; at?: number }
   | { type: typeof ServerMessageType.MatchColor; requestId: string; projectId: string; from: string; to: string[] }
   | { type: typeof ServerMessageType.SyncAudio; requestId: string; projectId: string; video: string; audio: string }
-  | { type: typeof ServerMessageType.QueueExport; requestId: string; projectId: string; presets: string[] };
+  | { type: typeof ServerMessageType.QueueExport; requestId: string; projectId: string; presets: string[] }
+  | { type: typeof ServerMessageType.ImportTimeline; requestId: string; projectId: string; text: string };
 
 /** Files exported beside the video: subtitles, and the Edit timeline for other editors. */
 export const SideFile = { Srt: "srt", Vtt: "vtt", Fcpxml: "fcpxml", Otio: "otio", Edl: "edl" } as const;

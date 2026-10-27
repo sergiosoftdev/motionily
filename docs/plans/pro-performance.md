@@ -17,7 +17,7 @@ en la app real y un commit por punto en `main`.
 | 5 | Caché de capas estáticas y exportación que reutiliza la caché de render | hecho (ver notas) |
 | 8 | Chroma key y luma key | hecho |
 | 9 | Multicámara | pendiente |
-| 10 | Importar timelines (FCPXML, OTIO) | pendiente |
+| 10 | Importar timelines (FCPXML, OTIO) | hecho (también Final Cut Pro 7 XML, el "XML" de Premiere) |
 
 ## Notas
 
@@ -25,6 +25,13 @@ en la app real y un commit por punto en `main`.
   `VideoFile.drawCurrent` pinta cada fotograma; la mejora es pasarle el `VideoFrame` del decodificador.
 - Punto 3: el visor nativo (`apps/desktop/src-tauri/src/ffmpeg.rs`) lanza ffmpeg con `-f rawvideo -pix_fmt rgba` por clip
   y lo relanza en cada salto.
+
+- Punto 10: `scene::timeline_import` lee FCPXML 1.9–1.11 (storyline principal, clips conectados, `clip`/`gap`/
+  storylines secundarias, `tcStart` y medios con timecode, `media-rep`), FCP7 XML (archivos por id, pares estéreo) y
+  OTIO (`Clip.1/2`, `media_references`, rangos disponibles con timecode). El sonido propio de un clip que viene aparte
+  se descarta (la capa de vídeo ya suena) y los solapes pasan a la pista libre siguiente. Edit › Media › "Import
+  timeline…" y la tool `import_timeline`; en escritorio se copian los archivos desde su ruta original, en el navegador
+  se piden. Fuera: títulos, generadores, secuencias anidadas, multicámara y cambios de velocidad (se listan).
 
 ## Cifras de partida (punto 1, MacBook con Apple Silicon, p50 por fotograma hasta que la GPU termina)
 
