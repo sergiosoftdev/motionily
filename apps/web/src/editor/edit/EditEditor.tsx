@@ -351,13 +351,6 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
               <AttentionStrip g={ed.g} projectId={ed.id} className="w-full max-w-xl" />
               {!dockOpen && <AgentPill g={ed.g} captioning={ed.captioning} onOpen={() => setDockOpen(true)} />}
             </main>
-            <InspectorPanel title={selection ? "Inspector" : "Project"}>
-              {selection ? (
-                <Inspector selection={selection} ops={ops} edits={edits} songLength={project?.music?.duration ?? null} clipIds={tracks?.clips.map((c) => c.id) ?? []} luts={pool.items.filter((m) => m.kind === MediaKind.Lut)} footage={footage} onClose={deselect} onStabilize={stabilize} />
-              ) : (
-                <ProjectInspector ed={ed} scene={scene} edits={edits} onFormat={(f) => void changeFormat(f)} />
-              )}
-            </InspectorPanel>
           </div>
           {/* As tall as its tracks, up to 46% of the screen: the preview keeps the rest. */}
           <div className={`relative flex max-h-[46%] min-h-52 shrink-0 flex-col rounded-2xl ring-1 ring-white/[0.06] ${ModePiece.Timeline}`}>
@@ -369,7 +362,7 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
                     type="button"
                     onClick={() => setTool(t)}
                     title={t === EditTool.Trim ? "Trim: drag an edge to ripple, Alt+edge to roll, drag a clip to slip, Alt+drag to slide" : "Select: move and trim one clip"}
-                    className={`rounded px-2 py-0.5 ${tool === t ? "bg-neutral-700 text-white" : "text-neutral-500 hover:text-white"}`}
+                    className={`rounded px-2 py-0.5 whitespace-nowrap ${tool === t ? "bg-neutral-700 text-white" : "text-neutral-500 hover:text-white"}`}
                   >
                     {label} <span className="text-neutral-500">{key}</span>
                   </button>
@@ -406,6 +399,13 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
             )}
           </div>
         </div>
+        <InspectorPanel title={selection ? "Inspector" : "Project"}>
+          {selection ? (
+            <Inspector selection={selection} ops={ops} edits={edits} songLength={project?.music?.duration ?? null} clipIds={tracks?.clips.map((c) => c.id) ?? []} luts={pool.items.filter((m) => m.kind === MediaKind.Lut)} footage={footage} onClose={deselect} onStabilize={stabilize} />
+          ) : (
+            <ProjectInspector ed={ed} scene={scene} edits={edits} onFormat={(f) => void changeFormat(f)} />
+          )}
+        </InspectorPanel>
         {dockOpen && (
           <AgentDock running={ed.g.running} onClose={() => setDockOpen(false)}>
             <ClaudePanel ed={ed} hasScene={hasScene} hasFootage={!!tracks?.clips.length} selection={null} bare />
@@ -424,7 +424,7 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
 
 function ToolButton({ label, hint, disabled, onClick }: { label: string; hint: string; disabled?: boolean; onClick: () => void }) {
   return (
-    <button type="button" disabled={disabled} onClick={onClick} className="rounded-md px-2.5 py-1 text-neutral-300 hover:bg-neutral-800 hover:text-white disabled:opacity-40">
+    <button type="button" disabled={disabled} onClick={onClick} className="rounded-md px-2.5 py-1 whitespace-nowrap text-neutral-300 hover:bg-neutral-800 hover:text-white disabled:opacity-40">
       {label} <span className="text-neutral-600">{hint}</span>
     </button>
   );
