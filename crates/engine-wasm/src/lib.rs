@@ -373,6 +373,12 @@ impl Engine {
         self.renderer.render(&self.scene, t);
     }
 
+    /// Render `t` unless it draws exactly what the last `renderChanged` drew: false = not drawn, reuse that frame.
+    #[wasm_bindgen(js_name = renderChanged)]
+    pub fn render_changed(&mut self, t: f32) -> bool {
+        self.renderer.render_changed(&self.scene, t)
+    }
+
     /// A ticket for everything submitted so far: `workDone(ticket)` turns true once the GPU has
     /// finished it (render() returns as soon as the work is queued; this is when it is drawn).
     #[wasm_bindgen(js_name = watchWork)]

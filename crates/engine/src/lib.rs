@@ -624,6 +624,21 @@ impl Renderer {
         if self.same_frame(scene, &items) {
             return;
         }
+        self.present(scene, items, t);
+    }
+
+    /// `render`, except a frame identical to the last one drawn this way is not drawn: returns false and the
+    /// caller reuses the frame it already has (an export holding a title, a pause, a freeze).
+    pub fn render_changed(&mut self, scene: &Scene, t: f32) -> bool {
+        let items = scene.frame(t);
+        if self.same_frame(scene, &items) {
+            return false;
+        }
+        self.present(scene, items, t);
+        true
+    }
+
+    fn present(&mut self, scene: &Scene, items: Vec<DrawItem>, t: f32) {
         let Some(surface) = &self.surface else { return };
         let frame = match surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(f) | wgpu::CurrentSurfaceTexture::Suboptimal(f) => f,

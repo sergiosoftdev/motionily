@@ -6,12 +6,13 @@ import type { AudioFx, Mix } from "@motionily/protocol";
 import {
   AudioBufferSource,
   BufferTarget,
-  CanvasSource,
   canEncodeAudio,
   canEncodeVideo,
   Mp4OutputFormat,
   Output,
   Quality,
+  VideoSample,
+  VideoSampleSource,
   WebMOutputFormat,
 } from "mediabunny";
 import { Engine } from "../engine/pkg/engine_wasm.js";
@@ -33,7 +34,12 @@ type SceneInfo = {
   mix?: Mix | null;
 };
 
-export type ExportResult = { blob: Blob; extension: "mp4" | "webm" };
+export type ExportResult = {
+  blob: Blob;
+  extension: "mp4" | "webm";
+  /** Frames rendered, and frames that repeated the one before (reused without rendering). */
+  frames?: { rendered: number; reused: number };
+};
 export type FontFile = { family: string; weight: number; bytes: Uint8Array };
 
 const AUDIO_RATE = 48_000;
@@ -164,7 +170,7 @@ export async function exportVideo(opts: {
     const frameCache = new Map<string, boolean>();
 
     const output = new Output({ format: mp4 ? new Mp4OutputFormat() : new WebMOutputFormat(), target: new BufferTarget() });
-    const video = new CanvasSource(canvas, { codec: videoCodec, quality: new Quality("high") });
+    const video = new VideoSampleSource({ codec: videoCodec, quality: new Quality("high") });
     output.addVideoTrack(video, { frameRate: scene.fps });
     const audio = withAudio ? new AudioBufferSource({ codec: audioCodec, quality: new Quality("high") }) : null;
     if (audio) output.addAudioTrack(audio);
@@ -173,25 +179,42 @@ export async function exportVideo(opts: {
     // A range exports `[in, out]` only; its frames are timestamped from 0.
     const [from, to] = opts.range ? [Math.max(0, opts.range[0]), Math.min(scene.duration, opts.range[1])] : [0, scene.duration];
     const frames = Math.max(1, Math.round((to - from) * scene.fps));
+    let held: VideoSample | null = null;
+    let rendered = 0;
+    const everyFrame = !!(globalThis as { __motionilyRenderEveryFrame?: boolean }).__motionilyRenderEveryFrame;
     for (let i = 0; i < frames; i++) {
       if (opts.signal.aborted) {
+        held?.close();
         await output.cancel();
         throw new DOMException("Export cancelled", "AbortError");
       }
       const t = from + i / scene.fps;
       await opts.videos?.prepare(engine, t, frameCache);
-      engine.render(t);
-      await video.add(i / scene.fps, 1 / scene.fps);
+      // A frame that draws exactly what the last one did (a hold, a still title, a freeze) is not
+      // rendered again: the frame already computed goes to the encoder once more.
+      // (`__motionilyRenderEveryFrame` renders them all, to compare in benchmarks.)
+      const changed = everyFrame ? (engine.render(t), true) : engine.renderChanged(t);
+      if (changed || !held) {
+        held?.close();
+        // Read in the same task as the render (a WebGPU canvas is cleared once presented).
+        held = new VideoSample(canvas, { timestamp: 0, duration: 1 / scene.fps });
+        rendered++;
+      }
+      const sample = held.clone();
+      sample.setTimestamp(i / scene.fps);
+      await video.add(sample);
+      sample.close();
       opts.onProgress((i + 1) / (frames + (audio ? frames * 0.1 : 0)));
     }
     if (audio) {
       const mix = (await mixAudio(opts.sceneJson, opts.audioUrl, clipSounds(engine, scene.fps, scene.duration)))!;
       await audio.add(opts.range ? sliceAudio(mix, [from, to]) : mix);
     }
+    held?.close();
     await output.finalize();
     opts.onProgress(1);
     const buffer = output.target.buffer!;
-    return { blob: new Blob([buffer], { type: mp4 ? "video/mp4" : "video/webm" }), extension: mp4 ? "mp4" : "webm" };
+    return { blob: new Blob([buffer], { type: mp4 ? "video/mp4" : "video/webm" }), extension: mp4 ? "mp4" : "webm", frames: { rendered, reused: frames - rendered } };
   } finally {
     engine.free();
   }

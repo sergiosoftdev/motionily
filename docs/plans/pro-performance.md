@@ -12,8 +12,8 @@ en la app real y un commit por punto en `main`.
 | 11 | Timecode SMPTE en todo el editor, con entrada numérica para ir a un fotograma | hecho |
 | 7 | Audio al arrastrar el cabezal y medidores LUFS / pico en vivo | hecho |
 | 2 | Vídeo sin copias en la web: el `VideoFrame` de WebCodecs directo a la GPU | hecho |
-| 3 | Decodificación nativa en escritorio (VideoToolbox / Media Foundation) en lugar de ffmpeg por tubería | hecho (Windows sin probar en una máquina Windows) |
-| 4 | El motor de reproducción en un worker con `OffscreenCanvas` | hecho (WebGPU; WebGL2 sigue en el hilo principal) |
+| 3 | Decodificación nativa en escritorio (VideoToolbox / Media Foundation) en lugar de ffmpeg por tubería | hecho (Windows probado en un runner Windows) |
+| 4 | El motor de reproducción en un worker con `OffscreenCanvas` | hecho (el worker usa el mismo backend que el editor) |
 | 5 | Caché de capas estáticas y exportación que reutiliza la caché de render | hecho (ver notas) |
 | 8 | Chroma key y luma key | hecho |
 | 9 | Multicámara | hecho |
@@ -45,7 +45,10 @@ en la app real y un commit por punto en `main`.
   en pausa vuelve el canvas del editor (gizmos, selección, edición). Mismo patrón que el visor nativo de escritorio,
   que tiene prioridad. Con el hilo principal ocupado el 67 % del tiempo (80 ms de cada 120): 107 fotogramas en el
   worker frente a 18 en el hilo principal en el mismo intervalo (≈29 frente a ≈5 fps). Ajustes › Playback lo apaga.
-  Fuera: el scrub y la edición siguen en el hilo principal; con WebGL2 no hay worker.
+  El worker pide a wgpu el mismo backend que el motor del editor (`createOffscreen(canvas, webgl)`): con WebGL2 los
+  fotogramas le llegan por un `OffscreenCanvas` (`setVideoFrameOffscreen`). La build web actual compila wgpu sin la
+  feature `webgl`, así que en el navegador el motor es sólo WebGPU y el worker cubre todos los casos que hay hoy.
+  Fuera: el scrub y la edición siguen en el hilo principal.
 
 ## Cifras de partida (punto 1, MacBook con Apple Silicon, p50 por fotograma hasta que la GPU termina)
 
@@ -75,8 +78,11 @@ en la GPU) y el canvas intermedio de 8 MB por clip. La ganancia real aparece con
 | saltar a un tiempo (mediana de 20) | 28 ms | 222 ms |
 | decodificar todo el clip | 2,9 ms/fotograma | 3,6 ms/fotograma |
 
-Windows (Media Foundation) compila para `x86_64-pc-windows-msvc` pero no se ha ejecutado: falta probarlo en Windows,
-sobre todo el sentido de `MF_MT_VIDEO_ROTATION`.
+Windows (Media Foundation) probado en un runner `windows-latest` de GitHub Actions (una vez, 2026-10-27; el workflow
+se quitó después para no gastar minutos): `cargo test -p native-video` pasa, incluidas las rotaciones de 90°, 180° y
+270° comparadas píxel a píxel con el fotograma derecho de ffmpeg (diferencia media < 8/255). En Mac pasan en local
+(ffmpeg 9); en el runner `macos-14` el de 90° dio 40/255 con la misma transformación leída que en local, así que la
+diferencia está en el fotograma de referencia de su ffmpeg, no en el giro (girado al revés daría 122).
 
 ## Punto 5 medido
 
@@ -93,5 +99,10 @@ en el visor nativo ni en `render_rgba` (exportaciones de escritorio, stills).
 
 Un test compara píxel a píxel el dibujo recortado con el de pantalla completa (sombras, glows con umbral, blur,
 overlay, texto, motion blur): diferencia máxima ≤ 2/255. No hecho: una caché por capa entre fotogramas distintos
-(costaría una textura de fotograma completo por capa) ni reutilizar en la exportación web la caché de render del
-editor (guarda los fotogramas al tamaño de la previsualización, menor que el de exportación).
+(costaría una textura de fotograma completo por capa).
+
+La exportación web reutiliza los fotogramas ya calculados: `Engine.renderChanged(t)` no dibuja un fotograma que pinta
+exactamente lo mismo que el anterior (misma lista de capas, sin vídeo avanzando) y la exportación vuelve a codificar la
+muestra que ya tenía (`VideoSample.clone()` con otro timestamp), sin render ni lectura de la GPU. Un plano fijo de 1 s a
+30 fps: 1 fotograma dibujado, 29 reutilizados (`ExportResult.frames`). La caché de render del editor no sirve aquí:
+guarda los fotogramas al tamaño de la previsualización, menor que el de exportación.
