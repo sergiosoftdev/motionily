@@ -1,11 +1,7 @@
 import { useEffect } from "react";
 import { engineHost } from "../engine/host";
 import { useEditor } from "../store";
-
-const typing = (el: EventTarget | null) => {
-  const t = el as HTMLElement | null;
-  return !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
-};
+import { commandFor, isTyping as typing, KeyScope } from "../keys/keymap";
 
 /** Step the playhead by `frames` frames (paused). */
 export function stepFrames(frames: number, fps: number) {
@@ -15,16 +11,17 @@ export function stepFrames(frames: number, fps: number) {
 }
 
 /**
- * Playback keys: Space plays or pauses; with `frames`, also J/K/L (shuttle back, stop, forward;
- * again = faster), Home/End (first/last frame) and Page Up/Down or ⌘←/⌘→ (one frame). Never while typing.
+ * Playback keys (the keymap's transport commands): play/pause; with `frames`, also shuttle (J/K/L by
+ * default; again = faster), first/last frame and one frame back/forward. Never while typing.
  */
 export function useTransportKeys(fps: number, frames: boolean) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (typing(e.target)) return;
       const { playing, duration } = useEditor.getState();
-      const meta = e.metaKey || e.ctrlKey;
-      if (e.key === " ") {
+      const c = commandFor(e, KeyScope.Transport);
+      if (!c) return;
+      if (c.id === "transport.play_pause") {
         e.preventDefault();
         // Holding Space would toggle on every key repeat.
         if (e.repeat) return;
@@ -35,21 +32,35 @@ export function useTransportKeys(fps: number, frames: boolean) {
         return;
       }
       if (!frames) return;
-      // J/K/L shuttle: L forward (again = faster), J backwards (again = faster), K stops.
-      const k = !meta && !e.altKey ? e.key.toLowerCase() : "";
-      if (k === "l" || k === "j" || k === "k") {
-        e.preventDefault();
-        if (k === "k") return engineHost.pause();
-        const r = engineHost.shuttleRate;
-        if (k === "l") engineHost.shuttle(r >= 1 ? Math.min(4, r * 2) : 1);
-        else engineHost.shuttle(r <= -1 ? Math.max(-4, r * 2) : -1);
-        return;
+      const r = engineHost.shuttleRate;
+      switch (c.id) {
+        // J/K/L shuttle: forward (again = faster), backwards (again = faster), stop.
+        case "transport.shuttle_stop":
+          engineHost.pause();
+          break;
+        case "transport.shuttle_forward":
+          engineHost.shuttle(r >= 1 ? Math.min(4, r * 2) : 1);
+          break;
+        case "transport.shuttle_back":
+          engineHost.shuttle(r <= -1 ? Math.max(-4, r * 2) : -1);
+          break;
+        case "transport.go_start":
+          engineHost.pause();
+          engineHost.seek(0);
+          break;
+        case "transport.go_end":
+          engineHost.pause();
+          engineHost.seek(duration);
+          break;
+        case "transport.prev_frame":
+          stepFrames(-1, fps);
+          break;
+        case "transport.next_frame":
+          stepFrames(1, fps);
+          break;
+        default:
+          return;
       }
-      if (e.key === "Home") (engineHost.pause(), engineHost.seek(0));
-      else if (e.key === "End") (engineHost.pause(), engineHost.seek(duration));
-      else if (e.key === "PageUp" || (meta && e.key === "ArrowLeft")) stepFrames(-1, fps);
-      else if (e.key === "PageDown" || (meta && e.key === "ArrowRight")) stepFrames(1, fps);
-      else return;
       e.preventDefault();
     };
     window.addEventListener("keydown", onKey);

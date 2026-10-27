@@ -8,7 +8,7 @@ en la app real y un commit por punto en `main`.
 | # | Punto | Estado |
 |---|---|---|
 | 1 | Medir: panel de rendimiento (fps, render, decodificación, memoria) y benchmarks con escenas pesadas | hecho |
-| 6 | Atajos de teclado configurables con presets de Premiere, Resolve y Final Cut | pendiente |
+| 6 | Atajos de teclado configurables con presets de Premiere, Resolve y Final Cut | hecho |
 | 11 | Timecode SMPTE en todo el editor, con entrada numérica para ir a un fotograma | pendiente |
 | 7 | Audio al arrastrar el cabezal y medidores LUFS / pico en vivo | pendiente |
 | 2 | Vídeo sin copias en la web: el `VideoFrame` de WebCodecs directo a la GPU | pendiente |

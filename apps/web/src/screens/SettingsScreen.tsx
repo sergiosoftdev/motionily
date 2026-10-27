@@ -4,6 +4,7 @@ import { MotionilyLayout } from "../shell/MotionilyLayout";
 import { AgentEffort, AgentModel, EFFORT_LABEL, loadPrefs, MODEL_LABEL, savePrefs, type AgentPrefs } from "../components/GeneratePanel";
 import { ElevenLabsKeyForm, useElevenLabs } from "../voice/ElevenLabs";
 import { SocialAccounts } from "../social/SocialAccounts";
+import { KeyboardSettings } from "../keys/KeyboardSettings";
 import { AssetSourcesForm, LibraryGrid } from "../assets/AssetSources";
 import { AgentCliForm } from "../components/AgentCliForm";
 
@@ -63,6 +64,13 @@ export function SettingsScreen() {
           <p className="text-xs text-neutral-500">Generate voice-overs inside Motionily with your own ElevenLabs account: pick a voice and the script is read with every word timed.</p>
         </div>
         <ElevenLabsKeyForm el={elevenLabs} />
+      </section>
+      <section className="flex max-w-xl flex-col gap-3">
+        <div>
+          <h2 className="text-sm font-semibold">Keyboard</h2>
+          <p className="text-xs text-neutral-500">The editors' keys: start from the editor you know (Premiere Pro, DaVinci Resolve, Final Cut Pro) and change any of them.</p>
+        </div>
+        <KeyboardSettings />
       </section>
       <section className="flex max-w-xl flex-col gap-3">
         <div>

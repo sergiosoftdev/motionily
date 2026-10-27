@@ -30,6 +30,7 @@ import { useEditActions } from "./useEditActions";
 import { copyGrade, pasteGradeOps } from "./gradeClipboard";
 import { useEditOps } from "./useEditOps";
 import { useAgentName } from "../../agentName";
+import { commandFor, KeyScope } from "../../keys/keymap";
 
 const PREVIEW_MAX_WIDTH = 900;
 
@@ -114,45 +115,82 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
     setPicks(null);
   };
 
-  // S splits, Delete removes (closing the gap on the main track), ⌘Z / ⇧⌘Z undo and redo. Captured
-  // first, so the canvas selection's own Delete never runs on top of it.
+  // The Edit commands of the keymap (blade, delete closing the gap on the main track, undo/redo, marks,
+  // three-point edits, tools, grades). Captured first, so the canvas selection's own Delete never runs on top of it.
   const latest = useRef({ selection, ops, edits, place: (_m: PoolEdit) => undefined as void });
   latest.current = { selection, ops, edits, place: (m: PoolEdit) => placeFromPool(m) };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (typing(e.target)) return;
       const { selection: sel, ops: o, edits: ed2 } = latest.current;
-      const meta = e.metaKey || e.ctrlKey;
       let handled = true;
       const t = useEditor.getState().time;
       const wa = (JSON.parse(engineHost.sceneJson()) as { work_area?: [number, number] | null }).work_area ?? null;
       const dur = useEditor.getState().duration;
       const clipIds = sel?.kind === "clip" ? [sel.clip.id] : sel?.kind === "many" ? sel.clips.map((c) => c.id) : [];
-      if (meta && e.key.toLowerCase() === "z") (e.shiftKey ? ed2.redo() : ed2.undo());
-      // ⌥⌘C / ⌥⌘V: copy the selected clip's grade, paste it on the selected clips.
-      else if (meta && e.altKey && e.code === "KeyC" && clipIds.length === 1) copyGrade(clipIds[0]!);
-      else if (meta && e.altKey && e.code === "KeyV" && clipIds.length) {
-        const pasted = pasteGradeOps(clipIds);
-        if (pasted) ed2.apply(pasted, `Pastes a grade on ${clipIds.join(", ")}`, false);
+      const c = commandFor(e, KeyScope.Edit);
+      switch (c?.id) {
+        case "edit.undo":
+          ed2.undo();
+          break;
+        case "edit.redo":
+          ed2.redo();
+          break;
+        // Copy the selected clip's grade, paste it on the selected clips.
+        case "edit.copy_grade":
+          if (clipIds.length === 1) copyGrade(clipIds[0]!);
+          else handled = false;
+          break;
+        case "edit.paste_grade": {
+          const pasted = clipIds.length ? pasteGradeOps(clipIds) : null;
+          if (pasted) ed2.apply(pasted, `Pastes a grade on ${clipIds.join(", ")}`, false);
+          else handled = false;
+          break;
+        }
+        case "edit.mark_in":
+          ed2.apply([{ op: OpName.SetWorkArea, work_area: [t, Math.max(wa?.[1] ?? dur, t + 0.1)] }], `Mark in at ${t.toFixed(2)} s`, false);
+          break;
+        case "edit.mark_out":
+          ed2.apply([{ op: OpName.SetWorkArea, work_area: [Math.min(wa?.[0] ?? 0, Math.max(0, t - 0.1)), t] }], `Mark out at ${t.toFixed(2)} s`, false);
+          break;
+        case "edit.add_marker": {
+          const markers = (JSON.parse(engineHost.sceneJson()) as { markers?: { t: number; label: string; color?: string }[] }).markers ?? [];
+          ed2.apply([{ op: OpName.SetMarkers, markers: [...markers, { t, label: `Marker ${markers.length + 1}` }] }], `Marker at ${t.toFixed(2)} s`, false);
+          break;
+        }
+        case "edit.clear_marks":
+          ed2.apply([{ op: OpName.SetWorkArea, work_area: null }], "Clears the in and out marks", false);
+          break;
+        case "edit.insert":
+          latest.current.place(PoolEdit.Insert);
+          break;
+        case "edit.overwrite":
+          latest.current.place(PoolEdit.Overwrite);
+          break;
+        case "edit.replace":
+          latest.current.place(PoolEdit.Replace);
+          break;
+        case "edit.select_tool":
+          setTool(EditTool.Select);
+          break;
+        case "edit.trim_tool":
+          setTool(EditTool.Trim);
+          break;
+        case "edit.blade":
+          o.split(sel?.kind === "clip" ? sel.clip : null);
+          break;
+        case "edit.delete":
+          if (!sel) {
+            handled = false;
+            break;
+          }
+          o.remove(sel);
+          setCue(null);
+          setPicks(null);
+          break;
+        default:
+          handled = false;
       }
-      else if (!meta && !e.altKey && e.key.toLowerCase() === "i") ed2.apply([{ op: OpName.SetWorkArea, work_area: [t, Math.max(wa?.[1] ?? dur, t + 0.1)] }], `Mark in at ${t.toFixed(2)} s`, false);
-      else if (!meta && !e.altKey && e.key.toLowerCase() === "o") ed2.apply([{ op: OpName.SetWorkArea, work_area: [Math.min(wa?.[0] ?? 0, Math.max(0, t - 0.1)), t] }], `Mark out at ${t.toFixed(2)} s`, false);
-      else if (!meta && !e.altKey && e.key.toLowerCase() === "m") {
-        const markers = (JSON.parse(engineHost.sceneJson()) as { markers?: { t: number; label: string; color?: string }[] }).markers ?? [];
-        ed2.apply([{ op: OpName.SetMarkers, markers: [...markers, { t, label: `Marker ${markers.length + 1}` }] }], `Marker at ${t.toFixed(2)} s`, false);
-      } else if (e.altKey && e.code === "KeyX") ed2.apply([{ op: OpName.SetWorkArea, work_area: null }], "Clears the in and out marks", false);
-      else if (e.key === "F9") latest.current.place(PoolEdit.Insert);
-      else if (e.key === "F10") latest.current.place(PoolEdit.Overwrite);
-      else if (e.key === "F11") latest.current.place(PoolEdit.Replace);
-      else if (!meta && e.key.toLowerCase() === "a") setTool(EditTool.Select);
-      else if (!meta && e.key.toLowerCase() === "t") setTool(EditTool.Trim);
-      // S, or ⌘B like Resolve's and Premiere's blade, cuts at the playhead.
-      else if ((!meta && e.key.toLowerCase() === "s") || (meta && e.key.toLowerCase() === "b")) o.split(sel?.kind === "clip" ? sel.clip : null);
-      else if ((e.key === "Delete" || e.key === "Backspace") && sel) {
-        o.remove(sel);
-        setCue(null);
-        setPicks(null);
-      } else handled = false;
       if (handled) {
         e.preventDefault();
         e.stopImmediatePropagation();
