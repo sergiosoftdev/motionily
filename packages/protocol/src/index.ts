@@ -806,6 +806,8 @@ export type User = { id: string; email: string; name: string; avatarUrl: string 
 
 /** Short-form attention curve: devices, measurement and checks (see attention.ts). */
 export * from "./attention.js";
+/** Where TikTok, Reels and Shorts draw their UI over a vertical video (see appUi.ts). */
+export * from "./appUi.js";
 
 /** A speed ramp point: from `at` (0..1 of the clip's length on the timeline) the clip plays at `speed` (× its own speed). */
 export type RampPoint = { at: number; speed: number };

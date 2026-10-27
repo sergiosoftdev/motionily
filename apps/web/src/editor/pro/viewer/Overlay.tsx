@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
-import { OpName, type Op } from "@motionily/protocol";
+import { APP_UI, APP_UI_REF, OpName, type Op } from "@motionily/protocol";
 import { apply, commit, preview } from "../../../editing/direct";
 import { sceneLayers } from "../../../editing/groups";
 import { engineHost } from "../../../engine/host";
@@ -62,37 +62,6 @@ const COLORS = {
   textSafe: "rgba(80,220,140,0.9)",
   marquee: "rgba(45,140,235,0.12)",
 } as const;
-
-/** Where each app's UI sits on a 1080×1920 vertical video (approximate, from their current layouts). */
-type Zone = [x0: number, y0: number, x1: number, y1: number, label: string];
-const REF_W = 1080;
-const REF_H = 1920;
-const APP_UI: Record<Exclude<Platform, typeof Platform.None>, { zones: Zone[]; safe: [number, number, number, number] }> = {
-  tiktok: {
-    zones: [
-      [0, 0, 1080, 150, "Top bar · Following / For You"],
-      [940, 720, 1080, 1500, "Buttons"],
-      [0, 1500, 1080, 1920, "Username · caption · sound · nav bar"],
-    ],
-    safe: [60, 150, 940, 1500],
-  },
-  reels: {
-    zones: [
-      [0, 0, 1080, 210, "Top bar · Reels · camera"],
-      [950, 900, 1080, 1560, "Buttons"],
-      [0, 1560, 1080, 1920, "Username · caption · audio · nav bar"],
-    ],
-    safe: [60, 210, 950, 1560],
-  },
-  shorts: {
-    zones: [
-      [0, 0, 1080, 140, "Top bar · search"],
-      [900, 820, 1080, 1480, "Buttons"],
-      [0, 1480, 1080, 1920, "Title · channel · sound · nav bar"],
-    ],
-    safe: [60, 140, 900, 1480],
-  },
-};
 
 const ROTATE_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M6 15a7 7 0 1 1 9 4" fill="none" stroke="black" stroke-width="4"/><path d="M6 15a7 7 0 1 1 9 4" fill="none" stroke="white" stroke-width="2"/><path d="M2 12l4 4 4-4" fill="white" stroke="black"/></svg>',
@@ -332,9 +301,9 @@ export function ViewerOverlay({ canvas }: { canvas: RefObject<HTMLCanvasElement 
     // App UI zones (vertical videos only).
     if (platform !== Platform.None && v.sh > v.sw) {
       const ui = APP_UI[platform];
-      const [kx, ky] = [v.sw / REF_W, v.sh / REF_H];
+      const [kx, ky] = [v.sw / APP_UI_REF[0], v.sh / APP_UI_REF[1]];
       g.font = "500 11px Inter, system-ui, sans-serif";
-      for (const [x0, y0, x1, y1, label] of ui.zones) {
+      for (const { box: [x0, y0, x1, y1], label } of ui.zones) {
         const r = rect(x0 * kx, y0 * ky, x1 * kx, y1 * ky);
         g.fillStyle = COLORS.appUi;
         g.fillRect(...r);

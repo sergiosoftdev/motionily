@@ -3,13 +3,13 @@
  * engine's layout (where every layer lands, in scene px) and the palette. Each issue carries the
  * exact ops that fix it, so a small model applies a patch instead of working out coordinates.
  */
-import type { FrameLayout, LayoutRow } from "@motionily/protocol";
+import { APP_UI_REF, AppUiKind, TEXT_BLOCKING_ZONES, isVerticalFeed, type FrameLayout, type LayoutRow } from "@motionily/protocol";
 
 export type Palette = { background: string; surface: string; primary: string; accent: string; text: string };
 export type Layer = Record<string, unknown>;
 export type Op = Record<string, unknown>;
 
-export type IssueKind = "off_frame" | "tiny_text" | "text_overlap" | "low_contrast" | "place_missing" | "cropped_text" | "detached_child";
+export type IssueKind = "off_frame" | "tiny_text" | "text_overlap" | "low_contrast" | "place_missing" | "cropped_text" | "detached_child" | "app_ui";
 export type Issue = { kind: IssueKind; id: string; times: number[]; message: string; fix?: Op[] };
 
 /** WCAG AA for normal text. */
@@ -26,6 +26,10 @@ const CROP_PERSIST = 0.5;
 const REFIT_SHARE = 0.86;
 /** Overlap of two text boxes, as a share of the smaller one, that reads as a collision. */
 const TEXT_OVERLAP = 0.08;
+/** Depth (share of the frame side) a text box reaches into an app's buttons or caption band before it reads as covered. */
+const APP_UI_SHARE = 0.01;
+/** Left margin the apps leave on a vertical video, on the 1080 reference (refits stay right of it). */
+const APP_UI_LEFT = 60;
 /** A child this many times farther from its parent's center than their boxes reach has absolute x/y by mistake. */
 const DETACHED_REACH = 1.5;
 /** Parents smaller than this (px) are nulls (camera rigs, pivots): children far from them are intended. */
@@ -192,6 +196,56 @@ export function lintLayers({ layers, frames, palette, size }: LintInput): Issue[
       fix: fits ? [{ op: "patch", id, fields: { w: Math.round(w * REFIT_SHARE), x: w / 2 } }] : undefined,
     }, c.cut[0]!);
     for (const t of c.cut.slice(1)) add(`crop:${id}`, { kind: "cropped_text", id, message: "" }, t);
+  }
+
+  // On a vertical video TikTok and Reels draw their buttons (right) and the caption band (bottom) over the frame.
+  if (isVerticalFeed(size)) {
+    const [kx, ky] = [w / APP_UI_REF[0], h / APP_UI_REF[1]];
+    const zones = TEXT_BLOCKING_ZONES.map(({ kind, box: [x0, y0, x1, y1] }) => ({ kind, box: [x0 * kx, y0 * ky, x1 * kx, y1 * ky] }));
+    const right = Math.min(...zones.filter((z) => z.kind === AppUiKind.Buttons).map((z) => z.box[0]!));
+    const bottom = Math.min(...zones.filter((z) => z.kind === AppUiKind.Caption).map((z) => z.box[1]!));
+    const left = APP_UI_LEFT * kx;
+    const covered = new Map<string, { shown: number; hits: number[]; buttons: number; caption: number; x0: number }>();
+    for (const frame of frames) {
+      for (const row of frame.layers) {
+        const entry = byId.get(row.id);
+        if (!entry || !row.visible || !(entry.layer.type === "text" || isText3d(entry.layer)) || insideArea(row, size) === 0) continue;
+        const [x0, y0, x1, y1] = row.screen;
+        const c = covered.get(row.id) ?? { shown: 0, hits: [], buttons: 0, caption: 0, x0 };
+        c.shown++;
+        let hit = false;
+        for (const { kind, box: [zx0, zy0, zx1, zy1] } of zones) {
+          if (Math.min(x1, zx1!) - Math.max(x0, zx0!) <= w * APP_UI_SHARE || Math.min(y1, zy1!) - Math.max(y0, zy0!) <= h * APP_UI_SHARE) continue;
+          hit = true;
+          if (kind === AppUiKind.Buttons) c.buttons = Math.max(c.buttons, x1 - right);
+          else c.caption = Math.max(c.caption, y1 - bottom);
+          c.x0 = Math.min(c.x0, x0);
+        }
+        if (hit) c.hits.push(frame.t);
+        covered.set(row.id, c);
+      }
+    }
+    for (const [id, c] of covered) {
+      // A slide passing through is fine, and a word already cut by the frame edge is reported as cropped_text.
+      if (!c.hits.length || c.hits.length / c.shown < CROP_PERSIST || issues.has(`crop:${id}`)) continue;
+      const layer = byId.get(id)!.layer;
+      const where = [c.buttons > 0 && "buttons", c.caption > 0 && "caption band"].filter(Boolean).join(" and ");
+      const fields: Record<string, unknown> = {};
+      if (layer.type === "text" && !layer.parent && typeof layer.x === "number" && typeof layer.y === "number") {
+        if (c.buttons > 0) {
+          if (c.x0 - c.buttons >= left) fields.x = +((layer.x as number) - c.buttons).toFixed(1);
+          else if (typeof layer.w === "number") Object.assign(fields, { w: Math.round(right - left), x: +((left + right) / 2).toFixed(1) });
+        }
+        if (c.caption > 0) fields.y = +((layer.y as number) - c.caption).toFixed(1);
+      }
+      add(`appui:${id}`, {
+        kind: "app_ui",
+        id,
+        message: `'${id}' sits under the TikTok/Reels ${where}: on a vertical video keep text left of x=${Math.round(right)} and above y=${Math.round(bottom)} (backgrounds and footage still fill the frame)`,
+        fix: Object.keys(fields).length ? [{ op: "patch", id, fields }] : undefined,
+      }, c.hits[0]!);
+      for (const t of c.hits.slice(1)) add(`appui:${id}`, { kind: "app_ui", id, message: "" }, t);
+    }
   }
 
   for (const frame of frames) {

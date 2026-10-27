@@ -314,6 +314,9 @@ touched layers are on screen (their start and middle). Read them and apply the f
 - `LINT place_missing` — `place=` names a layer that does not exist.
 - `placed (place=)` — layers with `place=` were moved to their anchor. Placement uses the anchor's box when the placed layer
   starts; it is redone after every write, and does not follow keyframed anchors or parents.
+- `LINT app_ui` — 9:16 only: text under the TikTok/Reels buttons (right of x=940, from y=720) or caption band (below
+  y=1500), on 1080×1920. Lay text out inside x 60–940, y ≤ 1500 from the start; backgrounds and footage still fill the
+  frame. Fix: the x/y shift (or narrower `w`) it prints.
 - `review_video` adds the numbers per frame (layers on screen, share of the frame under text) and the same lint with fixes.
 - `next_step` gives the order to work in. Call it when you are unsure what comes next.
 Times can be references: `@phrase:N` and `@word:TEXT` (see syntax). Colors can be `on_background|on_surface|on_primary|

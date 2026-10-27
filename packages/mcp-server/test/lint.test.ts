@@ -102,3 +102,33 @@ test("contrast reads an animated background at the text's time, not its first ke
   const early = frame(0.5, [row("bg", [0, 0, 1080, 1920]), row("title", [100, 800, 980, 900], { ink: true })]);
   assert.equal(lintLayers({ layers: [layers[0]!, { ...layers[1]!, start: 0 }], frames: [early], palette, size }).filter((i) => i.kind === "low_contrast").length, 1);
 });
+
+test("text under the TikTok/Reels buttons or caption band on a vertical video is moved clear of them", () => {
+  // The headline reaches x=1017 beside the buttons; the tagline sits in the caption band.
+  const layers: Layer[] = [
+    { id: "head", type: "text", fill: "text", size: 120, x: 560, y: 1100 },
+    { id: "tag", type: "text", fill: "text", size: 60, x: 540, y: 1620 },
+  ];
+  const f = frame(1, [row("head", [180, 1040, 1017, 1160], { ink: true }), row("tag", [240, 1590, 840, 1650], { ink: true })]);
+  const issues = lintLayers({ layers, frames: [f], palette, size }).filter((i) => i.kind === "app_ui");
+  assert.deepEqual(issues.map((i) => i.id).sort(), ["head", "tag"]);
+  assert.deepEqual(issues.find((i) => i.id === "head")!.fix, [{ op: "patch", id: "head", fields: { x: 483 } }]);
+  assert.deepEqual(issues.find((i) => i.id === "tag")!.fix, [{ op: "patch", id: "tag", fields: { y: 1470 } }]);
+  assert.match(formatIssues(issues).join("\n"), /LINT app_ui: 'head' sits under the TikTok\/Reels buttons/);
+});
+
+test("app UI zones: too wide to shift is refitted, the top of the frame and other formats are clean", () => {
+  const wide: Layer[] = [{ id: "wide", type: "text", fill: "text", size: 120, x: 540, y: 1000, w: 1000 }];
+  const f = frame(1, [row("wide", [40, 940, 1040, 1060], { ink: true })]);
+  const [issue] = lintLayers({ layers: wide, frames: [f], palette, size }).filter((i) => i.kind === "app_ui");
+  assert.deepEqual(issue!.fix, [{ op: "patch", id: "wide", fields: { w: 880, x: 500 } }]);
+  // Right of x=940 above the buttons (y<720) is clear on both apps.
+  const high = frame(1, [row("wide", [140, 300, 1000, 420], { ink: true })]);
+  assert.equal(lintLayers({ layers: wide, frames: [high], palette, size }).filter((i) => i.kind === "app_ui").length, 0);
+  // 16:9 and 4:5 have no app UI over them.
+  assert.equal(lintLayers({ layers: wide, frames: [f], palette, size: [1920, 1080] }).filter((i) => i.kind === "app_ui").length, 0);
+  assert.equal(lintLayers({ layers: wide, frames: [f], palette, size: [1080, 1350] }).filter((i) => i.kind === "app_ui").length, 0);
+  // A slide passing through the buttons on one of three frames is motion, not layout.
+  const pass = [frame(0, [row("wide", [100, 940, 900, 1060], { ink: true })]), frame(0.5, [row("wide", [100, 940, 900, 1060], { ink: true })]), f];
+  assert.equal(lintLayers({ layers: wide, frames: pass, palette, size }).filter((i) => i.kind === "app_ui").length, 0);
+});

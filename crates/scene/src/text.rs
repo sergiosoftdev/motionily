@@ -233,7 +233,10 @@ pub(crate) fn caption_frame(scene: &Scene, palette: &Palette, t: f32) -> Option<
         t >= first.start && t < last.end + PHRASE_LINGER
     })?;
     let (w, h) = (scene.width as f32, scene.height as f32);
-    let anchor = scene.library.anchor("caption").unwrap_or([0.5, 0.82]);
+    // On a 9:16 video TikTok and Reels draw their buttons from x 940/1080 and the caption band from y 1500/1920:
+    // the line sits higher and narrower so the app's UI never covers it.
+    let vertical = (h / w - 16.0 / 9.0).abs() < 0.02;
+    let anchor = scene.library.anchor("caption").unwrap_or(if vertical { [0.5, 0.72] } else { [0.5, 0.82] });
     let typo = scene.typography.clone().unwrap_or(Typography { family: DEFAULT_FAMILY.into(), body: 500, heading: 700 });
     let faded = |c: Rgba, a: f32| Rgba([c.0[0], c.0[1], c.0[2], c.0[3] * a]);
     let spoken = |wd: &Word| t >= wd.start;
@@ -302,7 +305,7 @@ pub(crate) fn caption_frame(scene: &Scene, palette: &Palette, t: f32) -> Option<
         align: TextAlign::Center,
         line_height: 1.2,
         center: [anchor[0] * w, anchor[1] * h],
-        max_width: w * 0.84,
+        max_width: w * if vertical { 0.74 } else { 0.84 },
         max_height: None,
         rotation: 0.0,
     })
@@ -340,5 +343,20 @@ mod tests {
         assert_eq!(k.spans[1].color, p.primary);
         assert_ne!(k.spans[2].color, p.primary);
         assert!(caption_frame(&scene, &p, 3.0).is_none());
+    }
+
+    #[test]
+    fn vertical_captions_clear_the_apps_ui() {
+        let mut scene = Scene::default();
+        scene.captions = Some(words(&[("uno", 0.0, 0.4), ("dos", 0.4, 0.8)]));
+        let p = scene.palette();
+        (scene.width, scene.height) = (1080, 1920);
+        let c = caption_frame(&scene, &p, 0.5).unwrap();
+        // Above TikTok's caption band (y 1500) and left of its buttons (x 940).
+        assert!(c.center[1] + c.size * 1.2 < 1500.0);
+        assert!(c.center[0] + c.max_width / 2.0 <= 940.0);
+        (scene.width, scene.height) = (1920, 1080);
+        let c = caption_frame(&scene, &p, 0.5).unwrap();
+        assert_eq!(c.center[1], 1080.0 * 0.82);
     }
 }
