@@ -161,6 +161,8 @@ export async function exportVideo(opts: {
   const engine = await Engine.create(canvas);
   try {
     engine.resize(width, height);
+    // Benchmarks compare with every layer drawn each frame.
+    if ((globalThis as { __motionilyNoStaticCache?: boolean }).__motionilyNoStaticCache) engine.setCacheStatic(false);
     for (const f of opts.fonts) engine.addFont(f.family, f.weight, f.bytes);
     for (const m of opts.stage.models) engine.addModel(m.key, m.bytes);
     for (const t of opts.stage.textures) engine.addTexture(t.pack, t.rgba, t.width, t.height);

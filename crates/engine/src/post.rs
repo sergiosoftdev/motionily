@@ -139,7 +139,7 @@ impl PostPass {
             dimension: wgpu::TextureDimension::D2,
             format,
             // COPY_SRC: backdrop blend modes copy the scene so far before blending over it.
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
         let view = texture.create_view(&Default::default());
@@ -159,6 +159,10 @@ impl PostPass {
     /// The scene texture itself (copy source for backdrop blends).
     pub fn texture(&self) -> &wgpu::Texture {
         &self.texture
+    }
+
+    pub fn size(&self) -> [u32; 2] {
+        self.size
     }
 
     pub fn target(&self) -> &wgpu::TextureView {

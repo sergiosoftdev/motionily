@@ -363,6 +363,18 @@ impl Engine {
         self.renderer.resize(width, height);
     }
 
+    /// Start frames from a copy of their unchanged leading layers (on by default; off to compare).
+    #[wasm_bindgen(js_name = setCacheStatic)]
+    pub fn set_cache_static(&mut self, on: bool) {
+        self.renderer.set_cache_static(on);
+    }
+
+    /// Frames so far that started from that copy.
+    #[wasm_bindgen(js_name = staticReused)]
+    pub fn static_reused(&self) -> f64 {
+        self.renderer.static_reused() as f64
+    }
+
     /// Draw at 2x and average down (every edge supersampled) when 2; 1 is the default and the fastest.
     #[wasm_bindgen(js_name = setSupersample)]
     pub fn set_supersample(&mut self, factor: u32) {

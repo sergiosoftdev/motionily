@@ -134,17 +134,58 @@ struct Batches {
     stage: Option<DrawStage>,
     objects: Vec<scene::DrawObject>,
     runs: Vec<Run>,
+    /// How many runs there are once each top-level item is in (to map a leading stretch of items to runs).
+    item_runs: Vec<usize>,
 }
 
 impl Batches {
     fn build(items: Vec<DrawItem>) -> Self {
         let mut b = Batches::default();
         let mut runs = Vec::new();
-        b.push_all(items, &mut runs, true);
+        let mut item_runs = Vec::with_capacity(items.len());
+        for item in items {
+            b.push_all(vec![item], &mut runs, true);
+            item_runs.push(runs.len());
+        }
         b.runs = runs;
+        b.item_runs = item_runs;
         b
     }
 
+    /// The runs the first `n` top-level items draw by themselves: a run the next item extends (plain
+    /// items of one kind share a run) is not theirs alone.
+    fn whole_runs(&self, n: usize) -> usize {
+        if n == 0 {
+            return 0;
+        }
+        let before = self.item_runs[n - 1];
+        match self.item_runs.get(n) {
+            Some(&after) if after == before => before.saturating_sub(1),
+            _ => before,
+        }
+    }
+
+    /// Runs from the start that a copy of the scene target can stand for: the 3D stage draws before
+    /// them, and 3D objects and tilted planes are left out (they follow the camera and the time).
+    fn cacheable(&self, upto: usize) -> usize {
+        if self.stage.is_some() {
+            return 0;
+        }
+        self.runs[..upto].iter().position(|r| matches!(r, Run::Object(_)) || matches!(r, Run::Fx(f) if f.perspective.is_some())).unwrap_or(upto)
+    }
+}
+
+/// The scene target as it stood after a frame's first `runs` runs, which its first `items` drew: a frame
+/// that starts with the same items starts from this copy instead of drawing them again (a still background
+/// with effects under moving titles costs one copy, not its passes).
+struct StaticCache {
+    texture: wgpu::Texture,
+    size: [u32; 2],
+    items: Vec<DrawItem>,
+    runs: usize,
+}
+
+impl Batches {
     /// `top`: offscreen layers are only honored at the top level (nested ones draw plainly).
     fn push_all(&mut self, items: Vec<DrawItem>, runs: &mut Vec<Run>, top: bool) {
         for item in items {
@@ -273,6 +314,13 @@ pub struct Renderer {
     /// What the last frame drew and its pixels (render_rgba): an identical next frame is not drawn again.
     last_frame: Option<Vec<DrawItem>>,
     last_rgba: Option<Vec<u8>>,
+    /// The last frame's top-level items, to find the leading ones the next frame shares.
+    prev_items: Vec<DrawItem>,
+    static_cache: Option<StaticCache>,
+    /// Start frames from the copy of their unchanged leading layers (on by default; tests compare).
+    cache_static: bool,
+    /// Frames started from that copy (for tests and benchmarks).
+    static_reused: u64,
     /// Frames keep their transparency instead of sitting on the palette background (exports with alpha).
     transparent: bool,
     pub adapter_info: String,
@@ -427,6 +475,10 @@ impl Renderer {
             clip_effects: true,
             last_frame: None,
             last_rgba: None,
+            prev_items: Vec::new(),
+            static_cache: None,
+            cache_static: true,
+            static_reused: 0,
             transparent: false,
             device,
             queue,
@@ -611,6 +663,19 @@ impl Renderer {
     fn forget_frame(&mut self) {
         self.last_frame = None;
         self.last_rgba = None;
+        self.prev_items.clear();
+        self.static_cache = None;
+    }
+
+    /// Frames so far that started from the copy of their unchanged leading layers.
+    pub fn static_reused(&self) -> u64 {
+        self.static_reused
+    }
+
+    /// Start frames from a copy of their unchanged leading layers (on by default; the picture is the same).
+    pub fn set_cache_static(&mut self, on: bool) {
+        self.forget_frame();
+        self.cache_static = on;
     }
 
     /// Whether `scene` at `t` would draw exactly what the last frame did (same items, no
@@ -722,7 +787,33 @@ impl Renderer {
 
     /// The frame at `t` into `view`: 3D stage, then the 2D runs over it, then the post pass.
     fn draw(&mut self, scene: &Scene, items: Vec<DrawItem>, t: f32, view: &wgpu::TextureView) {
+        // The leading items this frame shares with the last one, and with the cached copy.
+        let (shared, cached_items) = if self.cache_static {
+            let shared = items.iter().zip(&self.prev_items).take_while(|(a, b)| a == b).count();
+            let cached = self.static_cache.as_ref().filter(|c| c.size == self.post.size() && items.len() >= c.items.len() && items[..c.items.len()] == c.items[..]).map(|c| c.items.len());
+            self.prev_items = items.clone();
+            (shared, cached)
+        } else {
+            (0, None)
+        };
         let batches = Batches::build(items);
+        // Start from the copy when its items still lead and still make the same runs.
+        let restore = cached_items.and_then(|n| {
+            let runs = self.static_cache.as_ref()?.runs;
+            (batches.whole_runs(n) == runs && batches.cacheable(runs) == runs).then_some(runs)
+        });
+        // Otherwise copy the target once the shared leading runs are drawn, when they hold effects worth skipping.
+        let save = match restore {
+            Some(_) => None,
+            None => {
+                let runs = batches.cacheable(batches.whole_runs(shared));
+                (runs > 0 && batches.runs[..runs].iter().any(|r| matches!(r, Run::Fx(_)))).then(|| {
+                    let n = (0..=shared).rev().find(|&n| batches.whole_runs(n) == runs).unwrap_or(0);
+                    (runs, n)
+                })
+            }
+        };
+        let saved_items = save.map(|(_, n)| self.prev_items[..n].to_vec());
         let linearize = if self.config.format.is_srgb() { 1.0 } else { 0.0 };
         self.queue.write_buffer(
             &self.globals,
@@ -834,9 +925,22 @@ impl Renderer {
         let drew_stage = self.stage.render(&mut encoder, self.post.target());
         let mut cleared = drew_stage;
         let mut i = 0;
+        if let (Some(runs), Some(cache)) = (restore, &self.static_cache) {
+            copy_whole(&mut encoder, &cache.texture, self.post.texture(), cache.size);
+            cleared = true;
+            i = runs;
+            self.static_reused += 1;
+        }
+        let save_at = save.map(|(runs, _)| runs);
+        let mut saved = false;
         while i < batches.runs.len() {
-            // A stretch of plain runs goes in one scene pass.
-            let j = batches.runs[i..].iter().position(|r| matches!(r, Run::Fx(_) | Run::Object(_))).map_or(batches.runs.len(), |k| i + k);
+            if save_at == Some(i) && !saved {
+                self.save_static(&mut encoder, i, saved_items.clone().unwrap_or_default());
+                saved = true;
+            }
+            // A stretch of plain runs goes in one scene pass (cut where the target is copied).
+            let plain = batches.runs[i..].iter().position(|r| matches!(r, Run::Fx(_) | Run::Object(_))).map_or(batches.runs.len(), |k| i + k);
+            let j = save_at.filter(|&k| i < k && k < plain).unwrap_or(plain);
             if j > i || !cleared {
                 let load = if cleared { wgpu::LoadOp::Load } else { wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT) };
                 cleared = true;
@@ -852,6 +956,10 @@ impl Renderer {
                 });
                 pass.set_bind_group(0, &self.bind_group, &[]);
                 self.draw_runs(&mut pass, &batches.runs[i..j]);
+            }
+            if j < plain {
+                i = j;
+                continue;
             }
             if j < batches.runs.len() {
                 if let (Run::Fx(f), Some(plan)) = (&batches.runs[j], &plans[j]) {
@@ -876,6 +984,9 @@ impl Renderer {
                 i = j;
             }
         }
+        if save_at == Some(batches.runs.len()) && !saved {
+            self.save_static(&mut encoder, batches.runs.len(), saved_items.unwrap_or_default());
+        }
         if !cleared {
             // Empty scene: still clear the target.
             let _ = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -895,6 +1006,26 @@ impl Renderer {
 }
 
 impl Renderer {
+    /// Copy the scene target as it stands (its first `runs` runs drawn, by `items`) for later frames.
+    fn save_static(&mut self, encoder: &mut wgpu::CommandEncoder, runs: usize, items: Vec<DrawItem>) {
+        let size = self.post.size();
+        let texture = match self.static_cache.take() {
+            Some(c) if c.size == size => c.texture,
+            _ => self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("static layers"),
+                size: wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: self.post.texture().format(),
+                usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            }),
+        };
+        copy_whole(encoder, self.post.texture(), &texture, size);
+        self.static_cache = Some(StaticCache { texture, size, items, runs });
+    }
+
     /// Draw plain runs (offscreen layers nested here draw their items plainly).
     fn draw_runs(&self, pass: &mut wgpu::RenderPass<'_>, runs: &[Run]) {
         for run in runs {
@@ -1233,4 +1364,13 @@ fn curve_vecs(curves: &[[[f32; 2]; scene::paint::CURVE_POINTS]; 4]) -> [[f32; 4]
         }
     }
     out
+}
+
+/// Copy a whole `size` texture onto another of the same size and format.
+fn copy_whole(encoder: &mut wgpu::CommandEncoder, from: &wgpu::Texture, to: &wgpu::Texture, size: [u32; 2]) {
+    encoder.copy_texture_to_texture(
+        wgpu::TexelCopyTextureInfo { texture: from, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+        wgpu::TexelCopyTextureInfo { texture: to, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+        wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
+    );
 }

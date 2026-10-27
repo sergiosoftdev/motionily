@@ -98,8 +98,15 @@ en el visor nativo ni en `render_rgba` (exportaciones de escritorio, stills).
 | exportar 6 s con 5 s de plano fijo (nativo) | 979 ms | 240 ms |
 
 Un test compara píxel a píxel el dibujo recortado con el de pantalla completa (sombras, glows con umbral, blur,
-overlay, texto, motion blur): diferencia máxima ≤ 2/255. No hecho: una caché por capa entre fotogramas distintos
-(costaría una textura de fotograma completo por capa).
+overlay, texto, motion blur): diferencia máxima ≤ 2/255.
+
+Capas estáticas: cuando un fotograma empieza con las mismas capas que el anterior (un fondo, un logo, una tarjeta con
+glow, un etalonaje) y entre ellas hay efectos, el motor copia el objetivo de la escena en cuanto están dibujadas; los
+fotogramas siguientes que empiezan igual parten de esa copia y dibujan solo lo de encima. Es una sola textura (el
+prefijo común), no una por capa; el escenario 3D, los objetos 3D y los planos inclinados quedan fuera. Un test compara
+la imagen con la caché y sin ella en 9 fotogramas (≤ 1/255) y exige que se use. Fondo de 40 capas con sombra, glow y
+blur bajo 3 etalonajes, con un título moviéndose encima, a 1080×1920: nativo 36,5 → 3,6 ms por fotograma; exportar
+4 s en el navegador 2,4–2,7 s → 0,64 s.
 
 La exportación web reutiliza los fotogramas ya calculados: `Engine.renderChanged(t)` no dibuja un fotograma que pinta
 exactamente lo mismo que el anterior (misma lista de capas, sin vídeo avanzando) y la exportación vuelve a codificar la
