@@ -55,6 +55,7 @@ export async function makeMulticam(id: string, angles: { src: string; name?: str
 
 /** The multicam clip `id`, or the one under timeline second `at`. */
 export function multicamClip(at: number, id?: string): MulticamClip | null {
+  if (!engineHost.ready) return null;
   const s = scene();
   if (id) {
     const l = s.layers.find((x) => x.id === id);
