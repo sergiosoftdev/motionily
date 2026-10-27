@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Motionily banner</title>
+<!-- Render: Chrome --headless=new --force-device-scale-factor=2 --window-size=1600,560 --screenshot=../banner.png file://…/banner.html -->
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;700;800&display=block" rel="stylesheet" />
+<link rel="stylesheet" href="brand.css" />
+<style>
+  body { width: 1600px; height: 560px; overflow: hidden; position: relative; }
+  .bg {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(900px 520px at 88% 30%, rgba(125, 0, 0, 0.55), transparent 70%),
+      radial-gradient(700px 460px at 8% 110%, rgba(227, 227, 227, 0.07), transparent 70%),
+      #000;
+  }
+  /* faint timeline ruler along the bottom */
+  .ruler { position: absolute; left: 0; right: 0; bottom: 0; height: 46px; border-top: 1px solid #1c1c1c; }
+  .ruler::before {
+    content: ""; position: absolute; inset: 0;
+    background: repeating-linear-gradient(90deg, #262626 0 1px, transparent 1px 40px);
+    mask: linear-gradient(#000 0 30%, transparent 30%);
+  }
+  .playhead { position: absolute; bottom: 0; left: 1386px; width: 2px; height: 560px; background: linear-gradient(transparent, rgba(229, 72, 77, 0.0) 10%, rgba(229, 72, 77, 0.55)); }
+  .playhead::after { content: ""; position: absolute; bottom: 30px; left: -7px; width: 16px; height: 16px; background: var(--red); transform: rotate(45deg); border-radius: 3px; }
+  .key { position: absolute; bottom: 15px; width: 12px; height: 12px; transform: rotate(45deg); border: 2px solid #3a3a3a; border-radius: 2px; background: #000; }
+
+  /* motion echoes of the mark's circles, top right */
+  .echoes { position: absolute; right: -200px; top: -30px; width: 700px; height: 560px; }
+  .content { position: absolute; left: 96px; top: 0; bottom: 46px; display: flex; align-items: center; gap: 44px; }
+  .icon { width: 236px; height: 236px; margin-left: -22px; filter: drop-shadow(0 30px 60px rgba(125, 0, 0, 0.35)); }
+  .text { display: flex; flex-direction: column; gap: 22px; }
+  .wordmark { font-size: 132px; }
+  .tagline { font-size: 38px; font-weight: 700; color: var(--light); letter-spacing: -0.02em; }
+  .sub { font-size: 21px; font-weight: 500; color: var(--muted); letter-spacing: -0.005em; margin-top: -8px; }
+  .handles { margin-top: 10px; }
+  .handle { font-size: 21px; }
+  .tile { width: 40px; height: 40px; }
+</style>
+</head>
+<body>
+  <div class="bg"></div>
+
+  <div class="echoes">
+    <div class="orb light" style="left: 70px;  top: 150px; width: 300px; height: 300px; opacity: 0.05"></div>
+    <div class="orb light" style="left: 150px; top: 130px; width: 300px; height: 300px; opacity: 0.09"></div>
+    <div class="orb light" style="left: 230px; top: 110px; width: 300px; height: 300px; opacity: 0.16"></div>
+    <div class="orb red"   style="left: 360px; top: 70px;  width: 340px; height: 340px; opacity: 0.18"></div>
+    <div class="orb red"   style="left: 420px; top: 60px;  width: 340px; height: 340px; opacity: 0.35"></div>
+  </div>
+
+  <div class="ruler"></div>
+  <div class="key" style="left: 300px"></div>
+  <div class="key" style="left: 540px"></div>
+  <div class="key" style="left: 860px; border-color: #e5484d"></div>
+  <div class="key" style="left: 1100px"></div>
+  <div class="key" style="left: 1420px"></div>
+  <div class="playhead"></div>
+
+  <div class="content">
+    <img class="icon" src="app-icon.png" alt="" />
+    <div class="text">
+      <div class="wordmark">motion<i>i</i>ly</div>
+      <div class="tagline">The open-source, agent-first video editor.</div>
+      <div class="sub">Your coding agent builds the video. You watch it render live, on your GPU.</div>
+      <div class="handles">
+        <span class="handle">
+          <span class="tile ig">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.1">
+              <rect x="3" y="3" width="18" height="18" rx="5.2" />
+              <circle cx="12" cy="12" r="4.2" />
+              <circle cx="17.3" cy="6.7" r="1.15" fill="#fff" stroke="none" />
+            </svg>
+          </span>
+          @motionily <span class="net">Instagram</span>
+        </span>
+        <span class="handle">
+          <span class="tile tt">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke-width="2.7" stroke-linecap="butt">
+              <g transform="translate(-0.7 -0.6)" stroke="#25f4ee">
+                <path d="M13.2 3.2V15.4a3.6 3.6 0 1 1-3.6-3.6" /><path d="M13.2 3.6c.4 2.6 2.4 4.4 5.2 4.6" />
+              </g>
+              <g transform="translate(0.7 0.6)" stroke="#fe2c55">
+                <path d="M13.2 3.2V15.4a3.6 3.6 0 1 1-3.6-3.6" /><path d="M13.2 3.6c.4 2.6 2.4 4.4 5.2 4.6" />
+              </g>
+              <g stroke="#fff">
+                <path d="M13.2 3.2V15.4a3.6 3.6 0 1 1-3.6-3.6" /><path d="M13.2 3.6c.4 2.6 2.4 4.4 5.2 4.6" />
+              </g>
+            </svg>
+          </span>
+          @motionily <span class="net">TikTok</span>
+        </span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Motionily social</title>
+<!-- Render: Chrome --headless=new --force-device-scale-factor=1 --window-size=1080,1080 --screenshot=../social.png file://…/social.html -->
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;700;800&display=block" rel="stylesheet" />
+<link rel="stylesheet" href="brand.css" />
+<style>
+  body { width: 1080px; height: 1080px; overflow: hidden; position: relative; }
+  .bg {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(760px 560px at 50% 18%, rgba(125, 0, 0, 0.6), transparent 72%),
+      radial-gradient(600px 420px at 50% 112%, rgba(227, 227, 227, 0.07), transparent 70%),
+      #000;
+  }
+  .ruler { position: absolute; left: 0; right: 0; bottom: 0; height: 56px; border-top: 1px solid #1c1c1c; }
+  .ruler::before {
+    content: ""; position: absolute; inset: 0;
+    background: repeating-linear-gradient(90deg, #262626 0 1px, transparent 1px 36px);
+    mask: linear-gradient(#000 0 30%, transparent 30%);
+  }
+  .key { position: absolute; bottom: 19px; width: 13px; height: 13px; transform: rotate(45deg); border: 2px solid #3a3a3a; border-radius: 2px; background: #000; }
+  .playhead { position: absolute; bottom: 0; left: 744px; width: 2px; height: 340px; background: linear-gradient(transparent, rgba(229, 72, 77, 0.6)); }
+  .playhead::after { content: ""; position: absolute; bottom: 36px; left: -8px; width: 18px; height: 18px; background: var(--red); transform: rotate(45deg); border-radius: 3px; }
+
+  .stack { position: absolute; inset: 0 0 56px 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+  .icon { width: 330px; height: 330px; margin-bottom: 6px; filter: drop-shadow(0 30px 70px rgba(125, 0, 0, 0.45)); }
+  .wordmark { font-size: 150px; }
+  .tagline { margin-top: 30px; font-size: 46px; font-weight: 700; color: var(--light); letter-spacing: -0.025em; line-height: 1.15; }
+  .handles { margin-top: 54px; justify-content: center; }
+  .handle { font-size: 26px; padding: 10px 24px 10px 10px; gap: 14px; }
+  .tile { width: 50px; height: 50px; border-radius: 14px; }
+</style>
+</head>
+<body>
+  <div class="bg"></div>
+
+  <div class="orb light" style="left: -150px; top: 330px; width: 300px; height: 300px; opacity: 0.05"></div>
+  <div class="orb light" style="left: -90px;  top: 310px; width: 300px; height: 300px; opacity: 0.09"></div>
+  <div class="orb red"   style="left: 900px;  top: 290px; width: 340px; height: 340px; opacity: 0.16"></div>
+  <div class="orb red"   style="left: 960px;  top: 280px; width: 340px; height: 340px; opacity: 0.3"></div>
+
+  <div class="ruler"></div>
+  <div class="key" style="left: 160px"></div>
+  <div class="key" style="left: 380px; border-color: #e5484d"></div>
+  <div class="key" style="left: 560px"></div>
+  <div class="key" style="left: 900px"></div>
+  <div class="playhead"></div>
+
+  <div class="stack">
+    <img class="icon" src="app-icon.png" alt="" />
+    <div class="wordmark">motion<i>i</i>ly</div>
+    <div class="tagline">The open-source,<br />agent-first video editor.</div>
+    <div class="handles">
+      <span class="handle">
+        <span class="tile ig">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.1">
+            <rect x="3" y="3" width="18" height="18" rx="5.2" />
+            <circle cx="12" cy="12" r="4.2" />
+            <circle cx="17.3" cy="6.7" r="1.15" fill="#fff" stroke="none" />
+          </svg>
+        </span>
+        @motionily
+      </span>
+      <span class="handle">
+        <span class="tile tt">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke-width="2.7" stroke-linecap="butt">
+            <g transform="translate(-0.7 -0.6)" stroke="#25f4ee">
+              <path d="M13.2 3.2V15.4a3.6 3.6 0 1 1-3.6-3.6" /><path d="M13.2 3.6c.4 2.6 2.4 4.4 5.2 4.6" />
+            </g>
+            <g transform="translate(0.7 0.6)" stroke="#fe2c55">
+              <path d="M13.2 3.2V15.4a3.6 3.6 0 1 1-3.6-3.6" /><path d="M13.2 3.6c.4 2.6 2.4 4.4 5.2 4.6" />
+            </g>
+            <g stroke="#fff">
+              <path d="M13.2 3.2V15.4a3.6 3.6 0 1 1-3.6-3.6" /><path d="M13.2 3.6c.4 2.6 2.4 4.4 5.2 4.6" />
+            </g>
+          </svg>
+        </span>
+        @motionily
+      </span>
+    </div>
+  </div>
+</body>
+</html>

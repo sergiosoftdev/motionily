@@ -1,0 +1,54 @@
+/* Shared brand styles for the README banner and the social square.
+   Colors: black #000000, light #e3e3e3 and deep red #7d0000 / coral #f17474 from the mark
+   (apps/web/public/brand/mark.png), accent #e5484d from the wordmark (apps/web/src/components/Logo.tsx). */
+@font-face {
+  font-family: "Jakarta Local";
+  src: url("../../../apps/web/public/fonts/PlusJakartaSans-700.ttf") format("truetype");
+  font-weight: 700 800;
+}
+@font-face {
+  font-family: "Jakarta Local";
+  src: url("../../../apps/web/public/fonts/PlusJakartaSans-500.ttf") format("truetype");
+  font-weight: 400 600;
+}
+
+:root {
+  --black: #000000;
+  --ink: #0a0a0a;
+  --panel: #151515;
+  --line: #2a2a2a;
+  --light: #e3e3e3;
+  --muted: #8a8a8a;
+  --red: #e5484d;
+  --red-deep: #7d0000;
+  --coral: #f17474;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--black); }
+body {
+  font-family: "Plus Jakarta Sans", "Jakarta Local", system-ui, sans-serif;
+  color: #fff;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wordmark { font-weight: 800; letter-spacing: -0.045em; line-height: 0.9; color: #fff; }
+.wordmark i { font-style: normal; color: var(--red); }
+
+.handles { display: flex; gap: 14px; flex-wrap: wrap; }
+.handle {
+  display: inline-flex; align-items: center; gap: 12px;
+  padding: 8px 18px 8px 8px; border-radius: 999px;
+  background: rgba(21, 21, 21, 0.85); border: 1px solid var(--line);
+  font-weight: 700; color: #fff; letter-spacing: -0.01em;
+}
+.handle .net { color: var(--muted); font-weight: 500; }
+.tile { display: grid; place-items: center; border-radius: 12px; flex: none; }
+.tile svg { display: block; }
+.tile.ig { background: radial-gradient(circle at 30% 107%, #fdf497 0%, #fdf497 5%, #fd5949 45%, #d6249f 60%, #285aeb 90%); }
+.tile.tt { background: #000; border: 1px solid #333; }
+
+/* The mark's two circles, used as motion echoes in the background. */
+.orb { position: absolute; border-radius: 50%; }
+.orb.light { background: var(--light); }
+.orb.red { background: linear-gradient(115deg, var(--coral) 0 42%, var(--red-deep) 58% 100%); }

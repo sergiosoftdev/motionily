@@ -1,4 +1,27 @@
-# Motionily
+<p align="center">
+  <img src="docs/readme/banner.png" alt="Motionily: the open-source, agent-first video editor" width="100%" />
+</p>
+
+<p align="center">
+  <b>Your coding agent builds the motion graphics and edits your footage.<br />
+  You watch every change render live on your GPU, and fix anything by hand.</b>
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-e5484d?style=flat-square" alt="MIT license" /></a>
+  <a href="https://github.com/sergiosoftdev/motionily/releases"><img src="https://img.shields.io/badge/desktop-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-151515?style=flat-square" alt="Desktop: macOS, Windows, Linux" /></a>
+  <img src="https://img.shields.io/badge/engine-Rust%20%2B%20wgpu-151515?style=flat-square&logo=rust" alt="Engine: Rust + wgpu" />
+  <a href="docs/agents.md"><img src="https://img.shields.io/badge/agents-any%20MCP%20client-151515?style=flat-square" alt="Works with any MCP client" /></a>
+</p>
+
+<p align="center">
+  <a href="https://instagram.com/motionily"><img src="https://img.shields.io/badge/Instagram-@motionily-E4405F?style=for-the-badge&logo=instagram&logoColor=white" alt="Instagram @motionily" /></a>
+  <a href="https://www.tiktok.com/@motionily"><img src="https://img.shields.io/badge/TikTok-@motionily-000000?style=for-the-badge&logo=tiktok&logoColor=white" alt="TikTok @motionily" /></a>
+</p>
+
+---
+
+## What it is
 
 **An open-source, agent-first video editor.** Your coding agent (Claude Code, Codex, Gemini CLI,
 OpenCode, Cursor, VS Code, Claude Desktop or any MCP client) builds motion graphics and edits your
@@ -17,6 +40,38 @@ pinned to a moment in time. The agent reads that feedback and iterates.
   dead air, and one manual (`docs/agent`) so the agent never has to guess.
 
 MIT licensed. Everything is open: there are no paid features in the code.
+
+## The editor
+
+One video, three ways to work on it. Switch between them at any time from the top bar.
+
+### Simple: watch it and ask
+
+<p align="center">
+  <img src="docs/readme/editor-simple.png" alt="Simple mode: the video preview with a request box pinned to the current moment" width="720" />
+</p>
+
+The video, a play bar and one box. Ask for any change for the whole video, for the moment under the
+playhead, or for something you click in the frame. The agent picks it up and you watch it change.
+
+### Pro: every layer, every key
+
+<p align="center">
+  <img src="docs/readme/editor-pro.png" alt="Pro mode: composition viewer, layer timeline, effect controls and character panel" width="100%" />
+</p>
+
+A compositor layout: composition viewer, a layer timeline with blend modes, track mattes and
+parenting, effect controls, a graph editor and type settings. Everything the agent built is a normal
+layer you can select, retime and tweak.
+
+### Edit: your own footage
+
+<p align="center">
+  <img src="docs/readme/editor-edit.png" alt="Edit mode: media bin, multitrack timeline and the agent panel" width="100%" />
+</p>
+
+A multitrack editor for the clips you upload: import media, split and trim on the timeline, and ask
+for graphics anywhere on top of the cut.
 
 ## Quick start
 
@@ -86,6 +141,18 @@ cargo run -p engine --example still -- examples/demo.scene.json 2.5 out.png   # 
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) and the plan in [docs/PLAN.md](docs/PLAN.md).
+
+## Follow along
+
+<p align="center">
+  <img src="docs/readme/social.png" alt="Motionily on Instagram and TikTok: @motionily" width="360" />
+</p>
+
+<p align="center">
+  New features and videos made with Motionily on
+  <a href="https://instagram.com/motionily">Instagram</a> and
+  <a href="https://www.tiktok.com/@motionily">TikTok</a>: <b>@motionily</b>.
+</p>
 
 ## License
 
