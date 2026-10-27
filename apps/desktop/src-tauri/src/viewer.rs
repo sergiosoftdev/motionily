@@ -219,7 +219,7 @@ mod platform {
     use std::ptr::NonNull;
 
     use objc2::rc::Retained;
-    use objc2::runtime::AnyObject;
+    use objc2::runtime::{AnyClass, AnyObject};
     use objc2::{define_class, msg_send, MainThreadMarker, MainThreadOnly};
     use objc2_app_kit::NSView;
     use objc2_foundation::{NSPoint, NSRect, NSSize};
@@ -270,10 +270,14 @@ mod platform {
         }
 
         pub fn place(&self, rect: Rect) {
-            if let Some(content) = unsafe { self.0.superview() } {
-                self.0.setFrame(frame_in(&content, rect));
-            }
-            round(&self.0, rect.radius);
+            // Without animations: the Metal layer inside follows the view's bounds, and Core Animation would
+            // otherwise slide and stretch it there over a quarter second (the picture jumps when playback starts).
+            still(|| {
+                if let Some(content) = unsafe { self.0.superview() } {
+                    self.0.setFrame(frame_in(&content, rect));
+                }
+                round(&self.0, rect.radius);
+            });
         }
 
         pub fn set_hidden(&self, hidden: bool) {
@@ -284,6 +288,19 @@ mod platform {
     impl Drop for View {
         fn drop(&mut self) {
             self.0.removeFromSuperview();
+        }
+    }
+
+    /// Runs `f` in a Core Animation transaction with implicit animations off.
+    fn still(f: impl FnOnce()) {
+        let Some(tx) = AnyClass::get(c"CATransaction") else { return f() };
+        unsafe {
+            let _: () = msg_send![tx, begin];
+            let _: () = msg_send![tx, setDisableActions: true];
+        }
+        f();
+        unsafe {
+            let _: () = msg_send![tx, commit];
         }
     }
 
