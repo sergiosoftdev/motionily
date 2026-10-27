@@ -65,7 +65,7 @@ self.onmessage = async (e: MessageEvent<ToWorker>) => {
       case "init": {
         await init();
         surface = m.canvas;
-        engine = await Engine.createOffscreen(m.canvas);
+        engine = await Engine.createOffscreen(m.canvas, m.webgl);
         engine.resize(m.width, m.height);
         videos = new VideoLibrary((src) => urls[src] ?? src);
         post({ type: "ready", adapter: engine.adapterInfo() });

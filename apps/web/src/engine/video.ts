@@ -61,7 +61,7 @@ class VideoFile {
   status: VideoStatus = VideoStatus.Loading;
   error = "";
   duration = 0;
-  /** The WebGL2 path's frame (an OffscreenCanvas in the playback worker, which only takes VideoFrames). */
+  /** The WebGL2 path's frame (an OffscreenCanvas in the playback worker). */
   readonly canvas: HTMLCanvasElement | OffscreenCanvas = typeof document === "undefined" ? new OffscreenCanvas(2, 2) : document.createElement("canvas");
   private readonly g = this.canvas.getContext("2d") as CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
   private sink: VideoSampleSink | null = null;
@@ -121,7 +121,8 @@ class VideoFile {
       }
     } else {
       this.drawCurrent();
-      engine.setVideoFrame(key, this.canvas as HTMLCanvasElement);
+      if (typeof HTMLCanvasElement !== "undefined" && this.canvas instanceof HTMLCanvasElement) engine.setVideoFrame(key, this.canvas);
+      else engine.setVideoFrameOffscreen(key, this.canvas as OffscreenCanvas);
     }
     perf.upload.add(performance.now() - t0);
     return true;

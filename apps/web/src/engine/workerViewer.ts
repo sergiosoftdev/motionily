@@ -1,6 +1,6 @@
 import { perf } from "./perf";
 
-/** Per-viewer switch for playback in a worker (on by default where the browser has WebGPU in workers). */
+/** Per-viewer switch for playback in a worker (on by default where the browser can draw in workers). */
 const PREF_KEY = "motionily.workerPlayback";
 /** How often (ms) the worker's clock is checked against the sound's while playing. */
 const SYNC_MS = 250;
@@ -8,7 +8,7 @@ const SYNC_MS = 250;
 type Pixels = { rgba: Uint8Array; width: number; height: number };
 
 export type ToWorker =
-  | { type: "init"; canvas: OffscreenCanvas; width: number; height: number }
+  | { type: "init"; canvas: OffscreenCanvas; width: number; height: number; webgl: boolean }
   | {
       type: "load";
       scene: string;
@@ -79,14 +79,14 @@ class WorkerViewer {
   private lastSync = 0;
   private onDrawn: (() => void) | null = null;
 
-  /** On unless switched off; needs workers that can draw (OffscreenCanvas) and the WebGPU engine. */
+  /** On unless switched off; needs workers that can draw (OffscreenCanvas): WebGPU or WebGL2, like the editor's engine. */
   enabled(adapter: string): boolean {
     try {
       if (localStorage.getItem(PREF_KEY) === "off") return false;
     } catch {
       // Storage blocked: keep the default.
     }
-    return typeof OffscreenCanvas !== "undefined" && "transferControlToOffscreen" in HTMLCanvasElement.prototype && /WebGpu/i.test(adapter) && !(globalThis as { __motionilyMainPlayback?: boolean }).__motionilyMainPlayback;
+    return typeof OffscreenCanvas !== "undefined" && "transferControlToOffscreen" in HTMLCanvasElement.prototype && /WebGpu|Gl/i.test(adapter) && !(globalThis as { __motionilyMainPlayback?: boolean }).__motionilyMainPlayback;
   }
 
   get on(): boolean {
@@ -107,7 +107,7 @@ class WorkerViewer {
   }
 
   /** The worker and its canvas, made once per editor canvas (a canvas hands its drawing to a worker only once). */
-  private attach(canvas: HTMLCanvasElement): Promise<boolean> {
+  private attach(canvas: HTMLCanvasElement, webgl: boolean): Promise<boolean> {
     if (this.canvas === canvas && this.ready) return this.ready;
     this.teardown();
     this.canvas = canvas;
@@ -137,7 +137,7 @@ class WorkerViewer {
       };
     });
     const offscreen = view.transferControlToOffscreen();
-    this.post({ type: "init", canvas: offscreen, width: canvas.width, height: canvas.height }, [offscreen]);
+    this.post({ type: "init", canvas: offscreen, width: canvas.width, height: canvas.height, webgl }, [offscreen]);
     return this.ready;
   }
 
@@ -179,7 +179,7 @@ class WorkerViewer {
     const session = ++this.session;
     if (!this.enabled(adapter)) return;
     try {
-      if (!(await this.attach(canvas)) || session !== this.session) return;
+      if (!(await this.attach(canvas, !/WebGpu/i.test(adapter))) || session !== this.session) return;
       if (this.view && (this.view.width !== canvas.width || this.view.height !== canvas.height)) this.post({ type: "resize", width: canvas.width, height: canvas.height });
       await this.load(sceneJson, src);
       if (session !== this.session) return;

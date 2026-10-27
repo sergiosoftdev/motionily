@@ -28,18 +28,25 @@ impl Engine {
     /// Create the engine on a canvas. Uses WebGPU when available, WebGL2 otherwise.
     pub async fn create(canvas: HtmlCanvasElement) -> Result<Engine, JsError> {
         let (w, h) = (canvas.width(), canvas.height());
-        Self::on(wgpu::SurfaceTarget::Canvas(canvas), w, h).await
+        Self::on(wgpu::SurfaceTarget::Canvas(canvas), w, h, false).await
     }
 
     /// Create the engine on an `OffscreenCanvas` (in a worker: the playback viewer draws off the main thread).
+    /// `webgl` keeps it on WebGL2 when the editor's engine is, so both draw the same way.
     #[wasm_bindgen(js_name = createOffscreen)]
-    pub async fn create_offscreen(canvas: OffscreenCanvas) -> Result<Engine, JsError> {
+    pub async fn create_offscreen(canvas: OffscreenCanvas, webgl: bool) -> Result<Engine, JsError> {
         let (w, h) = (canvas.width(), canvas.height());
-        Self::on(wgpu::SurfaceTarget::OffscreenCanvas(canvas), w, h).await
+        Self::on(wgpu::SurfaceTarget::OffscreenCanvas(canvas), w, h, webgl).await
     }
 
-    async fn on(target: wgpu::SurfaceTarget<'static>, w: u32, h: u32) -> Result<Engine, JsError> {
-        let instance = wgpu::util::new_instance_with_webgpu_detection(wgpu::InstanceDescriptor::new_without_display_handle()).await;
+    async fn on(target: wgpu::SurfaceTarget<'static>, w: u32, h: u32, webgl: bool) -> Result<Engine, JsError> {
+        let instance = if webgl {
+            let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
+            desc.backends = wgpu::Backends::GL;
+            wgpu::Instance::new(desc)
+        } else {
+            wgpu::util::new_instance_with_webgpu_detection(wgpu::InstanceDescriptor::new_without_display_handle()).await
+        };
         let surface = instance.create_surface(target).map_err(|e| JsError::new(&e.to_string()))?;
         let renderer = Renderer::new(&instance, surface, w, h)
             .await
@@ -293,6 +300,17 @@ impl Engine {
     pub fn set_video_frame(&mut self, key: &str, canvas: &HtmlCanvasElement) {
         let source = wgpu::CopyExternalImageSourceInfo {
             source: wgpu::ExternalImageSource::HTMLCanvasElement(canvas.clone()),
+            origin: wgpu::Origin2d::ZERO,
+            flip_y: false,
+        };
+        self.renderer.copy_video_frame(key, &source);
+    }
+
+    /// `setVideoFrame` for the playback worker, whose frames are drawn into an `OffscreenCanvas` (WebGL2).
+    #[wasm_bindgen(js_name = setVideoFrameOffscreen)]
+    pub fn set_video_frame_offscreen(&mut self, key: &str, canvas: &OffscreenCanvas) {
+        let source = wgpu::CopyExternalImageSourceInfo {
+            source: wgpu::ExternalImageSource::OffscreenCanvas(canvas.clone()),
             origin: wgpu::Origin2d::ZERO,
             flip_y: false,
         };
