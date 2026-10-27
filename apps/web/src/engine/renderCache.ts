@@ -9,10 +9,10 @@
 const LATE_FRAMES = 1.6;
 /** Seconds marked heavy around a late frame (a heavy beat lasts a while). */
 const HEAVY_AROUND = 0.5;
-/** Memory the cached bitmaps may take. */
-const BUDGET_BYTES = 384 * 1024 * 1024;
-/** Longest side (px) frames are cached at. */
-const MAX_SIDE = 1280;
+/** Memory the cached bitmaps may take (about 2 s of a vertical preview on a Retina screen). */
+const BUDGET_BYTES = 160 * 1024 * 1024;
+/** Longest side (px) frames are cached at: the preview is seldom bigger on screen. */
+const MAX_SIDE = 1080;
 
 export class RenderCache {
   /** Bitmaps by frame index, for one scene version. */

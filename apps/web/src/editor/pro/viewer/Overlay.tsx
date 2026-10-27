@@ -70,9 +70,13 @@ const ROTATE_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(
 // ── shared between the overlay, the rulers and the keys ─────────────────
 
 let dirty = true;
-/** Repaint the overlay and rulers on the next frame. */
+/** The pending repaint, and what runs it (set while the overlay is mounted). */
+let scheduled = 0;
+let flush: (() => void) | null = null;
+/** Repaint the overlay and rulers on the next frame (one frame is asked for only when something changed). */
 export const invalidate = () => {
   dirty = true;
+  if (!scheduled && flush) scheduled = requestAnimationFrame(flush);
 };
 const painters = new Set<() => void>();
 /** Space held (hand tool) and whether the pointer is over the viewer. */
@@ -202,24 +206,24 @@ export function ViewerOverlay({ canvas }: { canvas: RefObject<HTMLCanvasElement 
   const tool = useViewer((s) => s.tool);
   const [edit, setEdit] = useState<TextEdit | null>(null);
 
-  // One paint loop for the gizmos and rulers, only when something changed.
+  // The gizmos and rulers repaint on the next frame after something changed, and sleep otherwise.
   useEffect(() => {
-    let raf = 0;
-    const loop = () => {
-      raf = requestAnimationFrame(loop);
+    flush = () => {
+      scheduled = 0;
       if (!dirty) return;
       dirty = false;
       paint();
       painters.forEach((p) => p());
     };
-    raf = requestAnimationFrame(loop);
     const offs = [useEditor.subscribe(invalidate), useViewer.subscribe(invalidate), engineHost.onSceneChange(invalidate)];
     const ro = new ResizeObserver(invalidate);
     if (root.current) ro.observe(root.current);
     if (canvas.current) ro.observe(canvas.current);
     invalidate();
     return () => {
-      cancelAnimationFrame(raf);
+      cancelAnimationFrame(scheduled);
+      scheduled = 0;
+      flush = null;
       offs.forEach((off) => void off());
       ro.disconnect();
     };

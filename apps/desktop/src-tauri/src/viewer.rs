@@ -22,6 +22,9 @@ pub struct Rect {
     pub height: f64,
     /// devicePixelRatio: the surface is sized in physical pixels.
     pub scale: f64,
+    /// The canvas' corner radius (CSS pixels): the view is clipped the same, so the preview keeps its shape.
+    #[serde(default)]
+    pub radius: f64,
 }
 
 #[cfg(any(target_os = "macos", windows))]
@@ -270,6 +273,7 @@ mod platform {
             if let Some(content) = unsafe { self.0.superview() } {
                 self.0.setFrame(frame_in(&content, rect));
             }
+            round(&self.0, rect.radius);
         }
 
         pub fn set_hidden(&self, hidden: bool) {
@@ -280,6 +284,15 @@ mod platform {
     impl Drop for View {
         fn drop(&mut self) {
             self.0.removeFromSuperview();
+        }
+    }
+
+    /// Clips the view's layer (and the Metal layer wgpu draws on, inside or as it) to rounded corners.
+    fn round(view: &NSView, radius: f64) {
+        let layer: *mut AnyObject = unsafe { msg_send![view, layer] };
+        if let Some(layer) = unsafe { layer.as_ref() } {
+            let _: () = unsafe { msg_send![layer, setCornerRadius: radius] };
+            let _: () = unsafe { msg_send![layer, setMasksToBounds: radius > 0.0] };
         }
     }
 
@@ -298,6 +311,7 @@ mod platform {
 
     use raw_window_handle::{RawDisplayHandle, RawWindowHandle, Win32WindowHandle, WindowsDisplayHandle};
     use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows_sys::Win32::Graphics::Gdi::{CreateRoundRectRgn, SetWindowRgn};
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DefWindowProcW, DestroyWindow, RegisterClassW, SetWindowPos, ShowWindow, HWND_TOP, SWP_NOACTIVATE, SW_HIDE, SW_SHOWNA, WNDCLASSW, WS_CHILD, WS_CLIPSIBLINGS, WS_DISABLED,
@@ -341,6 +355,10 @@ mod platform {
             let (x, y, w, h) = pixels(rect);
             // On top of the webview's own child windows, without taking focus.
             unsafe { SetWindowPos(self.0, HWND_TOP, x, y, w, h, SWP_NOACTIVATE) };
+            // Rounded like the canvas (the system owns the region once set; null clears it).
+            let d = (rect.radius * rect.scale * 2.0).round() as i32;
+            let region = if d > 0 { unsafe { CreateRoundRectRgn(0, 0, w + 1, h + 1, d, d) } } else { std::ptr::null_mut() };
+            unsafe { SetWindowRgn(self.0, region, 1) };
         }
 
         pub fn set_hidden(&self, hidden: bool) {

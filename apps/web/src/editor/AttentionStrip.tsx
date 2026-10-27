@@ -7,8 +7,8 @@ import { ActivitySource, logActivity, useEditor } from "../store";
 import { useSceneView } from "./sceneView";
 import { useAgentName } from "../agentName";
 
-/** The right-hand controls of both rows share a width, so the two curves share one time axis. */
-const CONTROLS = "flex w-72 shrink-0 items-center justify-end gap-1";
+/** Right-hand controls of a row (the strip is a grid: label, curve, controls, so both curves share one time axis). */
+const CONTROLS = "flex items-center justify-end gap-1";
 
 /**
  * Short-form videos only (9:16, 4:5, 1:1): the attention curve measured from the scene (the same
@@ -17,7 +17,7 @@ const CONTROLS = "flex w-72 shrink-0 items-center justify-end gap-1";
  */
 export function AttentionStrip({ g, projectId, className = "" }: { g: Generation; projectId?: string; className?: string }) {
   return (
-    <div className={`flex flex-col gap-1.5 ${className}`}>
+    <div className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 ${className}`}>
       <AttentionRow g={g} />
       {projectId && <AudienceRow g={g} projectId={projectId} />}
     </div>
@@ -40,11 +40,11 @@ function AttentionRow({ g }: { g: Generation }) {
   };
 
   return (
-    <div className="flex items-center gap-3">
-      <span className="w-16 shrink-0 text-[11px] text-neutral-500" title="How hard each moment grabs attention, measured from what enters, moves, cuts and sounds">
+    <div className="contents">
+      <span className="text-[11px] text-neutral-500" title="How hard each moment grabs attention, measured from what enters, moves, cuts and sounds">
         Attention
       </span>
-      <AttentionCurve values={curve.bins} at={at} duration={curve.duration} time={time} className="h-7 min-w-0 flex-1 text-emerald-300" />
+      <AttentionCurve values={curve.bins} at={at} duration={curve.duration} time={time} className="h-7 w-full min-w-0 text-emerald-300" />
       <div className={CONTROLS}>
         {issues.length ? (
           <button
@@ -93,11 +93,11 @@ function AudienceRow({ g, projectId }: { g: Generation; projectId: string }) {
   };
   const x = (t: number) => `${Math.min(100, (t / duration) * 100)}%`;
   return (
-    <div className="flex items-center gap-3">
-      <span className="w-16 shrink-0 text-[11px] text-neutral-500" title={post.outdated ? "Numbers of the posted cut: you edited the video since" : "How the posted video did"}>
+    <div className="contents">
+      <span className="text-[11px] text-neutral-500" title={post.outdated ? "Numbers of the posted cut: you edited the video since" : "How the posted video did"}>
         Audience{post.outdated ? "*" : ""}
       </span>
-      <div className="relative h-7 min-w-0 flex-1">
+      <div className="relative h-7 w-full min-w-0">
         {m.retention ? (
           <AttentionCurve
             values={m.retention.map((v) => Math.min(1, v))}
