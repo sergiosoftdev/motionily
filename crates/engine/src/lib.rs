@@ -118,6 +118,8 @@ struct FxRun {
     matte: Option<(Vec<Run>, scene::paint::MatteMode)>,
     effects: Vec<DrawEffect>,
     blend: scene::paint::BlendMode,
+    /// Scene box its passes can change (`DrawFx::reach`); None = anywhere.
+    reach: Option<[f32; 4]>,
 }
 
 /// The frame's items split per pipeline (uploaded once), plus the ordered runs that draw them.
@@ -156,6 +158,7 @@ impl Batches {
                     continue;
                 }
                 DrawItem::Fx(fx) => {
+                    let reach = fx.reach();
                     let DrawFx { items, effects, blend, matte, samples, adjust, perspective, plane_origin } = *fx;
                     if top {
                         let mut inner = Vec::new();
@@ -173,7 +176,7 @@ impl Batches {
                             self.push_all(m, &mut mr, false);
                             (mr, mode)
                         });
-                        runs.push(Run::Fx(FxRun { runs: inner, samples, adjust, perspective, plane_origin, matte, effects, blend }));
+                        runs.push(Run::Fx(FxRun { runs: inner, samples, adjust, perspective, plane_origin, matte, effects, blend, reach }));
                     } else {
                         self.push_all(items, runs, false);
                     }
@@ -256,6 +259,12 @@ pub struct Renderer {
     /// double size and the post pass averages it down: every edge (shapes, text, strokes, 3D) is
     /// supersampled, whatever the layer type.
     supersample: u32,
+    /// Shade an effect layer's passes only where it can reach (see `DrawFx::reach`); off draws them
+    /// over the whole frame, as before (tests compare the two).
+    clip_effects: bool,
+    /// What the last frame drew and its pixels (render_rgba): an identical next frame is not drawn again.
+    last_frame: Option<Vec<DrawItem>>,
+    last_rgba: Option<Vec<u8>>,
     /// Frames keep their transparency instead of sitting on the palette background (exports with alpha).
     transparent: bool,
     pub adapter_info: String,
@@ -407,6 +416,9 @@ impl Renderer {
             plane_globals: Vec::new(),
             plane_fx: None,
             supersample: 1,
+            clip_effects: true,
+            last_frame: None,
+            last_rgba: None,
             transparent: false,
             device,
             queue,
@@ -422,11 +434,13 @@ impl Renderer {
 
     /// Register a glTF binary (GLB) model under `key`, e.g. "characters/character-female-b".
     pub fn add_model(&mut self, key: &str, bytes: &[u8]) -> Result<(), String> {
+        self.forget_frame();
         self.stage.add_model(&self.device, key, bytes)
     }
 
     /// Register a model pack's shared texture, or one model image by its key (RGBA8).
     pub fn add_texture(&mut self, key: &str, rgba: &[u8], width: u32, height: u32) {
+        self.forget_frame();
         self.stage.add_texture(&self.device, &self.queue, key, rgba, width, height);
     }
 
@@ -448,6 +462,7 @@ impl Renderer {
     /// Register an image (RGBA8) for image layers under its source key.
     /// Load a `.cube` LUT the color effects name by `src`.
     pub fn add_lut(&mut self, src: &str, cube: &str) -> Result<(), String> {
+        self.forget_frame();
         let lut = scene::lut::Lut::parse_cube(cube)?;
         self.luts.add(&self.device, &self.queue, scene::lut::lut_key(src), &lut);
         Ok(())
@@ -458,6 +473,7 @@ impl Renderer {
     }
 
     pub fn add_image(&mut self, key: &str, rgba: &[u8], width: u32, height: u32) {
+        self.forget_frame();
         self.images.add_image(&self.device, &self.queue, key, rgba, width, height);
     }
 
@@ -467,12 +483,14 @@ impl Renderer {
 
     /// Store a decoded video frame (RGBA8) under its `src#ms` key (`scene::video::frame_key`).
     pub fn add_video_frame(&mut self, key: &str, rgba: &[u8], width: u32, height: u32) {
+        self.forget_frame();
         self.images.add_frame(&self.device, &self.queue, key, rgba, width, height);
     }
 
     /// Store a decoded video frame straight from a browser canvas or bitmap (no CPU copy).
     #[cfg(target_arch = "wasm32")]
     pub fn copy_video_frame(&mut self, key: &str, source: &wgpu::CopyExternalImageSourceInfo) {
+        self.forget_frame();
         self.images.copy_frame(&self.device, &self.queue, key, source);
     }
 
@@ -514,12 +532,14 @@ impl Renderer {
 
     /// Register a TTF/OTF font for text layers and captions.
     pub fn add_font(&mut self, family: &str, weight: u16, bytes: &[u8]) -> Result<(), String> {
+        self.forget_frame();
         self.text.add_font(family, weight, bytes)?;
         // The same font extrudes 3D text.
         scene::glyphs::register(family, weight, bytes)
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
+        self.forget_frame();
         if width == 0 || height == 0 {
             return;
         }
@@ -534,10 +554,18 @@ impl Renderer {
     /// Supersampling: 1 (default) or 2. Takes effect on the next frame.
     /// Render with a transparent background (straight alpha), for ProRes 4444 / VP9 alpha exports.
     pub fn set_transparent(&mut self, on: bool) {
+        self.forget_frame();
         self.transparent = on;
     }
 
+    /// Limit effect passes to the box each layer can reach (on by default; the picture is the same).
+    pub fn set_clip_effects(&mut self, on: bool) {
+        self.forget_frame();
+        self.clip_effects = on;
+    }
+
     pub fn set_supersample(&mut self, factor: u32) {
+        self.forget_frame();
         let factor = factor.clamp(1, 2);
         if factor != self.supersample {
             self.supersample = factor;
@@ -565,8 +593,37 @@ impl Renderer {
         self.queue.on_submitted_work_done(done);
     }
 
+    /// Draw the next frame in full even if it is the same as the last (benchmarks, hosts that changed
+    /// something the renderer cannot see).
+    pub fn invalidate_frame(&mut self) {
+        self.forget_frame();
+    }
+
+    /// Something the next frame depends on changed (an asset, the size, a setting): draw it in full.
+    fn forget_frame(&mut self) {
+        self.last_frame = None;
+        self.last_rgba = None;
+    }
+
+    /// Whether `scene` at `t` would draw exactly what the last frame did (same items, no
+    /// time-driven finish), so it can be skipped; remembers it otherwise.
+    fn same_frame(&mut self, scene: &Scene, items: &[DrawItem]) -> bool {
+        if scene.render_style.is_none() && self.last_frame.as_deref() == Some(items) {
+            return true;
+        }
+        self.last_frame = Some(items.to_vec());
+        false
+    }
+
     /// Draw `scene` at time `t` (seconds) into the surface. Does nothing on a headless renderer.
     pub fn render(&mut self, scene: &Scene, t: f32) {
+        let items = scene.frame(t);
+        // Native windows keep showing the last frame: an identical one is not drawn (holds, pauses).
+        // In the browser a canvas may be read back after the frame, so it is always drawn there.
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.same_frame(scene, &items) {
+            return;
+        }
         let Some(surface) = &self.surface else { return };
         let frame = match surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(f) | wgpu::CurrentSurfaceTexture::Suboptimal(f) => f,
@@ -576,13 +633,20 @@ impl Renderer {
             }
         };
         let view = frame.texture.create_view(&Default::default());
-        self.draw(scene, t, &view);
+        self.draw(scene, items, t, &view);
         self.queue.present(frame);
     }
 
     /// Draw `scene` at time `t` into a texture of the renderer's size and read it back as tightly
     /// packed RGBA8 rows (top row first). Works on any renderer; the output is not sRGB-converted.
     pub fn render_rgba(&mut self, scene: &Scene, t: f32) -> Vec<u8> {
+        let items = scene.frame(t);
+        // A frame identical to the last one (a hold, a still stretch of an export): its pixels again.
+        if self.same_frame(scene, &items) {
+            if let Some(px) = &self.last_rgba {
+                return px.clone();
+            }
+        }
         let (width, height) = (self.config.width, self.config.height);
         let target = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("still"),
@@ -595,7 +659,7 @@ impl Renderer {
             view_formats: &[],
         });
         let view = target.create_view(&Default::default());
-        self.draw(scene, t, &view);
+        self.draw(scene, items, t, &view);
         // Rows are copied with 256-byte alignment, as the GPU requires, then unpacked.
         let row = (width * 4).div_ceil(256) * 256;
         let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -629,12 +693,13 @@ impl Renderer {
         }
         drop(data);
         readback.unmap();
+        self.last_rgba = Some(out.clone());
         out
     }
 
     /// The frame at `t` into `view`: 3D stage, then the 2D runs over it, then the post pass.
-    fn draw(&mut self, scene: &Scene, t: f32, view: &wgpu::TextureView) {
-        let batches = Batches::build(scene.frame(t));
+    fn draw(&mut self, scene: &Scene, items: Vec<DrawItem>, t: f32, view: &wgpu::TextureView) {
+        let batches = Batches::build(items);
         let linearize = if self.config.format.is_srgb() { 1.0 } else { 0.0 };
         self.queue.write_buffer(
             &self.globals,
@@ -771,7 +836,12 @@ impl Renderer {
                         Some(s) => (self.plane_fx.as_ref().expect("a plane pass target"), &self.plane_globals[s].1),
                         None => (&self.fx, &self.bind_group),
                     };
+                    // Only the pixels the layer and its effects can reach are shaded (not the whole frame per pass).
+                    if plane_slots[j].is_none() && self.clip_effects {
+                        fx.set_scissor(f.reach.map(|r| scissor_px(r, px_per_scene, [internal_w, internal_h])));
+                    }
                     self.render_fx(&mut encoder, f, plan, fx, globals);
+                    fx.set_scissor(None);
                 }
                 if let (Run::Object(k), Some(param)) = (&batches.runs[j], object_params[j]) {
                     if self.objects[*k as usize].render_onto(&mut encoder, &self.fx.layer, true) {
@@ -955,6 +1025,14 @@ impl Renderer {
             fx.composite(encoder, Tex::Copy, target, scene::paint::BlendMode::Add, *comp);
         }
     }
+}
+
+/// A scene box `[x0, y0, x1, y1]` as a pixel rect `[x, y, w, h]` inside a `size` target (at least 1 px).
+fn scissor_px(r: [f32; 4], k: f32, size: [u32; 2]) -> [u32; 4] {
+    let clamp = |v: f32, max: u32| (v.max(0.0) as u32).min(max);
+    let (x0, y0) = (clamp((r[0] * k).floor(), size[0].saturating_sub(1)), clamp((r[1] * k).floor(), size[1].saturating_sub(1)));
+    let (x1, y1) = (clamp((r[2] * k).ceil(), size[0]), clamp((r[3] * k).ceil(), size[1]));
+    [x0, y0, x1.saturating_sub(x0).max(1), y1.saturating_sub(y0).max(1)]
 }
 
 /// A pass that rewrites an offscreen layer in place.

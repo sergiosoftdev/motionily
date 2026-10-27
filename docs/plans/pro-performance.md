@@ -14,7 +14,7 @@ en la app real y un commit por punto en `main`.
 | 2 | Vídeo sin copias en la web: el `VideoFrame` de WebCodecs directo a la GPU | hecho |
 | 3 | Decodificación nativa en escritorio (VideoToolbox / Media Foundation) en lugar de ffmpeg por tubería | hecho (Windows sin probar en una máquina Windows) |
 | 4 | El motor de reproducción en un worker con `OffscreenCanvas` | pendiente |
-| 5 | Caché de capas estáticas y exportación que reutiliza la caché de render | pendiente |
+| 5 | Caché de capas estáticas y exportación que reutiliza la caché de render | hecho (ver notas) |
 | 8 | Chroma key y luma key | pendiente |
 | 9 | Multicámara | pendiente |
 | 10 | Importar timelines (FCPXML, OTIO) | pendiente |
@@ -56,3 +56,21 @@ en la GPU) y el canvas intermedio de 8 MB por clip. La ganancia real aparece con
 
 Windows (Media Foundation) compila para `x86_64-pc-windows-msvc` pero no se ha ejecutado: falta probarlo en Windows,
 sobre todo el sentido de `MF_MT_VIDEO_ROTATION`.
+
+## Punto 5 medido
+
+Las capas con efectos se dibujaban en texturas de fotograma completo y cada blur eran dos pasadas a pantalla completa:
+ahora cada capa sólo sombrea su alcance (`DrawFx::reach`: la capa, sus muestras de motion blur y lo que extiende cada
+efecto). Un fotograma idéntico al anterior (planos fijos, pausas, exportaciones con tramos quietos) no se vuelve a dibujar
+en el visor nativo ni en `render_rgba` (exportaciones de escritorio, stills).
+
+| | antes | ahora |
+|---|---|---|
+| effects_40 nativo 1080×1920, p50 | 128 ms | 29 ms |
+| effects_40 navegador 540×960, GPU p50 | 38 ms | 14 ms |
+| exportar 6 s con 5 s de plano fijo (nativo) | 979 ms | 240 ms |
+
+Un test compara píxel a píxel el dibujo recortado con el de pantalla completa (sombras, glows con umbral, blur,
+overlay, texto, motion blur): diferencia máxima ≤ 2/255. No hecho: una caché por capa entre fotogramas distintos
+(costaría una textura de fotograma completo por capa) ni reutilizar en la exportación web la caché de render del
+editor (guarda los fotogramas al tamaño de la previsualización, menor que el de exportación).

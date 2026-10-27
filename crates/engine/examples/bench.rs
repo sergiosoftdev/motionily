@@ -99,6 +99,30 @@ fn main() {
     }
     scenes.sort_by(|a, b| a.0.cmp(&b.0));
 
+    // `--export scene.json`: every frame in order, as an export renders it, with and without reusing
+    // frames identical to the last one.
+    if let Some(path) = arg("--export") {
+        let json = std::fs::read_to_string(&path).expect("read scene");
+        let scene = scene::Scene::from_json(&json).expect("parse scene");
+        let frames = (scene.duration * scene.fps).round() as usize;
+        pollster::block_on(async {
+            let (w, h) = size.unwrap_or((scene.width, scene.height));
+            let mut renderer = engine::Renderer::new_headless(w, h).await.expect("gpu adapter");
+            for reuse in [false, true] {
+                let start = Instant::now();
+                for i in 0..frames {
+                    if !reuse {
+                        renderer.invalidate_frame();
+                    }
+                    renderer.render_rgba(&scene, i as f32 / scene.fps);
+                }
+                let ms = start.elapsed().as_secs_f64() * 1000.0;
+                println!("{path}: {frames} frames {}: {ms:.0} ms ({:.2} ms/frame)", if reuse { "reusing identical frames" } else { "all drawn" }, ms / frames as f64);
+            }
+        });
+        return;
+    }
+
     let results: Vec<Result> = pollster::block_on(async {
         let mut out = Vec::new();
         for (name, json) in &scenes {

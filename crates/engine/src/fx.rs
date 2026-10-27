@@ -162,6 +162,9 @@ pub struct FxPass {
     no_lut: wgpu::BindGroup,
     size: [u32; 2],
     params: Vec<FxParams>,
+    /// Pixels `[x, y, w, h]` the passes of the layer being drawn may change (see `DrawFx::reach`);
+    /// None = the whole target.
+    scissor: std::cell::Cell<Option<[u32; 4]>>,
 }
 
 fn blend_state(mode: BlendMode) -> wgpu::BlendState {
@@ -276,6 +279,7 @@ impl FxPass {
             no_lut: luts.group(0).clone(),
             size: [width, height],
             params: Vec::new(),
+            scissor: std::cell::Cell::new(None),
         };
         fx.rebind(device);
         fx
@@ -360,6 +364,24 @@ impl FxPass {
         }
     }
 
+    /// Limit the next passes to `rect` (`[x, y, w, h]` px, inside the target), or lift the limit.
+    pub fn set_scissor(&self, rect: Option<[u32; 4]>) {
+        self.scissor.set(rect);
+    }
+
+    /// Apply the scissor to a pass drawing into `to` (the half-size blur targets get it halved).
+    fn clip(&self, pass: &mut wgpu::RenderPass<'_>, to: &wgpu::TextureView) {
+        let Some([x, y, w, h]) = self.scissor.get() else { return };
+        if std::ptr::eq(to, &self.temp) || std::ptr::eq(to, &self.copy) {
+            let (hw, hh) = ((self.size[0] / 2).max(1), (self.size[1] / 2).max(1));
+            let (x0, y0) = ((x / 2).min(hw - 1), (y / 2).min(hh - 1));
+            let (x1, y1) = ((x + w).div_ceil(2).min(hw), (y + h).div_ceil(2).min(hh));
+            pass.set_scissor_rect(x0, y0, (x1 - x0).max(1), (y1 - y0).max(1));
+        } else {
+            pass.set_scissor_rect(x, y, w, h);
+        }
+    }
+
     /// Clear a target and return a pass on it (for drawing a layer or its matte).
     pub fn clear_pass<'a>(encoder: &'a mut wgpu::CommandEncoder, view: &'a wgpu::TextureView, label: &str) -> wgpu::RenderPass<'a> {
         encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -377,11 +399,13 @@ impl FxPass {
     /// Blend the layer in `scratch` over the scene in `scene` (the texture behind `target`), with the
     /// blend mode at uniform slot `offset`. Modes that read the backdrop need this two-step path.
     pub fn blend_over(&self, device: &wgpu::Device, encoder: &mut wgpu::CommandEncoder, scene: &wgpu::Texture, target: &wgpu::TextureView, offset: u32) {
-        let size = wgpu::Extent3d { width: self.size[0], height: self.size[1], depth_or_array_layers: 1 };
+        // Only the part of the backdrop the layer can touch.
+        let [x, y, w, h] = self.scissor.get().unwrap_or([0, 0, self.size[0], self.size[1]]);
+        let origin = wgpu::Origin3d { x, y, z: 0 };
         encoder.copy_texture_to_texture(
-            wgpu::TexelCopyTextureInfo { texture: scene, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-            wgpu::TexelCopyTextureInfo { texture: &self.backdrop_texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-            size,
+            wgpu::TexelCopyTextureInfo { texture: scene, mip_level: 0, origin, aspect: wgpu::TextureAspect::All },
+            wgpu::TexelCopyTextureInfo { texture: &self.backdrop_texture, mip_level: 0, origin, aspect: wgpu::TextureAspect::All },
+            wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
         );
         let group = self.bind(device, &self.scratch, &self.backdrop, "fx blend");
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -394,6 +418,7 @@ impl FxPass {
             })],
             ..Default::default()
         });
+        self.clip(&mut pass, target);
         pass.set_pipeline(&self.blend_pipeline);
         pass.set_bind_group(0, &group, &[offset]);
         pass.set_bind_group(1, &self.no_lut, &[]);
@@ -403,6 +428,7 @@ impl FxPass {
     /// One blur direction: `from` → `to` (cleared).
     pub fn blur(&self, encoder: &mut wgpu::CommandEncoder, from: Tex, to: &wgpu::TextureView, offset: u32) {
         let mut pass = Self::clear_pass(encoder, to, "fx blur");
+        self.clip(&mut pass, to);
         pass.set_pipeline(&self.blur_pipeline);
         pass.set_bind_group(0, &self.groups[from as usize], &[offset]);
         pass.set_bind_group(1, &self.no_lut, &[]);
@@ -438,6 +464,7 @@ impl FxPass {
             BlendMode::Multiply => 3,
             _ => unreachable!("backdrop modes go through blend_over"),
         };
+        self.clip(&mut pass, target);
         pass.set_pipeline(&self.composite[index]);
         pass.set_bind_group(0, group, &[offset]);
         pass.set_bind_group(1, lut.unwrap_or(&self.no_lut), &[]);

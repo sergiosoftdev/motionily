@@ -983,6 +983,103 @@ pub struct DrawFx {
     pub plane_origin: [f32; 2],
 }
 
+/// Extra pixels around a reach for antialiased edges.
+const REACH_MARGIN: f32 = 4.0;
+
+/// Upright box `[x0, y0, x1, y1]` (scene px).
+type Rect = [f32; 4];
+
+fn union(a: Option<Rect>, b: Rect) -> Rect {
+    a.map_or(b, |a| [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])])
+}
+
+fn rotated_box(center: [f32; 2], size: [f32; 2], rotation: f32, pad: f32) -> Rect {
+    let b = crate::layer::Bounds { center, size, rotation };
+    let c = b.corners();
+    let (xs, ys) = (c.map(|p| p[0]), c.map(|p| p[1]));
+    let (min, max) = (|v: [f32; 4]| v.iter().copied().fold(f32::MAX, f32::min), |v: [f32; 4]| v.iter().copied().fold(f32::MIN, f32::max));
+    [min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad]
+}
+
+/// The box a drawn item can cover (scene px), or None when it is not known (3D, shaders, free text).
+fn item_reach(item: &crate::DrawItem) -> Option<Rect> {
+    use crate::DrawItem as D;
+    match item {
+        D::Shape(s) => {
+            let mut pad = s.style.stroke.map_or(0.0, |(w, _)| w) + s.style.soft;
+            if let Some(([dx, dy], blur, _)) = s.style.inner {
+                pad += dx.abs().max(dy.abs()) + blur;
+            }
+            Some(rotated_box(s.center, s.size, s.rotation, pad))
+        }
+        D::Image(i) => Some(rotated_box(i.center, i.size, i.rotation, 0.0)),
+        D::Poly(p) => Some(rotated_box_points(&p.points)),
+        D::Path(p) => {
+            let pad = p.stroke.map_or(0.0, |(w, _)| w);
+            Some([p.bounds.0[0] - pad, p.bounds.0[1] - pad, p.bounds.1[0] + pad, p.bounds.1[1] + pad])
+        }
+        D::Text(t) if t.path.is_none() && t.rotation == 0.0 => {
+            // The wrap width bounds it across; along, its box height, or the whole frame when it grows freely.
+            let half_h = t.max_height.map_or(f32::MAX / 4.0, |h| h / 2.0 + t.size);
+            Some([t.center[0] - t.max_width / 2.0 - t.size, t.center[1] - half_h, t.center[0] + t.max_width / 2.0 + t.size, t.center[1] + half_h])
+        }
+        D::Group(items) => items.iter().try_fold(None, |acc: Option<Rect>, i| Some(Some(union(acc, item_reach(i)?)))).flatten(),
+        _ => None,
+    }
+}
+
+fn rotated_box_points(points: &[[f32; 2]]) -> Rect {
+    points.iter().fold([f32::MAX, f32::MAX, f32::MIN, f32::MIN], |r, p| [r[0].min(p[0]), r[1].min(p[1]), r[2].max(p[0]), r[3].max(p[1])])
+}
+
+impl DrawFx {
+    /// The box (scene px) this offscreen layer and its effects can change, so its passes only shade
+    /// there: the items (and motion-blur samples and matte), grown by what each effect spreads
+    /// (blurs, glows, shadows and their offset, waves). None when it can reach anywhere: adjustment
+    /// layers without a matte, 3D planes, custom shaders, or items whose box is not known.
+    pub fn reach(&self) -> Option<Rect> {
+        if self.perspective.is_some() || self.plane_origin != [0.0, 0.0] {
+            return None;
+        }
+        let items = |list: &[crate::DrawItem]| list.iter().try_fold(None, |acc: Option<Rect>, i| Some(Some(union(acc, item_reach(i)?)))).flatten();
+        let mut r = if self.adjust {
+            // The effect applies to everything below, inside the matte only (an inverted matte: outside it, anywhere).
+            let (matte, mode) = self.matte.as_ref()?;
+            if matches!(mode, MatteMode::AlphaInverted | MatteMode::LumaInverted) {
+                return None;
+            }
+            items(matte)?
+        } else {
+            let mut r = items(&self.items)?;
+            for s in &self.samples {
+                r = union(Some(r), items(s)?);
+            }
+            r
+        };
+        // Each effect grows the box by its own spread; a Gaussian of radius r reaches ~1.5 r, 2 r is safe.
+        for e in &self.effects {
+            let grow = |r: Rect, d: f32| [r[0] - d, r[1] - d, r[2] + d, r[3] + d];
+            r = match *e {
+                DrawEffect::Blur { radius } => grow(r, 2.0 * radius),
+                DrawEffect::Glow { radius, .. } => grow(r, 2.0 * radius),
+                DrawEffect::Glass { blur, thickness, .. } => grow(r, 2.0 * blur + thickness),
+                DrawEffect::Shadow { offset, blur, .. } => {
+                    // Blurred where the layer is (the blur passes run there), then drawn offset.
+                    let blurred = grow(r, 2.0 * blur);
+                    let s = [blurred[0] + offset[0], blurred[1] + offset[1], blurred[2] + offset[0], blurred[3] + offset[1]];
+                    union(Some(blurred), s)
+                }
+                DrawEffect::Chromatic { amount } => grow(r, amount.abs()),
+                DrawEffect::Wave { amplitude, .. } => grow(r, amplitude.abs()),
+                DrawEffect::Turbulence { amount, .. } => grow(r, amount.abs()),
+                DrawEffect::Color { .. } | DrawEffect::Grain { .. } => r,
+                DrawEffect::Shader { .. } => return None,
+            };
+        }
+        Some([r[0] - REACH_MARGIN, r[1] - REACH_MARGIN, r[2] + REACH_MARGIN, r[3] + REACH_MARGIN])
+    }
+}
+
 /// Camera distance (px) for 3D layers when none is given: a natural, slightly wide lens.
 pub const DEFAULT_PERSPECTIVE: f32 = 1800.0;
 
@@ -1184,4 +1281,46 @@ pub struct DrawPath {
     pub bounds: ([f32; 2], [f32; 2]),
     pub gradient: Option<DrawGradient>,
 
+}
+
+#[cfg(test)]
+mod reach_tests {
+    use super::*;
+    use crate::layer::DrawShape;
+
+    fn circle(x: f32, y: f32, d: f32) -> crate::DrawItem {
+        crate::DrawItem::Shape(DrawShape { center: [x, y], size: [d, d], radius: d / 2.0, rotation: 0.0, color: Rgba([1.0, 1.0, 1.0, 1.0]), style: ShapeStyle::default() })
+    }
+
+    fn fx(items: Vec<crate::DrawItem>, effects: Vec<DrawEffect>) -> DrawFx {
+        DrawFx { items, effects, blend: BlendMode::Normal, matte: None, samples: vec![], adjust: false, perspective: None, plane_origin: [0.0, 0.0] }
+    }
+
+    #[test]
+    fn a_small_layer_reaches_its_box_grown_by_its_effects() {
+        let r = fx(vec![circle(200.0, 300.0, 100.0)], vec![]).reach().unwrap();
+        assert_eq!(r, [146.0, 246.0, 254.0, 354.0], "the shape plus the antialias margin");
+        let glow = fx(vec![circle(200.0, 300.0, 100.0)], vec![DrawEffect::Glow { radius: 20.0, strength: 1.0, color: None, threshold: 0.0 }]).reach().unwrap();
+        assert_eq!(glow, [106.0, 206.0, 294.0, 394.0], "a glow spreads twice its radius");
+        let shadow = fx(vec![circle(200.0, 300.0, 100.0)], vec![DrawEffect::Shadow { offset: [0.0, 40.0], blur: 10.0, color: Rgba([0.0, 0.0, 0.0, 0.5]) }]).reach().unwrap();
+        assert_eq!(shadow, [126.0, 226.0, 274.0, 414.0], "blurred in place (where its passes run) and offset down");
+    }
+
+    #[test]
+    fn what_can_reach_anywhere_is_not_bounded() {
+        let mut adjust = fx(vec![], vec![]);
+        adjust.adjust = true;
+        assert_eq!(adjust.reach(), None, "an adjustment layer without a matte grades the whole frame");
+        let shader = fx(vec![circle(0.0, 0.0, 10.0)], vec![DrawEffect::Shader { hash: 1, params: [0.0; crate::shader::MAX_PARAMS], time: 0.0, scene_time: 0.0, zoom: 1.0 }]);
+        assert_eq!(shader.reach(), None, "custom shaders may draw anywhere");
+        let mut plane = fx(vec![circle(0.0, 0.0, 10.0)], vec![]);
+        plane.perspective = Some([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(plane.reach(), None, "3D planes are projected");
+        let mut window = fx(vec![], vec![]);
+        window.adjust = true;
+        window.matte = Some((vec![circle(100.0, 100.0, 80.0)], MatteMode::AlphaInverted));
+        assert_eq!(window.reach(), None, "an inverted window grades outside its shape");
+        window.matte = Some((vec![circle(100.0, 100.0, 80.0)], MatteMode::Alpha));
+        assert_eq!(window.reach(), Some([56.0, 56.0, 144.0, 144.0]), "a window grades inside it");
+    }
 }
