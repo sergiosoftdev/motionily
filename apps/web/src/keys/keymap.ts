@@ -68,6 +68,7 @@ export const COMMANDS: readonly Command[] = [
   { id: "pro.graph_editor", scope: P, section: "View", help: "Graph Editor", defaults: [key("F3", { shift: true })] },
   { id: "pro.help", scope: P, section: "View", help: "Keyboard shortcuts", defaults: [{ key: "?", shift: Mod.Any }] },
 
+  { id: "edit.toggle_agent", scope: E, section: "Panels", help: "Show or hide the agent's panel", defaults: [letter("j", false, true)] },
   { id: "edit.undo", scope: E, section: "Edit", help: "Undo", defaults: [letter("z", false, true)] },
   { id: "edit.redo", scope: E, section: "Edit", help: "Redo", defaults: [letter("z", true, true)] },
   { id: "edit.blade", scope: E, section: "Edit", help: "Cut at the playhead", defaults: [letter("s"), letter("b", false, true)] },

@@ -23,7 +23,7 @@ import { Inspector } from "./Inspector";
 import { useClipUpload, useMusicUpload } from "./MediaPanel";
 import { MediaPool, PoolEdit, useMediaPool, type PoolDrop } from "./MediaPool";
 import { ProjectInspector } from "./ProjectInspector";
-import { SidePanel } from "./SidePanel";
+import { AgentDock, AgentPill, AgentToggle, InspectorPanel, useAgentDock } from "./SidePanel";
 import { AUDIO_LAYER, ClipKind, FOOTAGE_GROUP, appendClipOps, clipLayer, editTracks, freshId, mediaLayer, placeMediaOps, reframeClipOps, type EditClip } from "./tracks";
 import { ActivitySource, logActivity } from "../../store";
 import { multicamClip, switchAngle } from "./multicamActions";
@@ -66,6 +66,7 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
   const [picks, setPicks] = useState<Picks | null>(null);
   /** Select (A) or Trim (T): ripple / roll / slip / slide. */
   const [tool, setTool] = useState<EditTool>(EditTool.Select);
+  const [dockOpen, setDockOpen] = useAgentDock();
   const clips = useClipUpload(ed, edits);
   const music = useMusicUpload(ed, edits);
   const selectedLayer = useEditor((s) => s.selectedLayerId);
@@ -147,6 +148,9 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
       }
       const c = commandFor(e, KeyScope.Edit);
       switch (c?.id) {
+        case "edit.toggle_agent":
+          setDockOpen((o) => !o);
+          break;
         case "edit.undo":
           ed2.undo();
           break;
@@ -329,6 +333,7 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
           <Logo />
         </a>
         <ProjectTitle project={project} onRename={ed.rename} className="flex-1 rounded-md px-2 py-1 text-sm font-medium hover:bg-neutral-900 focus:bg-neutral-900" />
+        <AgentToggle open={dockOpen} running={ed.g.running} onToggle={() => setDockOpen((o) => !o)} />
         <ModeSwitch mode={ed.mode} onChange={ed.setMode} className="bg-neutral-900" />
         {project && <ScheduleButton ed={ed} />}
         {project && <ExportButton projectId={project.id} name={project.name} audioUrl={project.audio ? mediaUrl(project.audio.url) : null} />}
@@ -339,12 +344,20 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
           <div className="flex min-h-0 flex-1 gap-3">
             <MediaPool ed={ed} scene={scene} clips={clips} music={music} pool={pool} onAdd={addAtPlayhead} picked={poolPick} onPick={setPoolPick} onPlace={placeFromPool} edits={edits} />
             {/* Any frame shape fits here: the viewer scales it to the space it gets. */}
-            <main className="flex min-w-0 flex-1 flex-col items-center gap-2 py-1">
+            <main className="@container relative flex min-w-0 flex-1 flex-col items-center gap-2 py-1">
               <Viewer canvas={ed.canvas} error={ed.error} maxWidth={PREVIEW_MAX_WIDTH} canvasClass="rounded-xl shadow-2xl shadow-black/50" />
               <MulticamViewer footage={footage} edits={edits} version={scene} />
               <Transport duration={scene?.duration ?? 0} fps={fps} />
               <AttentionStrip g={ed.g} projectId={ed.id} className="w-full max-w-xl" />
+              {!dockOpen && <AgentPill g={ed.g} captioning={ed.captioning} onOpen={() => setDockOpen(true)} />}
             </main>
+            <InspectorPanel title={selection ? "Inspector" : "Project"}>
+              {selection ? (
+                <Inspector selection={selection} ops={ops} edits={edits} songLength={project?.music?.duration ?? null} clipIds={tracks?.clips.map((c) => c.id) ?? []} luts={pool.items.filter((m) => m.kind === MediaKind.Lut)} footage={footage} onClose={deselect} onStabilize={stabilize} />
+              ) : (
+                <ProjectInspector ed={ed} scene={scene} edits={edits} onFormat={(f) => void changeFormat(f)} />
+              )}
+            </InspectorPanel>
           </div>
           {/* As tall as its tracks, up to 46% of the screen: the preview keeps the rest. */}
           <div className={`relative flex max-h-[46%] min-h-52 shrink-0 flex-col rounded-2xl ring-1 ring-white/[0.06] ${ModePiece.Timeline}`}>
@@ -388,23 +401,16 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
             )}
             {empty && (
               <p className="pointer-events-none absolute inset-x-0 top-1/2 text-center text-sm text-neutral-500">
-                Drop clips anywhere to start, or ask {agent} on the right.
+                Drop clips anywhere to start, or ask {agent} {dockOpen ? "on the right" : "(⌘J)"}.
               </p>
             )}
           </div>
         </div>
-        <SidePanel
-          selectedKey={selectionKey(selection)}
-          running={ed.g.running}
-          inspector={
-            selection ? (
-              <Inspector selection={selection} ops={ops} edits={edits} songLength={project?.music?.duration ?? null} clipIds={tracks?.clips.map((c) => c.id) ?? []} luts={pool.items.filter((m) => m.kind === MediaKind.Lut)} footage={footage} onClose={deselect} onStabilize={stabilize} />
-            ) : (
-              <ProjectInspector ed={ed} scene={scene} edits={edits} onFormat={(f) => void changeFormat(f)} />
-            )
-          }
-          agentPanel={<ClaudePanel ed={ed} hasScene={hasScene} hasFootage={!!tracks?.clips.length} selection={null} bare />}
-        />
+        {dockOpen && (
+          <AgentDock running={ed.g.running} onClose={() => setDockOpen(false)}>
+            <ClaudePanel ed={ed} hasScene={hasScene} hasFootage={!!tracks?.clips.length} selection={null} bare />
+          </AgentDock>
+        )}
       </div>
 
       {dragging > 0 && (
@@ -414,16 +420,6 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
       )}
     </div>
   );
-}
-
-/** Identity of the selection, so the side panel can bring the Inspector forward when it changes. */
-function selectionKey(sel: EditSelection): string | null {
-  if (!sel) return null;
-  if (sel.kind === "clip") return `clip:${sel.clip.id}`;
-  if (sel.kind === "block") return `block:${sel.block.key}`;
-  if (sel.kind === "cue") return `cue:${sel.cue.id}`;
-  if (sel.kind === "music") return "music";
-  return `many:${sel.clips.length + sel.blocks.length + sel.cues.length}`;
 }
 
 function ToolButton({ label, hint, disabled, onClick }: { label: string; hint: string; disabled?: boolean; onClick: () => void }) {
@@ -437,7 +433,7 @@ function ToolButton({ label, hint, disabled, onClick }: { label: string; hint: s
 function Transport({ duration, fps }: { duration: number; fps: number }) {
   const playing = useEditor((s) => s.playing);
   return (
-    <div className="flex items-center gap-3 text-xs text-neutral-400 tabular-nums">
+    <div className="flex max-w-full flex-wrap items-center justify-center gap-x-3 gap-y-1.5 text-xs text-neutral-400 tabular-nums">
       <button
         type="button"
         onClick={() => (playing ? engineHost.pause() : engineHost.play())}
@@ -448,10 +444,10 @@ function Transport({ duration, fps }: { duration: number; fps: number }) {
           <path d={playing ? "M3.5 2h3.5v12H3.5zM9 2h3.5v12H9z" : "M4 2v12l10-6z"} />
         </svg>
       </button>
-      <span>
+      <span className="whitespace-nowrap">
         <TimecodeField fps={fps} duration={duration} listens className="text-neutral-200" inputClassName="bg-neutral-900 text-neutral-100 ring-1 ring-sky-500/60" /> / {timecode(duration, fps)}
       </span>
-      <LoudnessMeter className="ml-2" />
+      <LoudnessMeter />
     </div>
   );
 }

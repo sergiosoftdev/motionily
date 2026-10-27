@@ -23,7 +23,7 @@ export function LoudnessMeter({ className = "" }: { className?: string }) {
 
   return (
     <div className={`flex items-center gap-2 text-[10px] text-neutral-400 tabular-nums ${className}`}>
-      <div className="flex w-28 flex-col gap-0.5" title="Sample peak per channel (dBFS), with a hold">
+      <div className="flex w-28 shrink-0 flex-col gap-0.5" title="Sample peak per channel (dBFS), with a hold">
         {peaks.slice(0, 2).map((p, c) => (
           <div key={c} className="relative h-1.5 overflow-hidden rounded-sm bg-neutral-800">
             <div
@@ -34,10 +34,11 @@ export function LoudnessMeter({ className = "" }: { className?: string }) {
           </div>
         ))}
       </div>
-      <span title="Momentary (400 ms) · short-term (3 s) · integrated since play, LUFS">
+      {/* In a narrow container (the Edit viewer beside open panels) the bars and peak stay, the LUFS go. */}
+      <span title="Momentary (400 ms) · short-term (3 s) · integrated since play, LUFS" className="whitespace-nowrap @max-xl:hidden">
         M {fmt(r?.momentary ?? -Infinity)} · S {fmt(r?.shortTerm ?? -Infinity)} · I {fmt(r?.integrated ?? -Infinity)} LUFS
       </span>
-      <span title="Highest sample peak since play" className={r && r.maxPeakDb > CEILING_DB ? "text-red-400" : ""}>
+      <span title="Highest sample peak since play" className={`whitespace-nowrap ${r && r.maxPeakDb > CEILING_DB ? "text-red-400" : ""}`}>
         ▲ {fmt(r?.maxPeakDb ?? -Infinity)} dB
       </span>
       <button
@@ -48,7 +49,7 @@ export function LoudnessMeter({ className = "" }: { className?: string }) {
         }}
         aria-pressed={scrub}
         title={scrub ? "Scrubbing plays the sound under the playhead (click to mute it)" : "Scrubbing is silent (click to hear it)"}
-        className={`rounded px-1.5 py-0.5 ${scrub ? "text-sky-300 ring-1 ring-sky-300/40" : "text-neutral-500 ring-1 ring-white/10"}`}
+        className={`rounded px-1.5 py-0.5 whitespace-nowrap ${scrub ? "text-sky-300 ring-1 ring-sky-300/40" : "text-neutral-500 ring-1 ring-white/10"}`}
       >
         Scrub audio
       </button>
