@@ -2,6 +2,7 @@ import type { ImportedTimeline } from "../editor/edit/timelinePlan";
 import init, { Engine, analyzeAudio, captionStyles, checkSceneShaders, clearAudioAnalysis, parseTimeline, stylePalettes, stylePresets } from "./pkg/engine_wasm.js";
 import type { Loudness, Mix } from "@motionily/protocol";
 import { audioBus } from "../audio/bus";
+import { workerViewer, type WorkerSource } from "./workerViewer";
 import { measureLoudness } from "../audio/loudness";
 import { mixAudio } from "../export/exportVideo";
 import type { MusicTrack } from "../audio/music";
@@ -211,6 +212,8 @@ class EngineHost {
   /** Analysis of `audioUrl` for audio-reactive expressions; resolves once installed in the engine. */
   private audioAnalysis: Promise<void> = Promise.resolve();
   audioInfo: AudioAnalysisInfo | null = null;
+  /** The analysed soundtrack's samples, for the playback worker's engine. */
+  private audioSamples: { samples: Float32Array; rate: number } | null = null;
   /** Video files (decoders shared with export engines), frames uploaded to this engine, clip sounds. */
   private videos = new VideoLibrary((src) => this.previewSrc(src), () => this.draw());
   /** The original files, for exports (the preview may play proxies instead). */
@@ -278,6 +281,7 @@ class EngineHost {
 
   unmount() {
     this.pause();
+    workerViewer.detach();
     this.loop = false;
     void this.setAudio(null);
     this.videos.dispose();
@@ -540,6 +544,7 @@ class EngineHost {
     // Decoded ahead, so the first play starts at once.
     if (url) void decodeAudio(url);
     this.audioInfo = null;
+    this.audioSamples = null;
     this.audioAnalysis = this.analyzeAudio(url);
     return this.audioAnalysis;
   }
@@ -557,6 +562,7 @@ class EngineHost {
       // A newer file replaced this one while it decoded.
       if (url !== this.audioUrl) return;
       this.audioInfo = JSON.parse(analyzeAudio(samples, rate)) as AudioAnalysisInfo;
+      this.audioSamples = { samples, rate };
     } catch {
       if (url === this.audioUrl) clearAudioAnalysis();
     }
@@ -600,6 +606,7 @@ class EngineHost {
   }
 
   private reopenPreviewClips() {
+    if (useEditor.getState().playing) void workerViewer.reload(this.sceneJson(), this.workerSource);
     this.videos.dispose();
     this.videos = new VideoLibrary((src) => this.previewSrc(src), () => this.draw());
     this.frames = new Map();
@@ -677,6 +684,7 @@ class EngineHost {
       if (rate !== 1) this.mix.stop();
       else this.startMix(useEditor.getState().time);
       this.lastTick = performance.now();
+      workerViewer.jump(this.playhead, rate);
       return;
     }
     if (rate === 1) return this.play();
@@ -686,6 +694,7 @@ class EngineHost {
     this.shownFrame = -1;
     this.lastTick = performance.now();
     this.raf = requestAnimationFrame(this.tick);
+    this.startViewer();
   }
 
   /** Current shuttle speed (1 = normal playback). */
@@ -709,7 +718,30 @@ class EngineHost {
     this.startMix(this.playhead);
     this.lastTick = performance.now();
     this.raf = requestAnimationFrame(this.tick);
-    if (this.canvas) void nativeViewer.start(this.canvas, this.viewerScene(), this, useEditor.getState().time);
+    this.startViewer();
+  }
+
+  /** What the playback worker draws from: this engine's scene and assets. */
+  private readonly workerSource: WorkerSource = {
+    fonts: () => this.loadedFontFiles(),
+    stage: () => this.stageAssets(),
+    images: () => this.imageAssets(),
+    luts: () => this.lutAssets(),
+    audio: () => this.audioSamples,
+    urls: () => Object.fromEntries((this.engine?.videoSources() ?? []).map((src) => [src, this.previewSrc(src)])),
+    fps: () => this.fps(),
+  };
+
+  /** Playback drawn elsewhere: the desktop app's native viewer, else a worker (the editor's canvas when neither can). */
+  private startViewer() {
+    const canvas = this.canvas;
+    const engine = this.engine;
+    if (!canvas || !engine) return;
+    const t = useEditor.getState().time;
+    void nativeViewer.start(canvas, this.viewerScene(), this, t).then(() => {
+      if (nativeViewer.active || !useEditor.getState().playing || engine !== this.engine) return;
+      void workerViewer.start(canvas, engine.adapterInfo(), this.sceneJson(), this.workerSource, () => ({ t: this.playhead, rate: this.rate }));
+    });
   }
 
   pause() {
@@ -717,6 +749,7 @@ class EngineHost {
     this.rate = 1;
     cancelAnimationFrame(this.raf);
     nativeViewer.stop();
+    workerViewer.stop();
     this.mix.stop();
     // The playhead lands exactly where playback stopped (the store only follows whole frames while playing).
     useEditor.setState(wasPlaying ? { playing: false, time: this.playhead } : { playing: false });
@@ -767,6 +800,7 @@ class EngineHost {
     if (useEditor.getState().playing && this.rate === 1) this.startMix(useEditor.getState().time);
     this.lastTick = performance.now();
     if (nativeViewer.active) nativeViewer.frame(useEditor.getState().time);
+    if (useEditor.getState().playing) workerViewer.jump(this.playhead, this.rate);
     this.draw();
     if (!useEditor.getState().playing) this.fillSoon();
   }
@@ -815,7 +849,7 @@ class EngineHost {
     const time = this.playhead;
     perf.frame(now - this.lastTick);
     // A frame that came late marks its beat heavy: it is rendered ahead the next time playback stops.
-    if (!nativeViewer.active) this.cache.note(time, this.fps(), now - this.lastTick, DISPLAY_FRAME_MS);
+    if (!nativeViewer.active && !workerViewer.active) this.cache.note(time, this.fps(), now - this.lastTick, DISPLAY_FRAME_MS);
     const elapsed = ((now - this.lastTick) / 1000) * this.rate;
     this.lastTick = now;
     const [from, to] = this.playRange();
@@ -833,6 +867,7 @@ class EngineHost {
     // A work area always loops; the whole video only when `loop` is on.
     if (next >= to && (this.loop || this.range)) {
       this.playhead = from;
+      workerViewer.jump(from, 1);
       this.show(from);
       this.startMix(from);
       this.raf = requestAnimationFrame(this.tick);
@@ -895,6 +930,8 @@ class EngineHost {
     perf.showed();
     useEditor.setState({ time: t });
     if (nativeViewer.active) return nativeViewer.frame(t);
+    workerViewer.sync(t, this.rate);
+    if (workerViewer.active) return;
     const cached = this.cache.get(t, this.fps());
     if (cached && this.overlay && this.canvas) {
       // Rendered ahead: show the bitmap, skip the render.
@@ -1355,7 +1392,7 @@ class EngineHost {
   /** Render the current time now; video frames still decoding are refined right after. */
   private draw() {
     const engine = this.engine;
-    if (!engine) return;
+    if (!engine || workerViewer.active) return;
     if (this.overlay) this.overlay.style.visibility = "hidden";
     const t = useEditor.getState().time;
     const exact = this.videos.show(engine, t, this.frames);
@@ -1371,6 +1408,7 @@ class EngineHost {
     // An edit of the soundtrack while playing: reschedule it from the playhead.
     if (useEditor.getState().playing && this.rate === 1 && this.mixState() !== this.mixKey) this.remixSoon();
     if (nativeViewer.active) void nativeViewer.reload(this.viewerScene(), this, useEditor.getState().time);
+    if (useEditor.getState().playing) void workerViewer.reload(this.sceneJson(), this.workerSource);
     this.draw();
     void this.ensureModels();
     void this.ensureImages();
@@ -1405,6 +1443,7 @@ class EngineHost {
     c.width = w;
     c.height = h;
     this.engine?.resize(w, h);
+    workerViewer.resize(w, h);
     this.draw();
   }
 

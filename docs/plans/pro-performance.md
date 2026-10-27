@@ -13,7 +13,7 @@ en la app real y un commit por punto en `main`.
 | 7 | Audio al arrastrar el cabezal y medidores LUFS / pico en vivo | hecho |
 | 2 | Vídeo sin copias en la web: el `VideoFrame` de WebCodecs directo a la GPU | hecho |
 | 3 | Decodificación nativa en escritorio (VideoToolbox / Media Foundation) en lugar de ffmpeg por tubería | hecho (Windows sin probar en una máquina Windows) |
-| 4 | El motor de reproducción en un worker con `OffscreenCanvas` | pendiente |
+| 4 | El motor de reproducción en un worker con `OffscreenCanvas` | hecho (WebGPU; WebGL2 sigue en el hilo principal) |
 | 5 | Caché de capas estáticas y exportación que reutiliza la caché de render | hecho (ver notas) |
 | 8 | Chroma key y luma key | hecho |
 | 9 | Multicámara | hecho |
@@ -39,6 +39,13 @@ en la app real y un commit por punto en `main`.
   los cortes no saltan en el audio. Cambiar de ángulo corta en el cabezal y apunta el resto a la otra cámara en el mismo
   instante (rechaza donde esa cámara no grababa). Visor de ángulos bajo el programa (clic = corte), teclas 1–9 en
   directo durante la reproducción y la tool `multicam`.
+
+- Punto 4: al reproducir, un worker con su propio motor (`Engine.createOffscreen`) y sus propios decodificadores
+  dibuja en un canvas transferido encima del del editor, con su reloj sincronizado con el del sonido cada 250 ms;
+  en pausa vuelve el canvas del editor (gizmos, selección, edición). Mismo patrón que el visor nativo de escritorio,
+  que tiene prioridad. Con el hilo principal ocupado el 67 % del tiempo (80 ms de cada 120): 107 fotogramas en el
+  worker frente a 18 en el hilo principal en el mismo intervalo (≈29 frente a ≈5 fps). Ajustes › Playback lo apaga.
+  Fuera: el scrub y la edición siguen en el hilo principal; con WebGL2 no hay worker.
 
 ## Cifras de partida (punto 1, MacBook con Apple Silicon, p50 por fotograma hasta que la GPU termina)
 

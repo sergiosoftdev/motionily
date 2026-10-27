@@ -7,12 +7,14 @@ import { SocialAccounts } from "../social/SocialAccounts";
 import { KeyboardSettings } from "../keys/KeyboardSettings";
 import { AssetSourcesForm, LibraryGrid } from "../assets/AssetSources";
 import { AgentCliForm } from "../components/AgentCliForm";
+import { workerViewer } from "../engine/workerViewer";
 
 export function SettingsScreen() {
   const user = useSession((s) => s.user);
   const logout = useSession((s) => s.logout);
   const [prefs, setPrefs] = useState<AgentPrefs>(loadPrefs);
   const elevenLabs = useElevenLabs();
+  const [workerPlayback, setWorkerPlayback] = useState(() => workerViewer.on);
   const update = (p: Partial<AgentPrefs>) => {
     const next = { ...prefs, ...p };
     setPrefs(next);
@@ -71,6 +73,27 @@ export function SettingsScreen() {
           <p className="text-xs text-neutral-500">The editors' keys: start from the editor you know (Premiere Pro, DaVinci Resolve, Final Cut Pro) and change any of them.</p>
         </div>
         <KeyboardSettings />
+      </section>
+      <section className="flex max-w-xl flex-col gap-3">
+        <div>
+          <h2 className="text-sm font-semibold">Playback</h2>
+          <p className="text-xs text-neutral-500">How the preview plays on this device.</p>
+        </div>
+        <label className="flex items-center justify-between gap-4 text-sm">
+          <span>
+            Play in a background thread
+            <span className="block text-xs text-neutral-500">Frames are decoded and drawn in a worker (WebGPU), so a busy editor never makes playback stutter. Uses a little more memory.</span>
+          </span>
+          <input
+            type="checkbox"
+            checked={workerPlayback}
+            onChange={(e) => {
+              workerViewer.on = e.target.checked;
+              setWorkerPlayback(e.target.checked);
+            }}
+            className="accent-white"
+          />
+        </label>
       </section>
       <section className="flex max-w-xl flex-col gap-3">
         <div>

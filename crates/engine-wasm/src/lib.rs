@@ -7,7 +7,7 @@ use std::sync::Arc;
 use engine::Renderer;
 use scene::{CaptionStyle, Op, Scene, StylePreset};
 use wasm_bindgen::prelude::*;
-use web_sys::{HtmlCanvasElement, VideoFrame};
+use web_sys::{HtmlCanvasElement, OffscreenCanvas, VideoFrame};
 
 #[wasm_bindgen(start)]
 pub fn start() {
@@ -28,10 +28,19 @@ impl Engine {
     /// Create the engine on a canvas. Uses WebGPU when available, WebGL2 otherwise.
     pub async fn create(canvas: HtmlCanvasElement) -> Result<Engine, JsError> {
         let (w, h) = (canvas.width(), canvas.height());
+        Self::on(wgpu::SurfaceTarget::Canvas(canvas), w, h).await
+    }
+
+    /// Create the engine on an `OffscreenCanvas` (in a worker: the playback viewer draws off the main thread).
+    #[wasm_bindgen(js_name = createOffscreen)]
+    pub async fn create_offscreen(canvas: OffscreenCanvas) -> Result<Engine, JsError> {
+        let (w, h) = (canvas.width(), canvas.height());
+        Self::on(wgpu::SurfaceTarget::OffscreenCanvas(canvas), w, h).await
+    }
+
+    async fn on(target: wgpu::SurfaceTarget<'static>, w: u32, h: u32) -> Result<Engine, JsError> {
         let instance = wgpu::util::new_instance_with_webgpu_detection(wgpu::InstanceDescriptor::new_without_display_handle()).await;
-        let surface = instance
-            .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
-            .map_err(|e| JsError::new(&e.to_string()))?;
+        let surface = instance.create_surface(target).map_err(|e| JsError::new(&e.to_string()))?;
         let renderer = Renderer::new(&instance, surface, w, h)
             .await
             .map_err(|e| JsError::new(&e.to_string()))?;

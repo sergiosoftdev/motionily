@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { perf, type PerfSnapshot } from "../engine/perf";
+import { workerViewer } from "../engine/workerViewer";
+import { nativeViewer } from "../native/viewer";
 
 const PREF_KEY = "motionily.perfHud";
 const REFRESH_MS = 250;
@@ -77,6 +79,7 @@ export function PerfHud() {
         <span>{s.playing ? "playing" : "paused"}</span>
       </div>
       {row("video fps", s.playing ? s.fps.toFixed(0) : "–")}
+      {row("drawn by", !s.playing ? "–" : nativeViewer.active ? "native viewer" : workerViewer.active ? "worker" : "main thread")}
       {row("late frames (2 s)", String(s.dropped), s.dropped > 0)}
       {row("render cpu p50/p95", s.render.count ? `${ms(s.render.p50)} / ${ms(s.render.p95)} ms` : "–", s.render.p95 > 16)}
       {row("frame gpu p50/p95", s.gpu.count ? `${ms(s.gpu.p50)} / ${ms(s.gpu.p95)} ms` : "–", s.gpu.p95 > 33)}
