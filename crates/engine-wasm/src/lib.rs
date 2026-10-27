@@ -1,6 +1,9 @@
 //! Browser bindings. The API is deliberately coarse (load, apply ops, render)
 //! so JS <-> WASM crossings stay few and cheap.
 
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
+
 use engine::Renderer;
 use scene::{CaptionStyle, Op, Scene, StylePreset};
 use wasm_bindgen::prelude::*;
@@ -15,6 +18,9 @@ pub fn start() {
 pub struct Engine {
     renderer: Renderer,
     scene: Scene,
+    /// GPU completions counted as they come back, and how many were asked for (see `watchWork`).
+    work_done: Arc<AtomicU32>,
+    work_asked: u32,
 }
 
 #[wasm_bindgen]
@@ -29,7 +35,7 @@ impl Engine {
         let renderer = Renderer::new(&instance, surface, w, h)
             .await
             .map_err(|e| JsError::new(&e.to_string()))?;
-        Ok(Engine { renderer, scene: Scene::default() })
+        Ok(Engine { renderer, scene: Scene::default(), work_done: Arc::new(AtomicU32::new(0)), work_asked: 0 })
     }
 
     #[wasm_bindgen(js_name = adapterInfo)]
@@ -326,6 +332,23 @@ impl Engine {
 
     pub fn render(&mut self, t: f32) {
         self.renderer.render(&self.scene, t);
+    }
+
+    /// A ticket for everything submitted so far: `workDone(ticket)` turns true once the GPU has
+    /// finished it (render() returns as soon as the work is queued; this is when it is drawn).
+    #[wasm_bindgen(js_name = watchWork)]
+    pub fn watch_work(&mut self) -> u32 {
+        self.work_asked += 1;
+        let done = self.work_done.clone();
+        self.renderer.on_work_done(move || {
+            done.fetch_add(1, Ordering::Release);
+        });
+        self.work_asked
+    }
+
+    #[wasm_bindgen(js_name = workDone)]
+    pub fn work_done(&self, ticket: u32) -> bool {
+        self.work_done.load(Ordering::Acquire) >= ticket
     }
 }
 

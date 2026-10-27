@@ -19,4 +19,6 @@ rustybuzz = "0.20.1"
 naga = { version = "30", features = ["wgsl-in", "glsl-out"] }
 # Stills and tests without a window: `cargo run -p engine --example still`.
 pollster = "0.4"
+# Benchmark scenes: `cargo run -p engine --release --example bench`.
+serde_json.workspace = true
 png = "0.17"

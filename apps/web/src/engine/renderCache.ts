@@ -66,6 +66,11 @@ export class RenderCache {
     return true;
   }
 
+  /** Memory the cached bitmaps take (performance HUD). */
+  get byteSize() {
+    return this.bytes;
+  }
+
   /** Cached stretches as `[from, to]` seconds (for the timeline). */
   ranges(fps: number): [number, number][] {
     const idx = [...this.frames.keys()].sort((a, b) => a - b);

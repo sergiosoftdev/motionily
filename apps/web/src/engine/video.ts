@@ -10,6 +10,7 @@
 import { ALL_FORMATS, Input, UrlSource, VideoSampleSink, type VideoSample } from "mediabunny";
 import { setMediaDuration, type Engine } from "./pkg/engine_wasm.js";
 import type { AudioFx } from "@motionily/protocol";
+import { perf } from "./perf";
 
 /** A frame is the one shown at t when its timestamp ≤ t + this (frame times are not exact floats). */
 const FRAME_EPSILON = 1e-3;
@@ -103,7 +104,11 @@ class VideoFile {
 
   /** Decode up to the frame shown at file time `t` and draw it into the canvas. False if unavailable. */
   frameAt(t: number): Promise<boolean> {
-    const run = this.queue.then(() => this.seek(t));
+    const run = this.queue.then(async () => {
+      const t0 = performance.now();
+      await this.seek(t);
+      perf.decode.add(performance.now() - t0);
+    });
     this.queue = run.catch(() => undefined);
     return run.then(
       () => this.drawCurrent() !== null,
@@ -195,7 +200,7 @@ export class VideoLibrary {
       if (cache.get(n.key)) continue;
       const f = this.files.get(n.src);
       if (f?.status !== VideoStatus.Ready || !(await f.frameAt(n.time))) continue;
-      engine.setVideoFrame(n.key, f.canvas);
+      perf.time(perf.upload, () => engine.setVideoFrame(n.key, f.canvas));
       cache.set(n.key, true);
     }
     retain(engine, needs, cache);
@@ -222,7 +227,7 @@ export class VideoLibrary {
       }
       missing = true;
       if (f.drawCurrent() === null) continue;
-      engine.setVideoFrame(n.key, f.canvas);
+      perf.time(perf.upload, () => engine.setVideoFrame(n.key, f.canvas));
       cache.set(n.key, f.covers(n.time));
     }
     retain(engine, needs, cache);
@@ -236,7 +241,7 @@ export class VideoLibrary {
         const f = this.files.get(n.src);
         if (f?.status !== VideoStatus.Ready || !(await f.frameAt(n.time))) continue;
         if (gen !== this.live) return false;
-        engine.setVideoFrame(n.key, f.canvas);
+        perf.time(perf.upload, () => engine.setVideoFrame(n.key, f.canvas));
         cache.set(n.key, true);
       }
       return true;

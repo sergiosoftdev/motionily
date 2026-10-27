@@ -560,6 +560,11 @@ impl Renderer {
         }
     }
 
+    /// Call `done` once the GPU has finished everything submitted so far (frame timing, benchmarks).
+    pub fn on_work_done(&self, done: impl FnOnce() + Send + 'static) {
+        self.queue.on_submitted_work_done(done);
+    }
+
     /// Draw `scene` at time `t` (seconds) into the surface. Does nothing on a headless renderer.
     pub fn render(&mut self, scene: &Scene, t: f32) {
         let Some(surface) = &self.surface else { return };

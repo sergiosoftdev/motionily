@@ -35,4 +35,19 @@ pnpm test
 pnpm --filter @motionily/api test:sqlite
 ```
 
+## Performance
+
+Measure before and after any change to rendering, decoding or playback:
+
+```bash
+cargo run -p engine --release --example bench -- --json native.json      # native renderer (Metal/DX12/Vulkan), no window
+pnpm --filter @motionily/web bench -- --json web.json                     # the editor's engine in Chrome (WebGPU)
+```
+
+Both render the same stress scenes (200 animated texts, 800 moving shapes, 40 layers with stacked
+glow, blur and shadow under color grades; the native run adds `examples/*.scene.json`) and print each
+scene's p50/p95 per frame until the GPU has drawn it. Pass `--baseline old.json` to fail when a scene
+got more than 25% slower. In the editor, ⌥⇧P (Alt+Shift+P) shows the live performance HUD: video fps
+and late frames while playing, render CPU and GPU time, clip decoding and upload, memory.
+
 Keep commits focused, with messages in the imperative (`feat(engine): …`, `fix(api): …`).

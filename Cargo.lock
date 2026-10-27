@@ -832,6 +832,7 @@ dependencies = [
  "pollster",
  "rustybuzz",
  "scene",
+ "serde_json",
  "wgpu",
 ]
 

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, type ReactNode, type RefObject } fr
 import { BuildOverlay } from "../timeline/BuildOverlay";
 import { SelectionOverlay } from "../timeline/SelectionOverlay";
 import { EngineStatus, useEditor } from "../store";
+import { PerfHud } from "./PerfHud";
 
 /** A zoomed view: CSS px per scene px, and the frame center's offset from the stage center. */
 export type ViewerZoom = { scale: number; pan: [number, number] };
@@ -91,6 +92,7 @@ export function Viewer({
   return (
     <div ref={stage} className={`relative flex min-h-0 w-full flex-1 items-center justify-center ${zoom ? "overflow-hidden" : ""}`}>
       <BuildOverlay canvas={canvas} />
+      <PerfHud />
       {overlay ?? <SelectionOverlay canvas={canvas} />}
       {status === EngineStatus.Loading && !error && <p className="absolute text-sm text-neutral-400">Starting the engine…</p>}
       {(error || status === EngineStatus.Failed) && (

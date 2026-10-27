@@ -19,6 +19,7 @@ import type { AudioTrack } from "../audio/track";
 import { nativeViewer } from "../native/viewer";
 import { RenderCache } from "./renderCache";
 import { PixelCache } from "./pixelCache";
+import { perf } from "./perf";
 
 /** A layer under the pointer (see `pickStack`). */
 export type PickHit = { id: string; cover: boolean };
@@ -87,6 +88,21 @@ function placeOverlay(o: HTMLCanvasElement, canvas: HTMLCanvasElement) {
     transform: cs.transform === "none" ? "" : cs.transform,
     transformOrigin: cs.transformOrigin,
   });
+}
+
+/** A task boundary without the 4 ms clamp of nested timeouts. */
+const channel = typeof MessageChannel === "undefined" ? null : new MessageChannel();
+const yieldTask = () =>
+  new Promise<void>((resolve) => {
+    if (!channel) return void setTimeout(resolve, 0);
+    channel.port1.onmessage = () => resolve();
+    channel.port2.postMessage(null);
+  });
+
+/** Resolves once the GPU has finished what `engine` submitted until now. */
+async function gpuDone(engine: Engine) {
+  const ticket = engine.watchWork();
+  while (!engine.workDone(ticket)) await yieldTask();
 }
 
 /** Quiet time after a soundtrack edit before it is rescheduled while playing. */
@@ -219,7 +235,9 @@ class EngineHost {
     this.canvas = canvas;
     useEditor.setState({ engineStatus: EngineStatus.Loading, time: 0 });
     try {
-      this.wasmReady ??= init().then(() => {
+      this.wasmReady ??= init().then((wasm) => {
+        perf.wasmBytes = () => wasm.memory.buffer.byteLength;
+        perf.cacheBytes = () => this.cache.byteSize;
         this.styles = JSON.parse(stylePresets());
         this.captionStyles = JSON.parse(captionStyles());
         this.palettes = JSON.parse(stylePalettes());
@@ -670,6 +688,7 @@ class EngineHost {
     const [from, to] = this.playRange();
     if (time >= to || (this.range && time < from)) useEditor.setState({ time: from });
     useEditor.setState({ playing: true });
+    perf.playing = true;
     this.playhead = useEditor.getState().time;
     this.shownFrame = -1;
     // Inside the click that plays: browsers only start WebAudio on a gesture.
@@ -688,6 +707,7 @@ class EngineHost {
     this.mix.stop();
     // The playhead lands exactly where playback stopped (the store only follows whole frames while playing).
     useEditor.setState(wasPlaying ? { playing: false, time: this.playhead } : { playing: false });
+    perf.playing = false;
     // The editor's canvas comes back where playback stopped (the native viewer drew the frames meanwhile).
     if (wasPlaying) this.draw();
     this.fillSoon();
@@ -746,6 +766,7 @@ class EngineHost {
 
   private tick = (now: number) => {
     const time = this.playhead;
+    perf.frame(now - this.lastTick);
     // A frame that came late marks its beat heavy: it is rendered ahead the next time playback stops.
     if (!nativeViewer.active) this.cache.note(time, this.fps(), now - this.lastTick, DISPLAY_FRAME_MS);
     const elapsed = ((now - this.lastTick) / 1000) * this.rate;
@@ -824,6 +845,7 @@ class EngineHost {
     const frame = Math.floor(t * this.fps() + 1e-6);
     if (frame === this.shownFrame) return;
     this.shownFrame = frame;
+    perf.showed();
     useEditor.setState({ time: t });
     if (nativeViewer.active) return nativeViewer.frame(t);
     const cached = this.cache.get(t, this.fps());
@@ -1270,6 +1292,19 @@ class EngineHost {
     return b ? Array.from(b) : undefined;
   }
 
+  /** `engine.render(t)` timed for the performance HUD: the call, and (when watched) until the GPU has drawn it. */
+  private renderMeasured(engine: Engine, t: number) {
+    const t0 = performance.now();
+    engine.render(t);
+    perf.render.add(performance.now() - t0);
+    if (perf.watchGpu) void gpuDone(engine).then(() => perf.gpu.add(performance.now() - t0));
+  }
+
+  /** Resolves once the GPU has finished everything submitted so far (benchmarks). */
+  gpuIdle(): Promise<void> {
+    return this.engine ? gpuDone(this.engine) : Promise.resolve();
+  }
+
   /** Render the current time now; video frames still decoding are refined right after. */
   private draw() {
     const engine = this.engine;
@@ -1277,9 +1312,9 @@ class EngineHost {
     if (this.overlay) this.overlay.style.visibility = "hidden";
     const t = useEditor.getState().time;
     const exact = this.videos.show(engine, t, this.frames);
-    engine.render(t);
+    this.renderMeasured(engine, t);
     void exact?.then((done) => {
-      if (done && engine === this.engine && useEditor.getState().time === t) engine.render(t);
+      if (done && engine === this.engine && useEditor.getState().time === t) this.renderMeasured(engine, t);
     });
   }
 
