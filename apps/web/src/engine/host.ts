@@ -20,6 +20,7 @@ import { nativeViewer } from "../native/viewer";
 import { RenderCache } from "./renderCache";
 import { PixelCache } from "./pixelCache";
 import { perf } from "./perf";
+import { liveMeter } from "../audio/meter";
 
 /** A layer under the pointer (see `pickStack`). */
 export type PickHit = { id: string; cover: boolean };
@@ -104,6 +105,10 @@ async function gpuDone(engine: Engine) {
   const ticket = engine.watchWork();
   while (!engine.workDone(ticket)) await yieldTask();
 }
+
+/** How long one scrub plays (a couple of frames of sound, as editors do). */
+const SCRUB_MS = 90;
+const SCRUB_PREF = "motionily.scrubAudio";
 
 /** Quiet time after a soundtrack edit before it is rescheduled while playing. */
 const REMIX_MS = 150;
@@ -693,6 +698,7 @@ class EngineHost {
     this.shownFrame = -1;
     // Inside the click that plays: browsers only start WebAudio on a gesture.
     audioBus.context();
+    liveMeter.reset();
     this.startMix(this.playhead);
     this.lastTick = performance.now();
     this.raf = requestAnimationFrame(this.tick);
@@ -711,6 +717,40 @@ class EngineHost {
     // The editor's canvas comes back where playback stopped (the native viewer drew the frames meanwhile).
     if (wasPlaying) this.draw();
     this.fillSoon();
+  }
+
+  /** Whether dragging the playhead (or stepping frames) plays the sound under it. */
+  get scrubAudio(): boolean {
+    try {
+      return localStorage.getItem(SCRUB_PREF) !== "off";
+    } catch {
+      return true;
+    }
+  }
+
+  set scrubAudio(on: boolean) {
+    try {
+      localStorage.setItem(SCRUB_PREF, on ? "on" : "off");
+    } catch {
+      // Not critical.
+    }
+  }
+
+  private scrubTimer = 0;
+  private scrubMix: { version: number; sources: Promise<MixSources> } | null = null;
+
+  /** The user drags the playhead or steps a frame: seek, and play a few frames of sound there (paused only). */
+  scrub(t: number) {
+    this.seek(t);
+    if (useEditor.getState().playing || !this.scrubAudio || !this.engine) return;
+    // The soundtrack loads once per scene version (clip sounds walk the whole timeline).
+    if (this.scrubMix?.version !== this.sceneVersion) this.scrubMix = { version: this.sceneVersion, sources: this.loadMix() };
+    const sources = this.scrubMix.sources;
+    this.mix.start(useEditor.getState().time, () => sources);
+    window.clearTimeout(this.scrubTimer);
+    this.scrubTimer = window.setTimeout(() => {
+      if (!useEditor.getState().playing) this.mix.stop();
+    }, SCRUB_MS);
   }
 
   seek(t: number) {

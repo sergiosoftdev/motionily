@@ -183,7 +183,7 @@ export function EditTimeline({
     const x = clientX - el.getBoundingClientRect().left + el.scrollLeft - HEADER_W;
     return Math.max(0, Math.min(duration, x / pps));
   };
-  const seekTo = (clientX: number) => engineHost.seek(timeAt(clientX));
+  const seekTo = (clientX: number) => engineHost.scrub(timeAt(clientX));
 
   /** Scrub along the ruler (or an empty lane). */
   const scrub = (e: ReactPointerEvent) => {

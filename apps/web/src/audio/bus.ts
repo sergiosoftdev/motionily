@@ -9,6 +9,8 @@ import { fxChain, hasFx, prepareFx } from "./fx";
 class AudioBus {
   private ctx: AudioContext | null = null;
   private masterNode: GainNode | null = null;
+  /** What reaches the speakers (after the master effects): the meters listen here. */
+  private outNode: GainNode | null = null;
   private level = 1;
   private nodes = new WeakMap<HTMLMediaElement, GainNode>();
   /** The master effects as set (JSON), and the chain between the master gain and the speakers. */
@@ -21,7 +23,9 @@ class AudioBus {
       this.ctx = new AudioContext();
       this.masterNode = this.ctx.createGain();
       this.masterNode.gain.value = this.level;
-      this.masterNode.connect(this.ctx.destination);
+      this.outNode = this.ctx.createGain();
+      this.outNode.connect(this.ctx.destination);
+      this.masterNode.connect(this.outNode);
       if (this.fxWanted) void this.applyFx();
     }
     if (this.ctx.state === "suspended") void this.ctx.resume();
@@ -37,6 +41,12 @@ class AudioBus {
   get master(): GainNode {
     this.context();
     return this.masterNode!;
+  }
+
+  /** The final output, after the master level and effects (connect meters to it). */
+  tap(): AudioNode {
+    this.context();
+    return this.outNode!;
   }
 
   /** Master level from the scene (linear). */
@@ -66,8 +76,8 @@ class AudioBus {
     this.chain = fx ? fxChain(ctx, fx) : null;
     if (this.chain) {
       this.masterNode!.connect(this.chain.input);
-      this.chain.output.connect(ctx.destination);
-    } else this.masterNode!.connect(ctx.destination);
+      this.chain.output.connect(this.outNode!);
+    } else this.masterNode!.connect(this.outNode!);
   }
 
   /** A media element for `url` that plays through the bus; set its level with `gain`. */

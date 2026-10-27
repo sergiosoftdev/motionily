@@ -28,6 +28,7 @@ import { LeftTab, RightTab, setLeft, setRight, toggleTool, ToolTab, useWorkspace
 import { PreviewControls } from "./PreviewControls";
 import { ProTimeline } from "./ProTimeline";
 import { timecode } from "../../time/timecode";
+import { LoudnessMeter } from "../../audio/LoudnessMeter";
 
 const SPLIT_KEY = "motionily.proSplit";
 /** Share of the height above the timeline, and how far the divider can go. */
@@ -169,6 +170,7 @@ export function ProEditor({ ed }: { ed: EditorProps }) {
                 {sceneW} × {sceneH}
               </span>
               <span>{fps} fps</span>
+              <LoudnessMeter className="ml-auto" />
             </div>
           </Panel>
 

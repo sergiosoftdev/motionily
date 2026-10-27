@@ -139,8 +139,8 @@ export function ProTimeline({ scene: view, audioUrl }: { scene: SceneView | null
   };
   const scrub = (e: ReactPointerEvent) => {
     engineHost.pause();
-    engineHost.seek(toTime(e.clientX));
-    const move = (ev: PointerEvent) => engineHost.seek(toTime(ev.clientX));
+    engineHost.scrub(toTime(e.clientX));
+    const move = (ev: PointerEvent) => engineHost.scrub(toTime(ev.clientX));
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", () => window.removeEventListener("pointermove", move), { once: true });
   };

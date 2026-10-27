@@ -10,7 +10,7 @@ const ABSOLUTE_GATE = -70;
 const RELATIVE_GATE = -10;
 
 /** Biquad coefficients [b0, b1, b2, a1, a2] of the K-weighting at `rate` (BS.1770 Annex 1, bilinear form). */
-function kWeighting(rate: number): [number, number, number, number, number][] {
+export function kWeighting(rate: number): [number, number, number, number, number][] {
   // Stage 1: high shelf (+4 dB above ~1.7 kHz), the head's effect.
   const f0 = 1681.974450955533;
   const G = 3.999843853973347;
@@ -62,10 +62,17 @@ export function measureLoudness(channels: Float32Array[], rate: number): Loudnes
   });
   const powers: number[] = [];
   for (let at = 0; at + block <= n; at += step) powers.push(sums.reduce((acc, s) => acc + (s[at + block]! - s[at]!) / block, 0));
-  const lk = (p: number) => -0.691 + 10 * Math.log10(p);
-  const loud = powers.filter((p) => p > 0 && lk(p) > ABSOLUTE_GATE);
-  if (!loud.length) return { lufs: -Infinity, peakDb: toDb(peak) };
-  const relative = lk(loud.reduce((a, b) => a + b, 0) / loud.length) + RELATIVE_GATE;
-  const gated = loud.filter((p) => lk(p) > relative);
-  return { lufs: lk(gated.reduce((a, b) => a + b, 0) / gated.length), peakDb: toDb(peak) };
+  return { lufs: gatedLoudness(powers), peakDb: toDb(peak) };
+}
+
+/** LUFS of a mean-square power (channels summed, K-weighted). */
+export const lufsOf = (p: number) => (p > 0 ? -0.691 + 10 * Math.log10(p) : -Infinity);
+
+/** Integrated loudness of 400 ms block powers (100 ms apart): the absolute (−70) and relative (−10 LU) gates. */
+export function gatedLoudness(powers: number[]): number {
+  const loud = powers.filter((p) => p > 0 && lufsOf(p) > ABSOLUTE_GATE);
+  if (!loud.length) return -Infinity;
+  const relative = lufsOf(loud.reduce((a, b) => a + b, 0) / loud.length) + RELATIVE_GATE;
+  const gated = loud.filter((p) => lufsOf(p) > relative);
+  return lufsOf(gated.reduce((a, b) => a + b, 0) / gated.length);
 }

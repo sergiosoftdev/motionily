@@ -32,6 +32,7 @@ import { useEditOps } from "./useEditOps";
 import { useAgentName } from "../../agentName";
 import { commandFor, KeyScope } from "../../keys/keymap";
 import { TimecodeField } from "../../time/TimecodeField";
+import { LoudnessMeter } from "../../audio/LoudnessMeter";
 import { timecode } from "../../time/timecode";
 
 const PREVIEW_MAX_WIDTH = 900;
@@ -435,6 +436,7 @@ function Transport({ duration, fps }: { duration: number; fps: number }) {
       <span>
         <TimecodeField fps={fps} duration={duration} listens className="text-neutral-200" inputClassName="bg-neutral-900 text-neutral-100 ring-1 ring-sky-500/60" /> / {timecode(duration, fps)}
       </span>
+      <LoudnessMeter className="ml-2" />
     </div>
   );
 }

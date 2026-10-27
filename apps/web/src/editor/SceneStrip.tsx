@@ -46,9 +46,9 @@ export function SceneStrip() {
   };
   const scrub = (e: ReactPointerEvent) => {
     engineHost.pause();
-    engineHost.seek(toTime(e.clientX));
+    engineHost.scrub(toTime(e.clientX));
     useEditor.setState({ selectedLayerId: null, selectedGroup: null, pinnedMoment: true });
-    const move = (ev: PointerEvent) => engineHost.seek(toTime(ev.clientX));
+    const move = (ev: PointerEvent) => engineHost.scrub(toTime(ev.clientX));
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", () => window.removeEventListener("pointermove", move), { once: true });
   };

@@ -4,11 +4,11 @@ import { useEditor } from "../store";
 import { commandFor, isTyping as typing, KeyScope } from "../keys/keymap";
 import { openGoToTime } from "../time/TimecodeField";
 
-/** Step the playhead by `frames` frames (paused). */
+/** Step the playhead by `frames` frames (paused), playing the sound of that frame. */
 export function stepFrames(frames: number, fps: number) {
   const { time, duration } = useEditor.getState();
   engineHost.pause();
-  engineHost.seek(Math.min(duration, Math.max(0, Math.round(time * fps + frames) / fps)));
+  engineHost.scrub(Math.min(duration, Math.max(0, Math.round(time * fps + frames) / fps)));
 }
 
 /**
