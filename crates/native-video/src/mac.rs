@@ -49,6 +49,9 @@ impl Backend for Platform {
             let m = track.preferredTransform();
             // The transform's angle, to the nearest quarter turn (phone videos carry 90°, 180°, 270°).
             let turns = ((m.b.atan2(m.a).to_degrees() / 90.0).round().rem_euclid(4.0)) as u8;
+            if std::env::var_os("NATIVE_VIDEO_DEBUG").is_some() {
+                eprintln!("[native-video] {path}: natural {}x{}, transform a={} b={} c={} d={} tx={} ty={} → {turns} turns", size.width, size.height, m.a, m.b, m.c, m.d, m.tx, m.ty);
+            }
             let (w, h) = (size.width.round().max(0.0) as u32, size.height.round().max(0.0) as u32);
             let fps = f64::from(track.nominalFrameRate());
             let info = Info {

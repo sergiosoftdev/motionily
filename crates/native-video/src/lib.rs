@@ -213,8 +213,11 @@ mod tests {
             let want = ffmpeg_frame(&path, 0.5);
             let got = r.frame_at(0.5).unwrap().to_vec();
             assert_eq!(got.len(), want.len(), "{degrees}°: size {}x{}", info.width, info.height);
-            let diff: f64 = got.iter().zip(&want).map(|(a, b)| (*a as f64 - *b as f64).abs()).sum::<f64>() / got.len() as f64;
-            assert!(diff < 8.0, "{degrees}°: mean difference {diff:.1} from ffmpeg's upright frame ({}x{})", info.width, info.height);
+            let mean = |x: &[u8]| x.iter().zip(&want).map(|(a, b)| (*a as f64 - *b as f64).abs()).sum::<f64>() / x.len() as f64;
+            let diff = mean(&got);
+            // Upside down (the turn the other way) compares how far off a wrong direction would be.
+            let flipped: Vec<u8> = got.chunks(4).rev().flatten().copied().collect();
+            assert!(diff < 8.0, "{degrees}°: mean difference {diff:.1} from ffmpeg's upright frame ({}x{}; {:.1} turned 180°)", info.width, info.height, mean(&flipped));
         }
     }
 }
