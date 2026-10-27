@@ -30,6 +30,16 @@ export class ProjectApi {
     return this.call<{ silences: [number, number][] }>("GET", "/voice/silences");
   }
 
+  /** The user's ElevenLabs voices (read with their own key). */
+  voices() {
+    return this.call<{ id: string; name: string; category: string | null; description: string | null; labels: Record<string, string> }[]>("GET", "/voices");
+  }
+
+  /** The saved voice script read by an ElevenLabs voice (the user's key and credits); replaces the voice-over. */
+  generateVoice(body: { voiceId: string; voiceName: string; modelId?: string }) {
+    return this.call<Project>("POST", "/voice", body);
+  }
+
   /** Motionily's sound effect library (the same for every account). */
   sounds() {
     return this.call<LibrarySound[]>("GET", "/sounds");

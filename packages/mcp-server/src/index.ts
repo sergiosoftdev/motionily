@@ -19,6 +19,7 @@ import {
   Genre,
   OpName,
   VideoFormat,
+  VoiceModel,
   type Feedback,
   type FrameLayout,
   type ImageCredit,
@@ -48,7 +49,7 @@ import { vectorLines, VectorSplit } from "./vectorize.js";
 import { MapProjection, mapLines } from "./maps.js";
 import { varietyNotes } from "./variety.js";
 import { slopNotes } from "./slop.js";
-import { captionDrift, deadAir, measuredPauses, voiceWords } from "./voice.js";
+import { captionDrift, deadAir, isKeyWord, measuredPauses, voiceWords } from "./voice.js";
 import { formatSounds, parseCue, type SfxCue } from "./sounds.js";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
@@ -1439,12 +1440,48 @@ server.registerTool(
   "set_voice_script",
   {
     description:
-      "Save the voice-over script, written by craft: VOICE-OVER SCRIPT (in your manual). The user pastes it in ElevenLabs and uploads the mp3.",
+      "Save the voice-over script, written by craft: VOICE-OVER SCRIPT (in your manual). The user pastes it in ElevenLabs and uploads the mp3, or generate_voice reads it when the user asks you for the voice.",
     inputSchema: { script: z.string().min(1).max(8000) },
   },
   guard(async ({ script }) => {
     await api.update({ voiceScript: script });
     return text("voice script saved");
+  }),
+);
+
+server.registerTool(
+  "generate_voice",
+  {
+    description:
+      "Read the saved voice script (set_voice_script) with one of the user's ElevenLabs voices and make it the video's voice-over (replaces the previous one). It spends the user's ElevenLabs credits: only when the user asked you for the voice. Captions come from its word timing at once; then `cut pauses=true` before building. An unknown voice name answers with the user's voices.",
+    inputSchema: {
+      voice: z.string().min(1).describe("a voice name from the user's ElevenLabs voices (e.g. Liam) or its id"),
+      model: z.enum(Object.values(VoiceModel) as [VoiceModel, ...VoiceModel[]]).optional().describe("default eleven_v4 (reads the script's [tags])"),
+    },
+  },
+  guard(async ({ voice, model }) => {
+    const voices = await api.voices();
+    const want = voice.trim().toLowerCase();
+    const pick =
+      voices.find((v) => v.id === voice.trim()) ??
+      voices.find((v) => v.name.toLowerCase() === want) ??
+      voices.find((v) => v.name.toLowerCase().startsWith(want));
+    if (!pick) return fail(`no voice '${voice}' among the user's ElevenLabs voices: ${voices.map((v) => v.name).join(", ")}`);
+    const p = await api.generateVoice({ voiceId: pick.id, voiceName: pick.name, ...(model ? { modelId: model } : {}) });
+    const words = (p.audio?.words ?? []).map((w) => ({ text: w.text, start: w.start, end: w.end, emphasis: isKeyWord(w.text) }));
+    const end = words.at(-1)?.end ?? 0;
+    if (!words.length) return fail("the voice was saved but came back without word timing");
+    // A new file: the old track's trims and cuts no longer apply; the video lasts at least as long as the voice.
+    const scene = await currentScene();
+    const duration = Math.max(Number(scene?.duration ?? 0), end + 0.5);
+    const res = await bridge.applyOps([
+      { op: OpName.SetAudio, audio: { start: 0, trim_in: 0, trim_out: null } },
+      { op: OpName.SetDuration, duration },
+      { op: OpName.SetCaptions, captions: { words } },
+    ] as Op[]);
+    if (!res.ok) return fail(`the voice was saved but the captions were refused: ${res.error ?? "unknown"}`);
+    session.editsSinceReview = true;
+    return text(`voice-over read by ${pick.name} (${model ?? VoiceModel.V4}): ${words.length} words, ${end.toFixed(2)} s; captions set. Next: cut pauses=true, then build on inspect's voice timeline.`);
   }),
 );
 

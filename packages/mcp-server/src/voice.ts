@@ -32,6 +32,12 @@ function toScene(t: Track, f: number): number | null {
   return p ? p.at + (f - p.from) : null;
 }
 
+/** A caption word worth stressing (numbers, long words, acronyms): the editor's rule (web captions/transcribe.ts). */
+export function isKeyWord(word: string): boolean {
+  const bare = word.replace(/[^\p{L}\p{N}%€$]/gu, "");
+  return /\d/.test(bare) || bare.length >= 9 || (bare.length >= 3 && bare === bare.toUpperCase() && /\p{L}/u.test(bare));
+}
+
 /** The spoken words in video seconds. */
 export function voiceWords(scene: Record<string, unknown> | null, fileWords: Word[] | null | undefined): Word[] {
   const captions = ((scene?.captions as { words?: Word[] } | undefined)?.words ?? []).map((w) => ({ text: String(w.text), start: Number(w.start), end: Number(w.end) }));

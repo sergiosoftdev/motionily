@@ -317,13 +317,22 @@ export class ProjectsController {
     return this.view(project);
   }
 
+  /** The user's ElevenLabs voices, for the agent of this video (the user reads them from /voice/voices). */
+  @Get(":id/voices")
+  async voices(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    userOrAgent(user);
+    await this.projects.get(user.id, id);
+    return this.voice.voices(user.id);
+  }
+
   /**
    * The voice-over generated with the user's ElevenLabs key, stored like an uploaded file plus
    * when each word is said (captions and timing need no transcription). Replaces the previous one.
+   * The video's agent may call it too (the guard keeps its token on its own video).
    */
   @Post(":id/voice")
   async generateVoice(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: GenerateVoiceDto) {
-    userOnly(user);
+    userOrAgent(user);
     const project = await this.projects.get(user.id, id);
     const text = (dto.text ?? project.voiceScript).trim();
     if (!text) throw new BadRequestException("there is no script to read yet: write it first");
@@ -335,6 +344,7 @@ export class ProjectsController {
     const name = `${dto.voiceName ?? "Voice"} · ElevenLabs.mp3`;
     const { project: saved, previous } = await this.projects.setAudio(user.id, id, { file, name, mime: "audio/mpeg", words, voice: { voiceId: dto.voiceId, model } });
     await removeMedia(previous);
+    if (user.scope === TokenScope.Agent) BridgeHub.instance?.notifyProjectChanged(saved.id);
     return this.view(saved);
   }
 
@@ -422,4 +432,8 @@ export class ProjectsController {
 /** Routes that stay in the user's hands even when an agent holds a project token. */
 function userOnly(user: AuthUser) {
   if (user.scope !== TokenScope.User) throw new ForbiddenException("only the user can do this");
+}
+
+function userOrAgent(user: AuthUser) {
+  if (user.scope !== TokenScope.User && user.scope !== TokenScope.Agent) throw new ForbiddenException("only the user or this video's agent can do this");
 }

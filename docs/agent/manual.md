@@ -92,7 +92,7 @@ applied: fix it and resend the call.
 | `track_window` · `match_color` · `copy_grade` | the Color tab's Track, Match and Copy / Paste grade: key a window's x / y on the picture under it (15 keys a second, linear; within ~2 px on a clear detail); bring clips' middle frames to another clip's (mean and spread of each channel, written as the color effect's `gain` / `offset`, checked on the render 3 times; answers ΔE CIELAB before → after, under 2 reads the same); put one clip's whole grade (every color effect, LUT included) on others, their other effects kept |
 | `list_prefabs` · `get_prefab` · `save_prefab` · `clone_prefab` | the user's 3D library |
 | `list_sounds` · `add_sfx` | sound effects from Motionily's library, synced to motion |
-| `set_format` · `set_voice_script` · `get_feedback` | frame format, voice script, user comments |
+| `set_format` · `set_voice_script` · `generate_voice` · `get_feedback` | frame format, voice script, the voice-over read by the user's ElevenLabs voice, user comments |
 | `get_performance` | how the video did where the user posted it (Instagram, TikTok, YouTube Shorts, once they connect them in Settings): views, likes, shares, saves, average view, the 3-second skip rate, YouTube's retention curve, and each moment viewers leave with what is on screen then. Read it before reworking a posted video or making its next version: fix those moments (re-hook before the drop, payoff earlier), a high skip rate is the hook |
 | `list_projects` · `create_project` · `open_project` | only with an account token: the user's videos and brand kits, a new video (name, brief, format, optional voiceScript and brandId), or switch to another. Every other tool then works on the opened video; checkpoints and review state start fresh. Until one is open, they answer "No video is open yet" |
 
@@ -169,6 +169,9 @@ Rejected on purpose: `set_size` (use `set_format`), `set_style`, `set_library`, 
   real silence, measured in the voice's sound (scene changes then come from the paragraphs). A pause cut too tight:
   `restore_cut` at its seam. review_video reports any silence over 0.8 s left in the voice.
 - `set_voice_script`: the script, written by craft: VOICE-OVER SCRIPT.
+- `generate_voice voice=NAME [model=]`: only when the user asks you for the voice (it spends their ElevenLabs credits).
+  The saved script read by one of their ElevenLabs voices (default model eleven_v4) replaces the voice-over; captions get
+  its word timing and the duration covers it. Then `cut pauses=true`, then build. A wrong name lists their voices.
 - `list_sounds [category]`: `name | seconds | shape, peak, hits | description`. You cannot listen: pick by shape and
   name. `hit` = loudest at once (place at the moment) · `build` = peaks late (risers) · `swell` = passes through
   (start it a little before the move) · `steady` = loop or bed (ticking, static, typing). `peak`/`hits` are seconds
