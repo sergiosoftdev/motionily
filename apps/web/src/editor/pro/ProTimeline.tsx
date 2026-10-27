@@ -27,7 +27,7 @@ import {
 import { PropRow } from "./PropRow";
 import { ShortcutAction, useProShortcuts } from "./shortcuts";
 import { AUDIO_LABEL, CAPTIONS_LABEL, GROUP_LABEL, labelColor, SFX_LABEL, typeIcon } from "./theme";
-import { timecode } from "./timecode";
+import { TimecodeField } from "../../time/TimecodeField";
 import { AnchorRow, COL, LockIcon, MatteCell, ModeSelect, ParentCell, ShyIcon, SoloIcon, SwitchButton, toggleSwitch } from "./timeline/columns";
 import { isLocked, isShy, isSolo, LayerSwitch, type TimelineLayer, type TimelineScene } from "./timeline/contract";
 import { copyKeys, EaseSide, keyInterp, pasteKeys, type ClipKey } from "./timeline/keyEdit";
@@ -610,7 +610,7 @@ export function ProTimeline({ scene: view, audioUrl }: { scene: SceneView | null
   return (
     <div className="relative flex h-full flex-col">
       <div className="flex h-10 shrink-0 items-center gap-4 border-b border-[#151515] px-3">
-        <GoToTime fps={fps} duration={duration} />
+        <TimecodeField fps={fps} duration={duration} listens className="text-lg text-[#4aa3f0]" inputClassName="bg-[#1b1b1b] text-lg text-[#4aa3f0] ring-1 ring-[#2d8ceb]" />
         <FrameCount fps={fps} />
         <input
           value={filter}
@@ -847,51 +847,6 @@ function FrameCount({ fps }: { fps: number }) {
       {Math.round(time * fps)} f · {fps} fps
     </span>
   );
-}
-
-/** AE's blue timecode; click it to type a time (`5`, `5.4`, `0:05:12`). */
-function GoToTime({ fps, duration }: { fps: number; duration: number }) {
-  const time = useEditor((s) => s.time);
-  const [typing, setTyping] = useState<string | null>(null);
-  const go = () => {
-    const t = parseTime(typing ?? "", fps);
-    setTyping(null);
-    if (t !== null) {
-      engineHost.pause();
-      engineHost.seek(Math.min(duration, Math.max(0, t)));
-    }
-  };
-  if (typing !== null)
-    return (
-      <input
-        autoFocus
-        value={typing}
-        onChange={(e) => setTyping(e.target.value)}
-        onFocus={(e) => e.target.select()}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") go();
-          if (e.key === "Escape") setTyping(null);
-          e.stopPropagation();
-        }}
-        onBlur={go}
-        className="w-32 rounded-sm bg-[#1b1b1b] px-1 text-lg text-[#4aa3f0] tabular-nums ring-1 ring-[#2d8ceb] focus:outline-none"
-      />
-    );
-  return (
-    <button type="button" onClick={() => setTyping(timecode(time, fps))} title="Go to time" className="text-lg text-[#4aa3f0] tabular-nums hover:underline">
-      {timecode(time, fps)}
-    </button>
-  );
-}
-
-/** Seconds from `5`, `5.4` or a timecode `0:00:05:12` / `5:12` (seconds:frames). */
-function parseTime(s: string, fps: number): number | null {
-  const parts = s.trim().replace(",", ".").split(/[:;]/).map(Number);
-  if (!parts.length || parts.some((n) => !Number.isFinite(n))) return null;
-  if (parts.length === 1) return parts[0]!;
-  const frames = parts.pop()!;
-  const [h = 0, m = 0, sec = 0] = parts.length === 3 ? parts : parts.length === 2 ? [0, ...parts] : [0, 0, ...parts];
-  return h * 3600 + m * 60 + sec + frames / fps;
 }
 
 /** Steps of the effects volume controls. */

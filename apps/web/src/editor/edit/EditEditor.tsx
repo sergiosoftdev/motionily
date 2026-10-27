@@ -20,7 +20,7 @@ import { AttentionStrip } from "../AttentionStrip";
 import { ClaudePanel } from "./ClaudePanel";
 import { EditTimeline, EditTool, LaneTrack, pickCount, type EditSelection, type Picks } from "./EditTimeline";
 import { Inspector } from "./Inspector";
-import { mmss, useClipUpload, useMusicUpload } from "./MediaPanel";
+import { useClipUpload, useMusicUpload } from "./MediaPanel";
 import { MediaPool, PoolEdit, useMediaPool, type PoolDrop } from "./MediaPool";
 import { ProjectInspector } from "./ProjectInspector";
 import { SidePanel } from "./SidePanel";
@@ -31,6 +31,8 @@ import { copyGrade, pasteGradeOps } from "./gradeClipboard";
 import { useEditOps } from "./useEditOps";
 import { useAgentName } from "../../agentName";
 import { commandFor, KeyScope } from "../../keys/keymap";
+import { TimecodeField } from "../../time/TimecodeField";
+import { timecode } from "../../time/timecode";
 
 const PREVIEW_MAX_WIDTH = 900;
 
@@ -324,7 +326,7 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
             {/* Any frame shape fits here: the viewer scales it to the space it gets. */}
             <main className="flex min-w-0 flex-1 flex-col items-center gap-2 py-1">
               <Viewer canvas={ed.canvas} error={ed.error} maxWidth={PREVIEW_MAX_WIDTH} canvasClass="rounded-xl shadow-2xl shadow-black/50" />
-              <Transport duration={scene?.duration ?? 0} />
+              <Transport duration={scene?.duration ?? 0} fps={fps} />
               <AttentionStrip g={ed.g} projectId={ed.id} className="w-full max-w-xl" />
             </main>
           </div>
@@ -416,9 +418,8 @@ function ToolButton({ label, hint, disabled, onClick }: { label: string; hint: s
   );
 }
 
-function Transport({ duration }: { duration: number }) {
+function Transport({ duration, fps }: { duration: number; fps: number }) {
   const playing = useEditor((s) => s.playing);
-  const time = useEditor((s) => s.time);
   return (
     <div className="flex items-center gap-3 text-xs text-neutral-400 tabular-nums">
       <button
@@ -431,7 +432,9 @@ function Transport({ duration }: { duration: number }) {
           <path d={playing ? "M3.5 2h3.5v12H3.5zM9 2h3.5v12H9z" : "M4 2v12l10-6z"} />
         </svg>
       </button>
-      {mmss(time)} / {mmss(duration)}
+      <span>
+        <TimecodeField fps={fps} duration={duration} listens className="text-neutral-200" inputClassName="bg-neutral-900 text-neutral-100 ring-1 ring-sky-500/60" /> / {timecode(duration, fps)}
+      </span>
     </div>
   );
 }

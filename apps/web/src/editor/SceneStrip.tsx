@@ -2,6 +2,7 @@ import { useMemo, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import { engineHost } from "../engine/host";
 import { useEditor } from "../store";
 import { clock, groupEntries, landingTime, useSceneView } from "./sceneView";
+import { TimecodeField } from "../time/TimecodeField";
 
 /** A group spanning nearly the whole video is a backdrop, not a moment: the strip leaves it out. */
 const BACKDROP_SHARE = 0.85;
@@ -97,7 +98,7 @@ export function SceneStrip() {
         <span className="pointer-events-none absolute inset-y-0 w-0.5 -translate-x-1/2 rounded-full bg-white" style={{ left: pct(time) }} />
       </div>
       <span className="w-24 shrink-0 text-right text-xs tabular-nums text-neutral-400">
-        {clock(time)} / {clock(duration)}
+        <TimecodeField fps={scene?.fps ?? 30} duration={duration} listens format={clock} inputClassName="w-16 bg-neutral-900 text-neutral-100 ring-1 ring-sky-500/60" /> / {clock(duration)}
       </span>
     </div>
   );

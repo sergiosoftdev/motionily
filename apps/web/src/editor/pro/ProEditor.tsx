@@ -27,7 +27,7 @@ import { AlignPanel, CharacterPanel, ComponentsList, ParagraphPanel } from "./pa
 import { LeftTab, RightTab, setLeft, setRight, toggleTool, ToolTab, useWorkspace } from "./panels/workspace";
 import { PreviewControls } from "./PreviewControls";
 import { ProTimeline } from "./ProTimeline";
-import { timecode } from "./timecode";
+import { timecode } from "../../time/timecode";
 
 const SPLIT_KEY = "motionily.proSplit";
 /** Share of the height above the timeline, and how far the divider can go. */

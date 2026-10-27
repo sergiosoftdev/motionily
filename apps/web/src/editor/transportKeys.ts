@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { engineHost } from "../engine/host";
 import { useEditor } from "../store";
 import { commandFor, isTyping as typing, KeyScope } from "../keys/keymap";
+import { openGoToTime } from "../time/TimecodeField";
 
 /** Step the playhead by `frames` frames (paused). */
 export function stepFrames(frames: number, fps: number) {
@@ -20,6 +21,15 @@ export function useTransportKeys(fps: number, frames: boolean) {
       if (typing(e.target)) return;
       const { playing, duration } = useEditor.getState();
       const c = commandFor(e, KeyScope.Transport);
+      if (c?.id === "transport.go_to_time") {
+        e.preventDefault();
+        return openGoToTime();
+      }
+      // Typing digits, + or - over the timeline starts a go-to-time, as in NLEs ("512", "+10").
+      if (!c && frames && !e.metaKey && !e.ctrlKey && !e.altKey && /^[0-9+-]$/.test(e.key)) {
+        e.preventDefault();
+        return openGoToTime(e.key);
+      }
       if (!c) return;
       if (c.id === "transport.play_pause") {
         e.preventDefault();

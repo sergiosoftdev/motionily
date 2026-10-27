@@ -36,6 +36,7 @@ export const COMMANDS: readonly Command[] = [
   { id: "transport.go_end", scope: T, section: "Playback", help: "Last frame", defaults: [key("End")] },
   { id: "transport.prev_frame", scope: T, section: "Playback", help: "One frame back", defaults: [key("PageUp"), key("ArrowLeft", { cmd: true })] },
   { id: "transport.next_frame", scope: T, section: "Playback", help: "One frame forward", defaults: [key("PageDown"), key("ArrowRight", { cmd: true })] },
+  { id: "transport.go_to_time", scope: T, section: "Playback", help: "Go to a time (or just type digits, + or -)", defaults: [letter("g", false, true)] },
 
   { id: "pro.reveal_position", scope: P, section: "Reveal properties", help: "Position only (Shift adds)", defaults: [letter("p", Mod.Any)] },
   { id: "pro.reveal_scale", scope: P, section: "Reveal properties", help: "Scale only (Shift adds)", defaults: [letter("s", Mod.Any)] },
