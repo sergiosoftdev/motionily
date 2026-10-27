@@ -38,8 +38,9 @@ import { describeExample, rankExamples, type Example } from "./examples.js";
 import { nextSteps, type ProjectState } from "./nextstep.js";
 import { frameStats } from "./review.js";
 import { attentionReport } from "./attention.js";
+import { performanceReport } from "./performance.js";
 import { LOG_CHARS, runScript, type HostApi } from "./sandbox.js";
-import { attentionCurve, attentionIssues, attentionSparkline } from "@motionily/protocol";
+import { attentionCurve, attentionIssues, attentionSparkline, type PostPerformance } from "@motionily/protocol";
 import { buildEdit, DEFAULT_EDIT, FOOTAGE_GROUP, footageLines, parseSegments, transcriptLines } from "./footage.js";
 import { mediaLines, registerStudioTools } from "./studio.js";
 import { svgToVector } from "./svg.js";
@@ -1544,6 +1545,19 @@ server.registerTool(
   guard(async () => {
     const items = await api.consumeFeedback();
     return text(items.length ? items.map(feedbackLine).join("\n") : "No new feedback.");
+  }),
+);
+
+server.registerTool(
+  "get_performance",
+  {
+    description:
+      "How this video did where the user posted it (Instagram, TikTok, YouTube Shorts): views, likes, shares, saves, average view, the 3-second skip rate, the retention curve, and each moment viewers leave with what was on screen then. Read it before reworking a posted video or making its next version.",
+    inputSchema: {},
+  },
+  guard(async () => {
+    const [posts, scene] = await Promise.all([api.route<PostPerformance[]>("GET", "/performance"), currentScene()]);
+    return text(performanceReport(posts, scene ?? {}));
   }),
 );
 

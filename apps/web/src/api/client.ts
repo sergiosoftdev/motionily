@@ -1,4 +1,4 @@
-import type { AgentRunUsage, AttentionDevice, Brick, BrickSlot, LibraryItem, MediaItem, Project, ProjectListItem, ProviderKey, ProviderStatus, SunoPrompt, User, VideoFormat, Voice, VoiceModel } from "@motionily/protocol";
+import type { AgentRunUsage, AttentionDevice, Brick, BrickSlot, LibraryItem, MediaItem, PostLink, PostMetrics, PostPerformance, Project, ProjectListItem, ProviderKey, ProviderStatus, SocialAccount, SocialPlatform, SunoPrompt, User, VideoFormat, Voice, VoiceModel } from "@motionily/protocol";
 import { useSession } from "../session";
 import type { AgentPrefs, GenerateState } from "../components/GeneratePanel";
 import { desktop } from "../desktop";
@@ -74,6 +74,9 @@ export type ScheduledPost = {
   status: PostStatus;
   postedAt: string | null;
   due: boolean;
+  /** Where it was published, and the latest numbers there (once posted and the accounts are connected). */
+  links: PostLink[];
+  metrics: PostMetrics[];
 };
 /** How a library sound moves in time (SoundShape in apps/api/src/sounds/library.ts). */
 export const SoundShape = { Hit: "hit", Build: "build", Swell: "swell", Steady: "steady" } as const;
@@ -245,6 +248,20 @@ export const api = {
   createPost: (body: { projectId: string; scheduledAt: string; platforms: Platform[]; copy: PostCopy[] }) => call<ScheduledPost>(HttpMethod.Post, "/posts", body),
   updatePost: (id: string, patch: { scheduledAt?: string; platforms?: Platform[]; copy?: PostCopy[]; status?: PostStatus }) => call<ScheduledPost>(HttpMethod.Patch, `/posts/${id}`, patch),
   deletePost: (id: string) => call<void>(HttpMethod.Delete, `/posts/${id}`),
+  /** Instagram, TikTok and YouTube accounts (the user's own developer apps), for the numbers of what they post. */
+  socialAccounts: () => call<{ accounts: SocialAccount[]; youtubeRedirect: string }>(HttpMethod.Get, "/social/accounts"),
+  connectInstagram: (token: string) => call<SocialAccount[]>(HttpMethod.Put, "/social/instagram", { token }),
+  startTikTok: (app: { clientKey: string; clientSecret: string; redirectUri: string }) => call<{ authorizeUrl: string }>(HttpMethod.Post, "/social/tiktok/start", app),
+  finishTikTok: (url: string) => call<SocialAccount[]>(HttpMethod.Post, "/social/tiktok/finish", { url }),
+  startYouTube: (app: { clientId: string; clientSecret: string }) => call<{ authorizeUrl: string }>(HttpMethod.Post, "/social/youtube/start", app),
+  disconnectSocial: (platform: SocialPlatform) => call<SocialAccount[]>(HttpMethod.Delete, `/social/${platform}`),
+  syncSocial: () => call<{ synced: number; errors: string[] }>(HttpMethod.Post, "/social/sync"),
+  /** A post's published copy by its link (found on the connected account), then measured. */
+  linkPost: (id: string, platform: SocialPlatform, url: string) => call<ScheduledPost>(HttpMethod.Post, `/posts/${id}/links`, { platform, url }),
+  unlinkPost: (id: string, platform: SocialPlatform) => call<ScheduledPost>(HttpMethod.Delete, `/posts/${id}/links/${platform}`),
+  syncPost: (id: string) => call<{ post: ScheduledPost; errors: string[] }>(HttpMethod.Post, `/posts/${id}/sync`),
+  /** Every posted copy of this video with its numbers. */
+  performance: (projectId: string) => call<PostPerformance[]>(HttpMethod.Get, `/projects/${projectId}/performance`),
   /** The rendered file, tagged with the scene revision it shows. */
   uploadPostVideo: (id: string, video: Blob, filename: string, sceneRevision: number) =>
     upload<ScheduledPost>(`/posts/${id}/video`, new File([video], filename, { type: video.type }), { sceneRevision: String(sceneRevision) }),

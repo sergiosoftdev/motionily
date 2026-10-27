@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { VideoFormat } from "@motionily/protocol";
 import { api, mediaUrl, Platform, PostStatus, type ScheduledPost } from "../api/client";
 import { MotionilyLayout } from "../shell/MotionilyLayout";
+import { PostNumbers } from "../social/PostNumbers";
 import { href, navigate, RouteName } from "../router";
 import {
   formatTime,
@@ -180,6 +181,20 @@ function PostDetail({ post, onChange, onDelete }: { post: ScheduledPost; onChang
     setCopied(platform);
     setTimeout(() => setCopied((c) => (c === platform ? null : c)), 2000);
   };
+  const [refreshing, setRefreshing] = useState(false);
+  const refresh = async () => {
+    setRefreshing(true);
+    setError(null);
+    try {
+      const r = await api.syncPost(post.id);
+      onChange(r.post);
+      if (r.errors.length) setError(r.errors.join(" · "));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRefreshing(false);
+    }
+  };
   const remove = async () => {
     if (!window.confirm(`Delete the post of "${post.projectName ?? "this video"}"? The rendered file goes too.`)) return;
     await api.deletePost(post.id);
@@ -258,15 +273,21 @@ function PostDetail({ post, onChange, onDelete }: { post: ScheduledPost; onChang
             placeholder="#hashtags"
             className="rounded-lg bg-neutral-900 px-3 py-2 text-sm text-sky-300 placeholder:text-neutral-600"
           />
+          {post.status === PostStatus.Posted && <PostNumbers post={post} platform={c.platform} onChange={onChange} />}
         </div>
       ))}
 
       {error && <p className="text-xs text-red-400">{error}</p>}
       <div className="flex items-center gap-2">
         {post.status === PostStatus.Posted ? (
-          <button type="button" onClick={() => void save({ status: PostStatus.Scheduled })} className="rounded-lg bg-neutral-800 px-3 py-2 text-xs font-semibold hover:bg-neutral-700">
-            Not posted yet
-          </button>
+          <>
+            <button type="button" onClick={() => void save({ status: PostStatus.Scheduled })} className="rounded-lg bg-neutral-800 px-3 py-2 text-xs font-semibold hover:bg-neutral-700">
+              Not posted yet
+            </button>
+            <button type="button" disabled={refreshing} onClick={() => void refresh()} className="rounded-lg bg-neutral-800 px-3 py-2 text-xs font-semibold hover:bg-neutral-700 disabled:opacity-50">
+              {refreshing ? "Refreshing…" : "Refresh numbers"}
+            </button>
+          </>
         ) : (
           <button type="button" onClick={() => void save({ status: PostStatus.Posted })} className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-neutral-900 hover:bg-neutral-200">
             Mark as posted

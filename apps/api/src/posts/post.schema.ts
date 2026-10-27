@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
 import { HydratedDocument, Schema as MongooseSchema, Types } from "mongoose";
+import type { PostLink, PostMetrics } from "../social/types";
 
 /** Where a video gets posted. */
 export enum Platform {
@@ -31,6 +32,10 @@ export class Post {
   @Prop({ type: MongooseSchema.Types.Mixed, default: null }) video: PostVideo | null;
   @Prop({ required: true, enum: PostStatus, type: String, default: PostStatus.Scheduled }) status: PostStatus;
   @Prop({ type: Date, default: null }) postedAt: Date | null;
+  /** Where it was published, per platform: matched on the connected accounts once posted, or pasted by the user. */
+  @Prop({ type: [MongooseSchema.Types.Mixed], default: [] }) links: PostLink[];
+  /** The latest numbers per platform (social/social.service.ts keeps them fresh). */
+  @Prop({ type: [MongooseSchema.Types.Mixed], default: [] }) metrics: PostMetrics[];
 }
 
 export type PostDocument = HydratedDocument<Post>;

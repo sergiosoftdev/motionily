@@ -287,7 +287,7 @@ export function EditEditor({ ed }: { ed: EditorProps }) {
             <main className="flex min-w-0 flex-1 flex-col items-center gap-2 py-1">
               <Viewer canvas={ed.canvas} error={ed.error} maxWidth={PREVIEW_MAX_WIDTH} canvasClass="rounded-xl shadow-2xl shadow-black/50" />
               <Transport duration={scene?.duration ?? 0} />
-              <AttentionStrip g={ed.g} className="w-full max-w-xl" />
+              <AttentionStrip g={ed.g} projectId={ed.id} className="w-full max-w-xl" />
             </main>
           </div>
           {/* As tall as its tracks, up to 46% of the screen: the preview keeps the rest. */}

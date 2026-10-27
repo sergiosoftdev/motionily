@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model, Types } from "mongoose";
+import type { PostLink, PostMetrics } from "../social/types";
 import { Project } from "../projects/project.schema";
 import { ProjectsService } from "../projects/projects.service";
 import { Platform, Post, PostStatus, type PostCopy, type PostDocument, type PostVideo } from "./post.schema";
@@ -20,6 +21,8 @@ export type PostView = {
   status: PostStatus;
   postedAt: string | null;
   due: boolean;
+  links: PostLink[];
+  metrics: PostMetrics[];
 };
 
 @Injectable()
@@ -118,6 +121,8 @@ export class PostsService {
         status: p.status,
         postedAt: p.postedAt?.toISOString() ?? null,
         due: p.status === PostStatus.Scheduled && p.scheduledAt.getTime() <= now,
+        links: p.links ?? [],
+        metrics: p.metrics ?? [],
       };
     });
   }

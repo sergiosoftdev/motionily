@@ -52,7 +52,7 @@ export function SimpleEditor({ ed }: { ed: EditorProps }) {
           <div className={ModePiece.Timeline}>
             <SceneStrip />
           </div>
-          <AttentionStrip g={g} />
+          <AttentionStrip g={g} projectId={ed.id} />
           <AgentLine g={g} captioning={ed.captioning} />
           {project && <SimpleMedia key={project.id} ed={ed} />}
           {project &&

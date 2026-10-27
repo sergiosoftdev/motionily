@@ -24,6 +24,10 @@ export class User {
   @Prop({ type: MongooseSchema.Types.Mixed, select: false }) providerKeys?: Record<string, Sealed>;
   /** Last characters of each connected key, shown in Settings. */
   @Prop({ type: MongooseSchema.Types.Mixed }) providerHints?: Record<string, string>;
+  /** Instagram, TikTok and YouTube credentials (the user's own developer apps and tokens), encrypted; never sent back. */
+  @Prop({ type: MongooseSchema.Types.Mixed, select: false }) socialAuth?: Record<string, Sealed>;
+  /** What Settings shows of each social account: its handle, and why it stopped working. */
+  @Prop({ type: MongooseSchema.Types.Mixed }) socialAccounts?: Record<string, { handle: string | null; connected: boolean; error: string | null }>;
   /** The agent CLI this user runs in Motionily (null = the server default). */
   @Prop({ enum: [...Object.values(AgentCli), null], type: String, default: null }) agentCli?: AgentCli | null;
   /** Motionily tier → model id of that CLI (other CLIs than Claude Code). */

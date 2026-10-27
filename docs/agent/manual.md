@@ -93,6 +93,7 @@ applied: fix it and resend the call.
 | `list_prefabs` · `get_prefab` · `save_prefab` · `clone_prefab` | the user's 3D library |
 | `list_sounds` · `add_sfx` | sound effects from Motionily's library, synced to motion |
 | `set_format` · `set_voice_script` · `get_feedback` | frame format, voice script, user comments |
+| `get_performance` | how the video did where the user posted it (Instagram, TikTok, YouTube Shorts, once they connect them in Settings): views, likes, shares, saves, average view, the 3-second skip rate, YouTube's retention curve, and each moment viewers leave with what is on screen then. Read it before reworking a posted video or making its next version: fix those moments (re-hook before the drop, payoff earlier), a high skip rate is the hook |
 | `list_projects` · `create_project` · `open_project` | only with an account token: the user's videos and brand kits, a new video (name, brief, format, optional voiceScript and brandId), or switch to another. Every other tool then works on the opened video; checkpoints and review state start fresh. Until one is open, they answer "No video is open yet" |
 
 ## Ops (`apply_ops`, JSON, atomic)
@@ -311,12 +312,12 @@ touched layers are on screen (their start and middle). Read them and apply the f
 - `LINT low_contrast` — text under WCAG 4.5:1 against what is behind it at its center (the topmost non-text layer, else
   the background). Fix: `fill=on_<what it sits on>`. Measured with the palette colors, not the pixels of gradients or photos.
 - `LINT text_overlap` — two text boxes share more than 8% of the smaller one. Fix: `place=below:OTHER` or move one.
-- `LINT place_missing` — `place=` names a layer that does not exist.
-- `placed (place=)` — layers with `place=` were moved to their anchor. Placement uses the anchor's box when the placed layer
-  starts; it is redone after every write, and does not follow keyframed anchors or parents.
 - `LINT app_ui` — 9:16 only: text under the TikTok/Reels buttons (right of x=940, from y=720) or caption band (below
   y=1500), on 1080×1920. Lay text out inside x 60–940, y ≤ 1500 from the start; backgrounds and footage still fill the
   frame. Fix: the x/y shift (or narrower `w`) it prints.
+- `LINT place_missing` — `place=` names a layer that does not exist.
+- `placed (place=)` — layers with `place=` were moved to their anchor. Placement uses the anchor's box when the placed layer
+  starts; it is redone after every write, and does not follow keyframed anchors or parents.
 - `review_video` adds the numbers per frame (layers on screen, share of the frame under text) and the same lint with fixes.
 - `next_step` gives the order to work in. Call it when you are unsure what comes next.
 Times can be references: `@phrase:N` and `@word:TEXT` (see syntax). Colors can be `on_background|on_surface|on_primary|

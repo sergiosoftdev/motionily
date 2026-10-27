@@ -808,6 +808,8 @@ export type User = { id: string; email: string; name: string; avatarUrl: string 
 export * from "./attention.js";
 /** Where TikTok, Reels and Shorts draw their UI over a vertical video (see appUi.ts). */
 export * from "./appUi.js";
+/** How a posted video did on each platform and where its audience leaves (see performance.ts). */
+export * from "./performance.js";
 
 /** A speed ramp point: from `at` (0..1 of the clip's length on the timeline) the clip plays at `speed` (× its own speed). */
 export type RampPoint = { at: number; speed: number };

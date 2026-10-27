@@ -175,7 +175,7 @@ export function ProEditor({ ed }: { ed: EditorProps }) {
           <div className={`flex w-[340px] shrink-0 flex-col gap-1 ${ModePiece.Right}`}>
             <Panel tabs={[["preview", "Preview"]]}>
               <PreviewControls fps={fps} />
-              <AttentionStrip g={g} className="px-3 pb-2" />
+              <AttentionStrip g={g} projectId={ed.id} className="px-3 pb-2" />
             </Panel>
             <Panel
               className="flex-1"
