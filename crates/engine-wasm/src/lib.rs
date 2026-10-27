@@ -7,7 +7,7 @@ use std::sync::Arc;
 use engine::Renderer;
 use scene::{CaptionStyle, Op, Scene, StylePreset};
 use wasm_bindgen::prelude::*;
-use web_sys::HtmlCanvasElement;
+use web_sys::{HtmlCanvasElement, VideoFrame};
 
 #[wasm_bindgen(start)]
 pub fn start() {
@@ -284,6 +284,18 @@ impl Engine {
     pub fn set_video_frame(&mut self, key: &str, canvas: &HtmlCanvasElement) {
         let source = wgpu::CopyExternalImageSourceInfo {
             source: wgpu::ExternalImageSource::HTMLCanvasElement(canvas.clone()),
+            origin: wgpu::Origin2d::ZERO,
+            flip_y: false,
+        };
+        self.renderer.copy_video_frame(key, &source);
+    }
+
+    /// Store a decoder's frame under `key` without drawing it anywhere first: the browser copies it
+    /// GPU to GPU (converting from YUV). WebGPU only; on WebGL2 draw it into a canvas and use `setVideoFrame`.
+    #[wasm_bindgen(js_name = setVideoFrameFrom)]
+    pub fn set_video_frame_from(&mut self, key: &str, frame: VideoFrame) {
+        let source = wgpu::CopyExternalImageSourceInfo {
+            source: wgpu::ExternalImageSource::VideoFrame(frame),
             origin: wgpu::Origin2d::ZERO,
             flip_y: false,
         };

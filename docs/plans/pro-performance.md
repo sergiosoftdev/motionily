@@ -11,7 +11,7 @@ en la app real y un commit por punto en `main`.
 | 6 | Atajos de teclado configurables con presets de Premiere, Resolve y Final Cut | hecho |
 | 11 | Timecode SMPTE en todo el editor, con entrada numérica para ir a un fotograma | hecho |
 | 7 | Audio al arrastrar el cabezal y medidores LUFS / pico en vivo | hecho |
-| 2 | Vídeo sin copias en la web: el `VideoFrame` de WebCodecs directo a la GPU | pendiente |
+| 2 | Vídeo sin copias en la web: el `VideoFrame` de WebCodecs directo a la GPU | hecho |
 | 3 | Decodificación nativa en escritorio (VideoToolbox / Media Foundation) en lugar de ffmpeg por tubería | pendiente |
 | 4 | El motor de reproducción en un worker con `OffscreenCanvas` | pendiente |
 | 5 | Caché de capas estáticas y exportación que reutiliza la caché de render | pendiente |
@@ -36,3 +36,13 @@ en la app real y un commit por punto en `main`.
 | after-effects (ejemplo, 1920×1080) | 6,6 ms | 4,1 ms | – |
 
 Los efectos apilados son el cuello de botella real (punto 5).
+
+## Punto 2 medido (clip 1080p H.264 sin proxy, reproducción en el editor, WebGPU)
+
+| camino | subida p50 (CPU) | GPU por fotograma p50 / p95 | fps |
+|---|---|---|---|
+| canvas 2D + copia (antes) | 0,2 ms | 3,6 / 6,6 ms | 30 |
+| `VideoFrame` directo (ahora) | 0,1 ms | 3,5 / 7,1 ms | 30 |
+
+A 1080p ninguno de los dos pierde fotogramas; el cambio quita el dibujo 2D de cada fotograma (que el navegador hace
+en la GPU) y el canvas intermedio de 8 MB por clip. La ganancia real aparece con varios clips o 4K a la vez.

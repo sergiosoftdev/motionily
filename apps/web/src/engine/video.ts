@@ -1,6 +1,7 @@
 /**
  * Video layers in the browser: decodes clips with WebCodecs (mediabunny) and uploads the exact
- * frame each render needs into the engine (`videoFrames(t)` → `setVideoFrame(key, canvas)`).
+ * frame each render needs into the engine (`videoFrames(t)` → `setVideoFrameFrom(key, VideoFrame)`:
+ * the decoder's frame goes to the GPU as it is, on WebGPU; on WebGL2 it is drawn into a canvas first).
  *
  * - Exact path (`prepare`): export, render_frames, review. Awaits the frame whose timestamp is the
  *   last one ≤ the clip's file time, so any frame renders the same in any order.
@@ -46,6 +47,15 @@ export function hasSound(volume: unknown): boolean {
   return typeof volume === "string";
 }
 
+/** Engines that take decoder frames straight to the GPU (WebGPU), by engine. */
+const direct = new WeakMap<Engine, boolean>();
+function takesFrames(engine: Engine) {
+  let on = direct.get(engine);
+  // `__motionilyCanvasFrames` (set before the editor loads) keeps the canvas path, to compare both in benchmarks.
+  if (on === undefined) direct.set(engine, (on = /WebGpu/i.test(engine.adapterInfo()) && !(globalThis as { __motionilyCanvasFrames?: boolean }).__motionilyCanvasFrames));
+  return on;
+}
+
 /** One opened video file and its sequential decoder. */
 class VideoFile {
   status: VideoStatus = VideoStatus.Loading;
@@ -88,11 +98,32 @@ class VideoFile {
     this.status = VideoStatus.Ready;
   }
 
-  /** The frame decoded most recently (whatever time it is), drawn into the canvas. */
+  /** The frame decoded most recently (whatever time it is), drawn into the canvas (the WebGL2 path). */
   drawCurrent(): number | null {
     if (!this.cur) return null;
     this.cur.draw(this.g, 0, 0, this.canvas.width, this.canvas.height);
     return this.cur.timestamp;
+  }
+
+  /** Put the frame decoded most recently into `engine` under `key`; false when there is none yet. */
+  upload(engine: Engine, key: string): boolean {
+    const cur = this.cur;
+    if (!cur) return false;
+    const t0 = performance.now();
+    if (takesFrames(engine)) {
+      // GPU to GPU: no drawing of the frame on the CPU side, the browser converts it from YUV.
+      const frame = cur.toVideoFrame();
+      try {
+        engine.setVideoFrameFrom(key, frame);
+      } finally {
+        frame.close();
+      }
+    } else {
+      this.drawCurrent();
+      engine.setVideoFrame(key, this.canvas);
+    }
+    perf.upload.add(performance.now() - t0);
+    return true;
   }
 
   /** True if the current frame is the one shown at file time `t`. */
@@ -111,7 +142,7 @@ class VideoFile {
     });
     this.queue = run.catch(() => undefined);
     return run.then(
-      () => this.drawCurrent() !== null,
+      () => this.cur !== null,
       () => false,
     );
   }
@@ -200,7 +231,7 @@ export class VideoLibrary {
       if (cache.get(n.key)) continue;
       const f = this.files.get(n.src);
       if (f?.status !== VideoStatus.Ready || !(await f.frameAt(n.time))) continue;
-      perf.time(perf.upload, () => engine.setVideoFrame(n.key, f.canvas));
+      f.upload(engine, n.key);
       cache.set(n.key, true);
     }
     retain(engine, needs, cache);
@@ -226,8 +257,7 @@ export class VideoLibrary {
         continue;
       }
       missing = true;
-      if (f.drawCurrent() === null) continue;
-      perf.time(perf.upload, () => engine.setVideoFrame(n.key, f.canvas));
+      if (!f.upload(engine, n.key)) continue;
       cache.set(n.key, f.covers(n.time));
     }
     retain(engine, needs, cache);
@@ -241,7 +271,7 @@ export class VideoLibrary {
         const f = this.files.get(n.src);
         if (f?.status !== VideoStatus.Ready || !(await f.frameAt(n.time))) continue;
         if (gen !== this.live) return false;
-        perf.time(perf.upload, () => engine.setVideoFrame(n.key, f.canvas));
+        f.upload(engine, n.key);
         cache.set(n.key, true);
       }
       return true;
