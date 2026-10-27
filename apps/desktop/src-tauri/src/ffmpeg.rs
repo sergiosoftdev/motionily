@@ -1,6 +1,6 @@
-//! ffmpeg as a child process: it decodes the scene's video clips (hardware decoding where the OS
-//! has it) and encodes exports. The app ships its own ffmpeg in `runtime/ffmpeg/`; a system one on
-//! PATH works too.
+//! ffmpeg as a child process: it encodes exports, and decodes the scene's video clips the system's
+//! own decoders cannot (native-video: AVFoundation / Media Foundation, in-process, used first for
+//! local files). The app ships its own ffmpeg in `runtime/ffmpeg/`; a system one on PATH works too.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -76,7 +76,6 @@ pub struct Probe {
 
 /// One clip decoded forward as RGBA frames, restarted with a seek when playback jumps.
 struct Decoder {
-    probe: Probe,
     input: String,
     size: (u32, u32),
     fps: f64,
@@ -93,7 +92,7 @@ impl Decoder {
         let k = (MAX_CLIP_SIDE as f64 / probe.width.max(probe.height).max(1) as f64).min(1.0);
         let even = |v: f64| ((v * k / 2.0).round() as u32 * 2).max(2);
         let size = (even(probe.width as f64), even(probe.height as f64));
-        Self { probe, input, size, fps: probe.fps, child: None, stdout: None, time: f64::NEG_INFINITY, frame: vec![0; (size.0 * size.1 * 4) as usize], has_frame: false }
+        Self { input, size, fps: probe.fps, child: None, stdout: None, time: f64::NEG_INFINITY, frame: vec![0; (size.0 * size.1 * 4) as usize], has_frame: false }
     }
 
     fn start(&mut self, tools: &Tools, at: f64) -> Result<(), String> {
@@ -159,10 +158,34 @@ impl Drop for Decoder {
     }
 }
 
+/// How one clip is decoded: by the system (in-process, quick seeks) or by an ffmpeg pipe.
+enum Source {
+    #[cfg(any(target_os = "macos", windows))]
+    Native(native_video::Reader),
+    Ffmpeg(Decoder),
+}
+
+struct Clip {
+    probe: Probe,
+    size: (u32, u32),
+    source: Source,
+}
+
+/// A local file the system's decoder can open, at a size the preview and exports use as it is.
+#[cfg(any(target_os = "macos", windows))]
+fn native(input: &str) -> Option<native_video::Reader> {
+    if input.contains("://") {
+        return None;
+    }
+    let r = native_video::Reader::open(input).map_err(|e| eprintln!("[motionily] {input}: system decoder unavailable ({e}), using ffmpeg")).ok()?;
+    let i = r.info();
+    (i.width.max(i.height) <= MAX_CLIP_SIDE).then_some(r)
+}
+
 /// Every clip a render needs, by scene source; `resolve` turns a scene src into a path or URL.
 pub struct Clips {
     tools: Tools,
-    decoders: HashMap<String, Decoder>,
+    decoders: HashMap<String, Clip>,
     resolve: Box<dyn Fn(&str) -> String + Send>,
 }
 
@@ -177,8 +200,16 @@ impl Clips {
             return Ok(d.probe);
         }
         let input = (self.resolve)(src);
+        #[cfg(any(target_os = "macos", windows))]
+        if let Some(r) = native(&input) {
+            let i = r.info();
+            let probe = Probe { width: i.width, height: i.height, fps: i.fps, duration: i.duration };
+            self.decoders.insert(src.to_string(), Clip { probe, size: (i.width, i.height), source: Source::Native(r) });
+            return Ok(probe);
+        }
         let probe = self.tools.probe(&input)?;
-        self.decoders.entry(src.to_string()).or_insert_with(|| Decoder::new(probe, input));
+        let d = Decoder::new(probe, input);
+        self.decoders.insert(src.to_string(), Clip { probe, size: d.size, source: Source::Ffmpeg(d) });
         Ok(probe)
     }
 
@@ -187,9 +218,24 @@ impl Clips {
         if !self.decoders.contains_key(src) {
             self.open(src)?;
         }
-        let d = self.decoders.get_mut(src).expect("opened above");
-        let size = d.size;
-        let px = d.frame_at(&self.tools, t)?;
+        // A file the system decoder stops on mid-way goes on with ffmpeg.
+        #[cfg(any(target_os = "macos", windows))]
+        if let Some(Clip { source: Source::Native(r), .. }) = self.decoders.get_mut(src) {
+            if let Err(e) = r.frame_at(t) {
+                eprintln!("[motionily] {src}: system decoder failed at {t:.2}s ({e}), using ffmpeg");
+                let input = (self.resolve)(src);
+                let probe = self.tools.probe(&input)?;
+                let d = Decoder::new(probe, input);
+                self.decoders.insert(src.to_string(), Clip { probe, size: d.size, source: Source::Ffmpeg(d) });
+            }
+        }
+        let clip = self.decoders.get_mut(src).expect("opened above");
+        let size = clip.size;
+        let px = match &mut clip.source {
+            #[cfg(any(target_os = "macos", windows))]
+            Source::Native(r) => r.frame_at(t)?,
+            Source::Ffmpeg(d) => d.frame_at(&self.tools, t)?,
+        };
         Ok((px, size))
     }
 }

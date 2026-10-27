@@ -12,7 +12,7 @@ en la app real y un commit por punto en `main`.
 | 11 | Timecode SMPTE en todo el editor, con entrada numérica para ir a un fotograma | hecho |
 | 7 | Audio al arrastrar el cabezal y medidores LUFS / pico en vivo | hecho |
 | 2 | Vídeo sin copias en la web: el `VideoFrame` de WebCodecs directo a la GPU | hecho |
-| 3 | Decodificación nativa en escritorio (VideoToolbox / Media Foundation) en lugar de ffmpeg por tubería | pendiente |
+| 3 | Decodificación nativa en escritorio (VideoToolbox / Media Foundation) en lugar de ffmpeg por tubería | hecho (Windows sin probar en una máquina Windows) |
 | 4 | El motor de reproducción en un worker con `OffscreenCanvas` | pendiente |
 | 5 | Caché de capas estáticas y exportación que reutiliza la caché de render | pendiente |
 | 8 | Chroma key y luma key | pendiente |
@@ -46,3 +46,13 @@ Los efectos apilados son el cuello de botella real (punto 5).
 
 A 1080p ninguno de los dos pierde fotogramas; el cambio quita el dibujo 2D de cada fotograma (que el navegador hace
 en la GPU) y el canvas intermedio de 8 MB por clip. La ganancia real aparece con varios clips o 4K a la vez.
+
+## Punto 3 medido (clip 1080p H.264, `cargo run -p native-video --release --example compare -- clip.mp4`)
+
+| | nativo (AVFoundation / VideoToolbox) | ffmpeg por tubería (antes) |
+|---|---|---|
+| saltar a un tiempo (mediana de 20) | 28 ms | 222 ms |
+| decodificar todo el clip | 2,9 ms/fotograma | 3,6 ms/fotograma |
+
+Windows (Media Foundation) compila para `x86_64-pc-windows-msvc` pero no se ha ejecutado: falta probarlo en Windows,
+sobre todo el sentido de `MF_MT_VIDEO_ROTATION`.

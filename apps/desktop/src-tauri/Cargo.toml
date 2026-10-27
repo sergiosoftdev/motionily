@@ -13,6 +13,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+native-video = { path = "../../../crates/native-video" }
 tauri = { version = "2", features = ["macos-private-api"] }
 serde.workspace = true
 serde_json.workspace = true

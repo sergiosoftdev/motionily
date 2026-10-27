@@ -1,0 +1,17 @@
+[package]
+name = "native-video"
+version = "0.1.0"
+edition = "2021"
+description = "Video decoding with the operating system's decoders (AVFoundation / VideoToolbox on macOS, Media Foundation on Windows), frames as RGBA in-process."
+license = "MIT"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSURL", "NSArray", "NSDictionary", "NSValue", "NSError", "NSGeometry"] }
+objc2-av-foundation = { version = "0.3", features = ["AVAsset", "AVAssetReader", "AVAssetReaderOutput", "AVAssetTrack", "AVMediaFormat", "AVVideoComposition", "objc2-core-media", "objc2-core-video", "objc2-core-foundation", "block2"] }
+objc2-core-media = { version = "0.3", features = ["CMTime", "CMTimeRange", "CMSampleBuffer", "objc2-core-video"] }
+objc2-core-video = { version = "0.3", features = ["CVPixelBuffer", "CVImageBuffer", "CVBuffer", "CVReturn"] }
+objc2-core-foundation = { version = "0.3" }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Media_MediaFoundation", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_System_Variant"] }
