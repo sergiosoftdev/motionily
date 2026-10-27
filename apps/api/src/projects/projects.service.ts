@@ -18,6 +18,8 @@ const NEUTRAL_BASE = "motion_style/apple";
 /** Favorites an agent reads at once. */
 const MAX_FAVORITES = 12;
 
+const coverUrl = (file: string | null | undefined) => (file ? `/media/${file}` : null);
+
 @Injectable()
 export class ProjectsService {
   constructor(
@@ -27,11 +29,35 @@ export class ProjectsService {
     private readonly bricks: BricksService,
   ) {}
 
-  list(ownerId: Types.ObjectId, brandId?: Types.ObjectId) {
-    return this.projects
-      .find(brandId ? { ownerId, brandId, hidden: { $ne: true } } : { ownerId, hidden: { $ne: true } }, { name: 1, build: 1, format: 1, brandId: 1, favorite: 1, updatedAt: 1, createdAt: 1 })
+  async list(ownerId: Types.ObjectId, brandId?: Types.ObjectId) {
+    const rows = await this.projects
+      .find(brandId ? { ownerId, brandId, hidden: { $ne: true } } : { ownerId, hidden: { $ne: true } }, { name: 1, build: 1, format: 1, brandId: 1, favorite: 1, cover: 1, updatedAt: 1, createdAt: 1 })
       .sort({ updatedAt: -1 })
       .lean();
+    return rows.map((p) => ({ ...p, cover: coverUrl(p.cover) }));
+  }
+
+  /** Each brand's latest covers (newest first, up to `per`), for its card. */
+  async coversByBrand(ownerId: Types.ObjectId, per = 3) {
+    const rows = await this.projects.find({ ownerId, hidden: { $ne: true }, cover: { $ne: null } }, { brandId: 1, cover: 1, format: 1 }).sort({ updatedAt: -1 }).limit(500).lean();
+    const out = new Map<string, { url: string; format: string }[]>();
+    for (const r of rows) {
+      const key = r.brandId?.toString();
+      const url = coverUrl(r.cover);
+      if (!key || !url) continue;
+      const list = out.get(key) ?? [];
+      if (list.length < per) out.set(key, [...list, { url, format: r.format }]);
+    }
+    return out;
+  }
+
+  /** Store the video's new cover; returns the file it replaces, to delete. */
+  async setCover(ownerId: Types.ObjectId, id: string, file: string) {
+    const project = await this.get(ownerId, id);
+    const previous = project.cover ?? undefined;
+    // Not a change to the video: its place in "recent" stays where it was.
+    await this.projects.updateOne({ _id: project._id }, { $set: { cover: file } }, { timestamps: false });
+    return { cover: coverUrl(file), previous };
   }
 
   async setFavorite(ownerId: Types.ObjectId, id: string, favorite: boolean) {
@@ -171,6 +197,7 @@ export class ProjectsService {
     const files = [
       ...(project.footage ?? []).flatMap((c) => [c.file, c.poster ?? ""]),
       project.music?.file ?? "",
+      project.cover ?? "",
     ].filter(Boolean);
     await Promise.all(files.map((f) => removeMedia(f.replace(/^\/media\//, ""))));
   }

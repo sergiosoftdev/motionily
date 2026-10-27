@@ -305,6 +305,11 @@ class EngineHost {
     return () => this.listeners.delete(fn);
   }
 
+  /** Bumps with every change to the scene (to tell whether a copy of it is still current). */
+  get revision() {
+    return this.sceneVersion;
+  }
+
   get ready() {
     return this.engine !== null;
   }

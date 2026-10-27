@@ -144,6 +144,8 @@ export class Project {
   @Prop({ type: [String], default: [] }) constraints: string[];
   /** The user starred it: agents study favorites as the user's taste (examples find). */
   @Prop({ default: false }) favorite: boolean;
+  /** A small still of the video (a file in MEDIA_DIR) for its card, refreshed by the editor as it changes. */
+  @Prop({ type: String, default: null }) cover: string | null;
   @Prop({ type: Date, default: null }) favoritedAt: Date | null;
   /**
    * The agent team working on this video right now, persisted so an API restart can neither hide a

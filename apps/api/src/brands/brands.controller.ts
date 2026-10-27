@@ -39,8 +39,8 @@ export class BrandsController {
     const fallback = await this.brands.ensureDefault(user.id);
     await this.projects.adoptOrphans(user.id, fallback._id);
     const brands = await this.brands.list(user.id);
-    const counts = await this.projects.countByBrand(user.id);
-    return brands.map((b) => ({ id: b._id.toString(), name: b.name, notes: b.notes, palettes: b.palettes, videos: counts.get(b._id.toString()) ?? 0 }));
+    const [counts, covers] = await Promise.all([this.projects.countByBrand(user.id), this.projects.coversByBrand(user.id)]);
+    return brands.map((b) => ({ id: b._id.toString(), name: b.name, notes: b.notes, palettes: b.palettes, videos: counts.get(b._id.toString()) ?? 0, covers: covers.get(b._id.toString()) ?? [] }));
   }
 
   @Post()

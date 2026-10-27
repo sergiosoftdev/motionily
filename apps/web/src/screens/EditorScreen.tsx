@@ -5,6 +5,7 @@ import { renderCurrentScene } from "../export/renderScene";
 import { setRenderer } from "../export/queue";
 import { desktop } from "../desktop";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useCover } from "../editor/useCover";
 import { FORMAT_SIZE, OpName, type VideoFormat, type Brick, type Build, type Op, type Output, type Project } from "@motionily/protocol";
 import { api, ApiError, mediaUrl } from "../api/client";
 import { engineHost } from "../engine/host";
@@ -60,6 +61,7 @@ export function EditorScreen({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useEditorMode();
   const captioning = useVoicePipeline(project, setProject);
+  useCover(id, project ? !!project.cover : null);
 
   const byKey = useMemo(() => new Map(bricks.map((b) => [b.key, b])), [bricks]);
 

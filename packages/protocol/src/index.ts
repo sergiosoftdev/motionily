@@ -749,12 +749,14 @@ export type Project = {
   constraints: string[];
   /** Starred by the user: agents study favorites as their taste. */
   favorite: boolean;
+  /** A small still of the video for its card (media path), refreshed by the editor; null until one is made. */
+  cover?: string | null;
   /** The series template this video is an episode of (see series.ts). */
   seriesId?: string | null;
   updatedAt: string;
 };
 
-export type ProjectListItem = { _id: string; name: string; build: Build; format?: VideoFormat; brandId?: string; favorite?: boolean; updatedAt: string; generating?: boolean };
+export type ProjectListItem = { _id: string; name: string; build: Build; format?: VideoFormat; brandId?: string; favorite?: boolean; cover?: string | null; updatedAt: string; generating?: boolean };
 
 /** A spoken word and when it is said, in seconds. */
 export type VoiceWord = { text: string; start: number; end: number };

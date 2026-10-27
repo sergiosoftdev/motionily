@@ -39,6 +39,17 @@ export type PostMetrics = {
 /** A connected account as Settings shows it. */
 export type SocialAccount = { platform: SocialPlatform; connected: boolean; handle: string | null; error: string | null };
 
+/** A video on one of the user's connected accounts, and the video made here it is linked to (if any). */
+export type PublishedVideo = {
+  platform: SocialPlatform;
+  id: string;
+  url: string | null;
+  caption: string;
+  publishedAt: string | null;
+  thumbnail: string | null;
+  linked: { projectId: string; name: string } | null;
+};
+
 /** One posted video with its numbers, for the video's own page and its agent. */
 export type PostPerformance = {
   postId: string;

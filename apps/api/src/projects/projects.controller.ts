@@ -45,6 +45,10 @@ import type { ProjectDocument } from "./project.schema";
 /** A few minutes of phone video (4K HEVC runs about 100 MB a minute). */
 const MAX_FOOTAGE_BYTES = 2 * 1024 * 1024 * 1024;
 
+/** A card's still: small, so a few hundred KB at most. */
+const MAX_COVER_BYTES = 2 * 1024 * 1024;
+const COVER_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
 /** Brief characters an agent gets per favorite (enough to know what it was about). */
 const BRIEF_EXCERPT = 400;
 
@@ -142,6 +146,27 @@ export class ProjectsController {
   @Get(":id")
   async get(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     return this.view(await this.projects.get(user.id, id));
+  }
+
+  /** A still of the video for its card (the editor sends one as the video changes). */
+  @Put(":id/cover")
+  @UseInterceptors(
+    FileInterceptor("file", {
+      storage: diskStorage({ destination: MEDIA_DIR, filename: (_req, f, cb) => cb(null, mediaName(f.originalname || "cover.jpg")) }),
+      limits: { fileSize: MAX_COVER_BYTES },
+      fileFilter: (_req, f, cb) => cb(null, COVER_TYPES.includes(f.mimetype)),
+    }),
+  )
+  async cover(@CurrentUser() user: AuthUser, @Param("id") id: string, @UploadedFile() file?: Express.Multer.File) {
+    if (!file) throw new BadRequestException("send a JPEG, PNG or WebP in 'file'");
+    try {
+      const { cover, previous } = await this.projects.setCover(user.id, id, file.filename);
+      await removeMedia(previous);
+      return { cover };
+    } catch (e) {
+      await removeMedia(file.filename);
+      throw e;
+    }
   }
 
   /** Star or unstar a video (the user; or an agent, only after the user said they love it). */
@@ -427,6 +452,7 @@ export class ProjectsController {
       direction: p.direction ?? null,
       constraints: p.constraints ?? [],
       favorite: p.favorite ?? false,
+      cover: p.cover ? `/media/${p.cover}` : null,
       seriesId: p.seriesId?.toString() ?? null,
       updatedAt: (p as unknown as { updatedAt: Date }).updatedAt,
     };

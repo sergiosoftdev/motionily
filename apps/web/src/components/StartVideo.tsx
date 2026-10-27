@@ -64,16 +64,19 @@ export function StartVideo({ brands }: { brands: BrandSummary[] }) {
   };
 
   return (
-    <section className="flex flex-col gap-4">
+    <section className="flex flex-col gap-4 rounded-2xl bg-gradient-to-br from-neutral-900 to-neutral-950 p-5 ring-1 ring-white/[0.06]">
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <h2 className="text-lg font-semibold">Start a video</h2>
+        <div>
+          <h2 className="text-lg font-semibold">Start a video</h2>
+          <p className="text-sm text-neutral-500">Pick the shape and the project it belongs to, then how you want to work.</p>
+        </div>
         <div className="flex flex-wrap items-center gap-3">
           {brands.length > 1 && (
             <select
               value={brandId}
               onChange={(e) => setPicked(e.target.value)}
               aria-label="Project"
-              className="rounded-lg bg-neutral-900 px-3 py-2 text-sm text-neutral-200"
+              className="rounded-lg bg-neutral-800 px-3 py-2 text-sm text-neutral-200"
             >
               {brands.map((b) => (
                 <option key={b.id} value={b.id}>
@@ -94,13 +97,17 @@ export function StartVideo({ brands }: { brands: BrandSummary[] }) {
             type="button"
             disabled={busy !== null}
             onClick={() => void start(s.kind)}
-            className="flex flex-col gap-3 rounded-xl bg-neutral-900 p-5 text-left transition hover:bg-neutral-800 disabled:opacity-60"
+            className="group flex items-start gap-3.5 rounded-xl bg-white/[0.03] p-4 text-left ring-1 ring-white/[0.06] transition hover:bg-white/[0.07] hover:ring-white/15 disabled:opacity-60"
           >
-            <svg viewBox="0 0 24 24" className="size-5 text-neutral-300" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <path d={s.icon} />
-            </svg>
-            <span className="font-semibold">{busy === s.kind ? "Opening…" : s.title}</span>
-            <span className="text-sm text-neutral-400">{s.hint}</span>
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-neutral-200 transition group-hover:bg-[#e5484d] group-hover:text-white">
+              <svg viewBox="0 0 24 24" className="size-[18px]" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d={s.icon} />
+              </svg>
+            </span>
+            <span className="flex min-w-0 flex-col gap-1">
+              <span className="font-semibold">{busy === s.kind ? "Opening…" : s.title}</span>
+              <span className="text-[13px] leading-snug text-neutral-400">{s.hint}</span>
+            </span>
           </button>
         ))}
       </div>

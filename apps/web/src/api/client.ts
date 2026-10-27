@@ -1,4 +1,4 @@
-import type { AgentRunUsage, AttentionDevice, Brick, BrickSlot, LibraryItem, MediaItem, PostLink, PostMetrics, PostPerformance, Project, ProjectListItem, ProviderKey, ProviderStatus, Series, SeriesBlueprint, SocialAccount, SocialPlatform, SunoPrompt, User, VideoFormat, Voice, VoiceModel } from "@motionily/protocol";
+import type { AgentRunUsage, AttentionDevice, Brick, BrickSlot, LibraryItem, MediaItem, PostLink, PostMetrics, PostPerformance, Project, ProjectListItem, ProviderKey, PublishedVideo, ProviderStatus, Series, SeriesBlueprint, SocialAccount, SocialPlatform, SunoPrompt, User, VideoFormat, Voice, VoiceModel } from "@motionily/protocol";
 import { useSession } from "../session";
 import type { AgentPrefs, GenerateState } from "../components/GeneratePanel";
 import { desktop } from "../desktop";
@@ -45,7 +45,7 @@ export type BrandAsset = {
   height?: number;
   poster?: string;
 };
-export type BrandSummary = { id: string; name: string; notes: string; palettes: BrandPalette[]; videos: number };
+export type BrandSummary = { id: string; name: string; notes: string; palettes: BrandPalette[]; videos: number; covers?: { url: string; format: VideoFormat }[] };
 export type BrandKit = { id: string; name: string; notes: string; palettes: BrandPalette[]; assets: BrandAsset[] };
 export const PrefabKind = { Object: "object", Character: "character", Space: "space" } as const;
 export type PrefabKind = (typeof PrefabKind)[keyof typeof PrefabKind];
@@ -227,6 +227,15 @@ export const api = {
   connectElevenLabs: (apiKey: string) => call<ElevenLabsStatus>(HttpMethod.Put, "/voice/elevenlabs", { apiKey }),
   disconnectElevenLabs: () => call<ElevenLabsStatus>(HttpMethod.Delete, "/voice/elevenlabs"),
   /** Star a video: agents study favorites as the user's taste. */
+  /** The video's card still (a JPEG the editor makes from the scene). */
+  setCover: async (id: string, image: Blob) => {
+    const body = new FormData();
+    body.append("file", image, "cover.jpg");
+    const token = useSession.getState().token;
+    const res = await fetch(`${API_URL}/projects/${id}/cover`, { method: "PUT", body, headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!res.ok) throw new ApiError(res.status, res.statusText);
+    return (await res.json()) as { cover: string };
+  },
   setFavorite: (id: string, favorite: boolean) => call<{ favorite: boolean }>(HttpMethod.Put, `/projects/${id}/favorite`, { favorite }),
   /** The user's own keys for asset sources (stock libraries, web image search, image generation). */
   providerKeys: () => call<ProviderStatus[]>(HttpMethod.Get, "/keys"),
@@ -251,6 +260,11 @@ export const api = {
   updatePost: (id: string, patch: { scheduledAt?: string; platforms?: Platform[]; copy?: PostCopy[]; status?: PostStatus }) => call<ScheduledPost>(HttpMethod.Patch, `/posts/${id}`, patch),
   deletePost: (id: string) => call<void>(HttpMethod.Delete, `/posts/${id}`),
   /** Instagram, TikTok and YouTube accounts (the user's own developer apps), for the numbers of what they post. */
+  /** The latest videos on the connected accounts, each with the video here it is linked to. */
+  published: () => call<PublishedVideo[]>(HttpMethod.Get, "/social/published"),
+  /** Link one of them (posted outside the calendar) to video `projectId`: it is measured from then on. */
+  linkPublished: (projectId: string, platform: SocialPlatform, videoId: string) =>
+    call<{ postId: string; errors: string[] }>(HttpMethod.Post, "/social/published/link", { projectId, platform, videoId }),
   socialAccounts: () => call<{ accounts: SocialAccount[]; youtubeRedirect: string }>(HttpMethod.Get, "/social/accounts"),
   connectInstagram: (token: string) => call<SocialAccount[]>(HttpMethod.Put, "/social/instagram", { token }),
   startTikTok: (app: { clientKey: string; clientSecret: string; redirectUri: string }) => call<{ authorizeUrl: string }>(HttpMethod.Post, "/social/tiktok/start", app),
