@@ -7,6 +7,7 @@ import { NewProjectScreen } from "./screens/NewProjectScreen";
 import { EditorScreen } from "./screens/EditorScreen";
 import { PrefabsScreen } from "./screens/PrefabsScreen";
 import { SoundsScreen } from "./screens/SoundsScreen";
+import { LibraryScreen } from "./screens/LibraryScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { CalendarScreen } from "./screens/CalendarScreen";
 import { DueReminders } from "./posts/DueReminders";
@@ -37,6 +38,7 @@ function Screen() {
   if (route.name === RouteName.Calendar) return <CalendarScreen postId={route.postId} />;
   if (route.name === RouteName.Prefabs) return <PrefabsScreen />;
   if (route.name === RouteName.Sounds) return <SoundsScreen />;
+  if (route.name === RouteName.Library) return <LibraryScreen />;
   if (route.name === RouteName.Settings) return <SettingsScreen />;
   return <ProjectsScreen />;
 }

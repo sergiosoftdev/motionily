@@ -140,7 +140,7 @@ export class LibraryQuery {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(500) limit?: number;
 }
 
-/** The library as the user sees it (Settings › Library). */
+/** The library as the user sees it (the Library page). */
 @Controller("library")
 export class LibraryController {
   constructor(private readonly library: LibraryService) {}

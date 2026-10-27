@@ -5,7 +5,7 @@ import { AgentEffort, AgentModel, EFFORT_LABEL, loadPrefs, MODEL_LABEL, savePref
 import { ElevenLabsKeyForm, useElevenLabs } from "../voice/ElevenLabs";
 import { SocialAccounts } from "../social/SocialAccounts";
 import { KeyboardSettings } from "../keys/KeyboardSettings";
-import { AssetSourcesForm, LibraryGrid } from "../assets/AssetSources";
+import { AssetSourcesForm } from "../assets/AssetSources";
 import { AgentCliForm } from "../components/AgentCliForm";
 import { workerViewer } from "../engine/workerViewer";
 
@@ -108,13 +108,6 @@ export function SettingsScreen() {
           <p className="text-xs text-neutral-500">Where the agent looks for real photos, footage and logos beyond the free libraries.</p>
         </div>
         <AssetSourcesForm />
-      </section>
-      <section className="flex flex-col gap-3">
-        <div>
-          <h2 className="text-sm font-semibold">Library</h2>
-          <p className="text-xs text-neutral-500">Everything the agent found, cut out or generated for your videos, reused across them.</p>
-        </div>
-        <LibraryGrid />
       </section>
     </MotionilyLayout>
   );

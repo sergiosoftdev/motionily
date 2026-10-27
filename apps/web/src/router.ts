@@ -13,6 +13,7 @@ export const RouteName = {
   Calendar: "calendar",
   Prefabs: "prefabs",
   Sounds: "sounds",
+  Library: "library",
   Settings: "settings",
   /** The public landing page, also reachable when signed in. */
   Welcome: "welcome",
@@ -30,6 +31,7 @@ export type Route =
   | { name: typeof RouteName.Calendar; postId?: string }
   | { name: typeof RouteName.Prefabs }
   | { name: typeof RouteName.Sounds }
+  | { name: typeof RouteName.Library }
   | { name: typeof RouteName.Settings }
   | { name: typeof RouteName.Welcome };
 
@@ -43,6 +45,7 @@ function parse(hash: string): Route {
   if (first === RouteName.Calendar) return { name: RouteName.Calendar, postId: second || undefined };
   if (first === RouteName.Prefabs) return { name: RouteName.Prefabs };
   if (first === RouteName.Sounds) return { name: RouteName.Sounds };
+  if (first === RouteName.Library) return { name: RouteName.Library };
   if (first === RouteName.Settings) return { name: RouteName.Settings };
   if (first === RouteName.Welcome) return { name: RouteName.Welcome };
   return { name: RouteName.Projects };
@@ -62,6 +65,8 @@ export function href(route: Route): string {
       return "#/prefabs";
     case RouteName.Sounds:
       return "#/sounds";
+    case RouteName.Library:
+      return "#/library";
     case RouteName.Settings:
       return "#/settings";
     case RouteName.Welcome:
