@@ -49,6 +49,9 @@ export function hasSound(volume: unknown): boolean {
 
 /** Engines that take decoder frames straight to the GPU (WebGPU), by engine. */
 const direct = new WeakMap<Engine, boolean>();
+/** Bitmaps a file keeps open on the WebGL2 worker path (more than one layer may show it in a frame). */
+const KEEP_BITMAPS = 4;
+
 function takesFrames(engine: Engine) {
   let on = direct.get(engine);
   // `__motionilyCanvasFrames` (set before the editor loads) keeps the canvas path, to compare both in benchmarks.
@@ -68,6 +71,8 @@ class VideoFile {
   private iter: AsyncGenerator<VideoSample, void, unknown> | null = null;
   /** Frame on screen at the decoder position, and the one after it (`undefined` = not read yet, `null` = end). */
   private cur: VideoSample | null = null;
+  /** Frames a WebGL2 worker handed the engine lately (open until their copies are done). */
+  private bitmaps: ImageBitmap[] = [];
   private next: VideoSample | null | undefined = undefined;
   /** Decoder calls run one at a time. */
   private queue: Promise<unknown> = Promise.resolve();
@@ -122,7 +127,15 @@ class VideoFile {
     } else {
       this.drawCurrent();
       if (typeof HTMLCanvasElement !== "undefined" && this.canvas instanceof HTMLCanvasElement) engine.setVideoFrame(key, this.canvas);
-      else engine.setVideoFrameOffscreen(key, this.canvas as OffscreenCanvas);
+      else if (engine.adapterInfo().endsWith("(Gl)")) {
+        // A worker on WebGL2 copies from a bitmap (the canvas is drawn again before every upload). WebGL
+        // copies when the frame is submitted, not now: bitmaps stay open a few uploads (two layers may show
+        // this file in one frame).
+        const bitmap = (this.canvas as OffscreenCanvas).transferToImageBitmap();
+        engine.setVideoFrameBitmap(key, bitmap);
+        this.bitmaps.push(bitmap);
+        while (this.bitmaps.length > KEEP_BITMAPS) this.bitmaps.shift()!.close();
+      } else engine.setVideoFrameOffscreen(key, this.canvas as OffscreenCanvas);
     }
     perf.upload.add(performance.now() - t0);
     return true;
@@ -184,6 +197,7 @@ class VideoFile {
   }
 
   dispose() {
+    for (const b of this.bitmaps.splice(0)) b.close();
     void this.reset();
   }
 }

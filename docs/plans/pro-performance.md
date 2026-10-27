@@ -13,7 +13,7 @@ en la app real y un commit por punto en `main`.
 | 7 | Audio al arrastrar el cabezal y medidores LUFS / pico en vivo | hecho |
 | 2 | Vídeo sin copias en la web: el `VideoFrame` de WebCodecs directo a la GPU | hecho |
 | 3 | Decodificación nativa en escritorio (VideoToolbox / Media Foundation) en lugar de ffmpeg por tubería | hecho (Windows probado en un runner Windows) |
-| 4 | El motor de reproducción en un worker con `OffscreenCanvas` | hecho (el worker usa el mismo backend que el editor) |
+| 4 | El motor de reproducción en un worker con `OffscreenCanvas` | hecho (WebGPU y WebGL2, probados) |
 | 5 | Caché de capas estáticas y exportación que reutiliza la caché de render | hecho (ver notas) |
 | 8 | Chroma key y luma key | hecho |
 | 9 | Multicámara | hecho |
@@ -45,9 +45,13 @@ en la app real y un commit por punto en `main`.
   en pausa vuelve el canvas del editor (gizmos, selección, edición). Mismo patrón que el visor nativo de escritorio,
   que tiene prioridad. Con el hilo principal ocupado el 67 % del tiempo (80 ms de cada 120): 107 fotogramas en el
   worker frente a 18 en el hilo principal en el mismo intervalo (≈29 frente a ≈5 fps). Ajustes › Playback lo apaga.
-  El worker pide a wgpu el mismo backend que el motor del editor (`createOffscreen(canvas, webgl)`): con WebGL2 los
-  fotogramas le llegan por un `OffscreenCanvas` (`setVideoFrameOffscreen`). La build web actual compila wgpu sin la
-  feature `webgl`, así que en el navegador el motor es sólo WebGPU y el worker cubre todos los casos que hay hoy.
+  El worker pide a wgpu el mismo backend que el motor del editor (`createOffscreen(canvas, webgl)`). La build web
+  compila ahora wgpu con WebGL2 (antes sólo WebGPU: sin él el editor no arrancaba): el uniform de globales se rellena a
+  32 bytes (WebGL2 los quiere en múltiplos de 16) y el worker en WebGL2 entrega cada fotograma de vídeo como
+  `ImageBitmap` (`setVideoFrameBitmap`; copiar desde un `OffscreenCanvas` exige una capacidad que WebGL2 no tiene, y
+  la copia se hace al enviar el fotograma, así que el bitmap sigue abierto unas subidas). Probado en Chrome sin WebGPU
+  (ANGLE sobre Metal): el editor dibuja, un clip se ve en pausa y reproduciendo en el worker, y con el hilo principal
+  ocupado el worker dibuja 62 fotogramas frente a 0. El wasm pasa de 7,8 a 10,1 MB.
   Fuera: el scrub y la edición siguen en el hilo principal.
 
 ## Cifras de partida (punto 1, MacBook con Apple Silicon, p50 por fotograma hasta que la GPU termina)

@@ -45,6 +45,8 @@ struct Globals {
     time: f32,
     /// Flat-space origin of the pass: [0, 0] for the scene, the plane origin inside a tilted plane.
     origin: [f32; 2],
+    /// To 32 bytes: WebGL2 takes uniform blocks only in multiples of 16.
+    _pad: [f32; 2],
 }
 
 /// What every pipeline needs to build and upload. Group 0 is always the globals uniform.
@@ -818,7 +820,7 @@ impl Renderer {
         self.queue.write_buffer(
             &self.globals,
             0,
-            bytemuck::bytes_of(&Globals { scene_size: [scene.width as f32, scene.height as f32], linearize, time: t, origin: [0.0; 2] }),
+            bytemuck::bytes_of(&Globals { scene_size: [scene.width as f32, scene.height as f32], linearize, time: t, origin: [0.0; 2], _pad: [0.0; 2] }),
         );
         // Built from fields (not `self.ctx()`) so pipelines can be borrowed mutably alongside it.
         let ctx = Ctx {
@@ -1071,7 +1073,7 @@ impl Renderer {
                 });
                 self.plane_globals.push((buffer, group));
             }
-            let globals = Globals { scene_size: window, linearize, time: t, origin: f.plane_origin };
+            let globals = Globals { scene_size: window, linearize, time: t, origin: f.plane_origin, _pad: [0.0; 2] };
             self.queue.write_buffer(&self.plane_globals[next].0, 0, bytemuck::bytes_of(&globals));
             slots[i] = Some(next);
             next += 1;

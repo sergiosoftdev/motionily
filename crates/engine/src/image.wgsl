@@ -6,6 +6,8 @@ struct Globals {
     time: f32,
     // Flat-space origin of the pass: 0 for the scene, the plane origin inside a tilted plane.
     origin: vec2<f32>,
+    // To 32 bytes (WebGL2 uniform blocks are multiples of 16).
+    _pad: vec2<f32>,
 };
 
 @group(0) @binding(0) var<uniform> g: Globals;

@@ -7,7 +7,7 @@ use std::sync::Arc;
 use engine::Renderer;
 use scene::{CaptionStyle, Op, Scene, StylePreset};
 use wasm_bindgen::prelude::*;
-use web_sys::{HtmlCanvasElement, OffscreenCanvas, VideoFrame};
+use web_sys::{HtmlCanvasElement, ImageBitmap, OffscreenCanvas, VideoFrame};
 
 #[wasm_bindgen(start)]
 pub fn start() {
@@ -300,6 +300,18 @@ impl Engine {
     pub fn set_video_frame(&mut self, key: &str, canvas: &HtmlCanvasElement) {
         let source = wgpu::CopyExternalImageSourceInfo {
             source: wgpu::ExternalImageSource::HTMLCanvasElement(canvas.clone()),
+            origin: wgpu::Origin2d::ZERO,
+            flip_y: false,
+        };
+        self.renderer.copy_video_frame(key, &source);
+    }
+
+    /// `setVideoFrame` from an `ImageBitmap`: the playback worker on WebGL2, which cannot copy from an
+    /// `OffscreenCanvas` (that needs a capability WebGL2 lacks), hands its canvas over as a bitmap.
+    #[wasm_bindgen(js_name = setVideoFrameBitmap)]
+    pub fn set_video_frame_bitmap(&mut self, key: &str, bitmap: &ImageBitmap) {
+        let source = wgpu::CopyExternalImageSourceInfo {
+            source: wgpu::ExternalImageSource::ImageBitmap(bitmap.clone()),
             origin: wgpu::Origin2d::ZERO,
             flip_y: false,
         };
