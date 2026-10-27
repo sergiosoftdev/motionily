@@ -224,6 +224,14 @@ impl Batches {
     }
 }
 
+/// Destroys the GPU device with the renderer: a browser keeps a dropped device (and its memory) alive until
+/// collected, and a page that made a few (one per export) hung on the next one.
+impl Drop for Renderer {
+    fn drop(&mut self) {
+        self.device.destroy();
+    }
+}
+
 pub struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,

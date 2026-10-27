@@ -104,7 +104,13 @@ overlay, texto, motion blur): diferencia máxima ≤ 2/255. No hecho: una caché
 La exportación web reutiliza los fotogramas ya calculados: `Engine.renderChanged(t)` no dibuja un fotograma que pinta
 exactamente lo mismo que el anterior (misma lista de capas, sin vídeo avanzando) y la exportación vuelve a codificar la
 muestra que ya tenía (`VideoSample.clone()` con otro timestamp), sin render ni lectura de la GPU. Un plano fijo de 1 s a
-30 fps: 1 fotograma dibujado, 29 reutilizados (`ExportResult.frames`). Exportar 3 s a 720×1280 (12 círculos con glow y
-sombra, 1 s en movimiento y 2 s quietos) en el navegador: 5536 ms dibujando cada fotograma, 358 ms reutilizando (31
-dibujados, 59 reutilizados). La caché de render del editor no sirve aquí:
+30 fps: 1 fotograma dibujado, 29 reutilizados (`ExportResult.frames`). Exportar 6 s a 1080×1920 en el navegador
+(40 capas con sombra, glow y blur bajo 3 etalonajes, 1 s en movimiento y 5 s quietos), tras una exportación de
+calentamiento y alternando: 3,6–4,5 s dibujando cada fotograma frente a 1,3–1,4 s reutilizando (31 dibujados, 149
+reutilizados). Con una escena ligera (12 círculos) no cambia nada (≈830 ms ambos): ahí manda el codificador. La primera
+exportación de la página paga ≈5 s de arranque (shaders y codificador).
+
+Al medir apareció un cuelgue: la tercera exportación en la misma página la congelaba. Cada exportación abre su propio
+dispositivo WebGPU y `free()` no lo destruía; ahora el `Renderer` destruye su dispositivo al soltarse (6 exportaciones
+seguidas sin problema). La caché de render del editor no sirve aquí:
 guarda los fotogramas al tamaño de la previsualización, menor que el de exportación.
