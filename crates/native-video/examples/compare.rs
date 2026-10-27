@@ -1,6 +1,8 @@
 //! Native decoding against the ffmpeg pipe the desktop app used: `cargo run -p native-video --release --example compare -- clip.mp4`.
 //! Sequential decoding (every frame of the clip) and seeks (jumps to random times, first frame out).
 
+#![cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code, unused_imports))]
+
 use std::io::Read;
 use std::process::{Command, Stdio};
 use std::time::Instant;
@@ -26,6 +28,12 @@ fn ffmpeg_from(path: &str, t: f64, w: u32, h: u32, frames: usize) -> f64 {
     ms
 }
 
+#[cfg(not(any(target_os = "macos", windows)))]
+fn main() {
+    eprintln!("no system decoder on this platform");
+}
+
+#[cfg(any(target_os = "macos", windows))]
 fn main() {
     let path = std::env::args().nth(1).expect("usage: compare <clip>");
     let mut r = native_video::Reader::open(&path).expect("open");

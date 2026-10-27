@@ -187,13 +187,14 @@ mod tests {
         assert!(close(at(&mut r, 9.0), [255, 255, 255]), "past the end: the last frame");
     }
 
-    /// An asymmetric picture (ffmpeg's test pattern) with a display rotation of `degrees`.
+    /// An asymmetric picture (ffmpeg's test pattern) with a display rotation of `degrees`; H.264 High 4:2:0, as phones
+    /// record (Media Foundation has no 4:4:4 decoder).
     fn rotated(degrees: i32) -> Option<std::path::PathBuf> {
         let dir = std::env::temp_dir().join(format!("native-video-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).ok()?;
         let plain = dir.join("pattern.mp4");
         let path = dir.join(format!("pattern-{degrees}.mp4"));
-        let ok = Command::new("ffmpeg").args(["-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc=s=320x180:r=25:d=1", "-c:v", "libx264", "-pix_fmt", "yuv444p", "-crf", "0"]).arg(&plain).status().ok()?.success()
+        let ok = Command::new("ffmpeg").args(["-loglevel", "error", "-y", "-f", "lavfi", "-i", "testsrc=s=320x180:r=25:d=1", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-profile:v", "high", "-crf", "8"]).arg(&plain).status().ok()?.success()
             && Command::new("ffmpeg").args(["-loglevel", "error", "-y", "-display_rotation:v:0", &degrees.to_string(), "-i"]).arg(&plain).args(["-c", "copy"]).arg(&path).status().ok()?.success();
         ok.then_some(path)
     }
