@@ -89,6 +89,8 @@ export function idFromUrl(platform: SocialPlatform, url: string): string | null 
  * rest) and the numbers of every video they posted from the calendar: each post is matched to its
  * published copy, then measured every few hours for TRACK_DAYS.
  */
+type PublishedRow = { platform: SocialPlatform; id: string; url: string | null; caption: string; publishedAt: string | null; thumbnail: string | null; linked: { projectId: string; name: string } | null };
+
 @Injectable()
 export class SocialService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger("Social");
@@ -199,6 +201,53 @@ export class SocialService implements OnModuleInit, OnModuleDestroy {
     await post.save();
     await this.syncPosts(userId, [post]);
     return this.post(userId, postId);
+  }
+
+  /** The latest videos on every connected account, each with the video here it is linked to. */
+  async published(userId: Types.ObjectId): Promise<PublishedRow[]> {
+    const auth = await this.auth(userId);
+    const states = await this.states(userId);
+    const posts = await this.posts.find({ ownerId: userId, "links.0": { $exists: true } }, { links: 1, projectId: 1 }).lean();
+    const names = new Map((await this.projects.find({ _id: { $in: posts.map((p) => p.projectId) } }, { name: 1 }).lean()).map((p) => [String(p._id), p.name]));
+    const linked = new Map(posts.flatMap((p) => (p.links ?? []).map((l) => [`${l.platform}:${l.id}`, { projectId: String(p.projectId), name: names.get(String(p.projectId)) ?? "a deleted video" }] as const)));
+    const out: PublishedRow[] = [];
+    for (const platform of SOCIAL_PLATFORMS) {
+      if (!states[platform]?.connected) continue;
+      const token = await this.token(userId, platform, auth);
+      for (const v of await this.guard(() => this.videos(platform, token, auth))) {
+        out.push({ platform, id: v.id, url: v.url, caption: v.caption, publishedAt: v.publishedAt, thumbnail: v.thumbnail ?? null, linked: linked.get(`${platform}:${v.id}`) ?? null });
+      }
+    }
+    return out.sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? ""));
+  }
+
+  /**
+   * Link a video already on an account (posted outside the calendar) to the video made here: it becomes
+   * a posted entry of that video, measured like the rest. A link it had to another video moves.
+   */
+  async linkPublished(userId: Types.ObjectId, projectId: string, platform: SocialPlatform, videoId: string) {
+    if (!Types.ObjectId.isValid(projectId) || !(await this.projects.exists({ _id: projectId, ownerId: userId }))) throw new NotFoundException("video not found");
+    const auth = await this.auth(userId);
+    const token = await this.token(userId, platform, auth);
+    const v = (await this.guard(() => this.videos(platform, token, auth))).find((x) => x.id === videoId);
+    if (!v) throw new BadRequestException(`that video is not among the latest on the connected ${SOCIAL_LABEL[platform]} account`);
+    // Linked elsewhere: that entry lets it go (and goes, if it was only that link).
+    for (const other of await this.posts.find({ ownerId: userId, links: { $elemMatch: { platform, id: videoId } } })) {
+      other.links = (other.links ?? []).filter((l) => !(l.platform === platform && l.id === videoId));
+      other.metrics = (other.metrics ?? []).filter((m) => m.platform !== platform);
+      if (!other.links.length && !other.video && !other.copy?.length) await other.deleteOne();
+      else {
+        other.markModified("links");
+        other.markModified("metrics");
+        await other.save();
+      }
+    }
+    const at = v.publishedAt ? new Date(v.publishedAt) : new Date();
+    const post = await this.posts.create({ ownerId: userId, projectId: new Types.ObjectId(projectId), scheduledAt: at, postedAt: at, platforms: [platform] as unknown as Post["platforms"], copy: [], status: PostStatus.Posted, links: [] });
+    setLink(post, { platform, id: v.id, url: v.url, publishedAt: v.publishedAt });
+    await post.save();
+    const { errors } = await this.syncPosts(userId, [post]);
+    return { postId: String(post._id), errors };
   }
 
   async unlink(userId: Types.ObjectId, postId: string, platform: SocialPlatform) {

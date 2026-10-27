@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ATTENTION_BIN, attentionCurve, attentionIssues, audienceDrops, compactCount, isShortFormSize, onScreenAt, SOCIAL_LABEL, type PostPerformance, type SocialPlatform } from "@motionily/protocol";
 import { api } from "../api/client";
 import { AttentionCurve } from "../components/AttentionCurve";
+import { LinkPublishedDialog } from "../social/Published";
 import type { Generation } from "../components/useGenerate";
 import { ActivitySource, logActivity, useEditor } from "../store";
 import { useSceneView } from "./sceneView";
@@ -77,13 +78,41 @@ function AudienceRow({ g, projectId }: { g: Generation; projectId: string }) {
   const time = useEditor((s) => s.time);
   const [posts, setPosts] = useState<PostPerformance[] | null>(null);
   const [pick, setPick] = useState<SocialPlatform | null>(null);
+  const [connected, setConnected] = useState(false);
+  const [linking, setLinking] = useState(false);
+  const load = () => api.performance(projectId).then(setPosts, () => setPosts(null));
   useEffect(() => {
-    api.performance(projectId).then(setPosts, () => setPosts(null));
+    void load();
+    api.socialAccounts().then((r) => setConnected(r.accounts.some((a) => a.connected)), () => undefined);
   }, [projectId]);
   const post = posts?.find((p) => p.metrics.length);
   const m = post?.metrics.find((x) => x.platform === pick) ?? post?.metrics[0];
   const duration = typeof scene?.duration === "number" ? scene.duration : 0;
   const drops = useMemo(() => (m && duration ? audienceDrops(m, duration) : []), [m, duration]);
+  const dialog = linking && (
+    <LinkPublishedDialog
+      projectId={projectId}
+      onClose={() => setLinking(false)}
+      onLinked={() => {
+        setLinking(false);
+        void load();
+      }}
+    />
+  );
+  // Not posted from the calendar: it may have been posted by hand. Offer to link it.
+  if ((!post || !m) && posts !== null && connected && scene?.layers?.length)
+    return (
+      <div className="contents">
+        <span className="text-[11px] text-neutral-500">Audience</span>
+        <span className="text-[11px] text-neutral-600">Posted it already?</span>
+        <div className={CONTROLS}>
+          <button type="button" onClick={() => setLinking(true)} className="shrink-0 rounded-full px-2.5 py-1 text-[11px] text-neutral-300 ring-1 ring-white/15 hover:bg-white/5">
+            Link the posted video
+          </button>
+        </div>
+        {dialog}
+      </div>
+    );
   if (!post || !m || !scene || duration <= 0) return null;
 
   const fix = async () => {
@@ -130,6 +159,11 @@ function AudienceRow({ g, projectId }: { g: Generation; projectId: string }) {
             {compactCount(o.views)}
           </button>
         ))}
+        {connected && (
+          <button type="button" onClick={() => setLinking(true)} title="Link another posted copy (another platform)" className="rounded-full px-1.5 py-0.5 text-[11px] text-neutral-500 hover:text-white">
+            +
+          </button>
+        )}
         {drops.length > 0 && (
           <button
             type="button"
@@ -142,6 +176,7 @@ function AudienceRow({ g, projectId }: { g: Generation; projectId: string }) {
           </button>
         )}
       </div>
+      {dialog}
     </div>
   );
 }

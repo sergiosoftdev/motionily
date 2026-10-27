@@ -30,7 +30,7 @@ export class SocialError extends Error {
 }
 
 /** A video on the user's account, to match against the posts they marked posted. */
-export type PublishedVideo = { id: string; url: string | null; publishedAt: string | null; caption: string; duration: number | null };
+export type PublishedVideo = { id: string; url: string | null; publishedAt: string | null; caption: string; duration: number | null; thumbnail?: string | null };
 
 /** OAuth tokens as the platforms hand them out. */
 export type Tokens = { accessToken: string; refreshToken: string | null; expiresAt: string | null };
@@ -85,10 +85,10 @@ export async function igRefresh(token: string) {
 
 /** The account's latest reels. */
 export async function igVideos(token: string): Promise<PublishedVideo[]> {
-  const r = await json(SocialPlatform.Instagram, `${igUrl()}/${IG_VERSION}/me/media?${new URLSearchParams({ fields: "id,caption,media_product_type,media_type,timestamp,permalink", limit: "50", access_token: token })}`);
+  const r = await json(SocialPlatform.Instagram, `${igUrl()}/${IG_VERSION}/me/media?${new URLSearchParams({ fields: "id,caption,media_product_type,media_type,timestamp,permalink,thumbnail_url", limit: "50", access_token: token })}`);
   return ((r.data as Record<string, unknown>[] | undefined) ?? [])
     .filter((m) => m.media_product_type === "REELS" || m.media_type === "VIDEO")
-    .map((m) => ({ id: String(m.id), url: (m.permalink as string) ?? null, publishedAt: (m.timestamp as string) ?? null, caption: String(m.caption ?? ""), duration: null }));
+    .map((m) => ({ id: String(m.id), url: (m.permalink as string) ?? null, publishedAt: (m.timestamp as string) ?? null, caption: String(m.caption ?? ""), duration: null, thumbnail: (m.thumbnail_url as string) ?? null }));
 }
 
 const IG_CORE = ["views", "reach", "likes", "comments", "shares", "saved"];
@@ -152,7 +152,7 @@ export async function tiktokMe(token: string) {
   return { id: String(user.open_id ?? ""), handle: String(user.display_name ?? "") };
 }
 
-const TT_FIELDS = "id,create_time,title,video_description,duration,share_url,view_count,like_count,comment_count,share_count";
+const TT_FIELDS = "id,create_time,title,video_description,duration,share_url,cover_image_url,view_count,like_count,comment_count,share_count";
 type TikTokVideo = Record<string, unknown>;
 const ttVideo = (v: TikTokVideo): PublishedVideo => ({
   id: String(v.id),
@@ -160,6 +160,7 @@ const ttVideo = (v: TikTokVideo): PublishedVideo => ({
   publishedAt: n(v.create_time) === null ? null : new Date(n(v.create_time)! * 1000).toISOString(),
   caption: String(v.video_description ?? v.title ?? ""),
   duration: n(v.duration),
+  thumbnail: (v.cover_image_url as string) ?? null,
 });
 
 /** The latest public videos (20, the most one page holds). */
@@ -222,10 +223,11 @@ export function isoSeconds(d: unknown): number | null {
 export async function youtubeVideos(token: string, uploads: string): Promise<PublishedVideo[]> {
   const r = await json(SocialPlatform.YouTube, `${ytUrl()}/youtube/v3/playlistItems?${new URLSearchParams({ part: "snippet,contentDetails", playlistId: uploads, maxResults: "50" })}`, { headers: auth(token) });
   return ((r.items as Record<string, unknown>[] | undefined) ?? []).map((it) => {
-    const s = (it.snippet ?? {}) as { title?: string; description?: string; publishedAt?: string };
+    const s = (it.snippet ?? {}) as { title?: string; description?: string; publishedAt?: string; thumbnails?: Record<string, { url?: string }> };
     const c = (it.contentDetails ?? {}) as { videoId?: string; videoPublishedAt?: string };
     const id = String(c.videoId);
-    return { id, url: `https://youtube.com/shorts/${id}`, publishedAt: c.videoPublishedAt ?? s.publishedAt ?? null, caption: [s.title, s.description].filter(Boolean).join("\n"), duration: null };
+    const thumb = s.thumbnails?.high ?? s.thumbnails?.medium ?? s.thumbnails?.default;
+    return { id, url: `https://youtube.com/shorts/${id}`, publishedAt: c.videoPublishedAt ?? s.publishedAt ?? null, caption: [s.title, s.description].filter(Boolean).join("\n"), duration: null, thumbnail: thumb?.url ?? null };
   });
 }
 

@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, ForbiddenException, Get, Header, HttpCode, Param, ParseEnumPipe, Post, Put, Query, Req } from "@nestjs/common";
 import type { Request } from "express";
-import { IsEnum, IsString, IsUrl, MaxLength, MinLength } from "class-validator";
+import { IsEnum, IsMongoId, IsString, IsUrl, MaxLength, MinLength } from "class-validator";
 import { SocialPlatform } from "./types";
 import { CurrentUser, Public, TokenScope, type AuthUser } from "../auth/auth";
 import { PostsService } from "../posts/posts.service";
@@ -28,6 +28,12 @@ class GoogleAppDto {
 class LinkDto {
   @IsEnum(SocialPlatform) platform: SocialPlatform;
   @IsString() @MaxLength(512) url: string;
+}
+
+class LinkPublishedDto {
+  @IsMongoId() projectId: string;
+  @IsEnum(SocialPlatform) platform: SocialPlatform;
+  @IsString() @MaxLength(128) videoId: string;
 }
 
 const platformPipe = new ParseEnumPipe(SocialPlatform);
@@ -92,6 +98,19 @@ export class SocialController {
   @Delete(":platform")
   disconnect(@CurrentUser() user: AuthUser, @Param("platform", platformPipe) platform: SocialPlatform) {
     return this.social.disconnect(userOnly(user), platform);
+  }
+
+  /** The latest videos on the connected accounts, with what each is linked to here. */
+  @Get("published")
+  published(@CurrentUser() user: AuthUser) {
+    return this.social.published(userOnly(user));
+  }
+
+  /** Link one of them to a video made here (posted outside the calendar). */
+  @Post("published/link")
+  @HttpCode(200)
+  linkPublished(@CurrentUser() user: AuthUser, @Body() dto: LinkPublishedDto) {
+    return this.social.linkPublished(userOnly(user), dto.projectId, dto.platform, dto.videoId);
   }
 
   /** Match and measure everything posted in the last 90 days now (it also runs every few hours). */
