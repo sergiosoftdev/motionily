@@ -155,7 +155,7 @@ mod tests {
         ok.then_some(path)
     }
 
-    /// Without ffmpeg there is nothing to compare with; CI sets `NATIVE_VIDEO_REQUIRE_FFMPEG` so it cannot pass by skipping.
+    /// Without ffmpeg there is nothing to compare with; `NATIVE_VIDEO_REQUIRE_FFMPEG=1` makes that a failure instead of a skip.
     fn skip() {
         assert!(std::env::var_os("NATIVE_VIDEO_REQUIRE_FFMPEG").is_none(), "ffmpeg is required here");
         eprintln!("ffmpeg not found: skipped");
