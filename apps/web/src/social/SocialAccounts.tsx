@@ -101,9 +101,13 @@ function Account({ account, onDisconnect, children }: { account: SocialAccount; 
   );
 }
 
+/** The app's secret (32 hex characters, shown next to the app id) is the usual wrong paste: tokens are far longer. */
+const looksLikeAppSecret = (s: string) => /^[0-9a-f]{32}$/i.test(s.trim());
+
 function InstagramForm({ onConnect }: { onConnect: (token: string) => Promise<boolean> }) {
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
+  const secret = looksLikeAppSecret(token);
   return (
     <form
       className="flex flex-col gap-2"
@@ -127,10 +131,16 @@ function InstagramForm({ onConnect }: { onConnect: (token: string) => Promise<bo
           aria-label="Instagram access token"
           className={input}
         />
-        <button type="submit" disabled={busy || token.trim().length < 20} className={primary}>
+        <button type="submit" disabled={busy || secret || token.trim().length < 20} className={primary}>
           {busy ? "Checking…" : "Connect"}
         </button>
       </div>
+      {secret && (
+        <p className="text-xs text-amber-300">
+          That is the app's secret, not an access token. The token is much longer and starts with IGAA: in the app's Instagram API setup, under "Generate access tokens", press
+          Generate token next to the account and paste what it shows.
+        </p>
+      )}
       <p className={help}>
         A professional (Business or Creator) account. In developers.facebook.com create an app with the Instagram API use case, add the account as an Instagram tester, accept it in
         the Instagram app, then press Generate token and paste it here. It is refreshed before its 60 days run out.
