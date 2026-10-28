@@ -35,6 +35,7 @@ si hay al menos dos): funcionó, no funcionó o sin cambio claro. Stats lo ense�
 `get_project` lista cada resultado, así el agente construye sobre lo que funcionó y no repite lo que no.
 
 ## Siguiente
+
 - **Momentos donde se van.** Juntar los puntos de abandono de todos los vídeos (retención de YouTube,
   skip de Instagram) con lo que había en pantalla: "cuando aparece una tabla, cae un 12%".
 - **Hora de publicar.** Views a 3 días por día y franja horaria; el Schedule propone la mejor franja.
