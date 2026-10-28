@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import {
   channelExperiments,
   channelInsights,
+  channelLessons,
+  type ChannelLesson,
+  ExperimentMetric,
   channelSummary,
   EXPERIMENT_METRIC_LABEL,
   EXPERIMENT_STATUS_LABEL,
@@ -30,6 +33,7 @@ import { MotionilyLayout } from "../shell/MotionilyLayout";
 import { CoverImage, edited } from "../components/VideoCard";
 import { PostedInbox } from "../social/Published";
 import { SocialAccounts } from "../social/SocialAccounts";
+import { Dropdown } from "../components/Dropdown";
 import { useAgentName } from "../agentName";
 
 const DAY = 86_400_000;
@@ -165,6 +169,7 @@ export function StatsScreen() {
             <ViewsChart rows={current} />
             <Insights rows={mine} agent={agent} />
           </section>
+          <Lessons rows={mine} onChange={() => void load()} />
           <Experiments rows={mine} agent={agent} />
           <VideoTable rows={current} sort={sort} onSort={setSort} />
           {!all.length && <p className="text-sm text-neutral-500">No posted video is linked yet. Post from the calendar, or link the ones already on your accounts below.</p>}
@@ -281,6 +286,102 @@ const STATUS_STYLE: Record<ExperimentStatus, string> = {
   unclear: "bg-white/[0.06] text-neutral-300",
 };
 const STATUS_ICON: Record<ExperimentStatus, string> = { waiting: "◷", worked: "✓", failed: "✕", unclear: "≈" };
+
+/** What each video already posted teaches, and a way to say what it was testing (judged right away). */
+function Lessons({ rows, onChange }: { rows: ChannelVideo[]; onChange: () => void }) {
+  const lessons = channelLessons(rows).filter((l) => !l.tested);
+  const [open, setOpen] = useState<string | null>(null);
+  const [change, setChange] = useState("");
+  const [metric, setMetric] = useState<ExperimentMetric>(ExperimentMetric.Watch);
+  const [busy, setBusy] = useState(false);
+  if (!lessons.length) return null;
+  const start = (l: ChannelLesson) => {
+    setOpen(l.projectId);
+    setChange("");
+    setMetric(l.better[0]?.metric ?? l.worse[0]?.metric ?? ExperimentMetric.Watch);
+  };
+  const save = async (projectId: string) => {
+    if (change.trim().length < 3) return;
+    setBusy(true);
+    try {
+      await api.setExperiment(projectId, { change: change.trim(), metric });
+      setOpen(null);
+      onChange();
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="flex flex-col gap-3">
+      <div>
+        <h2 className="text-lg font-semibold">What your videos teach</h2>
+        <p className="text-sm text-neutral-500">Videos already posted, against your usual numbers. Say what one was trying and it becomes an experiment, judged right away.</p>
+      </div>
+      <div className="grid gap-3 lg:grid-cols-2">
+        {lessons.map((l) => (
+          <div key={l.projectId} className="flex flex-col gap-2 rounded-2xl bg-neutral-900/60 p-4 ring-1 ring-white/[0.06]">
+            <a href={href({ name: RouteName.Editor, id: l.projectId })} className="text-sm font-medium hover:underline">
+              {l.name}
+            </a>
+            <div className="flex flex-wrap gap-1.5">
+              {l.better.map((b) => (
+                <span key={b.metric} className="rounded-md bg-emerald-400/10 px-2 py-0.5 text-[11px] text-emerald-300">
+                  ▲ {b.text}
+                </span>
+              ))}
+              {l.worse.map((w) => (
+                <span key={w.metric} className="rounded-md bg-rose-400/10 px-2 py-0.5 text-[11px] text-rose-300">
+                  ▼ {w.text}
+                </span>
+              ))}
+            </div>
+            {(l.hook || l.traits.length > 0) && (
+              <ul className="flex flex-col gap-0.5 text-xs text-neutral-400">
+                {l.hook && <li>Opens with “{l.hook}”</li>}
+                {l.traits.map((t) => (
+                  <li key={t}>{t[0]!.toUpperCase() + t.slice(1)}</li>
+                ))}
+              </ul>
+            )}
+            {open === l.projectId ? (
+              <div className="mt-1 flex flex-col gap-2">
+                <input
+                  autoFocus
+                  value={change}
+                  onChange={(e) => setChange(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && void save(l.projectId)}
+                  maxLength={200}
+                  placeholder="What was it trying? e.g. A 4-word claim as the hook"
+                  className="rounded-lg bg-neutral-800 px-3 py-2 text-sm ring-1 ring-white/[0.06] placeholder:text-neutral-500 focus:ring-white/25 focus:outline-none"
+                />
+                <div className="flex items-center gap-2">
+                  <Dropdown
+                    size="sm"
+                    className="w-56"
+                    label="Measured by"
+                    value={metric}
+                    onChange={setMetric}
+                    options={Object.values(ExperimentMetric).map((m) => ({ value: m, label: EXPERIMENT_METRIC_LABEL[m] }))}
+                  />
+                  <button type="button" disabled={busy || change.trim().length < 3} onClick={() => void save(l.projectId)} className="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-neutral-900 hover:bg-neutral-200 disabled:opacity-50">
+                    Save
+                  </button>
+                  <button type="button" onClick={() => setOpen(null)} className="text-xs text-neutral-500 hover:text-white">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" onClick={() => start(l)} className="mt-1 self-start text-xs font-medium text-neutral-300 hover:text-white">
+                + What was it testing?
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 /** What each video tested and how it turned out against the channel's usual. */
 function Experiments({ rows, agent }: { rows: ChannelVideo[]; agent: string }) {

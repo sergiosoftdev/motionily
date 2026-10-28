@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { audienceDrops, channelExperiments, channelInsights, channelPlaybook, channelSummary, onScreenAt, type ChannelVideo, type PostMetrics, type VideoFeatures } from "@motionily/protocol";
+import { audienceDrops, channelExperiments, channelInsights, channelLessons, channelPlaybook, channelSummary, onScreenAt, type ChannelVideo, type PostMetrics, type VideoFeatures } from "@motionily/protocol";
 import { channelBrief, channelReport, performanceReport } from "../src/performance.js";
 
 const base: PostMetrics = { platform: "instagram", fetchedAt: "2026-10-27T18:00:00.000Z", views: 1200, reach: 900, likes: 80, comments: 4, shares: 9, saves: 15, avgWatch: 4.2, skipRate: 0.38, retention: null, duration: null };
@@ -137,4 +137,28 @@ test("experiments: judged against the channel's usual once 3 days old, waiting b
   assert.match(playbook, /Worked: "Opens with a question" on "q" .*20% skip in 3 s against/);
   assert.match(playbook, /Didn't work: "45 s instead of 15"/);
   assert.match(playbook, /Waiting: "No voice" on "f".*after 2026-10-31/);
+});
+
+test("lessons: videos posted without an experiment still say what stood out and what they did differently", () => {
+  const now = Date.parse("2026-10-28T20:00:00.000Z");
+  const ig = (name: string, views: number, watch: number, skip: number, shares: number, f: VideoFeatures) => ({
+    ...posted(name, "instagram", views, skip, watch * 30, 30),
+    metrics: { ...base, views, skipRate: skip, avgWatch: watch * 30, duration: 30, shares, saves: 0 },
+    features: f,
+  });
+  const rows = [
+    ig("Bulls", 2500, 0.81, 0.24, 1, { ...made("Bulls can't see red.", 20, true), duration: 45 }),
+    ig("Goldfish", 1700, 0.46, 0.35, 12, made("Goldfish remember for months, not seconds, and here's how we know", 20, true)),
+    ig("Vikings", 1700, 0.39, 0.43, 1, made("Vikings never wore horned helmets into battle, and the reason is surprising", 20, true)),
+    { ...ig("Tongue", 155, 0.31, 0.21, 0, made("The tongue map is fake.", 20, true)), publishedAt: "2026-10-28T12:00:00.000Z" },
+  ];
+  const lessons = channelLessons(rows, now);
+  const by = Object.fromEntries(lessons.map((l) => [l.name, l]));
+  assert.equal(by.Tongue, undefined, "still growing");
+  assert.deepEqual(by.Bulls!.better.map((b) => b.metric).sort(), ["hook", "views", "watch"]);
+  assert.ok(by.Bulls!.traits.some((t) => t.startsWith("45 s long")), by.Bulls!.traits.join("; "));
+  assert.ok(by.Bulls!.traits.some((t) => t.startsWith("a shorter opening line")), by.Bulls!.traits.join("; "));
+  assert.deepEqual(by.Goldfish!.better.map((b) => b.metric), ["shares"]);
+  assert.equal(lessons[0]!.name, "Bulls", "the one that stands out most first");
+  assert.match(channelPlaybook(rows, now)!, /Lessons from videos already posted[\s\S]*"Bulls" (did well|was mixed): .*81% watched \(usually/);
 });

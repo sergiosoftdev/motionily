@@ -416,6 +416,92 @@ export function channelExperiments(rows: ChannelVideo[], now = Date.now()): Expe
   return out.sort((a, b) => at(b).localeCompare(at(a)));
 }
 
+/** What one posted video teaches: where it beat or fell short of the channel's usual, and what it did differently. */
+export type ChannelLesson = {
+  projectId: string;
+  name: string;
+  platform: SocialPlatform;
+  /** Numbers clearly above the usual ("81% watched, usually 43%"), with the metric each is. */
+  better: { metric: ExperimentMetric; text: string }[];
+  worse: { metric: ExperimentMetric; text: string }[];
+  /** How it was made differently from the others ("45 s, usually 30 s", "opens with 4 words"). */
+  traits: string[];
+  hook: string | null;
+  /** Already says what it tested. */
+  tested: boolean;
+};
+
+/** Lessons shown and handed to the agent. */
+const MAX_LESSONS = 6;
+
+/**
+ * Every posted video old enough to compare, read against the others even if it never declared an
+ * experiment: which numbers stand out (beyond the same margins experiments use) and which of its traits
+ * differ from the rest. Correlation, not proof: the playbook says so and suggests testing the trait.
+ * Videos that stand out most come first.
+ */
+export function channelLessons(rows: ChannelVideo[], now = Date.now()): ChannelLesson[] {
+  const ranked = comparable(rows, now);
+  if (ranked.length < MIN_BASELINE + 1) return [];
+  const seen = new Set<string>();
+  const out: (ChannelLesson & { weight: number })[] = [];
+  for (const r of ranked) {
+    if (seen.has(r.projectId)) continue;
+    seen.add(r.projectId);
+    const others = ranked.filter((x) => x.projectId !== r.projectId);
+    const same = others.filter((x) => x.platform === r.platform);
+    const pool = same.length >= MIN_BASELINE ? same : others;
+    const better: ChannelLesson["better"] = [];
+    const worse: ChannelLesson["worse"] = [];
+    let weight = 0;
+    for (const metric of Object.values(ExperimentMetric)) {
+      const rule = METRIC[metric];
+      const value = rule.of(r);
+      const usual = median(pool.map(rule.of).filter((v): v is number => v !== null));
+      if (value === null || usual === null) continue;
+      const enough = rule.points !== undefined ? rule.points : (rule.relative ?? 0) * Math.max(Math.abs(usual), 1e-9);
+      const diff = rule.lower ? usual - value : value - usual;
+      if (Math.abs(diff) < enough) continue;
+      (diff > 0 ? better : worse).push({ metric, text: `${rule.show(value)} (usually ${rule.show(usual)})` });
+      // Capped, so one runaway ratio (12 shares where 1 is usual) does not outweigh three clear wins.
+      weight += Math.min(3, Math.abs(diff) / enough);
+    }
+    if (!better.length && !worse.length) continue;
+    const traits: string[] = [];
+    const f = r.features;
+    const fs = pool.map((x) => x.features).filter((x): x is VideoFeatures => !!x);
+    if (f && fs.length) {
+      const mid = (g: (v: VideoFeatures) => number) => median(fs.map(g).filter((v) => v > 0));
+      const d = mid((v) => v.duration);
+      if (d && f.duration && Math.abs(f.duration - d) >= Math.max(4, 0.25 * d)) traits.push(`${secs(f.duration)} long (the others ${secs(d)})`);
+      const b = mid((v) => v.beatsPerMin);
+      if (b && f.beatsPerMin && Math.abs(f.beatsPerMin - b) >= Math.max(4, 0.25 * b))
+        traits.push(`${f.beatsPerMin > b ? "faster" : "calmer"}: something new every ${secs(60 / f.beatsPerMin)} (the others every ${secs(60 / b)})`);
+      const words = (v: VideoFeatures) => (v.hook ? v.hook.split(/\s+/).length : 0);
+      const w = mid(words);
+      if (w && words(f) && Math.abs(words(f) - w) >= 4) traits.push(`a ${words(f) < w ? "shorter" : "longer"} opening line: ${words(f)} words (the others ${Math.round(w)})`);
+      const voiced = fs.filter((v) => v.voice).length / fs.length;
+      if (f.voice && voiced <= 0.34) traits.push("has a voice-over (most don't)");
+      if (!f.voice && voiced >= 0.66) traits.push("no voice-over (most have one)");
+      const captioned = fs.filter((v) => v.captions).length / fs.length;
+      if (f.captions && captioned <= 0.34) traits.push("has captions (most don't)");
+      if (!f.captions && captioned >= 0.66) traits.push("no captions (most have them)");
+    }
+    out.push({ projectId: r.projectId, name: r.name, platform: r.platform, better, worse, traits, hook: f?.hook || null, tested: !!r.experiment, weight });
+  }
+  return out
+    .sort((a, b) => b.weight - a.weight)
+    .slice(0, MAX_LESSONS)
+    .map(({ weight: _, ...l }) => l);
+}
+
+function lessonLine(l: ChannelLesson): string {
+  const numbers = [...l.better.map((b) => b.text), ...l.worse.map((w) => w.text)].join(", ");
+  const verdict = l.better.length && !l.worse.length ? "did well" : l.worse.length && !l.better.length ? "fell short" : "was mixed";
+  const why = [l.hook ? `opens with "${l.hook}"` : null, ...l.traits].filter(Boolean).join("; ");
+  return `- "${l.name}" ${verdict}: ${numbers}.${why ? ` It ${why}.` : ""}`;
+}
+
 function experimentLine(x: ExperimentResult): string {
   const what = `"${x.experiment.change}" on "${x.name}" (measured by ${EXPERIMENT_METRIC_LABEL[x.experiment.metric].toLowerCase()})`;
   if (x.status === ExperimentStatus.Waiting) return `- Waiting: ${what}${x.readyAt ? `, judged after ${x.readyAt.slice(0, 10)}` : ""}`;
@@ -452,6 +538,12 @@ export function channelPlaybook(rows: ChannelVideo[], now = Date.now()): string 
   const insights = channelInsights(rows, now);
   if (insights.length) out.push("What the best ones do differently:", ...insights.map((i) => `- ${i.title}: ${i.detail}`));
   else if (measured.length < MIN_INSIGHT_VIDEOS) out.push(`Too few videos to compare yet (${measured.length} of ${MIN_INSIGHT_VIDEOS}): start from the best one's hook and length.`);
+  const lessons = channelLessons(rows, now).filter((l) => !l.tested);
+  if (lessons.length)
+    out.push(
+      "Lessons from videos already posted (they declared no experiment, so these are correlations: copy what the strong ones did, and test it with set_experiment to confirm):",
+      ...lessons.map(lessonLine),
+    );
   const experiments = channelExperiments(rows, now);
   if (experiments.length) out.push("Experiments so far (build on what worked, don't repeat what didn't):", ...experiments.slice(0, 10).map(experimentLine));
   if (growing.length) out.push(`Still collecting views (under ${MATURE_HOURS / 24} days, don't judge them yet): ${growing.map((r) => `"${r.name}" ${compactCount(r.metrics!.views)} views at ${Math.round(ageHours(r, now))} h`).join(", ")}.`);
