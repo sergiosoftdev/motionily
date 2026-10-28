@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 
 /**
  * Tiny hash router. Survives reloads, no dependency.
- * #/projects · #/b/:id[/kit] · #/b/:id/new · #/p/:id · #/calendar[/:postId] · #/prefabs · #/sounds · #/settings · #/welcome
+ * #/projects · #/b/:id[/kit] · #/b/:id/new · #/p/:id · #/calendar[/:postId] · #/stats · #/prefabs · #/sounds · #/settings · #/welcome
  */
 export const RouteName = {
   Projects: "projects",
@@ -11,6 +11,8 @@ export const RouteName = {
   Editor: "editor",
   /** Scheduled posts, optionally with one open. */
   Calendar: "calendar",
+  /** How the posted videos did, across the account. */
+  Stats: "stats",
   Prefabs: "prefabs",
   Sounds: "sounds",
   Library: "library",
@@ -29,6 +31,7 @@ export type Route =
   | { name: typeof RouteName.NewVideo; brandId: string }
   | { name: typeof RouteName.Editor; id: string }
   | { name: typeof RouteName.Calendar; postId?: string }
+  | { name: typeof RouteName.Stats }
   | { name: typeof RouteName.Prefabs }
   | { name: typeof RouteName.Sounds }
   | { name: typeof RouteName.Library }
@@ -43,6 +46,7 @@ function parse(hash: string): Route {
     return { name: RouteName.Brand, id: second, tab: third === BrandTab.Kit ? BrandTab.Kit : BrandTab.Videos };
   }
   if (first === RouteName.Calendar) return { name: RouteName.Calendar, postId: second || undefined };
+  if (first === RouteName.Stats) return { name: RouteName.Stats };
   if (first === RouteName.Prefabs) return { name: RouteName.Prefabs };
   if (first === RouteName.Sounds) return { name: RouteName.Sounds };
   if (first === RouteName.Library) return { name: RouteName.Library };
@@ -61,6 +65,8 @@ export function href(route: Route): string {
       return `#/b/${route.brandId}/new`;
     case RouteName.Calendar:
       return route.postId ? `#/calendar/${route.postId}` : "#/calendar";
+    case RouteName.Stats:
+      return "#/stats";
     case RouteName.Prefabs:
       return "#/prefabs";
     case RouteName.Sounds:

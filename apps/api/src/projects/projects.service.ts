@@ -18,7 +18,8 @@ const NEUTRAL_BASE = "motion_style/apple";
 /** Favorites an agent reads at once. */
 const MAX_FAVORITES = 12;
 
-const coverUrl = (file: string | null | undefined) => (file ? `/media/${file}` : null);
+/** Where a stored cover is served. */
+export const coverUrl = (file: string | null | undefined) => (file ? `/media/${file}` : null);
 
 @Injectable()
 export class ProjectsService {

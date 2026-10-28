@@ -17,6 +17,9 @@ export function edited(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 }
 
+/** A still that failed to load (its file is gone) leaves the plain background instead of a broken image. */
+const hide = (e: React.SyntheticEvent<HTMLImageElement>) => (e.currentTarget.style.visibility = "hidden");
+
 /**
  * A still of the video (the editor keeps one) shown whole on a blurred copy of itself, so vertical and
  * wide videos sit in the same grid; before the first still, its palette.
@@ -26,8 +29,8 @@ export function CoverImage({ cover, palette, className = "" }: { cover?: string 
   const src = mediaUrl(cover);
   return (
     <span className={`relative block h-full w-full overflow-hidden bg-neutral-950 ${className}`}>
-      <img src={src} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-125 object-cover opacity-40 blur-2xl" />
-      <img src={src} alt="" loading="lazy" className="relative h-full w-full object-contain" />
+      <img src={src} alt="" aria-hidden onError={hide} className="absolute inset-0 h-full w-full scale-125 object-cover opacity-40 blur-2xl" />
+      <img src={src} alt="" loading="lazy" onError={hide} className="relative h-full w-full object-contain" />
     </span>
   );
 }

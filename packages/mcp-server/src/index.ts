@@ -39,9 +39,9 @@ import { describeExample, rankExamples, type Example } from "./examples.js";
 import { nextSteps, type ProjectState } from "./nextstep.js";
 import { frameStats } from "./review.js";
 import { attentionReport } from "./attention.js";
-import { performanceReport } from "./performance.js";
+import { channelReport, performanceReport } from "./performance.js";
 import { LOG_CHARS, runScript, type HostApi } from "./sandbox.js";
-import { attentionCurve, attentionIssues, attentionSparkline, blueprintLines, seriesBlueprint, seriesDrift, type PostPerformance, type Series } from "@motionily/protocol";
+import { attentionCurve, attentionIssues, attentionSparkline, blueprintLines, seriesBlueprint, seriesDrift, type ChannelVideo, type PostPerformance, type Series } from "@motionily/protocol";
 import { buildEdit, DEFAULT_EDIT, FOOTAGE_GROUP, footageLines, parseSegments, transcriptLines } from "./footage.js";
 import { mediaLines, registerStudioTools } from "./studio.js";
 import { svgToVector } from "./svg.js";
@@ -1596,6 +1596,16 @@ server.registerTool(
     const [posts, scene] = await Promise.all([api.route<PostPerformance[]>("GET", "/performance"), currentScene()]);
     return text(performanceReport(posts, scene ?? {}));
   }),
+);
+
+server.registerTool(
+  "get_channel_insights",
+  {
+    description:
+      "How all the user's posted videos compare (Instagram, TikTok, YouTube Shorts): totals, best and weakest videos with views, share watched, 3-second skip and engagement, and what the best ones do differently (hook, length, platform, shares). Read it before planning a new video or when the user asks what to improve.",
+    inputSchema: {},
+  },
+  guard(async () => text(channelReport(await api.route<ChannelVideo[]>("GET", "/channel"), api.projectId))),
 );
 
 server.registerTool(

@@ -113,6 +113,12 @@ export class SocialController {
     return this.social.linkPublished(userOnly(user), dto.projectId, dto.platform, dto.videoId);
   }
 
+  /** Every posted video with its numbers: the dashboard. */
+  @Get("channel")
+  channel(@CurrentUser() user: AuthUser) {
+    return this.social.channel(userOnly(user));
+  }
+
   /** Match and measure everything posted in the last 90 days now (it also runs every few hours). */
   @Post("sync")
   @HttpCode(200)
@@ -157,5 +163,11 @@ export class PerformanceController {
   @Get(":id/performance")
   performance(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     return this.social.performance(user.id, id);
+  }
+
+  /** Every posted video of the account with its numbers, for the agent comparing what worked. */
+  @Get(":id/channel")
+  channel(@CurrentUser() user: AuthUser) {
+    return this.social.channel(user.id);
   }
 }

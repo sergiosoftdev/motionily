@@ -8,6 +8,7 @@ import { EditorScreen } from "./screens/EditorScreen";
 import { PrefabsScreen } from "./screens/PrefabsScreen";
 import { SoundsScreen } from "./screens/SoundsScreen";
 import { LibraryScreen } from "./screens/LibraryScreen";
+import { StatsScreen } from "./screens/StatsScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { CalendarScreen } from "./screens/CalendarScreen";
 import { DueReminders } from "./posts/DueReminders";
@@ -36,6 +37,7 @@ function Screen() {
   if (route.name === RouteName.NewVideo) return <NewProjectScreen brandId={route.brandId} />;
   if (route.name === RouteName.Brand) return <BrandScreen key={route.id} id={route.id} tab={route.tab} />;
   if (route.name === RouteName.Calendar) return <CalendarScreen postId={route.postId} />;
+  if (route.name === RouteName.Stats) return <StatsScreen />;
   if (route.name === RouteName.Prefabs) return <PrefabsScreen />;
   if (route.name === RouteName.Sounds) return <SoundsScreen />;
   if (route.name === RouteName.Library) return <LibraryScreen />;

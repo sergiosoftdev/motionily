@@ -98,7 +98,7 @@ export function SettingsScreen() {
       <section className="flex max-w-xl flex-col gap-3">
         <div>
           <h2 className="text-sm font-semibold">Social accounts</h2>
-          <p className="text-xs text-neutral-500">How your posted videos do: views, average view, where viewers leave. Shown in the calendar and the editor, and read by the agent.</p>
+          <p className="text-xs text-neutral-500">How your posted videos do: views, average view, where viewers leave. Shown on Stats, in the calendar and the editor, and read by the agent.</p>
         </div>
         <SocialAccounts />
       </section>

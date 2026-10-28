@@ -219,6 +219,16 @@ describe("Social accounts and post performance", () => {
     await http.get("/posts").set(agent).expect(403);
     await http.post("/social/sync").set(agent).expect(403);
     await http.get("/social/accounts").set(agent).expect(403);
+
+    // The Stats page: one row per published copy, with the video's name and numbers.
+    const { body: channel } = await http.get("/social/channel").set(auth).expect(200);
+    assert.deepEqual(channel.map((r: { platform: string }) => r.platform).sort(), ["instagram", "tiktok", "youtube"]);
+    assert.ok(channel.every((r: { projectId: string; postId: string; name: string }) => r.projectId === projectId && r.postId === postId && r.name));
+    assert.equal(channel.find((r: { platform: string }) => r.platform === "tiktok").metrics.views, 5400);
+    // The agent compares across videos through its own video's route, never the user's.
+    const { body: seen } = await http.get(`/projects/${projectId}/channel`).set(agent).expect(200);
+    assert.equal(seen.length, 3);
+    await http.get("/social/channel").set(agent).expect(403);
   });
 
   it("links a post by its URL, and an expired token asks to connect again instead of failing the rest", async () => {

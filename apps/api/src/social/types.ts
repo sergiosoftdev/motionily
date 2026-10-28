@@ -1,4 +1,4 @@
-/** Mirrors SocialPlatform, PostLink, PostMetrics, PostPerformance and SocialAccount in @motionily/protocol (performance.ts). */
+/** Mirrors SocialPlatform, PostLink, PostMetrics, PostPerformance, ChannelVideo and SocialAccount in @motionily/protocol (performance.ts). */
 
 export enum SocialPlatform {
   Instagram = "instagram",
@@ -28,3 +28,16 @@ export type PostMetrics = {
 export type SocialAccount = { platform: SocialPlatform; connected: boolean; handle: string | null; error: string | null };
 
 export type PostPerformance = { postId: string; postedAt: string | null; outdated: boolean; links: PostLink[]; metrics: PostMetrics[] };
+
+export type ChannelVideo = {
+  postId: string;
+  projectId: string;
+  name: string;
+  cover: string | null;
+  format: string | null;
+  duration: number;
+  platform: SocialPlatform;
+  url: string | null;
+  publishedAt: string | null;
+  metrics: PostMetrics | null;
+};

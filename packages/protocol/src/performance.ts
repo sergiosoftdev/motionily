@@ -118,3 +118,131 @@ export function compactCount(n: number | null): string {
   if (n === null) return "–";
   return new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(n);
 }
+
+/** One published copy of a video made here with its latest numbers: a row of the channel's dashboard. */
+export type ChannelVideo = {
+  postId: string;
+  projectId: string;
+  name: string;
+  /** A still of the video (`/media/...`), once the editor took one. */
+  cover: string | null;
+  format: string | null;
+  /** The scene's length in seconds (0 when unknown). */
+  duration: number;
+  platform: SocialPlatform;
+  url: string | null;
+  publishedAt: string | null;
+  /** Null until the platform has been asked (or it gave nothing). */
+  metrics: PostMetrics | null;
+};
+
+/** Share (0..1) of the video the average view watches; past 1 with rewatches. Null without numbers. */
+export function watchShare(v: ChannelVideo): number | null {
+  const m = v.metrics;
+  const len = m?.duration ?? v.duration;
+  return m?.avgWatch != null && len > 0 ? m.avgWatch / len : null;
+}
+
+/** Likes, comments, shares and saves per view. Null without views. */
+export function engagementRate(m: PostMetrics | null): number | null {
+  if (!m?.views) return null;
+  return ((m.likes ?? 0) + (m.comments ?? 0) + (m.shares ?? 0) + (m.saves ?? 0)) / m.views;
+}
+
+const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+export function median(xs: number[]): number | null {
+  if (!xs.length) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  const h = s.length >> 1;
+  return s.length % 2 ? s[h]! : (s[h - 1]! + s[h]!) / 2;
+}
+const present = <T>(xs: (T | null | undefined)[]) => xs.filter((x): x is T => x != null);
+
+/** The channel's totals and typical video: what a dashboard's headline shows. */
+export type ChannelSummary = {
+  videos: number;
+  views: number;
+  medianViews: number | null;
+  /** Average share of each video watched. */
+  watch: number | null;
+  /** Average share skipped in the first 3 s (Instagram). */
+  skip: number | null;
+  /** Interactions per view over every video. */
+  engagement: number | null;
+  shares: number;
+  saves: number;
+};
+
+export function channelSummary(rows: ChannelVideo[]): ChannelSummary {
+  const ms = present(rows.map((r) => r.metrics));
+  const views = ms.reduce((a, m) => a + (m.views ?? 0), 0);
+  const interactions = ms.reduce((a, m) => a + (m.likes ?? 0) + (m.comments ?? 0) + (m.shares ?? 0) + (m.saves ?? 0), 0);
+  return {
+    videos: rows.length,
+    views,
+    medianViews: median(present(ms.map((m) => m.views))),
+    watch: mean(present(rows.map(watchShare))),
+    skip: mean(present(ms.map((m) => m.skipRate))),
+    engagement: views ? interactions / views : null,
+    shares: ms.reduce((a, m) => a + (m.shares ?? 0), 0),
+    saves: ms.reduce((a, m) => a + (m.saves ?? 0), 0),
+  };
+}
+
+/** Videos needed before comparing the best ones with the rest says anything. */
+export const MIN_INSIGHT_VIDEOS = 4;
+
+/** One thing the numbers say across videos, and what to do about it. */
+export type ChannelInsight = { title: string; detail: string };
+
+/**
+ * What the best videos (top third by views) do differently from the rest: the hook (3-second skip), how
+ * much of them is watched, their length, the platform, the interactions they get. Only differences big
+ * enough to act on; empty with fewer than MIN_INSIGHT_VIDEOS measured videos.
+ */
+export function channelInsights(rows: ChannelVideo[]): ChannelInsight[] {
+  const measured = rows.filter((r) => r.metrics?.views != null).sort((a, b) => b.metrics!.views! - a.metrics!.views!);
+  if (measured.length < MIN_INSIGHT_VIDEOS) return [];
+  const third = Math.max(1, Math.round(measured.length / 3));
+  const top = measured.slice(0, third);
+  const rest = measured.slice(third);
+  const avg = (xs: ChannelVideo[], f: (r: ChannelVideo) => number | null | undefined) => mean(present(xs.map(f)));
+  const out: ChannelInsight[] = [];
+
+  const [ts, rs] = [avg(top, (r) => r.metrics!.skipRate), avg(rest, (r) => r.metrics!.skipRate)];
+  if (ts !== null && rs !== null && rs - ts >= 0.08)
+    out.push({ title: "The hook decides it", detail: `Your best videos lose ${pct(ts)} of viewers in the first 3 s; the rest lose ${pct(rs)}. Open on the payoff or a question: frame 0 and the first line matter most.` });
+  else if (ts !== null && ts >= 0.5)
+    out.push({ title: "Most viewers swipe in the first 3 s", detail: `Even your best videos lose ${pct(ts)} before 3 s. Try a stronger first frame: motion right away, text that states the promise.` });
+
+  const [tw, rw] = [avg(top, watchShare), avg(rest, watchShare)];
+  if (tw !== null && rw !== null && tw - rw >= 0.1) out.push({ title: "Watched to the end, shown to more", detail: `Viewers watch ${pct(tw)} of your best videos and ${pct(rw)} of the rest. Cut where it sags; get to the point sooner.` });
+
+  const len = (r: ChannelVideo) => r.metrics?.duration ?? (r.duration || null);
+  const [tl, rl] = [avg(top, len), avg(rest, len)];
+  if (tl !== null && rl !== null && Math.abs(tl - rl) >= Math.max(4, 0.25 * Math.min(tl, rl)))
+    out.push(
+      tl < rl
+        ? { title: "Shorter does better", detail: `Your best videos run ${secs(tl)} on average; the rest ${secs(rl)}. Aim near ${secs(tl)}.` }
+        : { title: "Longer does better here", detail: `Your best videos run ${secs(tl)} on average; the rest ${secs(rl)}. Your audience stays for depth: don't cut too short.` },
+    );
+
+  const byPlatform = SOCIAL_PLATFORMS.map((p) => ({ p, views: median(measured.filter((r) => r.platform === p).map((r) => r.metrics!.views!)), n: measured.filter((r) => r.platform === p).length })).filter(
+    (x) => x.views !== null && x.n >= 2,
+  );
+  if (byPlatform.length >= 2) {
+    byPlatform.sort((a, b) => b.views! - a.views!);
+    const [best, worst] = [byPlatform[0]!, byPlatform.at(-1)!];
+    if (best.views! >= 2 * Math.max(1, worst.views!))
+      out.push({ title: `${SOCIAL_LABEL[best.p]} is where you grow`, detail: `A typical video gets ${compactCount(best.views)} views on ${SOCIAL_LABEL[best.p]} and ${compactCount(worst.views)} on ${SOCIAL_LABEL[worst.p]}. Post there first.` });
+  }
+
+  const shares = (r: ChannelVideo) => (r.metrics?.views ? (r.metrics.shares ?? 0) / r.metrics.views : null);
+  const [tsh, rsh] = [avg(top, shares), avg(rest, shares)];
+  if (tsh !== null && rsh !== null && tsh >= 2 * rsh && tsh > 0.005)
+    out.push({ title: "Shares drive the reach", detail: `Your best videos get ${(tsh * 1000).toFixed(1)} shares per 1,000 views, the rest ${(rsh * 1000).toFixed(1)}. Give people a reason to send it: a tip, a surprising number, something to tag a friend in.` });
+
+  return out;
+}
+
+const secs = (v: number) => `${Math.round(v)} s`;

@@ -2,9 +2,10 @@ import { BadGatewayException, BadRequestException, HttpException, HttpStatus, In
 import { InjectModel } from "@nestjs/mongoose";
 import { randomBytes } from "node:crypto";
 import { Model, Types } from "mongoose";
-import { SOCIAL_LABEL, SOCIAL_PLATFORMS, SocialPlatform, type PostLink, type PostMetrics, type PostPerformance, type SocialAccount } from "./types";
+import { SOCIAL_LABEL, SOCIAL_PLATFORMS, SocialPlatform, type ChannelVideo, type PostLink, type PostMetrics, type PostPerformance, type SocialAccount } from "./types";
 import { Post, PostStatus, type PostDocument } from "../posts/post.schema";
 import { Project } from "../projects/project.schema";
+import { coverUrl } from "../projects/projects.service";
 import { User } from "../users/user.schema";
 import { seal, unseal, type Sealed } from "../voice/secrets";
 import {
@@ -293,6 +294,35 @@ export class SocialService implements OnModuleInit, OnModuleDestroy {
       links: p.links ?? [],
       metrics: p.metrics ?? [],
     }));
+  }
+
+  /** Every published copy of the account's videos with its latest numbers, newest first: the channel's dashboard. */
+  async channel(userId: Types.ObjectId): Promise<ChannelVideo[]> {
+    const posts = await this.posts.find({ ownerId: userId, status: PostStatus.Posted, "links.0": { $exists: true } }, { projectId: 1, links: 1, metrics: 1 }).lean();
+    const projects = new Map(
+      (await this.projects.find({ _id: { $in: posts.map((p) => p.projectId) }, ownerId: userId }, { name: 1, cover: 1, format: 1, "scene.duration": 1 }).lean()).map((p) => [String(p._id), p]),
+    );
+    const rows: ChannelVideo[] = [];
+    for (const post of posts) {
+      const project = projects.get(String(post.projectId));
+      if (!project) continue;
+      const duration = (project as { scene?: { duration?: unknown } | null }).scene?.duration;
+      for (const l of post.links ?? []) {
+        rows.push({
+          postId: String(post._id),
+          projectId: String(project._id),
+          name: project.name,
+          cover: coverUrl(project.cover),
+          format: project.format ?? null,
+          duration: typeof duration === "number" ? duration : 0,
+          platform: l.platform,
+          url: l.url,
+          publishedAt: l.publishedAt,
+          metrics: (post.metrics ?? []).find((m) => m.platform === l.platform) ?? null,
+        });
+      }
+    }
+    return rows.sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? ""));
   }
 
   private async syncPosts(userId: Types.ObjectId, posts: PostDocument[]) {

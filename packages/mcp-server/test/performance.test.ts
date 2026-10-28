@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { audienceDrops, onScreenAt, type PostMetrics } from "@motionily/protocol";
-import { performanceReport } from "../src/performance.js";
+import { audienceDrops, channelInsights, channelSummary, onScreenAt, type ChannelVideo, type PostMetrics } from "@motionily/protocol";
+import { channelReport, performanceReport } from "../src/performance.js";
 
 const base: PostMetrics = { platform: "instagram", fetchedAt: "2026-10-27T18:00:00.000Z", views: 1200, reach: 900, likes: 80, comments: 4, shares: 9, saves: 15, avgWatch: 4.2, skipRate: 0.38, retention: null, duration: null };
 const scene = {
@@ -39,4 +39,47 @@ test("the report maps each drop to what was on screen and says when nothing is p
   assert.match(report, /- 3 s: 38% skipped in the first 3 s · on screen: "Bulls don't hate red\.", bg\n  - 4\.2 s: the average view ends here \(21% of the video\) · on screen: "They hate the motion", bg/);
   assert.match(report, /edited since/);
   assert.match(performanceReport([], scene), /not been posted/);
+});
+
+const posted = (name: string, platform: ChannelVideo["platform"], views: number, skipRate: number, avgWatch: number, duration: number): ChannelVideo => ({
+  postId: name,
+  projectId: name,
+  name,
+  cover: null,
+  format: "vertical",
+  duration,
+  platform,
+  url: null,
+  publishedAt: "2026-10-01T10:00:00.000Z",
+  metrics: { ...base, platform, views, skipRate, avgWatch, duration, shares: Math.round(views * 0.002) },
+});
+
+test("channel: what the best videos do differently, only when it is a real difference", () => {
+  const rows = [
+    posted("short-1", "tiktok", 40_000, 0.2, 9, 12),
+    posted("short-2", "tiktok", 30_000, 0.22, 8, 13),
+    posted("long-1", "instagram", 2_000, 0.5, 8, 35),
+    posted("long-2", "instagram", 1_500, 0.55, 7, 40),
+    posted("long-3", "instagram", 1_200, 0.6, 6, 38),
+    posted("long-4", "tiktok", 1_800, 0.5, 9, 36),
+  ];
+  const titles = channelInsights(rows).map((i) => i.title);
+  assert.ok(titles.includes("The hook decides it"), titles.join(", "));
+  assert.ok(titles.includes("Shorter does better"), titles.join(", "));
+  assert.ok(titles.includes("TikTok is where you grow"), titles.join(", "));
+  // Alike videos: nothing to act on.
+  const alike = Array.from({ length: 6 }, (_, i) => posted(`v${i}`, "instagram", 1000 + i * 10, 0.3, 6, 20));
+  assert.deepEqual(channelInsights(alike), []);
+  // Too few to compare.
+  assert.deepEqual(channelInsights(rows.slice(0, 3)), []);
+  assert.equal(channelSummary(rows).views, 76_500);
+});
+
+test("channel report: best first, the open video marked, and the comparison", () => {
+  const rows = [posted("a", "tiktok", 500, 0.4, 5, 20), posted("b", "tiktok", 9000, 0.1, 15, 20), posted("c", "instagram", 100, 0.7, 3, 20)];
+  const report = channelReport(rows, "a");
+  assert.ok(report.indexOf('"b"') < report.indexOf('"a"'));
+  assert.match(report, /"a" \(this video\)/);
+  assert.match(report, /too few measured videos/);
+  assert.match(channelReport([], "a"), /No posted video has numbers yet/);
 });
