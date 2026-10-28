@@ -3,7 +3,7 @@ import { InjectModel } from "@nestjs/mongoose";
 import { Model, Types } from "mongoose";
 import { BricksService } from "../bricks/bricks.service";
 import { BrickSlot, SLOT_CARDINALITY, SlotCardinality } from "../bricks/brick.enums";
-import { Build, Feedback, FeedbackKind, Project, ProjectDocument, VideoFormat, type AgentRunUsage, type FootageClip, type PostCopyDraft, type SunoPrompt } from "./project.schema";
+import { Build, ExperimentMetric, Feedback, FeedbackKind, Project, ProjectDocument, VideoFormat, type AgentRunUsage, type FootageClip, type PostCopyDraft, type SunoPrompt } from "./project.schema";
 import type { AssetCredit } from "../assets/asset-types";
 import { removeMedia } from "../media";
 import { BridgeHub } from "../bridge-hub";
@@ -59,6 +59,14 @@ export class ProjectsService {
     // Not a change to the video: its place in "recent" stays where it was.
     await this.projects.updateOne({ _id: project._id }, { $set: { cover: file } }, { timestamps: false });
     return { cover: coverUrl(file), previous };
+  }
+
+  /** What the video tests, or null to drop it. Not an edit of the video: "recent" keeps its order. */
+  async setExperiment(ownerId: Types.ObjectId, id: string, experiment: { change: string; metric: ExperimentMetric } | null) {
+    const project = await this.get(ownerId, id);
+    const value = experiment ? { change: experiment.change.trim(), metric: experiment.metric, setAt: new Date().toISOString() } : null;
+    await this.projects.updateOne({ _id: project._id }, { $set: { experiment: value } }, { timestamps: false });
+    return { experiment: value };
   }
 
   async setFavorite(ownerId: Types.ObjectId, id: string, favorite: boolean) {

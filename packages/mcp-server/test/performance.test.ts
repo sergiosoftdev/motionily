@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { audienceDrops, channelInsights, channelPlaybook, channelSummary, onScreenAt, type ChannelVideo, type PostMetrics, type VideoFeatures } from "@motionily/protocol";
+import { audienceDrops, channelExperiments, channelInsights, channelPlaybook, channelSummary, onScreenAt, type ChannelVideo, type PostMetrics, type VideoFeatures } from "@motionily/protocol";
 import { channelBrief, channelReport, performanceReport } from "../src/performance.js";
 
 const base: PostMetrics = { platform: "instagram", fetchedAt: "2026-10-27T18:00:00.000Z", views: 1200, reach: 900, likes: 80, comments: 4, shares: 9, saves: 15, avgWatch: 4.2, skipRate: 0.38, retention: null, duration: null };
@@ -54,6 +54,7 @@ const posted = (name: string, platform: ChannelVideo["platform"], views: number,
   metrics: { ...base, platform, views, skipRate, avgWatch, duration, shares: Math.round(views * 0.002) },
   views3d: null,
   features: null,
+  experiment: null,
 });
 
 test("channel: what the best videos do differently, only when it is a real difference", () => {
@@ -117,4 +118,23 @@ test("channel: the best videos' hook, pace and voice against the rest", () => {
   const brief = channelBrief(rows)!;
   assert.match(brief, /opens with: "Bulls can't see red\."/);
   assert.equal(channelBrief([]), null);
+});
+
+test("experiments: judged against the channel's usual once 3 days old, waiting before", () => {
+  const now = Date.parse("2026-10-28T20:00:00.000Z");
+  const usual = [posted("a", "instagram", 1700, 0.35, 6, 13), posted("b", "instagram", 1700, 0.43, 5, 13), posted("c", "instagram", 1600, 0.31, 5, 14)];
+  const question = { ...posted("q", "instagram", 2500, 0.2, 9, 12), experiment: { change: "Opens with a question", metric: "hook" as const, setAt: "2026-10-20T10:00:00.000Z" } };
+  const long = { ...posted("l", "instagram", 900, 0.36, 9, 45), experiment: { change: "45 s instead of 15", metric: "views" as const, setAt: "2026-10-21T10:00:00.000Z" } };
+  const fresh = { ...posted("f", "instagram", 155, 0.21, 3, 10), publishedAt: "2026-10-28T12:00:00.000Z", experiment: { change: "No voice", metric: "watch" as const, setAt: "2026-10-28T10:00:00.000Z" } };
+  const results = channelExperiments([...usual, question, long, fresh], now);
+  const by = Object.fromEntries(results.map((r) => [r.name, r]));
+  assert.equal(by.q!.status, "worked");
+  assert.equal(by.q!.value, "20% skip in 3 s");
+  assert.equal(by.l!.status, "failed");
+  assert.equal(by.f!.status, "waiting");
+  assert.equal(by.f!.readyAt, "2026-10-31T12:00:00.000Z");
+  const playbook = channelPlaybook([...usual, question, long, fresh], now)!;
+  assert.match(playbook, /Worked: "Opens with a question" on "q" .*20% skip in 3 s against/);
+  assert.match(playbook, /Didn't work: "45 s instead of 15"/);
+  assert.match(playbook, /Waiting: "No voice" on "f".*after 2026-10-31/);
 });

@@ -26,11 +26,15 @@ El bucle:
 - Comparaciones por gancho, ritmo y voz, además de skip, visto, duración, plataforma y shares.
 - Playbook automático en `get_project`.
 
-## Siguiente
+## Hecho (fase 2): experimentos
 
-- **Experimentos.** Cada vídeo declara qué prueba ("gancho con pregunta en vez de dato", "15 s en vez
-  de 30") y a los 3 días se evalúa contra la mediana del canal: confirmado, descartado o sin señal. El
-  playbook guarda las hipótesis confirmadas y las descartadas, así no se repiten pruebas.
+Cada vídeo declara qué prueba ("gancho con pregunta en vez de dato", "15 s en vez de 30") y qué número
+debería mover (gancho, % visto, views, shares, guardados): el agente con `set_experiment` al planearlo,
+o el usuario en Schedule. A los 3 días se compara con la mediana de los demás vídeos (misma plataforma
+si hay al menos dos): funcionó, no funcionó o sin cambio claro. Stats lo enseña y el playbook de
+`get_project` lista cada resultado, así el agente construye sobre lo que funcionó y no repite lo que no.
+
+## Siguiente
 - **Momentos donde se van.** Juntar los puntos de abandono de todos los vídeos (retención de YouTube,
   skip de Instagram) con lo que había en pantalla: "cuando aparece una tabla, cae un 12%".
 - **Hora de publicar.** Views a 3 días por día y franja horaria; el Schedule propone la mejor franja.

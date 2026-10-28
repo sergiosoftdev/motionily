@@ -1,4 +1,5 @@
 import type { VideoFeatures } from "./features";
+import type { Experiment } from "../projects/project.schema";
 
 /** Mirrors SocialPlatform, PostLink, PostMetrics, PostPerformance, ChannelVideo and SocialAccount in @motionily/protocol (performance.ts). */
 
@@ -48,4 +49,5 @@ export type ChannelVideo = {
   /** Views when it was 3 days old (null until then, or if it was linked later). */
   views3d: number | null;
   features: VideoFeatures | null;
+  experiment: Experiment | null;
 };

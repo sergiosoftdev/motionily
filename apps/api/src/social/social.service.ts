@@ -301,7 +301,7 @@ export class SocialService implements OnModuleInit, OnModuleDestroy {
   async channel(userId: Types.ObjectId): Promise<ChannelVideo[]> {
     const posts = await this.posts.find({ ownerId: userId, status: PostStatus.Posted, "links.0": { $exists: true } }, { projectId: 1, links: 1, metrics: 1, checkpoints: 1, features: 1 }).lean();
     const projects = new Map(
-      (await this.projects.find({ _id: { $in: posts.map((p) => p.projectId) }, ownerId: userId }, { name: 1, cover: 1, format: 1, scene: 1, audio: 1, direction: 1 }).lean()).map((p) => [String(p._id), p]),
+      (await this.projects.find({ _id: { $in: posts.map((p) => p.projectId) }, ownerId: userId }, { name: 1, cover: 1, format: 1, scene: 1, audio: 1, direction: 1, experiment: 1 }).lean()).map((p) => [String(p._id), p]),
     );
     const rows: ChannelVideo[] = [];
     for (const post of posts) {
@@ -324,6 +324,7 @@ export class SocialService implements OnModuleInit, OnModuleDestroy {
           metrics: (post.metrics ?? []).find((m) => m.platform === l.platform) ?? null,
           views3d: (post.checkpoints ?? []).find((c) => c.platform === l.platform && c.day === 3)?.views ?? null,
           features,
+          experiment: project.experiment ?? null,
         });
       }
     }

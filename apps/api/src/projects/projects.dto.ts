@@ -19,7 +19,7 @@ import {
   MinLength,
   ValidateNested,
 } from "class-validator";
-import { FeedbackKind, VideoFormat } from "./project.schema";
+import { ExperimentMetric, FeedbackKind, VideoFormat } from "./project.schema";
 import { VoiceModel } from "../voice/elevenlabs";
 import { PLATFORM_COUNT, PostCopyDto } from "../posts/posts.dto";
 
@@ -48,6 +48,11 @@ export class CreateProjectDto {
 
 export class FavoriteDto {
   @IsBoolean() favorite: boolean;
+}
+
+export class ExperimentDto {
+  @IsString() @MinLength(3) @MaxLength(200) change: string;
+  @IsEnum(ExperimentMetric) metric: ExperimentMetric;
 }
 
 export class UpdateProjectDto {

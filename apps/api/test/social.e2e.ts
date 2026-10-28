@@ -262,12 +262,23 @@ describe("Social accounts and post performance", () => {
     await http.post("/social/sync").set(agent).expect(403);
     await http.get("/social/accounts").set(agent).expect(403);
 
+    // The video's agent records what it tests; it reaches the video and every row of the channel.
+    await http.put(`/projects/${projectId}/experiment`).set(agent).send({ change: "x", metric: "hook" }).expect(400);
+    await http.put(`/projects/${projectId}/experiment`).set(agent).send({ change: "Opens with a question", metric: "likes" }).expect(400);
+    const { body: set } = await http.put(`/projects/${projectId}/experiment`).set(agent).send({ change: " Opens with a question ", metric: "hook" }).expect(200);
+    assert.equal(set.experiment.change, "Opens with a question");
+    const { body: video } = await http.get(`/projects/${projectId}`).set(auth).expect(200);
+    assert.equal(video.experiment.metric, "hook");
+
     // The Stats page: one row per published copy, with the video's name and numbers.
     const { body: channel } = await http.get("/social/channel").set(auth).expect(200);
     assert.deepEqual(channel.map((r: { platform: string }) => r.platform).sort(), ["instagram", "tiktok", "youtube"]);
     assert.ok(channel.every((r: { projectId: string; postId: string; name: string }) => r.projectId === projectId && r.postId === postId && r.name));
     assert.equal(channel.find((r: { platform: string }) => r.platform === "tiktok").metrics.views, 5400);
     assert.ok(channel.every((r: { views3d: unknown; features: unknown }) => r.views3d === null && "features" in r));
+    assert.ok(channel.every((r: { experiment: { change: string } | null }) => r.experiment?.change === "Opens with a question"));
+    await http.delete(`/projects/${projectId}/experiment`).set(auth).expect(200);
+    assert.equal((await http.get(`/projects/${projectId}`).set(auth).expect(200)).body.experiment, null);
     // The agent compares across videos through its own video's route, never the user's.
     const { body: seen } = await http.get(`/projects/${projectId}/channel`).set(agent).expect(200);
     assert.equal(seen.length, 3);

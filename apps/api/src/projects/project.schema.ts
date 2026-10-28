@@ -48,6 +48,17 @@ export type SunoPrompt = { title: string; style: string; structure: string; drop
 /** Caption and hashtags drafted for one platform, kept until the user asks for another draft. */
 export type PostCopyDraft = { platform: string; caption: string; hashtags: string[] };
 
+/** The number an experiment should move (mirrors ExperimentMetric in @motionily/protocol). */
+export enum ExperimentMetric {
+  Views = "views",
+  Hook = "hook",
+  Watch = "watch",
+  Shares = "shares",
+  Saves = "saves",
+}
+/** The one thing this video tries differently, and the number that says whether it worked. */
+export type Experiment = { change: string; metric: ExperimentMetric; setAt: string };
+
 /** A clip uploaded to be edited. `id` is short (c1, c2…) so agents can name it in a cut. */
 /** Kinds of file the media pool holds besides video clips. */
 export enum MediaKind {
@@ -146,6 +157,8 @@ export class Project {
   @Prop({ default: false }) favorite: boolean;
   /** A small still of the video (a file in MEDIA_DIR) for its card, refreshed by the editor as it changes. */
   @Prop({ type: String, default: null }) cover: string | null;
+  /** What this video tests (the agent or the user sets it); judged against the channel 3 days after it's posted. */
+  @Prop({ type: MongooseSchema.Types.Mixed, default: null }) experiment: Experiment | null;
   @Prop({ type: Date, default: null }) favoritedAt: Date | null;
   /**
    * The agent team working on this video right now, persisted so an API restart can neither hide a

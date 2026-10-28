@@ -1,4 +1,4 @@
-import type { AgentRunUsage, AttentionDevice, Brick, BrickSlot, ChannelVideo, LibraryItem, MediaItem, PostLink, PostMetrics, PostPerformance, Project, ProjectListItem, ProviderKey, PublishedVideo, ProviderStatus, Series, SeriesBlueprint, SocialAccount, SocialPlatform, SunoPrompt, User, VideoFormat, Voice, VoiceModel } from "@motionily/protocol";
+import type { AgentRunUsage, AttentionDevice, Brick, BrickSlot, ChannelVideo, Experiment, ExperimentMetric, LibraryItem, MediaItem, PostLink, PostMetrics, PostPerformance, Project, ProjectListItem, ProviderKey, PublishedVideo, ProviderStatus, Series, SeriesBlueprint, SocialAccount, SocialPlatform, SunoPrompt, User, VideoFormat, Voice, VoiceModel } from "@motionily/protocol";
 import { useSession } from "../session";
 import type { AgentPrefs, GenerateState } from "../components/GeneratePanel";
 import { desktop } from "../desktop";
@@ -262,6 +262,9 @@ export const api = {
   /** Instagram, TikTok and YouTube accounts (the user's own developer apps), for the numbers of what they post. */
   /** The latest videos on the connected accounts, each with the video here it is linked to. */
   published: () => call<PublishedVideo[]>(HttpMethod.Get, "/social/published"),
+  /** What a video tests against the channel, or null to drop it. */
+  setExperiment: (projectId: string, e: { change: string; metric: ExperimentMetric } | null) =>
+    e ? call<{ experiment: Experiment }>(HttpMethod.Put, `/projects/${projectId}/experiment`, e) : call<{ experiment: null }>(HttpMethod.Delete, `/projects/${projectId}/experiment`),
   /** Every posted video with its latest numbers (the Stats page). */
   channel: () => call<ChannelVideo[]>(HttpMethod.Get, "/social/channel"),
   /** Link one of them (posted outside the calendar) to video `projectId`: it is measured from then on. */

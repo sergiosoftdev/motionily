@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import {
+  channelExperiments,
   channelInsights,
   channelSummary,
+  EXPERIMENT_METRIC_LABEL,
+  EXPERIMENT_STATUS_LABEL,
+  ExperimentStatus,
   comparable,
   confidence,
   CONFIDENCE_LABEL,
@@ -161,6 +165,7 @@ export function StatsScreen() {
             <ViewsChart rows={current} />
             <Insights rows={mine} agent={agent} />
           </section>
+          <Experiments rows={mine} agent={agent} />
           <VideoTable rows={current} sort={sort} onSort={setSort} />
           {!all.length && <p className="text-sm text-neutral-500">No posted video is linked yet. Post from the calendar, or link the ones already on your accounts below.</p>}
         </>
@@ -269,6 +274,62 @@ function ViewsChart({ rows }: { rows: ChannelVideo[] }) {
 const CONFIDENCE_STYLE: Record<Confidence, string> = { early: "bg-amber-400/10 text-amber-300", fair: "bg-sky-400/10 text-sky-300", solid: "bg-emerald-400/10 text-emerald-300" };
 
 /** What the best videos do differently, how sure that is, and the video to learn from. */
+const STATUS_STYLE: Record<ExperimentStatus, string> = {
+  waiting: "bg-amber-400/10 text-amber-300",
+  worked: "bg-emerald-400/10 text-emerald-300",
+  failed: "bg-rose-400/10 text-rose-300",
+  unclear: "bg-white/[0.06] text-neutral-300",
+};
+const STATUS_ICON: Record<ExperimentStatus, string> = { waiting: "◷", worked: "✓", failed: "✕", unclear: "≈" };
+
+/** What each video tested and how it turned out against the channel's usual. */
+function Experiments({ rows, agent }: { rows: ChannelVideo[]; agent: string }) {
+  const results = channelExperiments(rows);
+  return (
+    <section className="flex flex-col gap-3">
+      <div>
+        <h2 className="text-lg font-semibold">Experiments</h2>
+        <p className="text-sm text-neutral-500">
+          Each video changes one thing (the hook, the length, the pace…). Three days after it's posted it's judged against your usual numbers, and {agent} builds the next video on what worked.
+        </p>
+      </div>
+      {results.length ? (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {results.map((x) => (
+            <a
+              key={x.projectId}
+              href={href({ name: RouteName.Editor, id: x.projectId })}
+              className="flex flex-col gap-2 rounded-2xl bg-neutral-900/60 p-4 ring-1 ring-white/[0.06] transition hover:ring-white/15"
+            >
+              <span className={`flex items-center gap-1.5 self-start rounded-md px-2 py-0.5 text-[11px] font-medium ${STATUS_STYLE[x.status]}`}>
+                <span aria-hidden>{STATUS_ICON[x.status]}</span>
+                {EXPERIMENT_STATUS_LABEL[x.status]}
+              </span>
+              <span className="text-sm leading-snug font-medium">{x.experiment.change}</span>
+              <span className="text-xs text-neutral-500">
+                {x.name} · {EXPERIMENT_METRIC_LABEL[x.experiment.metric]}
+              </span>
+              <span className="mt-auto text-xs text-neutral-300">
+                {x.status === ExperimentStatus.Waiting
+                  ? x.readyAt
+                    ? `Judged on ${new Date(x.readyAt).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}`
+                    : "Judged 3 days after it's posted"
+                  : x.value && x.usual
+                    ? `${x.value} · usually ${x.usual}`
+                    : "Not enough other videos to compare yet"}
+              </span>
+            </a>
+          ))}
+        </div>
+      ) : (
+        <p className="rounded-2xl bg-neutral-900/40 p-4 text-sm text-neutral-500 ring-1 ring-white/[0.06]">
+          No experiments yet. {agent} records what a video tests when it builds it, or set it yourself when you schedule a video (“What does this video test?”).
+        </p>
+      )}
+    </section>
+  );
+}
+
 function Insights({ rows, agent }: { rows: ChannelVideo[]; agent: string }) {
   const ranked = comparable(rows);
   const insights = channelInsights(rows);

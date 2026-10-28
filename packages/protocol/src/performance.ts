@@ -153,7 +153,22 @@ export type ChannelVideo = {
   /** Views when it was 3 days old (null until then, or when it was linked later). */
   views3d: number | null;
   features: VideoFeatures | null;
+  /** What the video tested, if anything. */
+  experiment: Experiment | null;
 };
+
+/** The number an experiment should move. */
+export const ExperimentMetric = { Views: "views", Hook: "hook", Watch: "watch", Shares: "shares", Saves: "saves" } as const;
+export type ExperimentMetric = (typeof ExperimentMetric)[keyof typeof ExperimentMetric];
+export const EXPERIMENT_METRIC_LABEL: Record<ExperimentMetric, string> = {
+  views: "Views",
+  hook: "Hook (fewer skip in 3 s)",
+  watch: "How much is watched",
+  shares: "Shares",
+  saves: "Saves",
+};
+/** The one thing a video tries differently, and the number that says whether it worked. */
+export type Experiment = { change: string; metric: ExperimentMetric; setAt: string };
 
 /** A post younger than this is still collecting views: it is shown, but not compared with older ones. */
 export const MATURE_HOURS = 72;
@@ -322,6 +337,92 @@ export function channelInsights(rows: ChannelVideo[], now = Date.now()): Channel
 
 const secs = (v: number) => `${Math.round(v)} s`;
 
+/** How an experiment turned out. */
+export const ExperimentStatus = { Waiting: "waiting", Worked: "worked", Failed: "failed", Unclear: "unclear" } as const;
+export type ExperimentStatus = (typeof ExperimentStatus)[keyof typeof ExperimentStatus];
+export const EXPERIMENT_STATUS_LABEL: Record<ExperimentStatus, string> = { waiting: "Waiting", worked: "Worked", failed: "Didn't work", unclear: "No clear change" };
+
+export type ExperimentResult = {
+  projectId: string;
+  name: string;
+  platform: SocialPlatform;
+  experiment: Experiment;
+  status: ExperimentStatus;
+  /** What it got and what the channel usually gets, as shown ("18% skip" against "31%"); null while waiting. */
+  value: string | null;
+  usual: string | null;
+  /** When it can be judged (while waiting). */
+  readyAt: string | null;
+};
+
+type MetricRule = {
+  of: (r: ChannelVideo) => number | null;
+  /** Lower is better (skips). */
+  lower?: boolean;
+  /** The smallest change that counts: in points for shares of the audience, relative for counts. */
+  points?: number;
+  relative?: number;
+  show: (v: number) => string;
+};
+const per1k = (n: number | null | undefined, views: number | null | undefined) => (views ? ((n ?? 0) / views) * 1000 : null);
+const METRIC: Record<ExperimentMetric, MetricRule> = {
+  views: { of: comparableViews, relative: 0.25, show: (v) => `${compactCount(v)} views` },
+  hook: { of: (r) => r.metrics?.skipRate ?? null, lower: true, points: 0.05, show: (v) => `${pct(v)} skip in 3 s` },
+  watch: { of: watchShare, points: 0.08, show: (v) => `${pct(v)} watched` },
+  shares: { of: (r) => per1k(r.metrics?.shares, r.metrics?.views), relative: 0.3, show: (v) => `${v.toFixed(1)} shares per 1K views` },
+  saves: { of: (r) => per1k(r.metrics?.saves, r.metrics?.views), relative: 0.3, show: (v) => `${v.toFixed(1)} saves per 1K views` },
+};
+/** Other videos needed to say what is usual. */
+const MIN_BASELINE = 2;
+
+/**
+ * Each video that tested something, judged once it is MATURE_HOURS old: its number against the median
+ * of the channel's other videos old enough to compare (on the same platform when it has at least two). One result
+ * per video, on its most viewed platform; newest first.
+ */
+export function channelExperiments(rows: ChannelVideo[], now = Date.now()): ExperimentResult[] {
+  const ranked = comparable(rows, now);
+  const byProject = new Map<string, ChannelVideo>();
+  for (const r of rows) {
+    if (!r.experiment) continue;
+    const prev = byProject.get(r.projectId);
+    if (!prev || (r.metrics?.views ?? -1) > (prev.metrics?.views ?? -1)) byProject.set(r.projectId, r);
+  }
+  const out: ExperimentResult[] = [];
+  for (const r of byProject.values()) {
+    const e = r.experiment!;
+    const rule = METRIC[e.metric];
+    const base = { projectId: r.projectId, name: r.name, platform: r.platform, experiment: e };
+    if (r.metrics?.views == null || isGrowing(r, now)) {
+      const born = r.publishedAt ? Date.parse(r.publishedAt) : null;
+      out.push({ ...base, status: ExperimentStatus.Waiting, value: null, usual: null, readyAt: born ? new Date(born + MATURE_HOURS * 3_600_000).toISOString() : null });
+      continue;
+    }
+    const others = ranked.filter((x) => x.projectId !== r.projectId);
+    const samePlatform = others.filter((x) => x.platform === r.platform);
+    const pool = (samePlatform.length >= MIN_BASELINE ? samePlatform : others).map(rule.of).filter((v): v is number => v !== null);
+    const value = rule.of(r);
+    const usual = median(pool);
+    if (value === null || usual === null || pool.length < MIN_BASELINE) {
+      out.push({ ...base, status: ExperimentStatus.Unclear, value: value === null ? null : rule.show(value), usual: null, readyAt: null });
+      continue;
+    }
+    const diff = rule.lower ? usual - value : value - usual;
+    const enough = rule.points !== undefined ? rule.points : (rule.relative ?? 0) * Math.max(Math.abs(usual), 1e-9);
+    const status = diff >= enough ? ExperimentStatus.Worked : diff <= -enough ? ExperimentStatus.Failed : ExperimentStatus.Unclear;
+    out.push({ ...base, status, value: rule.show(value), usual: rule.show(usual), readyAt: null });
+  }
+  const at = (x: ExperimentResult) => x.experiment.setAt;
+  return out.sort((a, b) => at(b).localeCompare(at(a)));
+}
+
+function experimentLine(x: ExperimentResult): string {
+  const what = `"${x.experiment.change}" on "${x.name}" (measured by ${EXPERIMENT_METRIC_LABEL[x.experiment.metric].toLowerCase()})`;
+  if (x.status === ExperimentStatus.Waiting) return `- Waiting: ${what}${x.readyAt ? `, judged after ${x.readyAt.slice(0, 10)}` : ""}`;
+  const numbers = x.value && x.usual ? `: ${x.value} against ${x.usual} usually` : "";
+  return `- ${EXPERIMENT_STATUS_LABEL[x.status]}: ${what}${numbers}`;
+}
+
 function describe(r: ChannelVideo): string {
   const m = r.metrics!;
   const parts = [`${compactCount(comparableViews(r))} views${r.views3d != null ? " at 3 days" : ""}`];
@@ -351,11 +452,13 @@ export function channelPlaybook(rows: ChannelVideo[], now = Date.now()): string 
   const insights = channelInsights(rows, now);
   if (insights.length) out.push("What the best ones do differently:", ...insights.map((i) => `- ${i.title}: ${i.detail}`));
   else if (measured.length < MIN_INSIGHT_VIDEOS) out.push(`Too few videos to compare yet (${measured.length} of ${MIN_INSIGHT_VIDEOS}): start from the best one's hook and length.`);
+  const experiments = channelExperiments(rows, now);
+  if (experiments.length) out.push("Experiments so far (build on what worked, don't repeat what didn't):", ...experiments.slice(0, 10).map(experimentLine));
   if (growing.length) out.push(`Still collecting views (under ${MATURE_HOURS / 24} days, don't judge them yet): ${growing.map((r) => `"${r.name}" ${compactCount(r.metrics!.views)} views at ${Math.round(ageHours(r, now))} h`).join(", ")}.`);
   out.push(
     level === Confidence.Early
-      ? "With this few videos, treat the patterns as hunches: keep what the best one did, and change one thing at a time (the hook, the length or the pace) so the next numbers say whether it worked. Tell the user which one you are testing."
-      : "Keep what the best ones share and avoid what the weakest share; change one thing at a time and tell the user which, so the next numbers say whether it worked.",
+      ? "With this few videos, treat the patterns as hunches: keep what the best one did and change ONE thing (the hook, the length, the pace…). Record it with set_experiment and tell the user what you are testing."
+      : "Keep what the best ones share and avoid what the weakest share; change ONE thing per video, record it with set_experiment and tell the user, so the next numbers say whether it worked.",
   );
   return out.join("\n");
 }

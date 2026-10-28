@@ -7,6 +7,7 @@ import { CoverImage } from "../components/VideoCard";
 import { HashtagField } from "./HashtagField";
 import { defaultSlot, formatWhen, fromNow, MAX_CAPTION, PLATFORM_COLOR, PLATFORM_LABEL, platformList, PLATFORMS, postText, quickSlots } from "./posts";
 import { useAgentName } from "../agentName";
+import { ExperimentMetric } from "@motionily/protocol";
 
 const Stage = { Edit: "edit", Rendering: "rendering", Uploading: "uploading", Done: "done" } as const;
 type Stage = (typeof Stage)[keyof typeof Stage];
@@ -16,6 +17,9 @@ const DRAFT_SAVE_MS = 800;
 const POST_SHORT_SIDE = 1080;
 /** One-click changes to the text (sent to the agent as the instruction). */
 const TWEAKS = ["Shorter", "More playful", "More professional", "Add a call to action", "Start with a question", "Fewer hashtags", "No emojis"];
+
+/** The experiment metrics as chips. */
+const METRIC_SHORT: Record<ExperimentMetric, string> = { hook: "The hook (3-s skip)", watch: "How much is watched", views: "Views", shares: "Shares", saves: "Saves" };
 
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const emptyCopy = (platform: Platform): PostCopy => ({ platform, caption: "", hashtags: [] });
@@ -79,6 +83,9 @@ function ScheduleDialog({ ed, onClose }: { ed: EditorProps; onClose: () => void 
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<ScheduledPost | null>(null);
+  /** What the video tests against the channel (its agent may have set it already). */
+  const [testChange, setTestChange] = useState(project.experiment?.change ?? "");
+  const [testMetric, setTestMetric] = useState<ExperimentMetric>(project.experiment?.metric ?? ExperimentMetric.Hook);
   const abort = useRef<AbortController | null>(null);
   const busy = stage === Stage.Rendering || stage === Stage.Uploading;
   const slots = quickSlots();
@@ -183,6 +190,11 @@ function ScheduleDialog({ ed, onClose }: { ed: EditorProps; onClose: () => void 
     const body = { scheduledAt: when.toISOString(), platforms, copy: platforms.map(copyOf) };
     try {
       setStage(Stage.Uploading);
+      const change = testChange.trim();
+      if (change !== (project.experiment?.change ?? "") || (change && testMetric !== project.experiment?.metric)) {
+        const { experiment } = await api.setExperiment(project.id, change ? { change, metric: testMetric } : null);
+        ed.setProject({ ...project, experiment });
+      }
       const post = existing ? await api.updatePost(existing.id, body) : await api.createPost({ projectId: project.id, ...body });
       // On the calendar from here on: a retry updates this post instead of adding another.
       setExisting(post);
@@ -448,7 +460,34 @@ function ScheduleDialog({ ed, onClose }: { ed: EditorProps; onClose: () => void 
                   )}
                 </Step>
 
-                <Step n={4} title="Video file" optional hint={fileHint}>
+                <Step n={4} title="What does this video test?" optional hint={`One thing it does differently from your usual videos, and the number that should show it. Three days after it's posted, Stats says whether it worked and ${agent} builds on it.`}>
+                  <input
+                    value={testChange}
+                    disabled={busy}
+                    onChange={(e) => setTestChange(e.target.value)}
+                    maxLength={200}
+                    placeholder="e.g. Opens with a question instead of a fact"
+                    className="rounded-lg bg-neutral-800 px-3 py-2 text-sm ring-1 ring-white/[0.06] placeholder:text-neutral-500 focus:ring-white/25 focus:outline-none"
+                  />
+                  {testChange.trim() && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="mr-1 text-xs text-neutral-500">Should improve</span>
+                      {Object.values(ExperimentMetric).map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          disabled={busy}
+                          onClick={() => setTestMetric(m)}
+                          className={`rounded-full px-2.5 py-1 text-xs ${m === testMetric ? "bg-white text-neutral-900" : "bg-white/[0.05] text-neutral-300 hover:bg-white/10"}`}
+                        >
+                          {METRIC_SHORT[m]}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </Step>
+
+                <Step n={5} title="Video file" optional hint={fileHint}>
                   <label className="flex cursor-pointer items-center gap-3 text-sm">
                     <span className={`relative h-5 w-9 shrink-0 rounded-full transition ${render ? "bg-white" : "bg-neutral-700"}`}>
                       <span className={`absolute top-0.5 size-4 rounded-full transition-all ${render ? "left-[18px] bg-neutral-900" : "left-0.5 bg-neutral-300"}`} />

@@ -736,6 +736,8 @@ export type Project = {
   sunoPrompt: SunoPrompt | null;
   /** Claude's latest caption and hashtags per platform, as the user left them. */
   postCopy: { platform: string; caption: string; hashtags: string[] }[];
+  /** What this video tests against the channel (set_experiment). */
+  experiment?: import("./performance.js").Experiment | null;
   /** The user's own clips to edit, in upload order (c1, c2…). */
   footage: FootageClip[];
   sceneRevision: number;

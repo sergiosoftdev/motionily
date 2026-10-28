@@ -41,7 +41,7 @@ import { frameStats } from "./review.js";
 import { attentionReport } from "./attention.js";
 import { channelBrief, channelReport, performanceReport } from "./performance.js";
 import { LOG_CHARS, runScript, type HostApi } from "./sandbox.js";
-import { attentionCurve, attentionIssues, attentionSparkline, blueprintLines, seriesBlueprint, seriesDrift, type ChannelVideo, type PostPerformance, type Series } from "@motionily/protocol";
+import { attentionCurve, attentionIssues, attentionSparkline, blueprintLines, seriesBlueprint, seriesDrift, type ChannelVideo, EXPERIMENT_METRIC_LABEL, ExperimentMetric, type PostPerformance, type Series } from "@motionily/protocol";
 import { buildEdit, DEFAULT_EDIT, FOOTAGE_GROUP, footageLines, parseSegments, transcriptLines } from "./footage.js";
 import { mediaLines, registerStudioTools } from "./studio.js";
 import { svgToVector } from "./svg.js";
@@ -1604,6 +1604,26 @@ server.registerTool(
 );
 
 server.registerTool(
+  "set_experiment",
+  {
+    description:
+      "Record the ONE thing this video tries differently from the channel's best videos, and the number that should show it (hook = fewer skip in the first 3 s, watch = more of it watched, views, shares, saves). Three days after it's posted it is judged against the channel's other videos, and get_project shows every result from then on: call it whenever you plan a video, after reading the channel's playbook, and tell the user what you are testing. Empty change removes it.",
+    inputSchema: {
+      change: z.string().max(200).describe('What is different, concretely: "Opens with a question instead of a fact", "15 s instead of 30", "No voice, text only".'),
+      metric: z.enum(Object.values(ExperimentMetric) as [ExperimentMetric, ...ExperimentMetric[]]).describe("The number it should move."),
+    },
+  },
+  guard(async ({ change, metric }: { change: string; metric: ExperimentMetric }) => {
+    if (!change.trim()) {
+      await api.route("DELETE", "/experiment");
+      return text("Experiment removed.");
+    }
+    await api.route("PUT", "/experiment", { change: change.trim(), metric });
+    return text(`Recorded: "${change.trim()}", judged by ${EXPERIMENT_METRIC_LABEL[metric].toLowerCase()} 3 days after the video is posted. It shows in Stats and in the next videos' playbook.`);
+  }),
+);
+
+server.registerTool(
   "get_channel_insights",
   {
     description:
@@ -1761,6 +1781,7 @@ function describeProject(p: Project): string {
   if (imported.length) lines.push(`Imported material: ${imported.map(assetLine).join("; ")}`);
   if (p.direction) lines.push(`Direction (set_direction): ${p.direction.genre} — ${p.direction.concept}${p.direction.techniques.length ? ` · techniques: ${p.direction.techniques.join(", ")}` : ""}`);
   if (p.favorite) lines.push("The user starred THIS video as a favorite: keep what they love about it when editing.");
+  if (p.experiment) lines.push(`This video tests (set_experiment): "${p.experiment.change}", judged by ${EXPERIMENT_METRIC_LABEL[p.experiment.metric].toLowerCase()} 3 days after it's posted. Keep that change in, and everything else like the channel's best video.`);
   if (p.seriesId) lines.push("This video is an EPISODE of a series template: call get_series and follow its structure (beats, timing, captions, type, palette, sound) with this brief's content.");
   if (p.constraints?.length) lines.push(`Creative constraints this video must honor: ${p.constraints.map((c, i) => `(${i + 1}) ${c}`).join(" ")}`);
   if (p.audio || !p.footage?.length) lines.push(p.audio ? `Voice uploaded: ${p.audio.name}. inspect's summary has its voice timeline (phrases, pauses, LONG pauses = scene changes) and captions carry word timings: time the beats to them.` : "Voice: not uploaded yet.");

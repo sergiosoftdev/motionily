@@ -32,7 +32,7 @@ import { BrandsService } from "../brands/brands.service";
 import { brandView } from "../brands/brands.controller";
 import { ClonePrefabDto, PREFAB_NAME, SavePrefabDto } from "../prefabs/prefabs.dto";
 import { GenerateService } from "./generate.service";
-import { CreateFeedbackDto, CreateProjectDto, FOOTAGE_LANGUAGES, FootageWordsDto, UploadFootageDto, FavoriteDto, GenerateDto, GenerateVoiceDto, SaveSceneDto, SetSlotDto, UpdateProjectDto } from "./projects.dto";
+import { CreateFeedbackDto, CreateProjectDto, ExperimentDto, FOOTAGE_LANGUAGES, FootageWordsDto, UploadFootageDto, FavoriteDto, GenerateDto, GenerateVoiceDto, SaveSceneDto, SetSlotDto, UpdateProjectDto } from "./projects.dto";
 import { describeVideo, VIDEO_TYPES } from "../brands/video-asset";
 import { fitSong, songEnergy } from "../music/energy";
 import { SunoPromptDto, SunoService } from "../music/suno";
@@ -167,6 +167,17 @@ export class ProjectsController {
       await removeMedia(file.filename);
       throw e;
     }
+  }
+
+  /** What this video tests (its agent or the user), judged against the channel once it's 3 days old. */
+  @Put(":id/experiment")
+  experiment(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: ExperimentDto) {
+    return this.projects.setExperiment(user.id, id, dto);
+  }
+
+  @Delete(":id/experiment")
+  dropExperiment(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.projects.setExperiment(user.id, id, null);
   }
 
   /** Star or unstar a video (the user; or an agent, only after the user said they love it). */
@@ -453,6 +464,7 @@ export class ProjectsController {
       constraints: p.constraints ?? [],
       favorite: p.favorite ?? false,
       cover: p.cover ? `/media/${p.cover}` : null,
+      experiment: p.experiment ?? null,
       seriesId: p.seriesId?.toString() ?? null,
       updatedAt: (p as unknown as { updatedAt: Date }).updatedAt,
     };
