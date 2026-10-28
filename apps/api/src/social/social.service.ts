@@ -308,8 +308,9 @@ export class SocialService implements OnModuleInit, OnModuleDestroy {
       const project = projects.get(String(post.projectId));
       if (!project) continue;
       const duration = (project as { scene?: { duration?: unknown } | null }).scene?.duration;
-      // Measured before features were kept: read them from the scene as it is.
-      const features = post.features ?? videoFeatures(project as Parameters<typeof videoFeatures>[0]);
+      // Measured before features (or their timeline) were kept: read them from the scene as it is.
+      const live = post.features?.timeline ? null : videoFeatures(project as Parameters<typeof videoFeatures>[0]);
+      const features = post.features ? { ...post.features, timeline: post.features.timeline ?? live?.timeline, starts: post.features.starts ?? live?.starts } : live;
       for (const l of post.links ?? []) {
         rows.push({
           postId: String(post._id),

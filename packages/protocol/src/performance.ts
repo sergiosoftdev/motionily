@@ -133,7 +133,55 @@ export type VideoFeatures = {
   music: boolean;
   genre: string | null;
   format: string | null;
+  /** What comes on screen and when (no shapes), to line up with where the audience leaves. */
+  timeline?: Moment[];
+  /** Every second something new comes in, shapes included. */
+  starts?: number[];
 };
+
+/** What an element on screen is to a viewer (momentKind in apps/api/src/social/features.ts). */
+export const MomentKind = {
+  Chart: "chart",
+  Table: "table",
+  Map: "map",
+  Code: "code",
+  Ui: "ui",
+  Logo: "logo",
+  Cta: "cta",
+  Price: "price",
+  Footage: "footage",
+  Image: "image",
+  Character: "character",
+  Object3d: "object",
+  Icon: "icon",
+  Vector: "vector",
+  Effect: "effect",
+  Title: "title",
+  Text: "text",
+} as const;
+export type MomentKind = (typeof MomentKind)[keyof typeof MomentKind];
+export const MOMENT_LABEL: Record<MomentKind, string> = {
+  chart: "a chart",
+  table: "a table",
+  map: "a map",
+  code: "code",
+  ui: "an app screen",
+  logo: "a logo",
+  cta: "a call to action",
+  price: "a price",
+  footage: "a video clip",
+  image: "an image",
+  character: "a character",
+  object: "a 3D object",
+  icon: "an icon",
+  vector: "a drawing",
+  effect: "an effect",
+  title: "a big title",
+  text: "a line of text",
+};
+
+/** One element on screen: from `start` to `end` (s), what it is and what it says or is called. */
+export type Moment = { start: number; end: number; kind: MomentKind; label: string };
 
 /** One published copy of a video made here with its latest numbers: a row of the channel's dashboard. */
 export type ChannelVideo = {
@@ -495,6 +543,110 @@ export function channelLessons(rows: ChannelVideo[], now = Date.now()): ChannelL
     .map(({ weight: _, ...l }) => l);
 }
 
+/** Seconds after something appears that its effect on the audience is measured over. */
+export const DROPOFF_WINDOW = 2;
+/** Seconds either side of a moment that set what "normal" is there (the curve falls faster early on). */
+const DROPOFF_AROUND = 4;
+/** Seconds between the points the slope around a moment is read at. */
+const STEP = 0.5;
+/** Nothing new on screen for this long counts as a moment of its own. */
+const STILL_AFTER = 3;
+/** A pattern needs this many moments, in at least MIN_DROPOFF_VIDEOS videos. */
+const MIN_DROPOFF_MOMENTS = 3;
+const MIN_DROPOFF_VIDEOS = 2;
+/** Extra (or fewer) viewers leaving, in points of the audience, worth telling. */
+const DROPOFF_POINTS = 0.015;
+
+/** A kind of moment and what it does to the audience: `leave` share in the DROPOFF_WINDOW after it, against `normal` there. */
+export type DropoffPattern = { kind: MomentKind | "still"; label: string; moments: number; videos: number; leave: number; normal: number; examples: string[] };
+/** One of the steepest falls across the channel, with what was on screen. */
+export type DropoffMoment = { projectId: string; name: string; platform: SocialPlatform; t: number; share: number; onScreen: string[] };
+export type ChannelDropoffs = { videos: number; patterns: DropoffPattern[]; moments: DropoffMoment[] };
+
+/**
+ * Where viewers leave across the channel, matched with what was on screen: for each kind of moment (a
+ * chart appears, a clip starts, nothing new for 3 s…) the share of the audience that leaves in the next
+ * DROPOFF_WINDOW seconds against the usual fall around it in the same video, plus the steepest falls of
+ * all. Needs the retention curve (YouTube) and the video's timeline; the hook (first 3 s) and the last
+ * moments, where everyone leaves anyway, are left out.
+ */
+export function channelDropoffs(rows: ChannelVideo[]): ChannelDropoffs {
+  const curves = rows.filter((r) => (r.metrics?.retention?.length ?? 0) >= 20 && r.features?.timeline);
+  const groups = new Map<string, { kind: MomentKind | "still"; leave: number[]; normal: number[]; videos: Set<string>; examples: string[] }>();
+  const moments: DropoffMoment[] = [];
+  for (const r of curves) {
+    const curve = r.metrics!.retention!;
+    const len = r.metrics!.duration ?? (r.features!.duration || r.duration);
+    if (!(len > SKIP_WINDOW + DROPOFF_WINDOW * 2)) continue;
+    const at = (t: number) => {
+      const x = (Math.min(Math.max(t, 0), len) / len) * (curve.length - 1);
+      const i = Math.floor(x);
+      return curve[i]! + (curve[Math.min(i + 1, curve.length - 1)]! - curve[i]!) * (x - i);
+    };
+    const last = len * 0.95 - DROPOFF_WINDOW;
+    const measure = (s: number) => {
+      if (s < SKIP_WINDOW || s > last || at(s) <= 0.01) return null;
+      const e = s + DROPOFF_WINDOW;
+      const [a, b] = [Math.max(SKIP_WINDOW, s - DROPOFF_AROUND), Math.min(len * 0.95, e + DROPOFF_AROUND)];
+      // The median slope around it, so another cliff nearby does not make this one look normal.
+      const slopes: number[] = [];
+      for (let x = a; x + STEP <= s; x += STEP) slopes.push((at(x) - at(x + STEP)) / STEP);
+      for (let x = e; x + STEP <= b; x += STEP) slopes.push((at(x) - at(x + STEP)) / STEP);
+      if (slopes.length < 2) return null;
+      const rate = Math.max(0, median(slopes)!);
+      return { leave: Math.max(0, at(s) - at(e)) / at(s), normal: (rate * DROPOFF_WINDOW) / at(s) };
+    };
+    const add = (kind: MomentKind | "still", s: number, example: string) => {
+      const m = measure(s);
+      if (!m) return;
+      let g = groups.get(kind);
+      if (!g) groups.set(kind, (g = { kind, leave: [], normal: [], videos: new Set(), examples: [] }));
+      g.leave.push(m.leave);
+      g.normal.push(m.normal);
+      g.videos.add(r.projectId);
+      if (g.examples.length < 3 && example) g.examples.push(`${example} in "${r.name}" at ${secs(s)}`);
+    };
+    // One moment per kind per second: a chart's bars coming in together are one chart appearing.
+    const seen = new Set<string>();
+    for (const m of r.features!.timeline!) {
+      const key = `${m.kind}@${Math.round(m.start)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      add(m.kind, m.start, m.label);
+    }
+    const starts = [...(r.features!.starts ?? r.features!.timeline!.map((m) => m.start))].sort((a, b) => a - b);
+    for (let i = 0; i < starts.length; i++) {
+      const next = starts[i + 1] ?? len;
+      if (next - starts[i]! >= STILL_AFTER + DROPOFF_WINDOW) add("still", starts[i]! + STILL_AFTER, "");
+    }
+    for (const d of audienceDrops({ ...r.metrics!, skipRate: null, avgWatch: null }, len, 3)) {
+      if (d.t < SKIP_WINDOW || d.t > last + DROPOFF_WINDOW) continue;
+      const alive = r.features!.timeline!.filter((m) => m.start <= d.t && m.end > d.t);
+      const fresh = alive.filter((m) => d.t - m.start <= DROPOFF_WINDOW * 2);
+      moments.push({ projectId: r.projectId, name: r.name, platform: r.platform, t: d.t, share: d.share, onScreen: (fresh.length ? fresh : alive).slice(0, 3).map((m) => `${MOMENT_LABEL[m.kind]} (${m.label})`) });
+    }
+  }
+  const patterns: DropoffPattern[] = [];
+  for (const g of groups.values()) {
+    if (g.leave.length < MIN_DROPOFF_MOMENTS || g.videos.size < MIN_DROPOFF_VIDEOS) continue;
+    const [leave, normal] = [mean(g.leave)!, mean(g.normal)!];
+    if (Math.abs(leave - normal) < DROPOFF_POINTS) continue;
+    if (leave > normal ? leave < normal * 1.4 : leave > normal * 0.7) continue;
+    const label = g.kind === "still" ? `nothing new for ${STILL_AFTER} s` : MOMENT_LABEL[g.kind];
+    patterns.push({ kind: g.kind, label, moments: g.leave.length, videos: g.videos.size, leave, normal, examples: g.examples });
+  }
+  patterns.sort((a, b) => b.leave - b.normal - (a.leave - a.normal));
+  moments.sort((a, b) => b.share - a.share);
+  return { videos: curves.length, patterns, moments: moments.slice(0, 5) };
+}
+
+/** "When a chart appears, 12% leave in the next 2 s (usually 4% there)". */
+export function dropoffLine(p: DropoffPattern): string {
+  const when = p.kind === "still" ? `After ${p.label}` : `When ${p.label} appears`;
+  const verb = p.leave > p.normal ? "leave" : "leave (fewer than usual)";
+  return `${when}, ${pct(p.leave)} of viewers ${verb} in the next ${DROPOFF_WINDOW} s, against ${pct(p.normal)} usually there · ${p.moments} times in ${p.videos} videos`;
+}
+
 function lessonLine(l: ChannelLesson): string {
   const numbers = [...l.better.map((b) => b.text), ...l.worse.map((w) => w.text)].join(", ");
   const verdict = l.better.length && !l.worse.length ? "did well" : l.worse.length && !l.better.length ? "fell short" : "was mixed";
@@ -544,6 +696,12 @@ export function channelPlaybook(rows: ChannelVideo[], now = Date.now()): string 
       "Lessons from videos already posted (they declared no experiment, so these are correlations: copy what the strong ones did, and test it with set_experiment to confirm):",
       ...lessons.map(lessonLine),
     );
+  const drops = channelDropoffs(rows);
+  if (drops.patterns.length || drops.moments.length) {
+    out.push(`Where viewers leave (retention curves of ${drops.videos} ${drops.videos === 1 ? "video" : "videos"}, matched with what was on screen):`);
+    out.push(...drops.patterns.map((p) => `- ${dropoffLine(p)}${p.leave > p.normal ? ": avoid it or make it quicker" : ": it holds them, use more"}.`));
+    out.push(...drops.moments.slice(0, 3).map((m) => `- Steepest fall: "${m.name}" at ${secs(m.t)}, ${pct(m.share)} left${m.onScreen.length ? ` while ${m.onScreen.join(", ")} was on screen` : ""}.`));
+  }
   const experiments = channelExperiments(rows, now);
   if (experiments.length) out.push("Experiments so far (build on what worked, don't repeat what didn't):", ...experiments.slice(0, 10).map(experimentLine));
   if (growing.length) out.push(`Still collecting views (under ${MATURE_HOURS / 24} days, don't judge them yet): ${growing.map((r) => `"${r.name}" ${compactCount(r.metrics!.views)} views at ${Math.round(ageHours(r, now))} h`).join(", ")}.`);

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { audienceDrops, channelExperiments, channelInsights, channelLessons, channelPlaybook, channelSummary, onScreenAt, type ChannelVideo, type PostMetrics, type VideoFeatures } from "@motionily/protocol";
+import { audienceDrops, channelDropoffs, channelExperiments, channelInsights, channelLessons, channelPlaybook, channelSummary, onScreenAt, type ChannelVideo, type PostMetrics, type VideoFeatures } from "@motionily/protocol";
 import { channelBrief, channelReport, performanceReport } from "../src/performance.js";
 
 const base: PostMetrics = { platform: "instagram", fetchedAt: "2026-10-27T18:00:00.000Z", views: 1200, reach: 900, likes: 80, comments: 4, shares: 9, saves: 15, avgWatch: 4.2, skipRate: 0.38, retention: null, duration: null };
@@ -161,4 +161,34 @@ test("lessons: videos posted without an experiment still say what stood out and 
   assert.deepEqual(by.Goldfish!.better.map((b) => b.metric), ["shares"]);
   assert.equal(lessons[0]!.name, "Bulls", "the one that stands out most first");
   assert.match(channelPlaybook(rows, now)!, /Lessons from videos already posted[\s\S]*"Bulls" (did well|was mixed): .*81% watched \(usually/);
+});
+
+test("dropoffs: what was on screen when viewers left, across videos, against the usual fall there", () => {
+  // 30 s videos that lose 1 point a second, and 12 more in the 2 s after a table comes in at 10 s.
+  const curve = Array.from({ length: 100 }, (_, i) => {
+    const t = (i / 99) * 30;
+    return 1 - 0.01 * t - (t >= 10 ? Math.min(0.12, ((t - 10) / 2) * 0.12) : 0);
+  });
+  const timeline: VideoFeatures["timeline"] = [
+    { start: 0, end: 4, kind: "title", label: '"Hook"' },
+    { start: 5, end: 10, kind: "text", label: '"Setup"' },
+    { start: 10, end: 14, kind: "table", label: "pricing-table" },
+    { start: 14, end: 18, kind: "text", label: '"Point"' },
+    { start: 18, end: 22, kind: "footage", label: "clip" },
+    { start: 22, end: 30, kind: "text", label: '"Outro"' },
+  ];
+  const features = { duration: 30, hook: "Hook", beatsPerMin: 12, wordsPerSec: 0, voice: false, captions: false, music: false, genre: null, format: null, timeline, starts: [5, 10, 14, 18, 22] };
+  const rows = ["A", "B", "C"].map((name) => ({ ...posted(name, "youtube", 1000, 0, 15, 30), metrics: { ...base, platform: "youtube" as const, retention: curve, duration: 30, skipRate: null }, features }));
+  const d = channelDropoffs(rows);
+  assert.equal(d.videos, 3);
+  const table = d.patterns.find((p) => p.kind === "table");
+  assert.ok(table, `a table pattern, got ${JSON.stringify(d.patterns.map((p) => p.kind))}`);
+  assert.equal(table.moments, 3);
+  assert.ok(table.leave > 0.12 && table.normal < 0.04, `${table.leave} vs ${table.normal}`);
+  assert.equal(d.patterns[0]!.kind, "table", "the worst comes first");
+  assert.ok(!d.patterns.some((p) => p.kind === "footage"), "a clip on the usual slope is not a pattern");
+  assert.match(d.moments[0]!.onScreen.join(), /a table \(pricing-table\)/);
+  assert.match(channelPlaybook(rows, Date.parse("2026-10-27T18:00:00.000Z"))!, /When a table appears, 1\d% of viewers leave in the next 2 s, against [23]% usually there · 3 times in 3 videos: avoid it/);
+  // Instagram and TikTok give no curve: nothing to say.
+  assert.deepEqual(channelDropoffs(rows.map((r) => ({ ...r, metrics: { ...r.metrics, retention: null } }))).patterns, []);
 });

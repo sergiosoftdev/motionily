@@ -176,6 +176,14 @@ describe("Social accounts and post performance", () => {
     assert.equal(f.captions, true);
     assert.equal(f.music, false);
     assert.equal(f.genre, "editorial_collage");
+    assert.deepEqual(
+      f.timeline!.map((m) => [m.start, m.kind, m.label]),
+      [[0, "text", '"Bulls can\'t see red"'], [2, "image", "image"], [5, "text", '"It\'s the motion"']],
+      "what comes on screen and when, without shapes or hidden layers",
+    );
+    assert.deepEqual(f.starts, [2, 5]);
+    const named = videoFeatures({ scene: { duration: 10, layers: [{ id: "pricingTable", type: "shape", start: 1 }, { id: "bar-3", group: "revenue chart", type: "shape", start: 2 }, { id: "t", type: "text", text: "BIG", size: 140, start: 3 }] } })!;
+    assert.deepEqual(named.timeline!.map((m) => m.kind), ["table", "chart", "title"], "named by its id or group first, then by what it is");
     // Without a voice, the hook is the text on screen.
     assert.equal(videoFeatures({ scene: { duration: 10, layers: [{ type: "text", text: "Vikings never had horns", start: 0.2 }] } })!.hook, "Vikings never had horns");
     assert.equal(videoFeatures({ scene: null }), null);

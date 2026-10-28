@@ -34,10 +34,20 @@ o el usuario en Schedule. A los 3 días se compara con la mediana de los demás 
 si hay al menos dos): funcionó, no funcionó o sin cambio claro. Stats lo enseña y el playbook de
 `get_project` lista cada resultado, así el agente construye sobre lo que funcionó y no repite lo que no.
 
+## Hecho (fase 3): dónde se va la gente
+
+Cada post guarda su línea de tiempo: qué entra en pantalla y cuándo, clasificado por lo que es para quien
+mira (gráfico, tabla, mapa, pantalla de app, clip, imagen, título, texto…: primero por el id, grupo o
+componente de la capa, después por su tipo). Con la curva de retención de YouTube, `channelDropoffs`
+mide cuánta audiencia se va en los 2 s después de que aparece cada tipo de cosa, contra la pendiente
+normal alrededor en el mismo vídeo (mediana, para que otra caída cerca no la falsee), sin el gancho ni el
+final. Un patrón sale con 3 momentos en 2 vídeos y una diferencia clara: "cuando aparece una tabla se va
+un 18% en 2 s, lo normal ahí es un 3%". También "nada nuevo en 3 s". Stats lo enseña ("Where viewers
+leave", con las caídas más fuertes y qué había en pantalla) y el playbook se lo da al agente. Instagram y
+TikTok no dan curva: solo el skip de 3 s, que ya cuenta para el gancho.
+
 ## Siguiente
 
-- **Momentos donde se van.** Juntar los puntos de abandono de todos los vídeos (retención de YouTube,
-  skip de Instagram) con lo que había en pantalla: "cuando aparece una tabla, cae un 12%".
 - **Hora de publicar.** Views a 3 días por día y franja horaria; el Schedule propone la mejor franja.
 - **Comentarios.** Leer los comentarios (Instagram y YouTube lo permiten) para sacar preguntas
   repetidas: ideas de siguiente vídeo y del tono que gusta.

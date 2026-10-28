@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import {
+  channelDropoffs,
+  DROPOFF_WINDOW,
   channelExperiments,
   channelInsights,
   channelLessons,
@@ -169,6 +171,7 @@ export function StatsScreen() {
             <ViewsChart rows={current} />
             <Insights rows={mine} agent={agent} />
           </section>
+          <Dropoffs rows={mine} agent={agent} />
           <Lessons rows={mine} onChange={() => void load()} />
           <Experiments rows={mine} agent={agent} />
           <VideoTable rows={current} sort={sort} onSort={setSort} />
@@ -384,6 +387,85 @@ function Lessons({ rows, onChange }: { rows: ChannelVideo[]; onChange: () => voi
 }
 
 /** What each video tested and how it turned out against the channel's usual. */
+/** Where viewers leave across the channel, with what was on screen then (YouTube retention curves). */
+function Dropoffs({ rows, agent }: { rows: ChannelVideo[]; agent: string }) {
+  const d = channelDropoffs(rows);
+  const top = Math.max(0.01, ...d.patterns.map((p) => Math.max(p.leave, p.normal)));
+  return (
+    <section className="flex flex-col gap-3">
+      <div>
+        <h2 className="text-lg font-semibold">Where viewers leave</h2>
+        <p className="text-sm text-neutral-500">
+          What was on screen each time people left, across all your videos, against how many usually leave at that point. {agent} avoids what loses them and repeats what holds them.
+        </p>
+      </div>
+      {!d.videos ? (
+        <p className="rounded-2xl bg-neutral-900/40 p-4 text-sm text-neutral-500 ring-1 ring-white/[0.06]">
+          Only YouTube says second by second when viewers leave. Post on YouTube Shorts (and connect it in Settings): a day or two after, the moments that lose people show up here.
+        </p>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+          <div className="flex flex-col gap-3 rounded-2xl bg-neutral-900/60 p-4 ring-1 ring-white/[0.06]">
+            {d.patterns.length ? (
+              <ul className="flex flex-col gap-4">
+                {d.patterns.map((p) => {
+                  const bad = p.leave > p.normal;
+                  return (
+                    <li key={p.kind} className="flex flex-col gap-1.5">
+                      <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                        <span className="text-sm font-medium">
+                          {p.kind === "still" ? `After ${p.label}` : `When ${p.label} appears`}
+                          <span className={`ml-2 rounded-md px-1.5 py-0.5 text-[10px] ${bad ? "bg-rose-400/15 text-rose-200" : "bg-emerald-400/15 text-emerald-200"}`}>{bad ? "Loses viewers" : "Holds them"}</span>
+                        </span>
+                        <span className="text-[11px] text-neutral-500">
+                          {p.moments} times in {p.videos} videos
+                        </span>
+                      </div>
+                      <Bar label={`${pct(p.leave)} leave in the next ${DROPOFF_WINDOW} s`} value={p.leave / top} tone={bad ? "bg-rose-400/70" : "bg-emerald-400/70"} />
+                      <Bar label={`${pct(p.normal)} usually leave there`} value={p.normal / top} tone="bg-white/20" />
+                      {p.examples.length > 0 && <span className="text-[11px] leading-relaxed text-neutral-500">e.g. {p.examples.join(" · ")}</span>}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="text-sm leading-relaxed text-neutral-500">
+                {d.videos} {d.videos === 1 ? "video has" : "videos have"} a retention curve. A pattern shows once the same kind of moment (a chart, a clip, a pause) comes up 3 times in 2 videos and clearly changes how many leave.
+              </p>
+            )}
+          </div>
+          <div className="flex flex-col gap-2 rounded-2xl bg-neutral-900/60 p-4 ring-1 ring-white/[0.06]">
+            <h3 className="text-sm font-semibold">Steepest falls</h3>
+            {d.moments.length ? (
+              d.moments.map((m) => (
+                <a key={`${m.projectId}-${m.platform}-${m.t}`} href={href({ name: RouteName.Editor, id: m.projectId })} className="flex flex-col gap-0.5 rounded-xl p-2 -mx-2 hover:bg-white/[0.04]">
+                  <span className="text-sm">
+                    <span className="text-rose-200">{pct(m.share)} left</span> · {m.name} at {Math.round(m.t)} s
+                  </span>
+                  <span className="text-[11px] leading-snug text-neutral-500">{m.onScreen.length ? `On screen: ${m.onScreen.join(", ")}` : "Nothing new on screen"}</span>
+                </a>
+              ))
+            ) : (
+              <p className="text-xs text-neutral-500">No sharp fall: viewers leave at a steady pace.</p>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function Bar({ label, value, tone }: { label: string; value: number; tone: string }) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="h-2 flex-1 overflow-hidden rounded-full bg-white/[0.05]">
+        <div className={`h-full rounded-full ${tone}`} style={{ width: `${Math.max(2, Math.min(100, value * 100))}%` }} />
+      </div>
+      <span className="w-32 shrink-0 text-[11px] text-neutral-400 sm:w-44">{label}</span>
+    </div>
+  );
+}
+
 function Experiments({ rows, agent }: { rows: ChannelVideo[]; agent: string }) {
   const results = channelExperiments(rows);
   return (
