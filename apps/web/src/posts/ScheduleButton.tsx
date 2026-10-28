@@ -566,10 +566,7 @@ function ScheduleDialog({
                 {error ? (
                   <span className="text-red-400">{error}</span>
                 ) : (
-                  <>
-                    Motionily reminds you then, with the video and the text
-                    ready.
-                  </>
+                  "You'll get a reminder then, with everything ready."
                 )}
               </p>
               <button
