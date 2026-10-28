@@ -42,3 +42,36 @@ export type PostState = (typeof PostState)[keyof typeof PostState];
 export const postState = (p: ScheduledPost): PostState => (p.status === PostStatus.Posted ? PostState.Posted : p.due ? PostState.Due : PostState.Scheduled);
 export const STATE_LABEL: Record<PostState, string> = { scheduled: "Scheduled", due: "Time to post", posted: "Posted" };
 export const STATE_DOT: Record<PostState, string> = { scheduled: "bg-sky-400", due: "bg-amber-400", posted: "bg-emerald-400" };
+
+/** A one-click time for a new post. */
+export type QuickSlot = { label: string; at: Date };
+
+/** Times short videos tend to do well, from now: tonight (if there's time), tomorrow at noon and at 6 PM, the weekend morning. */
+export function quickSlots(now = new Date()): QuickSlot[] {
+  const at = (days: number, hour: number) => {
+    const d = new Date(now);
+    d.setDate(d.getDate() + days);
+    d.setHours(hour, 0, 0, 0);
+    return d;
+  };
+  const out: QuickSlot[] = [];
+  if (now.getHours() < 18) out.push({ label: "Tonight, 7 PM", at: at(0, 19) });
+  out.push({ label: "Tomorrow, 12 PM", at: at(1, 12) }, { label: "Tomorrow, 6 PM", at: at(1, 18) });
+  const toSaturday = (6 - now.getDay() + 7) % 7 || 7;
+  if (toSaturday > 1) out.push({ label: "Saturday, 11 AM", at: at(toSaturday, 11) });
+  return out;
+}
+
+/** "in 3 hours", "tomorrow", "in 5 days", "2 days ago". */
+export function fromNow(d: Date, now = new Date()): string {
+  const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
+  const mins = Math.round((d.getTime() - now.getTime()) / 60_000);
+  if (Math.abs(mins) < 60) return rtf.format(mins, "minute");
+  const hours = Math.round(mins / 60);
+  if (Math.abs(hours) < 24) return rtf.format(hours, "hour");
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  return rtf.format(Math.round((day(d) - day(now)) / 86_400_000), "day");
+}
+
+/** Brand color of each platform, for its chip. */
+export const PLATFORM_COLOR: Record<Platform, string> = { instagram: "#e1306c", tiktok: "#25f4ee", youtube: "#ff3d3d" };

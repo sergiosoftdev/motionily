@@ -1,22 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { VideoFormat } from "@motionily/protocol";
-import { api, mediaUrl, Platform, PostStatus, type ScheduledPost } from "../api/client";
+import { api, mediaUrl, Platform, PostStatus, type PostCopy, type ScheduledPost } from "../api/client";
+import { HashtagField } from "../posts/HashtagField";
 import { MotionilyLayout } from "../shell/MotionilyLayout";
 import { PostNumbers } from "../social/PostNumbers";
 import { href, navigate, RouteName } from "../router";
-import {
-  formatTime,
-  formatWhen,
-  fromLocalInput,
-  hashtagsText,
-  parseHashtags,
-  PLATFORM_LABEL,
-  postState,
-  postText,
-  STATE_DOT,
-  STATE_LABEL,
-  toLocalInput,
-} from "../posts/posts";
+import { formatTime, formatWhen, fromLocalInput, fromNow, PLATFORM_COLOR, PLATFORM_LABEL, postState, postText, STATE_DOT, STATE_LABEL } from "../posts/posts";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 /** Six weeks always fit any month. */
@@ -68,7 +57,7 @@ export function CalendarScreen({ postId }: { postId?: string }) {
   return (
     <MotionilyLayout
       title="Calendar"
-      description="Videos scheduled for Instagram and TikTok. When one is due, Motionily reminds you with the file and the text ready to paste."
+      description="Your scheduled posts. When one is due, Motionily reminds you; open it to download the video, copy the text and mark it posted."
       actions={
         <>
           <button type="button" onClick={() => shift(-1)} aria-label="Previous month" className="rounded-lg px-2.5 py-1.5 text-sm text-neutral-400 hover:bg-neutral-900 hover:text-white">
@@ -155,18 +144,43 @@ function Upcoming({ posts, loaded }: { posts: ScheduledPost[]; loaded: boolean }
           </a>
         ))
       ) : (
-        <p className="text-sm text-neutral-500">Nothing scheduled yet. Open a video and press Schedule, next to Export.</p>
+        <p className="text-sm text-neutral-500">Nothing scheduled yet. Open a video and press Schedule (top right, next to Export).</p>
       )}
     </section>
   );
 }
 
-/** One post: its file, its text per platform (copy and paste), and what to do with it. */
+/** A numbered step of posting by hand. */
+function PostStep({ n, done, title, children }: { n: number; done?: boolean; title: string; children: React.ReactNode }) {
+  return (
+    <li className="flex gap-3">
+      <span className={`flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${done ? "bg-emerald-400/15 text-emerald-300" : "bg-white/[0.08] text-neutral-300"}`}>
+        {done ? "✓" : n}
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <span className="text-sm font-medium">{title}</span>
+        {children}
+      </div>
+    </li>
+  );
+}
+
+const pad = (n: number) => String(n).padStart(2, "0");
+
+/**
+ * One post as a short checklist: get the video, copy each platform's text (edited right here), post it
+ * and mark it posted. Once posted, its numbers per platform.
+ */
 function PostDetail({ post, onChange, onDelete }: { post: ScheduledPost; onChange: (p: ScheduledPost) => void; onDelete: () => void }) {
   const [copied, setCopied] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<Platform>(post.platforms[0] ?? Platform.Instagram);
   const state = postState(post);
   const vertical = TALL.includes(post.format);
+  const posted = post.status === PostStatus.Posted;
+  const when = new Date(post.scheduledAt);
+  const copyOf = (p: Platform) => post.copy.find((c) => c.platform === p) ?? { platform: p, caption: "", hashtags: [] };
+  const active = post.platforms.includes(tab) ? tab : (post.platforms[0] ?? Platform.Instagram);
 
   const save = async (patch: Parameters<typeof api.updatePost>[1]) => {
     setError(null);
@@ -175,6 +189,11 @@ function PostDetail({ post, onChange, onDelete }: { post: ScheduledPost; onChang
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
+  };
+  const saveCopy = (p: Platform, patch: Partial<PostCopy>) => void save({ copy: post.platforms.map((x) => (x === p ? { ...copyOf(x), ...patch } : copyOf(x))) });
+  const saveWhen = (date: string, time: string) => {
+    const at = fromLocalInput(`${date}T${time}`);
+    if (at && at !== post.scheduledAt) void save({ scheduledAt: at });
   };
   const copyText = async (platform: string, text: string) => {
     await navigator.clipboard.writeText(text);
@@ -200,103 +219,132 @@ function PostDetail({ post, onChange, onDelete }: { post: ScheduledPost; onChang
     await api.deletePost(post.id);
     onDelete();
   };
+  const date = `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())}`;
+  const time = `${pad(when.getHours())}:${pad(when.getMinutes())}`;
+  const field = "rounded-lg bg-neutral-900 px-2.5 py-1.5 text-sm text-neutral-200 ring-1 ring-white/[0.06] [color-scheme:dark] focus:ring-white/25 focus:outline-none";
 
   return (
-    <section className="flex flex-col gap-5">
-      <div className="flex flex-col gap-1">
+    <section className="flex flex-col gap-5 rounded-2xl bg-neutral-900/50 p-5 ring-1 ring-white/[0.06]">
+      <div className="flex flex-col gap-2">
         <span className="flex items-center gap-2 text-xs text-neutral-400">
           <span className={`size-2 rounded-full ${STATE_DOT[state]}`} />
           {STATE_LABEL[state]}
+          {!posted && <span className="text-neutral-600">· {fromNow(when)}</span>}
         </span>
         <a href={href({ name: RouteName.Editor, id: post.projectId })} className="truncate text-lg font-semibold hover:underline">
           {post.projectName ?? "Deleted video"}
         </a>
-        <input
-          type="datetime-local"
-          defaultValue={toLocalInput(new Date(post.scheduledAt))}
-          onBlur={(e) => {
-            const at = fromLocalInput(e.target.value);
-            if (at && at !== post.scheduledAt) void save({ scheduledAt: at });
-          }}
-          className="self-start rounded-lg bg-neutral-900 px-2.5 py-1 text-sm text-neutral-200 [color-scheme:dark]"
-        />
+        <div className="flex flex-wrap items-center gap-2">
+          <input key={`d${post.scheduledAt}`} type="date" defaultValue={date} onBlur={(e) => saveWhen(e.target.value, time)} aria-label="Date" className={field} />
+          <input key={`t${post.scheduledAt}`} type="time" defaultValue={time} onBlur={(e) => saveWhen(date, e.target.value)} aria-label="Time" className={field} />
+          <span className="flex gap-1">
+            {post.platforms.map((p) => (
+              <span key={p} className="flex items-center gap-1 rounded-full bg-white/[0.05] px-2 py-0.5 text-[11px] text-neutral-300">
+                <span className="size-1.5 rounded-full" style={{ background: PLATFORM_COLOR[p] }} />
+                {PLATFORM_LABEL[p]}
+              </span>
+            ))}
+          </span>
+        </div>
       </div>
 
-      {post.video ? (
-        <div className="flex flex-col gap-2">
-          <video src={mediaUrl(post.video.url)} controls playsInline className={`rounded-xl bg-black ${vertical ? "max-h-96 self-start" : "w-full"}`} />
-          <div className="flex items-center gap-3 text-xs">
-            <a href={mediaUrl(post.video.url)} download={`${post.projectName ?? "motionily"}.${post.video.mime.split("/")[1]}`} className="font-semibold text-white hover:underline">
-              Download video
-            </a>
-            <span className="text-neutral-500">{(post.video.size / 1e6).toFixed(1)} MB</span>
-          </div>
-          {post.video.outdated && (
-            <p className="text-xs text-amber-200/90">
-              You edited the video after this file was rendered.{" "}
-              <a href={href({ name: RouteName.Editor, id: post.projectId })} className="underline">
-                Open it
-              </a>{" "}
-              and press Schedule to render the new version.
+      <ol className="flex flex-col gap-5">
+        <PostStep n={1} done={!!post.video && !post.video.outdated} title="Get the video">
+          {post.video ? (
+            <>
+              <video src={mediaUrl(post.video.url)} controls playsInline className={`rounded-xl bg-black ${vertical ? "max-h-80 self-start" : "w-full"}`} />
+              <div className="flex items-center gap-3 text-xs">
+                <a
+                  href={mediaUrl(post.video.url)}
+                  download={`${post.projectName ?? "motionily"}.${post.video.mime.split("/")[1]}`}
+                  className="rounded-lg bg-white px-3 py-1.5 font-semibold text-neutral-900 hover:bg-neutral-200"
+                >
+                  Download
+                </a>
+                <span className="text-neutral-500">{(post.video.size / 1e6).toFixed(1)} MB</span>
+              </div>
+              {post.video.outdated && (
+                <p className="text-xs text-amber-200/90">
+                  You edited the video after this file was made.{" "}
+                  <a href={href({ name: RouteName.Editor, id: post.projectId })} className="underline">
+                    Open it
+                  </a>
+                  , press Schedule and turn on “Render it again”.
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="text-xs text-neutral-400">
+              Not rendered yet.{" "}
+              <a href={href({ name: RouteName.Editor, id: post.projectId })} className="text-white underline">
+                Open the video
+              </a>
+              , press Schedule and turn on “Render the video now”, or use Export.
             </p>
           )}
-        </div>
-      ) : (
-        <p className="text-xs text-neutral-500">No file yet: open the video and press Schedule to render it.</p>
-      )}
+        </PostStep>
 
-      {post.copy.map((c, i) => (
-        <div key={c.platform} className="flex flex-col gap-2">
-          <div className="flex items-baseline justify-between">
-            <h3 className="text-sm font-semibold">{PLATFORM_LABEL[c.platform]}</h3>
-            <div className="flex gap-3 text-xs">
-              <a href={UPLOAD_URL[c.platform]} target="_blank" rel="noreferrer" className="text-neutral-400 hover:text-white">
-                Open {PLATFORM_LABEL[c.platform]}
-              </a>
-              <button type="button" onClick={() => void copyText(c.platform, postText(c))} className="font-semibold text-white hover:underline">
-                {copied === c.platform ? "Copied" : "Copy text"}
+        <PostStep n={2} title="Copy the text and post it">
+          <div className="flex items-center gap-1 border-b border-white/[0.06]">
+            {post.platforms.map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setTab(p)}
+                className={`-mb-px flex items-center gap-1.5 border-b-2 px-2.5 py-1.5 text-xs font-medium ${p === active ? "border-white text-white" : "border-transparent text-neutral-500 hover:text-neutral-300"}`}
+              >
+                <span className="size-1.5 rounded-full" style={{ background: PLATFORM_COLOR[p] }} />
+                {PLATFORM_LABEL[p]}
               </button>
-            </div>
+            ))}
           </div>
           <textarea
-            defaultValue={c.caption}
+            key={`${active}-c-${post.id}`}
+            defaultValue={copyOf(active).caption}
             rows={4}
-            onBlur={(e) => e.target.value !== c.caption && void save({ copy: post.copy.map((x, j) => (j === i ? { ...x, caption: e.target.value } : x)) })}
-            className="resize-y rounded-lg bg-neutral-900 px-3 py-2 text-sm leading-relaxed text-neutral-100"
+            placeholder="No caption yet: write one, or open the video and press Schedule to have the agent write it."
+            onBlur={(e) => e.target.value !== copyOf(active).caption && saveCopy(active, { caption: e.target.value })}
+            className="resize-y rounded-lg bg-neutral-950 px-3 py-2 text-sm leading-relaxed text-neutral-100 ring-1 ring-white/[0.06] placeholder:text-neutral-600 focus:ring-white/20 focus:outline-none"
           />
-          <input
-            defaultValue={hashtagsText(c.hashtags)}
-            onBlur={(e) => {
-              const hashtags = parseHashtags(e.target.value);
-              if (hashtags.join(" ") !== c.hashtags.join(" ")) void save({ copy: post.copy.map((x, j) => (j === i ? { ...x, hashtags } : x)) });
-            }}
-            placeholder="#hashtags"
-            className="rounded-lg bg-neutral-900 px-3 py-2 text-sm text-sky-300 placeholder:text-neutral-600"
-          />
-          {post.status === PostStatus.Posted && <PostNumbers post={post} platform={c.platform} onChange={onChange} />}
-        </div>
-      ))}
+          <HashtagField value={copyOf(active).hashtags} onChange={(hashtags) => saveCopy(active, { hashtags })} />
+          <div className="flex items-center gap-2 text-xs">
+            <button type="button" onClick={() => void copyText(active, postText(copyOf(active)))} className="rounded-lg bg-white px-3 py-1.5 font-semibold text-neutral-900 hover:bg-neutral-200">
+              {copied === active ? "Copied ✓" : "Copy text"}
+            </button>
+            <a href={UPLOAD_URL[active]} target="_blank" rel="noreferrer" className="rounded-lg bg-neutral-800 px-3 py-1.5 font-semibold text-neutral-200 hover:bg-neutral-700">
+              Open {PLATFORM_LABEL[active]} ↗
+            </a>
+          </div>
+          {posted && <PostNumbers post={post} platform={active} onChange={onChange} />}
+        </PostStep>
+
+        <PostStep n={3} done={posted} title={posted ? "Posted" : "Mark it as posted"}>
+          <p className="text-xs text-neutral-500">
+            {posted ? "Its numbers come in from your connected accounts and show up in Stats." : "Once it's up everywhere. With your accounts connected, its views and where viewers leave come back here and in Stats."}
+          </p>
+          <div className="flex items-center gap-2">
+            {posted ? (
+              <>
+                <button type="button" disabled={refreshing} onClick={() => void refresh()} className="rounded-lg bg-neutral-800 px-3 py-1.5 text-xs font-semibold hover:bg-neutral-700 disabled:opacity-50">
+                  {refreshing ? "Refreshing…" : "Refresh numbers"}
+                </button>
+                <button type="button" onClick={() => void save({ status: PostStatus.Scheduled })} className="text-xs text-neutral-500 hover:text-white">
+                  Not posted yet
+                </button>
+              </>
+            ) : (
+              <button type="button" onClick={() => void save({ status: PostStatus.Posted })} className="rounded-lg bg-emerald-400 px-3 py-1.5 text-xs font-semibold text-neutral-950 hover:bg-emerald-300">
+                Mark as posted
+              </button>
+            )}
+          </div>
+        </PostStep>
+      </ol>
 
       {error && <p className="text-xs text-red-400">{error}</p>}
-      <div className="flex items-center gap-2">
-        {post.status === PostStatus.Posted ? (
-          <>
-            <button type="button" onClick={() => void save({ status: PostStatus.Scheduled })} className="rounded-lg bg-neutral-800 px-3 py-2 text-xs font-semibold hover:bg-neutral-700">
-              Not posted yet
-            </button>
-            <button type="button" disabled={refreshing} onClick={() => void refresh()} className="rounded-lg bg-neutral-800 px-3 py-2 text-xs font-semibold hover:bg-neutral-700 disabled:opacity-50">
-              {refreshing ? "Refreshing…" : "Refresh numbers"}
-            </button>
-          </>
-        ) : (
-          <button type="button" onClick={() => void save({ status: PostStatus.Posted })} className="rounded-lg bg-white px-3 py-2 text-xs font-semibold text-neutral-900 hover:bg-neutral-200">
-            Mark as posted
-          </button>
-        )}
-        <button type="button" onClick={() => void remove()} className="ml-auto text-xs text-neutral-500 hover:text-red-400">
-          Delete
-        </button>
-      </div>
+      <button type="button" onClick={() => void remove()} className="self-start text-xs text-neutral-600 hover:text-red-400">
+        Delete this post
+      </button>
     </section>
   );
 }
