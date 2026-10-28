@@ -2,6 +2,12 @@ import { useEffect, useState } from "react";
 import {
   channelInsights,
   channelSummary,
+  comparable,
+  confidence,
+  CONFIDENCE_LABEL,
+  type Confidence,
+  ageHours,
+  isGrowing,
   compactCount,
   engagementRate,
   MIN_INSIGHT_VIDEOS,
@@ -104,7 +110,6 @@ export function StatsScreen() {
   const previous = days === null ? null : mine.filter((r) => inPeriod(r, now - 2 * days * DAY, now - days * DAY));
   const summary = channelSummary(current);
   const before = previous?.length ? channelSummary(previous) : null;
-  const insights = channelInsights(mine);
   const updated = all.reduce<string | null>((a, r) => (r.metrics && (!a || r.metrics.fetchedAt > a) ? r.metrics.fetchedAt : a), null);
   const platforms = SOCIAL_PLATFORMS.filter((p) => all.some((r) => r.platform === p));
 
@@ -154,7 +159,7 @@ export function StatsScreen() {
           <Kpis now={summary} before={before} />
           <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
             <ViewsChart rows={current} />
-            <Insights insights={insights} measured={mine.filter((r) => r.metrics?.views != null).length} agent={agent} />
+            <Insights rows={mine} agent={agent} />
           </section>
           <VideoTable rows={current} sort={sort} onSort={setSort} />
           {!all.length && <p className="text-sm text-neutral-500">No posted video is linked yet. Post from the calendar, or link the ones already on your accounts below.</p>}
@@ -248,7 +253,7 @@ function ViewsChart({ rows }: { rows: ChannelVideo[] }) {
             >
               <span className="flex w-full flex-1 flex-col items-center justify-end gap-1 border-b border-white/10">
                 <span className="text-[10px] text-neutral-500 tabular-nums group-hover:text-white">{compactCount(r.metrics!.views)}</span>
-                <span className="w-full rounded-t opacity-80 transition group-hover:opacity-100" style={{ height: `${Math.max(1, (r.metrics!.views! / max) * 85)}%`, background: PLATFORM_COLOR[r.platform] }} />
+                <span className={`w-full rounded-t transition group-hover:opacity-100 ${isGrowing(r) ? "opacity-35" : "opacity-80"}`} style={{ height: `${Math.max(1, (r.metrics!.views! / max) * 85)}%`, background: PLATFORM_COLOR[r.platform] }} />
               </span>
               <span className="text-[10px] whitespace-nowrap text-neutral-600">{when(r.publishedAt)}</span>
             </a>
@@ -261,13 +266,28 @@ function ViewsChart({ rows }: { rows: ChannelVideo[] }) {
   );
 }
 
-function Insights({ insights, measured, agent }: { insights: { title: string; detail: string }[]; measured: number; agent: string }) {
+const CONFIDENCE_STYLE: Record<Confidence, string> = { early: "bg-amber-400/10 text-amber-300", fair: "bg-sky-400/10 text-sky-300", solid: "bg-emerald-400/10 text-emerald-300" };
+
+/** What the best videos do differently, how sure that is, and the video to learn from. */
+function Insights({ rows, agent }: { rows: ChannelVideo[]; agent: string }) {
+  const ranked = comparable(rows);
+  const insights = channelInsights(rows);
+  const level = confidence(ranked.length);
+  const best = ranked[0];
   return (
     <div className="flex flex-col gap-3 rounded-2xl bg-neutral-900/60 p-4 ring-1 ring-white/[0.06]">
-      <div>
+      <div className="flex flex-col gap-1.5">
         <h2 className="text-sm font-semibold">What your best videos do</h2>
-        <p className="text-[11px] text-neutral-500">Your top third by views against the rest, all time</p>
+        <span className={`self-start rounded-md px-2 py-0.5 text-[10px] leading-snug font-medium ${CONFIDENCE_STYLE[level]}`}>
+          {ranked.length} {ranked.length === 1 ? "video" : "videos"} older than 3 days · {CONFIDENCE_LABEL[level]}
+        </span>
       </div>
+      {best?.features?.hook && (
+        <div className="rounded-xl bg-white/[0.04] p-3">
+          <span className="text-[11px] text-neutral-500">Learn from “{best.name}”, which opens with</span>
+          <p className="mt-0.5 text-sm leading-snug">“{best.features.hook}”</p>
+        </div>
+      )}
       {insights.length ? (
         <ul className="flex flex-col gap-3">
           {insights.map((i) => (
@@ -279,13 +299,13 @@ function Insights({ insights, measured, agent }: { insights: { title: string; de
         </ul>
       ) : (
         <p className="text-xs leading-relaxed text-neutral-500">
-          {measured < MIN_INSIGHT_VIDEOS
-            ? `With ${MIN_INSIGHT_VIDEOS} measured videos (you have ${measured}), this compares your best ones with the rest: hook, length, how much is watched, platform.`
+          {ranked.length < MIN_INSIGHT_VIDEOS
+            ? `Once ${MIN_INSIGHT_VIDEOS} videos are 3 days old (${ranked.length} so far), this compares your best ones with the rest: hook, pace, length, voice, platform.`
             : "Your best videos and the rest hook, hold and run alike: no difference big enough to act on yet."}
         </p>
       )}
       <p className="mt-auto border-t border-white/[0.06] pt-3 text-[11px] leading-relaxed text-neutral-500">
-        {agent} reads these numbers when planning a video. Ask it in the editor: “what should I change, judging by my stats?”
+        {agent} gets this every time it opens a video, and plans from your best one. Videos under 3 days are still collecting views: they show here but aren't compared.
       </p>
     </div>
   );
@@ -343,6 +363,11 @@ function VideoTable({ rows, sort, onSort }: { rows: ChannelVideo[]; sort: Sort; 
                         <span className="flex items-center gap-1.5 text-xs text-neutral-500">
                           <span className="size-1.5 rounded-full" style={{ background: PLATFORM_COLOR[r.platform] }} />
                           {SOCIAL_LABEL[r.platform]} · {when(r.publishedAt)}
+                          {isGrowing(r) && (
+                            <span className="rounded-full bg-amber-400/10 px-1.5 py-px text-[10px] font-medium text-amber-300" title="Under 3 days old: still collecting views, not compared yet">
+                              Growing · {Math.max(1, Math.round(ageHours(r)))} h
+                            </span>
+                          )}
                         </span>
                       </span>
                     </a>

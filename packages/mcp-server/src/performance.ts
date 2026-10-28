@@ -5,11 +5,11 @@
 import {
   attentionSparkline,
   audienceDrops,
-  channelInsights,
-  channelSummary,
+  channelPlaybook,
   compactCount,
+  comparable,
+  comparableViews,
   engagementRate,
-  MIN_INSIGHT_VIDEOS,
   onScreenAt,
   SOCIAL_LABEL,
   watchShare,
@@ -71,12 +71,12 @@ export function performanceReport(posts: PostPerformance[], scene: SceneLike): s
   return out.join("\n");
 }
 
-/** Videos listed by name in the channel report (best and worst). */
-const CHANNEL_LISTED = 5;
+/** Videos listed in the channel report. */
+const CHANNEL_LISTED = 12;
 
 function channelLine(r: ChannelVideo, projectId: string) {
   const m = r.metrics!;
-  const parts = [`${compactCount(m.views)} views`];
+  const parts = [`${compactCount(comparableViews(r))} views`];
   const w = watchShare(r);
   if (w !== null) parts.push(`${pct(w)} watched`);
   if (m.skipRate !== null) parts.push(`${pct(m.skipRate)} skip 3 s`);
@@ -87,28 +87,20 @@ function channelLine(r: ChannelVideo, projectId: string) {
   return `- "${r.name}"${r.projectId === projectId ? " (this video)" : ""} · ${SOCIAL_LABEL[r.platform]} ${r.publishedAt?.slice(0, 10) ?? ""} · ${parts.join(" · ")}`;
 }
 
-/** get_channel_insights: how the account's posted videos compare, and what the best ones do differently. */
+/** get_channel_insights: the channel's playbook, then every video old enough to compare, best first. */
 export function channelReport(rows: ChannelVideo[], projectId: string): string {
-  const measured = rows.filter((r) => r.metrics?.views != null).sort((a, b) => b.metrics!.views! - a.metrics!.views!);
-  if (!measured.length)
+  const playbook = channelPlaybook(rows);
+  if (!playbook)
     return "No posted video has numbers yet: the user has to connect Instagram, TikTok or YouTube in Settings and post from the calendar (or link videos already posted, on the Stats page).";
-  const s = channelSummary(measured);
-  const head = [`${s.videos} posted videos measured · ${compactCount(s.views)} views in all · typical video ${compactCount(s.medianViews)} views`];
-  const avgs: string[] = [];
-  if (s.watch !== null) avgs.push(`${pct(s.watch)} watched on average`);
-  if (s.skip !== null) avgs.push(`${pct(s.skip)} skip in the first 3 s`);
-  if (s.engagement !== null) avgs.push(`${(s.engagement * 100).toFixed(1)}% engagement`);
-  if (avgs.length) head.push(avgs.join(" · "));
-  const out = [...head, "", "Best:", ...measured.slice(0, CHANNEL_LISTED).map((r) => channelLine(r, projectId))];
-  if (measured.length > CHANNEL_LISTED) out.push("", "Weakest:", ...measured.slice(-Math.min(CHANNEL_LISTED, measured.length - CHANNEL_LISTED)).map((r) => channelLine(r, projectId)));
-  const insights = channelInsights(measured);
-  out.push("", "What the best ones do differently:");
-  if (insights.length) out.push(...insights.map((i) => `- ${i.title}: ${i.detail}`));
-  else if (measured.length < MIN_INSIGHT_VIDEOS) out.push(`- too few measured videos to compare (${measured.length}; need ${MIN_INSIGHT_VIDEOS})`);
-  else out.push("- no difference big enough to act on: the best and the rest hook, hold and run alike");
-  out.push(
-    "",
-    "Use it to plan this video: keep what the best ones share (hook, length, pace), avoid what the weakest share. Open a specific video's moments with get_performance on that video; tell the user in a line or two what you are changing and why, citing the numbers.",
-  );
+  const ranked = comparable(rows);
+  const out = [playbook];
+  if (ranked.length) out.push("", "Every video old enough to compare, best first (views at 3 days when known):", ...ranked.slice(0, CHANNEL_LISTED).map((r) => channelLine(r, projectId)));
+  out.push("", "Open a specific video's moments (where viewers leave, and what was on screen) with get_performance on that video.");
   return out.join("\n");
+}
+
+/** The short block get_project ends with, so every video starts from what worked (null with no numbers). */
+export function channelBrief(rows: ChannelVideo[]): string | null {
+  const playbook = channelPlaybook(rows);
+  return playbook ? `## Your channel so far (from Stats; get_channel_insights has every video)\n${playbook}` : null;
 }

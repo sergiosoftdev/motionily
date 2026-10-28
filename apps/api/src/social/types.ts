@@ -1,3 +1,5 @@
+import type { VideoFeatures } from "./features";
+
 /** Mirrors SocialPlatform, PostLink, PostMetrics, PostPerformance, ChannelVideo and SocialAccount in @motionily/protocol (performance.ts). */
 
 export enum SocialPlatform {
@@ -25,6 +27,9 @@ export type PostMetrics = {
   duration: number | null;
 };
 
+/** The numbers of one platform as they were when the post was `day` days old (24 h, 3 days, a week), so videos compare at the same age. */
+export type MetricsCheckpoint = PostMetrics & { day: number; ageHours: number };
+
 export type SocialAccount = { platform: SocialPlatform; connected: boolean; handle: string | null; error: string | null };
 
 export type PostPerformance = { postId: string; postedAt: string | null; outdated: boolean; links: PostLink[]; metrics: PostMetrics[] };
@@ -40,4 +45,7 @@ export type ChannelVideo = {
   url: string | null;
   publishedAt: string | null;
   metrics: PostMetrics | null;
+  /** Views when it was 3 days old (null until then, or if it was linked later). */
+  views3d: number | null;
+  features: VideoFeatures | null;
 };

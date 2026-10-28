@@ -1,6 +1,7 @@
 import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
 import { HydratedDocument, Schema as MongooseSchema, Types } from "mongoose";
-import type { PostLink, PostMetrics } from "../social/types";
+import type { VideoFeatures } from "../social/features";
+import type { MetricsCheckpoint, PostLink, PostMetrics } from "../social/types";
 
 /** Where a video gets posted. */
 export enum Platform {
@@ -36,6 +37,10 @@ export class Post {
   @Prop({ type: [MongooseSchema.Types.Mixed], default: [] }) links: PostLink[];
   /** The latest numbers per platform (social/social.service.ts keeps them fresh). */
   @Prop({ type: [MongooseSchema.Types.Mixed], default: [] }) metrics: PostMetrics[];
+  /** The numbers per platform at 1, 3 and 7 days old, kept as they pass. */
+  @Prop({ type: [MongooseSchema.Types.Mixed], default: [] }) checkpoints: MetricsCheckpoint[];
+  /** What the video was like when it was first measured (hook, length, pace…), to learn what works. */
+  @Prop({ type: MongooseSchema.Types.Mixed, default: null }) features: VideoFeatures | null;
 }
 
 export type PostDocument = HydratedDocument<Post>;

@@ -9,7 +9,9 @@ import { testDatabase } from "./db";
 import request from "supertest";
 import { AppModule } from "../src/app.module";
 import { configureApp } from "../src/setup";
-import { idFromUrl, matchVideo } from "../src/social/social.service";
+import { idFromUrl, matchVideo, setMetrics } from "../src/social/social.service";
+import { videoFeatures } from "../src/social/features";
+import type { PostDocument } from "../src/posts/post.schema";
 import { isoSeconds } from "../src/social/platforms";
 import { SocialPlatform } from "../src/social/types";
 
@@ -149,6 +151,46 @@ describe("Social accounts and post performance", () => {
     assert.equal(isoSeconds("PT20S"), 20);
   });
 
+  it("reads what a video is like from its scene: the spoken hook, the pace, voice and captions", () => {
+    const f = videoFeatures({
+      scene: {
+        duration: 20,
+        layers: [
+          { type: "text", text: "Bulls *can't* see red", start: 0 },
+          { type: "shape", start: 0 },
+          { type: "image", start: 2 },
+          { type: "text", text: "It's the motion", start: 5 },
+          { type: "shape", start: 5 },
+          { type: "image", start: 9.5, visible: false },
+        ],
+        audio: { start: 0 },
+        captions: { words: [{ text: "Bulls", start: 0, end: 0.4 }] },
+      },
+      audio: { words: [{ text: "Bulls", start: 0.1 }, { text: "can't", start: 0.5 }, { text: "see", start: 0.9 }, { text: "red.", start: 1.2 }, { text: "Really.", start: 4 }] },
+      direction: { genre: "editorial_collage" },
+      format: "vertical_9_16",
+    })!;
+    assert.equal(f.hook, "Bulls can't see red.");
+    assert.equal(f.beatsPerMin, 6, "two moments after the first frame in 20 s");
+    assert.equal(f.voice, true);
+    assert.equal(f.captions, true);
+    assert.equal(f.music, false);
+    assert.equal(f.genre, "editorial_collage");
+    // Without a voice, the hook is the text on screen.
+    assert.equal(videoFeatures({ scene: { duration: 10, layers: [{ type: "text", text: "Vikings never had horns", start: 0.2 }] } })!.hook, "Vikings never had horns");
+    assert.equal(videoFeatures({ scene: null }), null);
+  });
+
+  it("keeps the numbers at 1, 3 and 7 days old, once each, and none for an age it was first measured long after", () => {
+    const post = { metrics: [], checkpoints: [], postedAt: null, markModified: () => undefined } as unknown as PostDocument;
+    const born = Date.parse("2026-10-01T10:00:00Z");
+    const at = (hours: number, views: number) => ({ platform: SocialPlatform.Instagram, fetchedAt: new Date(born + hours * 3_600_000).toISOString(), views, reach: null, likes: null, comments: null, shares: null, saves: null, avgWatch: null, skipRate: null, retention: null, duration: null });
+    const published = new Date(born).toISOString();
+    for (const [h, v] of [[5, 100], [26, 900], [31, 1000], [75, 1500], [80, 1600], [400, 3000]] as const) setMetrics(post, at(h, v), published);
+    assert.deepEqual(post.checkpoints.map((c) => [c.day, c.views, c.ageHours]), [[1, 900, 26], [3, 1500, 75]], "the week's was missed (first measured at 400 h), so it is not faked");
+    assert.equal(post.metrics[0]!.views, 3000);
+  });
+
   it("matches a post to the video published near it with the same caption, not to another one", () => {
     const when = new Date(now);
     const videos = [
@@ -225,6 +267,7 @@ describe("Social accounts and post performance", () => {
     assert.deepEqual(channel.map((r: { platform: string }) => r.platform).sort(), ["instagram", "tiktok", "youtube"]);
     assert.ok(channel.every((r: { projectId: string; postId: string; name: string }) => r.projectId === projectId && r.postId === postId && r.name));
     assert.equal(channel.find((r: { platform: string }) => r.platform === "tiktok").metrics.views, 5400);
+    assert.ok(channel.every((r: { views3d: unknown; features: unknown }) => r.views3d === null && "features" in r));
     // The agent compares across videos through its own video's route, never the user's.
     const { body: seen } = await http.get(`/projects/${projectId}/channel`).set(agent).expect(200);
     assert.equal(seen.length, 3);

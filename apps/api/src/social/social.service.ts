@@ -6,6 +6,7 @@ import { SOCIAL_LABEL, SOCIAL_PLATFORMS, SocialPlatform, type ChannelVideo, type
 import { Post, PostStatus, type PostDocument } from "../posts/post.schema";
 import { Project } from "../projects/project.schema";
 import { coverUrl } from "../projects/projects.service";
+import { videoFeatures } from "./features";
 import { User } from "../users/user.schema";
 import { seal, unseal, type Sealed } from "../voice/secrets";
 import {
@@ -298,15 +299,17 @@ export class SocialService implements OnModuleInit, OnModuleDestroy {
 
   /** Every published copy of the account's videos with its latest numbers, newest first: the channel's dashboard. */
   async channel(userId: Types.ObjectId): Promise<ChannelVideo[]> {
-    const posts = await this.posts.find({ ownerId: userId, status: PostStatus.Posted, "links.0": { $exists: true } }, { projectId: 1, links: 1, metrics: 1 }).lean();
+    const posts = await this.posts.find({ ownerId: userId, status: PostStatus.Posted, "links.0": { $exists: true } }, { projectId: 1, links: 1, metrics: 1, checkpoints: 1, features: 1 }).lean();
     const projects = new Map(
-      (await this.projects.find({ _id: { $in: posts.map((p) => p.projectId) }, ownerId: userId }, { name: 1, cover: 1, format: 1, "scene.duration": 1 }).lean()).map((p) => [String(p._id), p]),
+      (await this.projects.find({ _id: { $in: posts.map((p) => p.projectId) }, ownerId: userId }, { name: 1, cover: 1, format: 1, scene: 1, audio: 1, direction: 1 }).lean()).map((p) => [String(p._id), p]),
     );
     const rows: ChannelVideo[] = [];
     for (const post of posts) {
       const project = projects.get(String(post.projectId));
       if (!project) continue;
       const duration = (project as { scene?: { duration?: unknown } | null }).scene?.duration;
+      // Measured before features were kept: read them from the scene as it is.
+      const features = post.features ?? videoFeatures(project as Parameters<typeof videoFeatures>[0]);
       for (const l of post.links ?? []) {
         rows.push({
           postId: String(post._id),
@@ -319,6 +322,8 @@ export class SocialService implements OnModuleInit, OnModuleDestroy {
           url: l.url,
           publishedAt: l.publishedAt,
           metrics: (post.metrics ?? []).find((m) => m.platform === l.platform) ?? null,
+          views3d: (post.checkpoints ?? []).find((c) => c.platform === l.platform && c.day === 3)?.views ?? null,
+          features,
         });
       }
     }
@@ -347,7 +352,8 @@ export class SocialService implements OnModuleInit, OnModuleDestroy {
             taken.add(v.id);
             setLink(post, link);
           }
-          setMetrics(post, await this.metrics(platform, token, link));
+          setMetrics(post, await this.metrics(platform, token, link), link.publishedAt);
+          post.features ??= await this.features(post.projectId);
           await post.save();
         }
         if (states[platform]?.error) await this.setState(userId, platform, { ...states[platform]!, error: null });
@@ -358,6 +364,12 @@ export class SocialService implements OnModuleInit, OnModuleDestroy {
       }
     }
     return { synced: posts.length, errors };
+  }
+
+  /** The video's features from its scene as it is now (kept with the post at its first measurement). */
+  private async features(projectId: Types.ObjectId) {
+    const p = await this.projects.findById(projectId, { scene: 1, audio: 1, direction: 1, format: 1 }).lean();
+    return p ? videoFeatures(p as Parameters<typeof videoFeatures>[0]) : null;
   }
 
   private videos(platform: SocialPlatform, token: string, auth: Auth) {
@@ -469,7 +481,19 @@ function setLink(post: PostDocument, link: PostLink) {
   post.markModified("links");
 }
 
-function setMetrics(post: PostDocument, m: PostMetrics) {
+/** Ages (days) at which a post's numbers are kept, so videos compare at the same age. */
+const CHECKPOINT_DAYS = [1, 3, 7];
+
+export function setMetrics(post: PostDocument, m: PostMetrics, publishedAt: string | null) {
   post.metrics = [...(post.metrics ?? []).filter((x) => x.platform !== m.platform), m];
   post.markModified("metrics");
+  // The first measurement past each age is that age's checkpoint (syncs run every few hours).
+  const born = Date.parse(publishedAt ?? "") || post.postedAt?.getTime();
+  if (!born) return;
+  const ageHours = (Date.parse(m.fetchedAt) - born) / 3_600_000;
+  const have = new Set((post.checkpoints ?? []).filter((c) => c.platform === m.platform).map((c) => c.day));
+  const due = CHECKPOINT_DAYS.filter((d) => ageHours >= d * 24 && !have.has(d) && ageHours < d * 36 + 12);
+  if (!due.length) return;
+  post.checkpoints = [...(post.checkpoints ?? []), ...due.map((day) => ({ ...m, day, ageHours: Math.round(ageHours) }))];
+  post.markModified("checkpoints");
 }

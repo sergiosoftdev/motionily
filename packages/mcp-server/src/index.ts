@@ -39,7 +39,7 @@ import { describeExample, rankExamples, type Example } from "./examples.js";
 import { nextSteps, type ProjectState } from "./nextstep.js";
 import { frameStats } from "./review.js";
 import { attentionReport } from "./attention.js";
-import { channelReport, performanceReport } from "./performance.js";
+import { channelBrief, channelReport, performanceReport } from "./performance.js";
 import { LOG_CHARS, runScript, type HostApi } from "./sandbox.js";
 import { attentionCurve, attentionIssues, attentionSparkline, blueprintLines, seriesBlueprint, seriesDrift, type ChannelVideo, type PostPerformance, type Series } from "@motionily/protocol";
 import { buildEdit, DEFAULT_EDIT, FOOTAGE_GROUP, footageLines, parseSegments, transcriptLines } from "./footage.js";
@@ -182,8 +182,13 @@ server.registerTool(
   guard(async () => {
     const p = await api.project();
     // The media pool (clips, sounds, pictures) is part of what the agent can work with, as it is for the user.
-    const media = await api.route<import("@motionily/protocol").MediaItem[]>("GET", "/media").catch(() => []);
-    const project = `${describeProject(p)}\n\n${mediaLines(p, media, bridge.currentScene)}`;
+    const [media, channel] = await Promise.all([
+      api.route<import("@motionily/protocol").MediaItem[]>("GET", "/media").catch(() => []),
+      // How the user's posted videos did: every video starts from what worked.
+      api.route<ChannelVideo[]>("GET", "/channel").catch(() => []),
+    ]);
+    const brief = channelBrief(channel);
+    const project = `${describeProject(p)}\n\n${mediaLines(p, media, bridge.currentScene)}${brief ? `\n\n${brief}` : ""}`;
     if (manualSent) return text(project);
     manualSent = true;
     return text(`${project}\n\n---\n\n${MANUAL}`);

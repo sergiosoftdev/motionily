@@ -119,6 +119,22 @@ export function compactCount(n: number | null): string {
   return new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(n);
 }
 
+/** What a posted video was like, read from its scene (videoFeatures in apps/api/src/social/features.ts). */
+export type VideoFeatures = {
+  duration: number;
+  /** What it opens with: the voice's first words, else the text on screen in the first seconds. */
+  hook: string;
+  /** Layers that come in per minute after the first frame: how often something new happens. */
+  beatsPerMin: number;
+  /** Words spoken per second (0 without a voice). */
+  wordsPerSec: number;
+  voice: boolean;
+  captions: boolean;
+  music: boolean;
+  genre: string | null;
+  format: string | null;
+};
+
 /** One published copy of a video made here with its latest numbers: a row of the channel's dashboard. */
 export type ChannelVideo = {
   postId: string;
@@ -134,7 +150,19 @@ export type ChannelVideo = {
   publishedAt: string | null;
   /** Null until the platform has been asked (or it gave nothing). */
   metrics: PostMetrics | null;
+  /** Views when it was 3 days old (null until then, or when it was linked later). */
+  views3d: number | null;
+  features: VideoFeatures | null;
 };
+
+/** A post younger than this is still collecting views: it is shown, but not compared with older ones. */
+export const MATURE_HOURS = 72;
+
+/** Hours since it was published (Infinity when unknown: treated as old enough). */
+export const ageHours = (r: ChannelVideo, now = Date.now()) => (r.publishedAt ? (now - Date.parse(r.publishedAt)) / 3_600_000 : Infinity);
+export const isGrowing = (r: ChannelVideo, now = Date.now()) => ageHours(r, now) < MATURE_HOURS;
+/** Views to rank videos by: at 3 days old when kept (every video at the same age), else the latest. */
+export const comparableViews = (r: ChannelVideo) => r.views3d ?? r.metrics?.views ?? null;
 
 /** Share (0..1) of the video the average view watches; past 1 with rewatches. Null without numbers. */
 export function watchShare(v: ChannelVideo): number | null {
@@ -189,21 +217,37 @@ export function channelSummary(rows: ChannelVideo[]): ChannelSummary {
   };
 }
 
+/** Measured videos old enough to compare, best first. */
+export function comparable(rows: ChannelVideo[], now = Date.now()): ChannelVideo[] {
+  return rows.filter((r) => r.metrics?.views != null && !isGrowing(r, now)).sort((a, b) => comparableViews(b)! - comparableViews(a)!);
+}
+
 /** Videos needed before comparing the best ones with the rest says anything. */
 export const MIN_INSIGHT_VIDEOS = 4;
+
+/** How much to trust what the comparison says, by how many videos it rests on. */
+export const Confidence = { Early: "early", Fair: "fair", Solid: "solid" } as const;
+export type Confidence = (typeof Confidence)[keyof typeof Confidence];
+export const confidence = (videos: number): Confidence => (videos < 8 ? Confidence.Early : videos < 20 ? Confidence.Fair : Confidence.Solid);
+export const CONFIDENCE_LABEL: Record<Confidence, string> = {
+  early: "Early signal: hunches to test, not rules yet",
+  fair: "Taking shape: patterns worth following",
+  solid: "Solid: patterns across many videos",
+};
 
 /** One thing the numbers say across videos, and what to do about it. */
 export type ChannelInsight = { title: string; detail: string };
 
 /**
- * What the best videos (top third by views) do differently from the rest: the hook (3-second skip), how
- * much of them is watched, their length, the platform, the interactions they get. Only differences big
- * enough to act on; empty with fewer than MIN_INSIGHT_VIDEOS measured videos.
+ * What the best videos (top third by views at the same age, at least two) do differently from the rest:
+ * the hook (3-second skip and the opening line), how much of them is watched, their length and pace, the
+ * voice, the platform and the shares. Only differences big enough to act on, among videos at least
+ * MATURE_HOURS old; empty with fewer than MIN_INSIGHT_VIDEOS.
  */
-export function channelInsights(rows: ChannelVideo[]): ChannelInsight[] {
-  const measured = rows.filter((r) => r.metrics?.views != null).sort((a, b) => b.metrics!.views! - a.metrics!.views!);
+export function channelInsights(rows: ChannelVideo[], now = Date.now()): ChannelInsight[] {
+  const measured = comparable(rows, now);
   if (measured.length < MIN_INSIGHT_VIDEOS) return [];
-  const third = Math.max(1, Math.round(measured.length / 3));
+  const third = Math.max(2, Math.round(measured.length / 3));
   const top = measured.slice(0, third);
   const rest = measured.slice(third);
   const avg = (xs: ChannelVideo[], f: (r: ChannelVideo) => number | null | undefined) => mean(present(xs.map(f)));
@@ -215,10 +259,19 @@ export function channelInsights(rows: ChannelVideo[]): ChannelInsight[] {
   else if (ts !== null && ts >= 0.5)
     out.push({ title: "Most viewers swipe in the first 3 s", detail: `Even your best videos lose ${pct(ts)} before 3 s. Try a stronger first frame: motion right away, text that states the promise.` });
 
+  const hookWords = (r: ChannelVideo) => (r.features?.hook ? r.features.hook.split(/\s+/).length : null);
+  const [th, rh] = [avg(top, hookWords), avg(rest, hookWords)];
+  if (th !== null && rh !== null && Math.abs(th - rh) >= 4)
+    out.push(
+      th < rh
+        ? { title: "Short opening lines", detail: `Your best videos open with about ${Math.round(th)} words; the rest with ${Math.round(rh)}. Say the hook in one breath.` }
+        : { title: "Openings that set it up", detail: `Your best videos open with about ${Math.round(th)} words; the rest with ${Math.round(rh)}. A full first sentence works for you.` },
+    );
+
   const [tw, rw] = [avg(top, watchShare), avg(rest, watchShare)];
   if (tw !== null && rw !== null && tw - rw >= 0.1) out.push({ title: "Watched to the end, shown to more", detail: `Viewers watch ${pct(tw)} of your best videos and ${pct(rw)} of the rest. Cut where it sags; get to the point sooner.` });
 
-  const len = (r: ChannelVideo) => r.metrics?.duration ?? (r.duration || null);
+  const len = (r: ChannelVideo) => r.metrics?.duration ?? (r.features?.duration || r.duration || null);
   const [tl, rl] = [avg(top, len), avg(rest, len)];
   if (tl !== null && rl !== null && Math.abs(tl - rl) >= Math.max(4, 0.25 * Math.min(tl, rl)))
     out.push(
@@ -227,9 +280,31 @@ export function channelInsights(rows: ChannelVideo[]): ChannelInsight[] {
         : { title: "Longer does better here", detail: `Your best videos run ${secs(tl)} on average; the rest ${secs(rl)}. Your audience stays for depth: don't cut too short.` },
     );
 
-  const byPlatform = SOCIAL_PLATFORMS.map((p) => ({ p, views: median(measured.filter((r) => r.platform === p).map((r) => r.metrics!.views!)), n: measured.filter((r) => r.platform === p).length })).filter(
-    (x) => x.views !== null && x.n >= 2,
-  );
+  const pace = (r: ChannelVideo) => r.features?.beatsPerMin ?? null;
+  const [tp, rp] = [avg(top, pace), avg(rest, pace)];
+  if (tp !== null && rp !== null && tp > 0 && rp > 0 && Math.abs(tp - rp) >= Math.max(4, 0.25 * Math.min(tp, rp)))
+    out.push(
+      tp > rp
+        ? { title: "A faster pace holds them", detail: `Something new comes in every ${secs(60 / tp)} in your best videos and every ${secs(60 / rp)} in the rest. Change the frame more often.` }
+        : { title: "Calmer videos do better", detail: `Your best videos change every ${secs(60 / tp)}; the rest every ${secs(60 / rp)}. Let each idea breathe.` },
+    );
+
+  const share = (xs: ChannelVideo[], f: (v: VideoFeatures) => boolean) => {
+    const known = xs.filter((r) => r.features);
+    return known.length ? known.filter((r) => f(r.features!)).length / known.length : null;
+  };
+  const [tv, rv] = [share(top, (f) => f.voice), share(rest, (f) => f.voice)];
+  if (tv !== null && rv !== null && Math.abs(tv - rv) >= 0.5)
+    out.push(
+      tv > rv
+        ? { title: "A voice helps", detail: `${pct(tv)} of your best videos have a voice-over, against ${pct(rv)} of the rest.` }
+        : { title: "Text alone works for you", detail: `Only ${pct(tv)} of your best videos have a voice-over, against ${pct(rv)} of the rest.` },
+    );
+
+  const byPlatform = SOCIAL_PLATFORMS.map((p) => {
+    const mine = measured.filter((r) => r.platform === p);
+    return { p, views: median(mine.map((r) => comparableViews(r)!)), n: mine.length };
+  }).filter((x) => x.views !== null && x.n >= 2);
   if (byPlatform.length >= 2) {
     byPlatform.sort((a, b) => b.views! - a.views!);
     const [best, worst] = [byPlatform[0]!, byPlatform.at(-1)!];
@@ -246,3 +321,41 @@ export function channelInsights(rows: ChannelVideo[]): ChannelInsight[] {
 }
 
 const secs = (v: number) => `${Math.round(v)} s`;
+
+function describe(r: ChannelVideo): string {
+  const m = r.metrics!;
+  const parts = [`${compactCount(comparableViews(r))} views${r.views3d != null ? " at 3 days" : ""}`];
+  const w = watchShare(r);
+  if (w !== null) parts.push(`${pct(w)} watched`);
+  if (m.skipRate !== null) parts.push(`${pct(m.skipRate)} skip in 3 s`);
+  const e = engagementRate(m);
+  if (e !== null) parts.push(`${(e * 100).toFixed(1)}% engagement (${m.shares ?? 0} shares, ${m.saves ?? 0} saves)`);
+  const f = r.features;
+  const made = f ? [`${secs(f.duration)}`, f.beatsPerMin ? `a new element every ${secs(60 / f.beatsPerMin)}` : null, f.voice ? "voice-over" : "no voice", f.captions ? "captions" : null, f.genre].filter(Boolean).join(", ") : null;
+  return `"${r.name}" (${SOCIAL_LABEL[r.platform]}): ${parts.join(" · ")}${made ? `\n    made: ${made}` : ""}${f?.hook ? `\n    opens with: "${f.hook}"` : ""}`;
+}
+
+/**
+ * The channel's playbook for an agent about to make or change a video: how sure the patterns are, the
+ * video to learn from and the weakest, what the best ones share, and the posts still too young to judge.
+ * Null while nothing posted has numbers.
+ */
+export function channelPlaybook(rows: ChannelVideo[], now = Date.now()): string | null {
+  const measured = comparable(rows, now);
+  const growing = rows.filter((r) => r.metrics?.views != null && isGrowing(r, now));
+  if (!measured.length && !growing.length) return null;
+  const level = confidence(measured.length);
+  const out = [`${measured.length} posted ${measured.length === 1 ? "video" : "videos"} old enough to compare · ${CONFIDENCE_LABEL[level]}.`];
+  if (measured.length) out.push(`Learn from: ${describe(measured[0]!)}`);
+  if (measured.length > 1) out.push(`Weakest: ${describe(measured.at(-1)!)}`);
+  const insights = channelInsights(rows, now);
+  if (insights.length) out.push("What the best ones do differently:", ...insights.map((i) => `- ${i.title}: ${i.detail}`));
+  else if (measured.length < MIN_INSIGHT_VIDEOS) out.push(`Too few videos to compare yet (${measured.length} of ${MIN_INSIGHT_VIDEOS}): start from the best one's hook and length.`);
+  if (growing.length) out.push(`Still collecting views (under ${MATURE_HOURS / 24} days, don't judge them yet): ${growing.map((r) => `"${r.name}" ${compactCount(r.metrics!.views)} views at ${Math.round(ageHours(r, now))} h`).join(", ")}.`);
+  out.push(
+    level === Confidence.Early
+      ? "With this few videos, treat the patterns as hunches: keep what the best one did, and change one thing at a time (the hook, the length or the pace) so the next numbers say whether it worked. Tell the user which one you are testing."
+      : "Keep what the best ones share and avoid what the weakest share; change one thing at a time and tell the user which, so the next numbers say whether it worked.",
+  );
+  return out.join("\n");
+}
