@@ -64,7 +64,7 @@ const NAMED: [MomentKind, RegExp][] = [
 const TITLE_SIZE = 90;
 const MAX_MOMENTS = 150;
 
-type Layer = { id?: unknown; type?: unknown; text?: unknown; size?: unknown; start?: unknown; end?: unknown; visible?: unknown; group?: unknown; comp?: unknown; icon?: unknown };
+type Layer = { id?: unknown; variant?: unknown; type?: unknown; text?: unknown; size?: unknown; start?: unknown; end?: unknown; visible?: unknown; group?: unknown; comp?: unknown; icon?: unknown };
 
 type Word = { text?: unknown; word?: unknown; start?: unknown };
 const num = (v: unknown, d = 0) => (typeof v === "number" && Number.isFinite(v) ? v : d);
@@ -104,18 +104,32 @@ function momentLabel(l: Layer): string {
   return String(l.group ?? l.comp ?? l.icon ?? l.id ?? l.type ?? "");
 }
 
-export function videoFeatures(p: { scene: Record<string, unknown> | null; audio?: { words?: unknown } | null; direction?: { genre?: unknown } | null; format?: string | null }): VideoFeatures | null {
+/** Every hook variant the layers name, sorted (mirrors sceneVariants in @motionily/protocol). */
+export function sceneVariants(scene: Record<string, unknown> | null): string[] {
+  const layers = Array.isArray(scene?.layers) ? (scene.layers as Layer[]) : [];
+  return [...new Set(layers.map((l) => l.variant).filter((v): v is string => typeof v === "string" && v !== ""))].sort();
+}
+
+/**
+ * `variant`: the hook variant posted (videos with several openings): the other variants' layers are left
+ * out. Null or unknown: the one the scene plays.
+ */
+export function videoFeatures(p: { scene: Record<string, unknown> | null; audio?: { words?: unknown } | null; direction?: { genre?: unknown } | null; format?: string | null }, variant?: string | null): VideoFeatures | null {
   const scene = p.scene;
   if (!scene) return null;
   const duration = num(scene.duration);
-  const layers = (Array.isArray(scene.layers) ? (scene.layers as Layer[]) : []).filter((l) => l.visible !== false);
+  const all = sceneVariants(scene);
+  const playing = variant && all.includes(variant) ? variant : typeof scene.variant === "string" && all.includes(scene.variant) ? scene.variant : (all[0] ?? null);
+  const layers = (Array.isArray(scene.layers) ? (scene.layers as Layer[]) : []).filter((l) => l.visible !== false && (typeof l.variant !== "string" || l.variant === playing));
   const spoken = words(p.audio?.words);
   const opening = spoken.filter((w) => num(w.start, Infinity) < HOOK).map(wordText).filter(Boolean);
   const onScreen = layers
     .filter((l) => l.type === "text" && typeof l.text === "string" && num(l.start) < HOOK)
     .sort((a, b) => num(a.start) - num(b.start))
     .map((l) => clean(l.text as string));
-  const hook = (opening.length ? opening.join(" ") : onScreen.slice(0, 2).join(" / ")).slice(0, 140);
+  // With several openings the voice is shared: what tells them apart is the variant's own text.
+  const ownText = layers.filter((l) => playing && l.variant === playing && l.type === "text" && typeof l.text === "string" && num(l.start) < HOOK).map((l) => clean(l.text as string));
+  const hook = (ownText.length ? ownText.slice(0, 2).join(" / ") : opening.length ? opening.join(" ") : onScreen.slice(0, 2).join(" / ")).slice(0, 140);
   const starts = new Set(layers.map((l) => Math.round(num(l.start) * 10)).filter((t) => t > 0));
   const timeline: Moment[] = [];
   for (const l of layers) {

@@ -100,7 +100,10 @@ export function CalendarScreen({ postId }: { postId?: string }) {
                       <span className={`size-1.5 shrink-0 rounded-full ${STATE_DOT[postState(p)]}`} />
                       {formatTime(p.scheduledAt)}
                     </span>
-                    <span className="truncate">{p.projectName ?? "Deleted video"}</span>
+                    <span className="truncate">
+                      {p.projectName ?? "Deleted video"}
+                      {p.variant ? ` · hook ${p.variant}` : ""}
+                    </span>
                   </a>
                 ))}
               </div>
@@ -137,7 +140,10 @@ function Upcoming({ posts, loaded }: { posts: ScheduledPost[]; loaded: boolean }
       ) : posts.length ? (
         posts.map((p) => (
           <a key={p.id} href={href({ name: RouteName.Calendar, postId: p.id })} className="flex flex-col gap-0.5 rounded-lg px-3 py-2 hover:bg-neutral-900">
-            <span className="truncate text-sm">{p.projectName ?? "Deleted video"}</span>
+            <span className="truncate text-sm">
+              {p.projectName ?? "Deleted video"}
+              {p.variant && <span className="ml-1.5 rounded bg-violet-400/15 px-1.5 py-0.5 text-[10px] text-violet-200">Hook {p.variant}</span>}
+            </span>
             <span className="text-xs text-neutral-500">
               {formatWhen(p.scheduledAt)} · {p.platforms.map((x) => PLATFORM_LABEL[x]).join(", ")}
             </span>
@@ -233,6 +239,7 @@ function PostDetail({ post, onChange, onDelete }: { post: ScheduledPost; onChang
         </span>
         <a href={href({ name: RouteName.Editor, id: post.projectId })} className="truncate text-lg font-semibold hover:underline">
           {post.projectName ?? "Deleted video"}
+          {post.variant && <span className="ml-2 rounded bg-violet-400/15 px-1.5 py-0.5 align-middle text-xs font-normal text-violet-200">Hook {post.variant}</span>}
         </a>
         <div className="flex flex-wrap items-center gap-2">
           <input key={`d${post.scheduledAt}`} type="date" defaultValue={date} onBlur={(e) => saveWhen(e.target.value, time)} aria-label="Date" className={field} />
@@ -256,7 +263,7 @@ function PostDetail({ post, onChange, onDelete }: { post: ScheduledPost; onChang
               <div className="flex items-center gap-3 text-xs">
                 <a
                   href={mediaUrl(post.video.url)}
-                  download={`${post.projectName ?? "motionily"}.${post.video.mime.split("/")[1]}`}
+                  download={`${post.projectName ?? "motionily"}${post.variant ? ` hook ${post.variant}` : ""}.${post.video.mime.split("/")[1]}`}
                   className="rounded-lg bg-white px-3 py-1.5 font-semibold text-neutral-900 hover:bg-neutral-200"
                 >
                   Download

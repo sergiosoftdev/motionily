@@ -299,7 +299,7 @@ export class SocialService implements OnModuleInit, OnModuleDestroy {
 
   /** Every published copy of the account's videos with its latest numbers, newest first: the channel's dashboard. */
   async channel(userId: Types.ObjectId): Promise<ChannelVideo[]> {
-    const posts = await this.posts.find({ ownerId: userId, status: PostStatus.Posted, "links.0": { $exists: true } }, { projectId: 1, links: 1, metrics: 1, checkpoints: 1, features: 1 }).lean();
+    const posts = await this.posts.find({ ownerId: userId, status: PostStatus.Posted, "links.0": { $exists: true } }, { projectId: 1, links: 1, metrics: 1, checkpoints: 1, features: 1, variant: 1 }).lean();
     const projects = new Map(
       (await this.projects.find({ _id: { $in: posts.map((p) => p.projectId) }, ownerId: userId }, { name: 1, cover: 1, format: 1, scene: 1, audio: 1, direction: 1, experiment: 1 }).lean()).map((p) => [String(p._id), p]),
     );
@@ -309,7 +309,7 @@ export class SocialService implements OnModuleInit, OnModuleDestroy {
       if (!project) continue;
       const duration = (project as { scene?: { duration?: unknown } | null }).scene?.duration;
       // Measured before features (or their timeline) were kept: read them from the scene as it is.
-      const live = post.features?.timeline ? null : videoFeatures(project as Parameters<typeof videoFeatures>[0]);
+      const live = post.features?.timeline ? null : videoFeatures(project as Parameters<typeof videoFeatures>[0], post.variant);
       const features = post.features ? { ...post.features, timeline: post.features.timeline ?? live?.timeline, starts: post.features.starts ?? live?.starts } : live;
       for (const l of post.links ?? []) {
         rows.push({
@@ -326,6 +326,7 @@ export class SocialService implements OnModuleInit, OnModuleDestroy {
           views3d: (post.checkpoints ?? []).find((c) => c.platform === l.platform && c.day === 3)?.views ?? null,
           features,
           experiment: project.experiment ?? null,
+          variant: post.variant ?? null,
         });
       }
     }
@@ -355,7 +356,7 @@ export class SocialService implements OnModuleInit, OnModuleDestroy {
             setLink(post, link);
           }
           setMetrics(post, await this.metrics(platform, token, link), link.publishedAt);
-          post.features ??= await this.features(post.projectId);
+          post.features ??= await this.features(post.projectId, post.variant);
           await post.save();
         }
         if (states[platform]?.error) await this.setState(userId, platform, { ...states[platform]!, error: null });
@@ -369,9 +370,9 @@ export class SocialService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** The video's features from its scene as it is now (kept with the post at its first measurement). */
-  private async features(projectId: Types.ObjectId) {
+  private async features(projectId: Types.ObjectId, variant: string | null) {
     const p = await this.projects.findById(projectId, { scene: 1, audio: 1, direction: 1, format: 1 }).lean();
-    return p ? videoFeatures(p as Parameters<typeof videoFeatures>[0]) : null;
+    return p ? videoFeatures(p as Parameters<typeof videoFeatures>[0], variant) : null;
   }
 
   private videos(platform: SocialPlatform, token: string, auth: Auth) {

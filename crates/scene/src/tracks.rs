@@ -79,16 +79,35 @@ impl crate::Scene {
         self.tracks.iter().find(|t| t.id == id)
     }
 
-    /// The layer's track is hidden: neither drawn nor heard.
+    /// The layer's track is hidden, or the layer belongs to a hook variant not shown: neither drawn nor heard.
     pub fn track_hidden(&self, l: &crate::Layer) -> bool {
-        self.track_of(l).is_some_and(|t| t.hidden)
+        self.track_of(l).is_some_and(|t| t.hidden) || self.variant_off(l)
+    }
+
+    /// Every hook variant the layers name, sorted ("A", "B"…).
+    pub fn variants(&self) -> Vec<String> {
+        let mut v: Vec<String> = self.layers.iter().filter_map(|l| l.variant.clone()).collect();
+        v.sort();
+        v.dedup();
+        v
+    }
+
+    /// The hook variant that plays: the scene's `variant` when a layer has it, else the first.
+    pub fn active_variant(&self) -> Option<String> {
+        let all = self.variants();
+        self.variant.clone().filter(|v| all.contains(v)).or_else(|| all.into_iter().next())
+    }
+
+    /// The layer belongs to another hook variant than the one playing.
+    pub fn variant_off(&self, l: &crate::Layer) -> bool {
+        l.variant.as_ref().is_some_and(|v| self.active_variant().as_ref() != Some(v))
     }
 
     /// How much of the layer's own sound its track lets through: its fader, or 0 when muted, hidden
     /// or left out by a solo.
     pub fn track_gain(&self, l: &crate::Layer) -> f32 {
         let track = self.track_of(l);
-        if track.is_some_and(|t| t.hidden || t.muted) {
+        if track.is_some_and(|t| t.hidden || t.muted) || self.variant_off(l) {
             return 0.0;
         }
         if self.soloing() && !track.is_some_and(|t| t.solo) {

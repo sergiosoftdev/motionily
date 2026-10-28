@@ -536,6 +536,10 @@ pub struct Layer {
     /// Move along a path (position comes from it; `x`/`y` add an offset).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub motion_path: Option<MotionPath>,
+    /// Hook variant ("A", "B"…): the layer only draws and sounds while the scene shows that variant
+    /// (`Scene::variant`). Layers without one are in every variant: the body all versions share.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant: Option<String>,
 }
 
 /// AE motion path: `{"d":"M100 900 C600 200 1300 1000 1800 300","progress":[{"t":0,"v":0},{"t":2,"v":1}],"orient":true}`.

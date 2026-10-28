@@ -136,6 +136,8 @@ pub enum Op {
     SetMix { mix: Option<crate::mix::Mix> },
     /// Frame rate of the whole video (1..=120): `{"op":"set_fps","fps":24}`.
     SetFps { fps: f32 },
+    /// Which hook variant plays and exports: `{"op":"set_variant","variant":"B"}` (`null` = the first).
+    SetVariant { variant: Option<String> },
     /// Replace the editing tracks: `{"op":"set_tracks","tracks":[{"id":"V1","kind":"video"},{"id":"A1","kind":"audio","muted":true}]}`.
     SetTracks { tracks: Vec<crate::tracks::Track> },
     // ── trim tools (one track; targets are absolute, so drags can re-send them) ──
@@ -597,6 +599,12 @@ impl Scene {
             Op::RestoreCut { at, before, after } => self.restore_cut(*at, *before, *after)?,
             Op::SplitLayer { id, at, new_id } => {
                 self.split_layer(id, *at, new_id.as_deref())?;
+            }
+            Op::SetVariant { variant } => {
+                if variant.as_ref().is_some_and(|v| !self.variants().contains(v)) {
+                    return Err(OpError::Invalid("no layer has that variant: mark the hook's layers with variant first"));
+                }
+                self.variant = variant.clone();
             }
             Op::SetWorkArea { work_area } => {
                 if work_area.is_some_and(|[a, b]| !(a.is_finite() && b.is_finite() && a >= 0.0 && b > a)) {

@@ -1,5 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
-import { ATTENTION_BIN, attentionCurve, attentionIssues, audienceDrops, compactCount, isShortFormSize, onScreenAt, SOCIAL_LABEL, type PostPerformance, type SocialPlatform } from "@motionily/protocol";
+import {
+  activeVariant,
+  ATTENTION_BIN,
+  attentionCurve,
+  attentionIssues,
+  audienceDrops,
+  compactCount,
+  HOOK_SECONDS,
+  isShortFormSize,
+  newHookOps,
+  onScreenAt,
+  OpName,
+  sceneVariants,
+  SOCIAL_LABEL,
+  type Op,
+  type PostPerformance,
+  type SocialPlatform,
+  variantHook,
+} from "@motionily/protocol";
+import { apply } from "../editing/direct";
 import { api } from "../api/client";
 import { AttentionCurve } from "../components/AttentionCurve";
 import { LinkPublishedDialog } from "../social/Published";
@@ -20,6 +39,7 @@ export function AttentionStrip({ g, projectId, className = "" }: { g: Generation
   return (
     <div className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 ${className}`}>
       <AttentionRow g={g} />
+      <HookRow g={g} />
       {projectId && <AudienceRow g={g} projectId={projectId} />}
     </div>
   );
@@ -62,6 +82,75 @@ function AttentionRow({ g }: { g: Generation }) {
             Holds attention
           </span>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Hook variants: one video with several openings, to post a different one on each platform and see
+ * which holds. Chips switch the one playing (and exported); "Another hook" copies the opening into a
+ * new variant to rewrite, or the agent writes one.
+ */
+function HookRow({ g }: { g: Generation }) {
+  const agent = useAgentName();
+  const scene = useSceneView();
+  const [width, height] = useEditor((s) => s.sceneSize);
+  const [note, setNote] = useState<string | null>(null);
+  if (!scene?.layers.length) return null;
+  const variants = sceneVariants(scene);
+  if (!variants.length && !isShortFormSize(width, height)) return null;
+  const playing = activeVariant(scene);
+
+  const copy = () => {
+    const made = newHookOps(scene);
+    if (!made) return setNote(`Nothing on screen in the first ${HOOK_SECONDS} s to copy: ask ${agent} for another hook.`);
+    setNote(`Hook ${made.variant} is a copy: click its text in the video to change it, or ask ${agent}.`);
+    apply(made.ops, `Hook ${made.variant}: a copy of the opening to rewrite`);
+  };
+  const ask = async () => {
+    const next = variants.length ? `variant ${String.fromCharCode(65 + variants.length)}` : "variant B (mark the current opening's layers variant=A first)";
+    const instruction = `Write another hook for this video as ${next}: the first ${HOOK_SECONDS} s only, a different angle (a question instead of a statement, the payoff first, a bold claim…), everything after the hook unchanged. Then show it with set_variant.`;
+    if (await g.start(instruction)) logActivity(ActivitySource.Ask, "Another hook to test");
+  };
+  const remove = (v: string) => {
+    const ops: Op[] = scene.layers.filter((l) => l.variant === v).map((l) => ({ op: OpName.RemoveLayer, id: l.id }));
+    const left = variants.filter((x) => x !== v);
+    // A single variant left is just the opening again.
+    if (left.length === 1) ops.push({ op: OpName.SetVariant, variant: null }, { op: OpName.Patch, ids: scene.layers.filter((l) => l.variant === left[0]).map((l) => l.id), fields: { variant: null } });
+    apply(ops, `Hook ${v} removed`);
+  };
+
+  return (
+    <div className="contents">
+      <span className="text-[11px] text-neutral-500" title="Several openings for the same video: post a different one on each platform and Stats says which hooks better">
+        Hook
+      </span>
+      <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto">
+        {variants.length ? (
+          variants.map((v) => (
+            <span key={v} className={`group flex shrink-0 items-center rounded-full text-[11px] ring-1 ${v === playing ? "bg-white/10 text-white ring-white/20" : "text-neutral-400 ring-white/10 hover:text-white"}`}>
+              <button type="button" onClick={() => apply([{ op: OpName.SetVariant, variant: v }], `Showing hook ${v}`)} title={`Show and export hook ${v}`} className="flex max-w-56 items-center gap-1.5 py-0.5 pr-1 pl-2.5">
+                <b className="font-semibold">{v}</b>
+                <span className="truncate">{variantHook(scene, v) || "…"}</span>
+              </button>
+              <button type="button" onClick={() => remove(v)} title={`Remove hook ${v}`} aria-label={`Remove hook ${v}`} className="pr-2 text-neutral-500 opacity-0 group-hover:opacity-100 hover:text-white">
+                ×
+              </button>
+            </span>
+          ))
+        ) : (
+          <span className="truncate text-[11px] text-neutral-600">{note ?? "Test more than one opening: post a different hook on each platform."}</span>
+        )}
+        {variants.length > 0 && note && <span className="truncate text-[11px] text-amber-200/80">{note}</span>}
+      </div>
+      <div className={CONTROLS}>
+        <button type="button" onClick={copy} title={`Copy the first ${HOOK_SECONDS} s into a new hook to rewrite`} className="shrink-0 rounded-full px-2.5 py-1 text-[11px] text-neutral-300 ring-1 ring-white/15 hover:bg-white/5">
+          + Another hook
+        </button>
+        <button type="button" disabled={g.running} onClick={() => void ask()} className="shrink-0 rounded-full px-2.5 py-1 text-[11px] text-violet-200 ring-1 ring-violet-200/30 hover:bg-violet-200/10 disabled:opacity-50">
+          Ask {agent}
+        </button>
       </div>
     </div>
   );

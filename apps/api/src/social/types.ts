@@ -50,4 +50,6 @@ export type ChannelVideo = {
   views3d: number | null;
   features: VideoFeatures | null;
   experiment: Experiment | null;
+  /** The hook variant this copy played (videos with several openings). */
+  variant: string | null;
 };

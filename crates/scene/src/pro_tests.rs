@@ -166,3 +166,28 @@ fn effect_switch_round_trips_and_skips_drawing() {
     assert!(json["effects"][1].get("enabled").is_none(), "an effect that is on leaves `enabled` out");
     assert_eq!(json["effects"][0]["fx"], serde_json::json!("blur"));
 }
+
+#[test]
+fn hook_variants_play_one_at_a_time() {
+    let s = scene_with(&[
+        r#"{"id":"bg","type":"shape","shape":"rect","w":1080,"h":1920,"x":540,"y":960}"#,
+        r#"{"id":"hook_a","type":"text","text":"Nobody tells you this","size":80,"x":540,"y":960,"w":900,"end":3,"variant":"A"}"#,
+        r#"{"id":"hook_b","type":"text","text":"Stop doing this","size":80,"x":540,"y":960,"w":900,"end":3,"variant":"B"}"#,
+    ]);
+    assert_eq!(s.variants(), vec!["A".to_string(), "B".to_string()]);
+    assert_eq!(s.active_variant().as_deref(), Some("A"), "the first plays until one is picked");
+    assert_eq!(s.frame(1.0).len(), 2, "the body and one hook");
+    assert_eq!(s.pick(1.0, 540.0, 960.0), Some("hook_a".into()));
+    let mut b = s.clone();
+    b.apply(&ops(r#"[{"op":"set_variant","variant":"B"}]"#)).unwrap();
+    assert_eq!(b.pick(1.0, 540.0, 960.0), Some("hook_b".into()), "the other hook can't be clicked");
+    assert_ne!(frame_text(&b, 1.0), frame_text(&s, 1.0));
+    assert_eq!(frame_text(&b, 4.0), frame_text(&s, 4.0), "after the hook both versions are the same video");
+    assert!(b.summary().contains("hook variants: A, B (showing B"), "{}", b.summary());
+    assert!(b.summary().contains("variant=B"));
+    assert!(b.clone().apply(&ops(r#"[{"op":"set_variant","variant":"C"}]"#)).is_err(), "a variant no layer has");
+    // Kept through a save.
+    let back: Scene = serde_json::from_str(&serde_json::to_string(&b).unwrap()).unwrap();
+    assert_eq!(back.variant.as_deref(), Some("B"));
+    assert_eq!(back.layers[2].variant.as_deref(), Some("B"));
+}

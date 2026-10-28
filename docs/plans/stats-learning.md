@@ -46,6 +46,17 @@ un 18% en 2 s, lo normal ahí es un 3%". También "nada nuevo en 3 s". Stats lo 
 leave", con las caídas más fuertes y qué había en pantalla) y el playbook se lo da al agente. Instagram y
 TikTok no dan curva: solo el skip de 3 s, que ya cuenta para el gancho.
 
+## Hecho (fase 4): varios ganchos por vídeo
+
+Un mismo vídeo con varias aperturas. Las capas con `variant: "A" | "B"…` solo suenan y se dibujan en ese
+gancho (motor: `Scene::variant`, `variant_off`, op `set_variant`); las demás son el cuerpo común. En el
+editor, la fila "Hook" cambia el que se ve, "+ Another hook" copia los 3 primeros segundos a un gancho
+nuevo para reescribirlo, o lo escribe el agente. Schedule da un gancho a cada plataforma (repartidos por
+defecto), crea un post por gancho con `variant` y renderiza un archivo por cada uno. Los rasgos del post se
+leen con su gancho. `hookTests` compara cada gancho con las views normales de su plataforma (TikTok e
+Instagram no se comparan en bruto) y declara ganador con 1,25x sobre el siguiente, a los 3 días. Stats lo
+enseña ("Hook tests") y el playbook se lo da al agente.
+
 ## Siguiente
 
 - **Hora de publicar.** Views a 3 días por día y franja horaria; el Schedule propone la mejor franja.

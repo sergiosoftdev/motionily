@@ -70,6 +70,8 @@ export type ScheduledPost = {
   scheduledAt: string;
   platforms: Platform[];
   copy: PostCopy[];
+  /** The hook variant its file plays (videos with several openings). */
+  variant: string | null;
   video: { url: string; mime: string; size: number; outdated: boolean } | null;
   status: PostStatus;
   postedAt: string | null;
@@ -256,8 +258,8 @@ export const api = {
       HttpMethod.Get,
       `/posts?${new URLSearchParams({ ...(q.from ? { from: q.from } : {}), ...(q.to ? { to: q.to } : {}), ...(q.due ? { due: "1" } : {}), ...(q.projectId ? { projectId: q.projectId } : {}) })}`,
     ),
-  createPost: (body: { projectId: string; scheduledAt: string; platforms: Platform[]; copy: PostCopy[] }) => call<ScheduledPost>(HttpMethod.Post, "/posts", body),
-  updatePost: (id: string, patch: { scheduledAt?: string; platforms?: Platform[]; copy?: PostCopy[]; status?: PostStatus }) => call<ScheduledPost>(HttpMethod.Patch, `/posts/${id}`, patch),
+  createPost: (body: { projectId: string; scheduledAt: string; platforms: Platform[]; copy: PostCopy[]; variant?: string | null }) => call<ScheduledPost>(HttpMethod.Post, "/posts", body),
+  updatePost: (id: string, patch: { scheduledAt?: string; platforms?: Platform[]; copy?: PostCopy[]; status?: PostStatus; variant?: string | null }) => call<ScheduledPost>(HttpMethod.Patch, `/posts/${id}`, patch),
   deletePost: (id: string) => call<void>(HttpMethod.Delete, `/posts/${id}`),
   /** Instagram, TikTok and YouTube accounts (the user's own developer apps), for the numbers of what they post. */
   /** The latest videos on the connected accounts, each with the video here it is linked to. */

@@ -17,6 +17,7 @@ export type PostView = {
   scheduledAt: string;
   platforms: Platform[];
   copy: PostCopy[];
+  variant: string | null;
   video: { url: string; mime: string; size: number; outdated: boolean } | null;
   status: PostStatus;
   postedAt: string | null;
@@ -41,6 +42,7 @@ export class PostsService {
       scheduledAt: new Date(dto.scheduledAt),
       platforms: dto.platforms,
       copy: copyFor(dto.platforms, dto.copy),
+      variant: dto.variant ?? null,
     });
     return (await this.views([post]))[0]!;
   }
@@ -75,6 +77,7 @@ export class PostsService {
     if (dto.scheduledAt) post.scheduledAt = new Date(dto.scheduledAt);
     if (dto.platforms) post.platforms = dto.platforms;
     if (dto.copy || dto.platforms) post.copy = copyFor(post.platforms, dto.copy ?? post.copy);
+    if (dto.variant !== undefined) post.variant = dto.variant;
     if (dto.status && dto.status !== post.status) {
       post.status = dto.status;
       post.postedAt = dto.status === PostStatus.Posted ? new Date() : null;
@@ -115,6 +118,7 @@ export class PostsService {
         scheduledAt: p.scheduledAt.toISOString(),
         platforms: p.platforms,
         copy: p.copy,
+        variant: p.variant ?? null,
         video: p.video
           ? { url: `/media/${p.video.file}`, mime: p.video.mime, size: p.video.size, outdated: !!project && project.sceneRevision > p.video.sceneRevision }
           : null,

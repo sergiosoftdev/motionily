@@ -4,6 +4,7 @@
  * (docs/agent/craft.md). This file measures that curve from the scene alone, with no rendering,
  * so the agent's review_video and the editor's timelines read the same numbers.
  */
+import { forVariant } from "./hooks.js";
 
 /** What a beat does for attention (concepts and plans tag each beat with one). */
 export const AttentionDevice = {
@@ -71,7 +72,9 @@ export function isShortFormSize(width: number, height: number) {
 }
 
 /** The moments of a scene that win attention back, sorted by time. */
-export function attentionMoments(scene: SceneLike): AttentionMoment[] {
+export function attentionMoments(whole: SceneLike): AttentionMoment[] {
+  // Only the hook variant that plays counts.
+  const scene = forVariant(whole);
   const out: AttentionMoment[] = [];
   const add = (t: number, kind: AttentionEvent, what: string) => out.push({ t: Math.max(0, t), kind, weight: WEIGHT[kind], what });
   const groups = new Map<string, number>();

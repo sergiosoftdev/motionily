@@ -102,6 +102,13 @@ describe("Posting calendar", () => {
     assert.equal(post.projectName, "Scheduled");
     assert.equal(post.due, false);
     assert.deepEqual(post.copy, [instagram, { platform: "tiktok", caption: "", hashtags: [] }]);
+    assert.equal(post.variant, null);
+    // A video with several hooks: one post per hook, each saying which one its file plays.
+    const { body: hookB } = await http.post("/posts").set(auth).send({ projectId: p.id, scheduledAt: at, platforms: ["youtube"], copy: [], variant: "B" }).expect(201);
+    assert.equal(hookB.variant, "B");
+    assert.equal((await http.patch(`/posts/${hookB.id}`).set(auth).send({ variant: "C" }).expect(200)).body.variant, "C");
+    await http.post("/posts").set(auth).send({ projectId: p.id, scheduledAt: at, platforms: ["youtube"], copy: [], variant: "not a variant" }).expect(400);
+    await http.delete(`/posts/${hookB.id}`).set(auth).expect(204);
 
     await http.post("/posts").set(auth).send({ projectId: p.id, scheduledAt: at, platforms: ["tiktok"], copy: [instagram] }).expect(400);
     await http.post("/posts").set(auth).send({ projectId: p.id, scheduledAt: at, platforms: ["instagram"], copy: [{ ...instagram, hashtags: ["two words"] }] }).expect(400);

@@ -38,6 +38,8 @@ export type SceneView = {
   mix?: Mix | null;
   tracks?: Track[];
   work_area?: WorkArea;
+  /** The hook variant playing (layers' `variant`). */
+  variant?: string | null;
   markers?: { t: number; label: string; color?: string }[];
   library?: { components?: Record<string, { layers: SceneLayerView[] }> };
 };

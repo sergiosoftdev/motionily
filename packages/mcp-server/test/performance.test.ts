@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { audienceDrops, channelDropoffs, channelExperiments, channelInsights, channelLessons, channelPlaybook, channelSummary, onScreenAt, type ChannelVideo, type PostMetrics, type VideoFeatures } from "@motionily/protocol";
+import { activeVariant, attentionCurve, forVariant, hookTests, newHookOps, sceneVariants, audienceDrops, channelDropoffs, channelExperiments, channelInsights, channelLessons, channelPlaybook, channelSummary, onScreenAt, type ChannelVideo, type PostMetrics, type VideoFeatures } from "@motionily/protocol";
 import { channelBrief, channelReport, performanceReport } from "../src/performance.js";
 
 const base: PostMetrics = { platform: "instagram", fetchedAt: "2026-10-27T18:00:00.000Z", views: 1200, reach: 900, likes: 80, comments: 4, shares: 9, saves: 15, avgWatch: 4.2, skipRate: 0.38, retention: null, duration: null };
@@ -191,4 +191,53 @@ test("dropoffs: what was on screen when viewers left, across videos, against the
   assert.match(channelPlaybook(rows, Date.parse("2026-10-27T18:00:00.000Z"))!, /When a table appears, 1\d% of viewers leave in the next 2 s, against [23]% usually there · 3 times in 3 videos: avoid it/);
   // Instagram and TikTok give no curve: nothing to say.
   assert.deepEqual(channelDropoffs(rows.map((r) => ({ ...r, metrics: { ...r.metrics, retention: null } }))).patterns, []);
+});
+
+test("hook tests: each hook against the usual on its own platform, a winner once all are 3 days old", () => {
+  const now = Date.parse("2026-10-27T18:00:00.000Z");
+  const usual = [1, 2, 3].flatMap((i) => [posted(`ig${i}`, "instagram", 1000, 0.4, 5, 20), posted(`tt${i}`, "tiktok", 10000, 0.3, 6, 20)]);
+  const hook = (variant: string, platform: ChannelVideo["platform"], views: number, hookText: string, publishedAt = "2026-10-10T10:00:00.000Z"): ChannelVideo => ({
+    ...posted("Bulls", platform, views, 0.3, 6, 20),
+    postId: `bulls-${variant}`,
+    projectId: "bulls",
+    publishedAt,
+    variant,
+    features: { duration: 20, hook: hookText, beatsPerMin: 10, wordsPerSec: 2, voice: true, captions: true, music: false, genre: null, format: null },
+  });
+  // A: 2,000 on Instagram (2x usual). B: 9,000 on TikTok (0.9x usual): fewer views, but A won.
+  const [t] = hookTests([...usual, hook("A", "instagram", 2000, "Nobody tells you this"), hook("B", "tiktok", 9000, "Stop doing this")], now);
+  assert.equal(t!.status, "won");
+  assert.equal(t!.winner, "A");
+  assert.deepEqual(t!.entries.map((e) => [e.variant, e.vsUsual?.toFixed(1), e.hook]), [["A", "2.0", "Nobody tells you this"], ["B", "0.9", "Stop doing this"]]);
+  assert.match(channelPlaybook([...usual, hook("A", "instagram", 2000, "Nobody tells you this"), hook("B", "tiktok", 9000, "Stop doing this")], now)!, /Hook tests[^\n]*\n- "Bulls": hook A won\. A \("Nobody tells you this"\) on Instagram: 2\.0x your usual views/);
+  const young = hookTests([...usual, hook("A", "instagram", 2000, "a"), hook("B", "tiktok", 9000, "b", "2026-10-27T08:00:00.000Z")], now)[0]!;
+  assert.equal(young.status, "waiting", "one hook is under 3 days old");
+  assert.equal(hookTests([...usual, hook("A", "instagram", 1000, "a"), hook("B", "tiktok", 11000, "b")], now)[0]!.status, "unclear");
+});
+
+test("hook variants: copy the opening into B, play one at a time, the attention curve sees only the one playing", () => {
+  const scene = {
+    duration: 12,
+    layers: [
+      { id: "bg", type: "shape", start: 0 },
+      { id: "card", type: "shape", start: 0, end: 2.6 },
+      { id: "hook", type: "text", text: "Nobody tells you this", start: 0, end: 2.6, parent: "card" },
+      { id: "body", type: "text", text: "The body", start: 3 },
+    ],
+  };
+  const made = newHookOps(scene)!;
+  assert.equal(made.variant, "B");
+  assert.deepEqual(made.ops[0], { op: "patch", ids: ["card", "hook"], fields: { variant: "A" } }, "the current opening becomes A");
+  const added = made.ops.filter((o) => o.op === "add_layer").map((o) => o.layer as Record<string, unknown>);
+  assert.deepEqual(added.map((l) => [l.id, l.variant, l.parent]), [["card-b", "B", undefined], ["hook-b", "B", "card-b"]], "copies keep their parent among the copies");
+  assert.deepEqual(made.ops.filter((o) => o.op === "reorder").map((o) => [o.id, o.index]), [["card-b", 2], ["hook-b", 4]], "each copy right above its original");
+  assert.deepEqual(made.ops.at(-1), { op: "set_variant", variant: "B" });
+  // Applied by hand: the scene now has both.
+  const both = { ...scene, variant: "B", layers: [scene.layers[0], { ...scene.layers[1], variant: "A" }, { ...added[0], variant: "B" }, { ...scene.layers[2], variant: "A" }, { ...added[1], variant: "B" }, scene.layers[3]] };
+  assert.deepEqual(sceneVariants(both), ["A", "B"]);
+  assert.equal(activeVariant(both), "B");
+  assert.deepEqual(forVariant(both, "A").layers.map((l) => (l as { id: string }).id), ["bg", "card", "hook", "body"]);
+  assert.deepEqual(attentionCurve(both).bins, attentionCurve(forVariant(both)).bins, "one opening counted, not two");
+  assert.equal(newHookOps(both)!.variant, "C");
+  assert.equal(newHookOps({ duration: 12, layers: [{ id: "bg", type: "shape", start: 0 }] }), null, "nothing on screen to copy");
 });

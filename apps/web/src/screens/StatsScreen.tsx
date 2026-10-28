@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import {
   channelDropoffs,
   DROPOFF_WINDOW,
+  hookTests,
+  HookTestStatus,
   channelExperiments,
   channelInsights,
   channelLessons,
@@ -174,6 +176,7 @@ export function StatsScreen() {
           <Dropoffs rows={mine} agent={agent} />
           <Lessons rows={mine} onChange={() => void load()} />
           <Experiments rows={mine} agent={agent} />
+          <HookTests rows={mine} />
           <VideoTable rows={current} sort={sort} onSort={setSort} />
           {!all.length && <p className="text-sm text-neutral-500">No posted video is linked yet. Post from the calendar, or link the ones already on your accounts below.</p>}
         </>
@@ -451,6 +454,56 @@ function Dropoffs({ rows, agent }: { rows: ChannelVideo[]; agent: string }) {
           </div>
         </div>
       )}
+    </section>
+  );
+}
+
+/** Videos posted with several openings: which hook did better against the usual on its platform. */
+function HookTests({ rows }: { rows: ChannelVideo[] }) {
+  const tests = hookTests(rows);
+  if (!tests.length) return null;
+  return (
+    <section className="flex flex-col gap-3">
+      <div>
+        <h2 className="text-lg font-semibold">Hook tests</h2>
+        <p className="text-sm text-neutral-500">The same video with different openings. Each hook is measured against your usual views on the platform it went to, so TikTok and Instagram compare fairly.</p>
+      </div>
+      <div className="grid gap-3 lg:grid-cols-2">
+        {tests.map((t) => {
+          const top = Math.max(1, ...t.entries.map((e) => e.vsUsual ?? 0));
+          return (
+            <a key={t.projectId} href={href({ name: RouteName.Editor, id: t.projectId })} className="flex flex-col gap-3 rounded-2xl bg-neutral-900/60 p-4 ring-1 ring-white/[0.06] transition hover:ring-white/15">
+              <div className="flex items-center justify-between gap-3">
+                <span className="truncate text-sm font-medium">{t.name}</span>
+                <span
+                  className={`shrink-0 rounded-md px-2 py-0.5 text-[11px] font-medium ${t.status === HookTestStatus.Won ? "bg-emerald-400/15 text-emerald-200" : t.status === HookTestStatus.Waiting ? "bg-white/[0.06] text-neutral-300" : "bg-amber-400/15 text-amber-200"}`}
+                >
+                  {t.status === HookTestStatus.Won ? `Hook ${t.winner} won` : t.status === HookTestStatus.Waiting ? "Waiting for 3 days" : "No clear winner"}
+                </span>
+              </div>
+              <ul className="flex flex-col gap-2.5">
+                {t.entries.map((e) => (
+                  <li key={e.variant} className="flex flex-col gap-1">
+                    <span className="flex items-baseline gap-2 text-sm">
+                      <b className={e.variant === t.winner ? "text-emerald-300" : "text-neutral-400"}>{e.variant}</b>
+                      <span className="truncate">“{e.hook || "…"}”</span>
+                    </span>
+                    <div className="flex items-center gap-3">
+                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-white/[0.05]">
+                        <div className={`h-full rounded-full ${e.variant === t.winner ? "bg-emerald-400/70" : "bg-white/25"}`} style={{ width: `${Math.max(2, ((e.vsUsual ?? 0) / top) * 100)}%` }} />
+                      </div>
+                      <span className="w-48 shrink-0 text-[11px] text-neutral-400">
+                        {e.platforms.map((p) => SOCIAL_LABEL[p]).join(" + ")} · {e.vsUsual === null ? "no numbers yet" : `${e.vsUsual.toFixed(1)}× usual`}
+                        {e.growing ? " · growing" : ""}
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </a>
+          );
+        })}
+      </div>
     </section>
   );
 }

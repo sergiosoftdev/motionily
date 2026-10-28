@@ -12,6 +12,8 @@ export const MAX_HASHTAGS = 30;
 export const DUE_ONLY = "1";
 /** A hashtag without its "#": letters (any script), digits and underscores. */
 const HASHTAG = /^[\p{L}\p{N}_]{1,100}$/u;
+/** A hook variant's name, as layers carry it ("A", "B"…). */
+const VARIANT = /^[A-Za-z0-9]{1,8}$/;
 
 export class PostCopyDto {
   @IsEnum(Platform) platform: Platform;
@@ -31,6 +33,8 @@ export class CreatePostDto {
   @IsDateString() scheduledAt: string;
   @IsArray() @ArrayMinSize(1) @ArrayUnique() @IsEnum(Platform, { each: true }) platforms: Platform[];
   @IsArray() @ArrayMaxSize(PLATFORM_COUNT) @ValidateNested({ each: true }) @Type(() => PostCopyDto) copy: PostCopyDto[];
+  /** The hook variant the file plays (videos with several openings). */
+  @IsOptional() @Matches(VARIANT) variant?: string | null;
 }
 
 export class UpdatePostDto {
@@ -38,6 +42,7 @@ export class UpdatePostDto {
   @IsOptional() @IsArray() @ArrayMinSize(1) @ArrayUnique() @IsEnum(Platform, { each: true }) platforms?: Platform[];
   @IsOptional() @IsArray() @ArrayMaxSize(PLATFORM_COUNT) @ValidateNested({ each: true }) @Type(() => PostCopyDto) copy?: PostCopyDto[];
   @IsOptional() @IsEnum(PostStatus) status?: PostStatus;
+  @IsOptional() @Matches(VARIANT) variant?: string | null;
 }
 
 export class UploadPostVideoDto {

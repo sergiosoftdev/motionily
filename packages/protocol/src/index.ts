@@ -384,6 +384,8 @@ export const OpName = {
   SetFps: "set_fps",
   /** Editing tracks: `{tracks: Track[]}` (replaces them all). Layers join one with their `track` field. */
   SetTracks: "set_tracks",
+  /** Which hook variant plays and exports: `{variant: "B" | null}` (layers' `variant`; null = the first). */
+  SetVariant: "set_variant",
   /** Ripple trim: `{id, edge: "in"|"out", to}` — the edge goes to scene second `to`, everything after follows. */
   RippleTrim: "ripple_trim",
   /** Roll edit: `{id, to}` — the cut between the clip and the next on its track moves to `to`. */
@@ -818,6 +820,7 @@ export type User = { id: string; email: string; name: string; avatarUrl: string 
 
 /** Short-form attention curve: devices, measurement and checks (see attention.ts). */
 export * from "./attention.js";
+export * from "./hooks.js";
 /** Where TikTok, Reels and Shorts draw their UI over a vertical video (see appUi.ts). */
 export * from "./appUi.js";
 /** How a posted video did on each platform and where its audience leaves (see performance.ts). */

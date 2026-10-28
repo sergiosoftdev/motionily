@@ -126,7 +126,7 @@ const NUM: Record<string, string> = {
 const NUM_SHORT: Record<string, string> = Object.fromEntries(Object.entries(NUM).map(([k, v]) => [v, k]));
 /** Plain keys copied as numbers or strings. */
 const PLAIN_NUM: Record<string, string> = { size: "size", lh: "line_height", ls: "letter_spacing", dec: "decimals" };
-const PLAIN_STR = ["role", "align", "src", "fit", "anchor", "parent", "blend", "track"];
+const PLAIN_STR = ["role", "align", "src", "fit", "anchor", "parent", "blend", "track", "variant"];
 const DEFAULTS: Record<string, unknown> = { rotate_x: 0, rotate_y: 0, z: 0,  scale: 1, rotation: 0, opacity: 1, radius: 0, x: 0, y: 0, soft: 0, trim_start: 0, trim_end: 1, trim_offset: 0 };
 
 /** A time in seconds, or a timing reference (`@phrase:3`, `@word:ready+0.2`) resolved when the lines are written. */

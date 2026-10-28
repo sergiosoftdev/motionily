@@ -151,6 +151,15 @@ Rejected on purpose: `set_size` (use `set_format`), `set_style`, `set_library`, 
 `gradient`, `stroke`, `effects`, `matte`, `repeat`, `motion_path`, `rotate_x`, `rotate_y`, `camera`, `fixed`…);
 `inspect ID` shows any layer in compact form with a JSON tail for what has no short key.
 
+## Hook variants (one video, several openings)
+- The user tests openings by posting a different hook on each platform. A layer with `variant=B` (JSON `"variant":"B"`)
+  only plays in hook B; layers without one are the body every version shares. `{"op":"set_variant","variant":"B"}`
+  picks which plays in the preview and in exports (`null` = the first). get_project lists them (`hook variants: A, B`).
+- To write another hook: mark the current opening's layers (the first ~3 s, not the background) `variant=A` with a
+  patch, add the new hook's layers with `variant=B` at the same times, `set_variant B` and `review_video` it. Only the
+  first ~3 s change: same body, same length. The voice-over is shared: a spoken hook needs an audio layer per variant.
+- The user's Schedule gives each platform a hook and makes one file per hook; Stats (and the playbook) say which won.
+
 ## Groups, edits and feedback
 - Every layer gets `g=NAME` (hook, dashboard, cta…). The user selects whole groups and asks for changes to them:
   `inspect group:NAME` + `remove_group` + `add_layers` with the same group, or `set_prop` — never rebuild the whole video for a local change.

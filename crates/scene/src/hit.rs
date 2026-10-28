@@ -26,7 +26,7 @@ impl Scene {
         let solo = self.solo_mask();
         self.measuring(t, |m| {
             let mut hits: Vec<(f32, usize, Hit)> = Vec::new();
-            for (idx, l) in self.layers.iter().enumerate().filter(|(i, l)| l.camera.is_none() && l.visible && solo.as_ref().is_none_or(|s| s[*i])) {
+            for (idx, l) in self.layers.iter().enumerate().filter(|(i, l)| l.camera.is_none() && l.visible && !self.variant_off(l) && solo.as_ref().is_none_or(|s| s[*i])) {
                 let Some((b, map)) = self.screen_bounds(idx, t, m) else { continue };
                 if !b.contains([x, y]) || !self.shape_hit(l, t, m.ctx, &map, [x, y]) {
                     continue;

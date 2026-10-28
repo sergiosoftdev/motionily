@@ -26,6 +26,8 @@ import {
   quickSlots,
 } from "./posts";
 import { useAgentName } from "../agentName";
+import { sceneVariants, variantHook } from "@motionily/protocol";
+import { useSceneView } from "../editor/sceneView";
 
 /** Pause after the last edit before the draft is saved with the video. */
 const DRAFT_SAVE_MS = 800;
@@ -107,6 +109,13 @@ function ScheduleDialog({
   const [existing, setExisting] = useState<ScheduledPost | null | undefined>(
     undefined,
   );
+  /** Every upcoming post of this video: one per hook when it has several openings. */
+  const [upcoming, setUpcoming] = useState<ScheduledPost[]>([]);
+  const scene = useSceneView();
+  const variants = scene ? sceneVariants(scene) : [];
+  const hooked = variants.length > 1;
+  /** Which hook each platform gets (videos with several openings). */
+  const [hookOf, setHookOf] = useState<Partial<Record<Platform, string>>>({});
   const [platforms, setPlatforms] = useState<Platform[]>([
     Platform.Instagram,
     Platform.TikTok,
@@ -123,6 +132,9 @@ function ScheduleDialog({
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<ScheduledPost | null>(null);
+  /** Posts saved: more than one when each hook got its own. */
+  const [savedCount, setSavedCount] = useState(1);
+  const [renderingHook, setRenderingHook] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
   const busy = stage === Stage.Saving || stage === Stage.Rendering;
   const slots = quickSlots();
@@ -178,16 +190,27 @@ function ScheduleDialog({
     api
       .posts({ projectId: project.id })
       .then((list) => {
-        const next =
-          list.find((p) => p.status === PostStatus.Scheduled) ?? null;
+        const scheduled = list.filter(
+          (p) => p.status === PostStatus.Scheduled,
+        );
+        const next = scheduled[0] ?? null;
         setExisting(next);
+        setUpcoming(scheduled);
+        const hooks: Partial<Record<Platform, string>> = {};
+        for (const p of scheduled)
+          for (const pl of p.platforms) if (p.variant) hooks[pl] = p.variant;
+        setHookOf(hooks);
         const loaded = next
           ? next.copy
           : project.postCopy.filter((c): c is PostCopy =>
               (PLATFORMS as string[]).includes(c.platform),
             );
         if (next) {
-          setPlatforms(next.platforms);
+          setPlatforms(
+            PLATFORMS.filter((pl) =>
+              scheduled.some((p) => p.platforms.includes(pl)),
+            ),
+          );
           setTab(next.platforms[0] ?? Platform.Instagram);
           setWhen(new Date(next.scheduledAt));
           setCustom(
@@ -271,8 +294,20 @@ function ScheduleDialog({
     ? CUSTOM
     : (slots.find((s) => s.at.getTime() === when.getTime())?.label ?? CUSTOM);
   const past = when.getTime() < Date.now();
-  /** The file has to be made (none yet, or the video changed since). */
-  const needsFile = !existing?.video || existing.video.outdated;
+
+  /** A platform's hook: the one picked, else spread so each platform tests a different opening. */
+  const hookFor = (p: Platform) => {
+    const picked = hookOf[p];
+    if (picked && variants.includes(picked)) return picked;
+    return variants[Math.max(0, platforms.indexOf(p)) % variants.length]!;
+  };
+  /** The posts to save: one per hook used (or one for the video), with their platforms. */
+  const groups = (): { variant: string | null; platforms: Platform[] }[] => {
+    if (!hooked) return [{ variant: null, platforms }];
+    const by = new Map<string, Platform[]>();
+    for (const p of platforms) by.set(hookFor(p), [...(by.get(hookFor(p)) ?? []), p]);
+    return [...by].map(([variant, ps]) => ({ variant, platforms: ps }));
+  };
 
   const save = async () => {
     if (!platforms.length) return setError("Pick where to post it.");
@@ -283,40 +318,62 @@ function ScheduleDialog({
     )
       void Notification.requestPermission();
     setError(null);
-    const body = {
-      scheduledAt: when.toISOString(),
-      platforms,
-      copy: platforms.map(copyOf),
-    };
     try {
       setStage(Stage.Saving);
-      const post = existing
-        ? await api.updatePost(existing.id, body)
-        : await api.createPost({ projectId: project.id, ...body });
-      // On the calendar from here on: a retry updates this post instead of adding another.
-      setExisting(post);
-      setSaved(post);
-      if (!needsFile) return setStage(Stage.Done);
-      // The file, so it's ready to upload when the reminder comes.
+      // Each hook's post reuses the one it had (or the video's single post); the rest are new.
+      const free = [...upcoming];
+      const take = (variant: string | null) => {
+        const i = free.findIndex((p) => p.variant === variant);
+        const j = i >= 0 ? i : free.findIndex((p) => !p.variant);
+        return j >= 0 ? free.splice(j, 1)[0]! : null;
+      };
+      const posts: ScheduledPost[] = [];
+      for (const g of groups()) {
+        const body = {
+          scheduledAt: when.toISOString(),
+          platforms: g.platforms,
+          copy: g.platforms.map(copyOf),
+          variant: g.variant,
+        };
+        const mine = take(g.variant);
+        posts.push(
+          mine
+            ? await api.updatePost(mine.id, body)
+            : await api.createPost({ projectId: project.id, ...body }),
+        );
+      }
+      // Hooks no longer used: their posts go.
+      for (const stale of free) if (stale.variant) await api.deletePost(stale.id);
+      // On the calendar from here on: a retry updates these posts instead of adding others.
+      setUpcoming(posts);
+      setExisting(posts[0]!);
+      setSaved(posts[0]!);
+      setSavedCount(posts.length);
+      const pending = posts.filter((p) => !p.video || p.video.outdated);
+      if (!pending.length) return setStage(Stage.Done);
+      // The files, so they're ready to upload when the reminder comes.
       setStage(Stage.Rendering);
       setProgress(0);
       abort.current = new AbortController();
       const revision = await ed.flushScene();
       const audioUrl = project.audio ? mediaUrl(project.audio.url) : null;
-      const file = await renderCurrentScene({
-        shortSide: POST_SHORT_SIDE,
-        audioUrl,
-        onProgress: setProgress,
-        signal: abort.current.signal,
-      });
-      setSaved(
-        await api.uploadPostVideo(
+      for (const [i, post] of pending.entries()) {
+        setRenderingHook(post.variant);
+        const file = await renderCurrentScene({
+          shortSide: POST_SHORT_SIDE,
+          audioUrl,
+          variant: post.variant,
+          onProgress: (r) => setProgress((i + r) / pending.length),
+          signal: abort.current.signal,
+        });
+        const done = await api.uploadPostVideo(
           post.id,
           file.blob,
-          `${project.name || "motionily"}.${file.extension}`,
+          `${project.name || "motionily"}${post.variant ? ` hook ${post.variant}` : ""}.${file.extension}`,
           revision,
-        ),
-      );
+        );
+        if (post.id === posts[0]!.id) setSaved(done);
+      }
       setStage(Stage.Done);
     } catch (e) {
       // Scheduled even if the file failed or was skipped: it can be made later.
@@ -363,10 +420,13 @@ function ScheduleDialog({
         </header>
 
         {stage === Stage.Done && saved ? (
-          <Done post={saved} onClose={onClose} />
+          <Done post={saved} count={savedCount} onClose={onClose} />
         ) : stage === Stage.Rendering ? (
           <div className="flex flex-col gap-4 px-6 py-8">
-            <p className="font-medium">Scheduled. Preparing the video file…</p>
+            <p className="font-medium">
+              Scheduled. Preparing the video file
+              {renderingHook ? ` with hook ${renderingHook}` : ""}…
+            </p>
             <p className="text-sm text-neutral-400">
               So it's ready to upload when the reminder comes. Keep this open a
               moment.
@@ -427,6 +487,41 @@ function ScheduleDialog({
                     })}
                   </div>
                 </div>
+
+                {hooked && platforms.length > 0 && scene && (
+                  <div className="flex flex-col gap-2">
+                    <Label>Hook</Label>
+                    <div className="flex flex-col gap-1.5">
+                      {platforms.map((p) => (
+                        <div key={p} className="flex items-center gap-3">
+                          <span className="flex w-32 shrink-0 items-center gap-2 text-sm text-neutral-300">
+                            <span
+                              className="size-2 rounded-full"
+                              style={{ background: PLATFORM_COLOR[p] }}
+                            />
+                            {PLATFORM_LABEL[p]}
+                          </span>
+                          <Dropdown
+                            className="min-w-0 flex-1"
+                            label={`Hook on ${PLATFORM_LABEL[p]}`}
+                            value={hookFor(p)}
+                            onChange={(v) =>
+                              setHookOf((h) => ({ ...h, [p]: v }))
+                            }
+                            options={variants.map((v) => ({
+                              value: v,
+                              label: `${v} · ${variantHook(scene, v) || "…"}`,
+                            }))}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <span className="text-xs text-neutral-500">
+                      A different hook on each platform shows which opening
+                      works: Stats compares them 3 days after posting.
+                    </span>
+                  </div>
+                )}
 
                 <div className="flex flex-col gap-2">
                   <Label>When</Label>
@@ -634,13 +729,23 @@ function Preview({
 }
 
 /** Scheduled: what happens now, step by step. */
-function Done({ post, onClose }: { post: ScheduledPost; onClose: () => void }) {
+function Done({
+  post,
+  count,
+  onClose,
+}: {
+  post: ScheduledPost;
+  count: number;
+  onClose: () => void;
+}) {
   const steps = [
     `On ${formatWhen(post.scheduledAt)} Motionily reminds you (keep it open, or check the calendar).`,
     post.video
       ? "Open the post: download the video and copy the text, one click each."
       : "Open the post to copy the text. The file wasn't made: press Schedule again to make it, or use Export.",
-    `Post it on ${platformList(post.platforms)} and press “Mark as posted”: with your accounts connected, its numbers show up in Stats.`,
+    count > 1
+      ? "Each hook is its own post on the calendar, with its own file: post each where it says and press “Mark as posted”. Stats then says which hook works."
+      : `Post it on ${platformList(post.platforms)} and press “Mark as posted”: with your accounts connected, its numbers show up in Stats.`,
   ];
   return (
     <div className="flex flex-col gap-6 px-6 py-6">
@@ -666,7 +771,10 @@ function Done({ post, onClose }: { post: ScheduledPost; onClose: () => void }) {
             Scheduled for {formatWhen(post.scheduledAt)}
           </p>
           <p className="text-sm text-neutral-400">
-            {platformList(post.platforms)} ·{" "}
+            {count > 1
+              ? `${count} posts, one per hook`
+              : platformList(post.platforms)}{" "}
+            ·{" "}
             {fromNow(new Date(post.scheduledAt))}
           </p>
         </div>

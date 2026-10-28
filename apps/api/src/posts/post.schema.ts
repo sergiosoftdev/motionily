@@ -39,6 +39,8 @@ export class Post {
   @Prop({ type: [MongooseSchema.Types.Mixed], default: [] }) metrics: PostMetrics[];
   /** The numbers per platform at 1, 3 and 7 days old, kept as they pass. */
   @Prop({ type: [MongooseSchema.Types.Mixed], default: [] }) checkpoints: MetricsCheckpoint[];
+  /** The hook variant this post's file plays (the scene's layers marked with it); null = the only opening. */
+  @Prop({ type: String, default: null }) variant: string | null;
   /** What the video was like when it was first measured (hook, length, pace…), to learn what works. */
   @Prop({ type: MongooseSchema.Types.Mixed, default: null }) features: VideoFeatures | null;
 }

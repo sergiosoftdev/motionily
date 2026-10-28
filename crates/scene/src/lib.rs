@@ -133,6 +133,9 @@ pub struct Scene {
     /// Editing tracks (V1…, A1…) layers join with `track`: hide, mute, solo (see [`tracks`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tracks: Vec<tracks::Track>,
+    /// The hook variant shown and exported (layers' `variant`); `None` = the first one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant: Option<String>,
 }
 
 /// A named instant on the timeline: `{"t":1.2,"label":"drop","color":"#f5a623"}`.
@@ -218,6 +221,7 @@ impl Default for Scene {
             output: None,
             mix: None,
             tracks: Vec::new(),
+            variant: None,
         }
     }
 }
@@ -613,7 +617,7 @@ impl Scene {
         self.measuring(t, |m| {
             let mut best: Option<(f32, &Layer)> = None;
             // Layers a solo hides can't be clicked.
-            for (idx, l) in self.layers.iter().enumerate().rev().filter(|(i, l)| l.camera.is_none() && solo.as_ref().is_none_or(|s| s[*i])) {
+            for (idx, l) in self.layers.iter().enumerate().rev().filter(|(i, l)| l.camera.is_none() && !self.variant_off(l) && solo.as_ref().is_none_or(|s| s[*i])) {
                 let Some((b, map)) = self.screen_bounds(idx, t, m) else { continue };
                 // An instance is hit on its layers, not on the gaps of its union box.
                 if !b.contains([x, y]) || !self.shape_hit(l, t, m.ctx, &map, [x, y]) {
@@ -872,7 +876,8 @@ impl Scene {
             .collect();
             let uses: Vec<String> = l.anims.iter().map(|a| format!("{}@{}", a.key.trim_start_matches("animation/"), a.at)).collect();
             let anchor = l.anchor.as_ref().map(|a| format!(" anchor={a}")).unwrap_or_default()
-                + &l.group.as_ref().map(|g| format!(" group={g}")).unwrap_or_default();
+                + &l.group.as_ref().map(|g| format!(" group={g}")).unwrap_or_default()
+                + &l.variant.as_ref().map(|v| format!(" variant={v}")).unwrap_or_default();
             // The user's switches in the editor: solo changes what renders; locked/shy are theirs to keep.
             let switches: String = [(l.solo, " solo"), (l.locked, " locked"), (l.shy, " shy")].into_iter().filter(|(on, _)| *on).map(|(_, n)| n).collect();
             let _ = writeln!(
@@ -892,6 +897,10 @@ impl Scene {
                 uses.join(","),
                 switches
             );
+        }
+        let variants = self.variants();
+        if !variants.is_empty() {
+            let _ = writeln!(s, "hook variants: {} (showing {}; layers marked variant=X only play in that one)", variants.join(", "), self.active_variant().unwrap_or_default());
         }
         if self.layers.iter().any(|l| l.solo) {
             let _ = writeln!(s, "solo is on: only the solo layers render (preview and export); clear it with patch solo=false");

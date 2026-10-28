@@ -203,6 +203,8 @@ export type ChannelVideo = {
   features: VideoFeatures | null;
   /** What the video tested, if anything. */
   experiment: Experiment | null;
+  /** The hook variant this copy played (videos posted with several openings). */
+  variant?: string | null;
 };
 
 /** The number an experiment should move. */
@@ -640,6 +642,75 @@ export function channelDropoffs(rows: ChannelVideo[]): ChannelDropoffs {
   return { videos: curves.length, patterns, moments: moments.slice(0, 5) };
 }
 
+/** One hook of a video posted with several: where it went and how it did against the channel's usual there. */
+export type HookEntry = {
+  variant: string;
+  hook: string;
+  platforms: SocialPlatform[];
+  views: number | null;
+  /** Views (at 3 days) over the usual on the same platforms: 2 = twice as many. */
+  vsUsual: number | null;
+  skipRate: number | null;
+  growing: boolean;
+};
+export const HookTestStatus = { Waiting: "waiting", Won: "won", Unclear: "unclear" } as const;
+export type HookTestStatus = (typeof HookTestStatus)[keyof typeof HookTestStatus];
+export type HookTest = { projectId: string; name: string; status: HookTestStatus; winner: string | null; entries: HookEntry[] };
+/** A hook wins when it does this many times better than the next one. */
+const HOOK_WIN = 1.25;
+
+/**
+ * Videos posted with several hooks (a different opening per platform or per post): each hook's views
+ * at 3 days against the channel's usual on the same platform, so a hook on TikTok and one on Instagram
+ * compare fairly. Waiting while any is under 3 days old; a winner when it beats the next by HOOK_WIN.
+ */
+export function hookTests(rows: ChannelVideo[], now = Date.now()): HookTest[] {
+  const mature = comparable(rows, now);
+  const out: HookTest[] = [];
+  for (const projectId of new Set(rows.filter((r) => r.variant).map((r) => r.projectId))) {
+    const mine = rows.filter((r) => r.projectId === projectId && r.variant);
+    const variants = [...new Set(mine.map((r) => r.variant!))].sort();
+    if (variants.length < 2) continue;
+    const others = mature.filter((r) => r.projectId !== projectId);
+    const usual = (p: SocialPlatform) => {
+      const same = others.filter((r) => r.platform === p);
+      return median((same.length >= MIN_BASELINE ? same : others).map((r) => comparableViews(r)!));
+    };
+    const entries: HookEntry[] = variants.map((variant) => {
+      const copies = mine.filter((r) => r.variant === variant);
+      const growing = copies.some((r) => isGrowing(r, now));
+      const views = copies.reduce<number | null>((sum, r) => (comparableViews(r) === null ? sum : (sum ?? 0) + comparableViews(r)!), null);
+      const ratios = copies.map((r) => {
+        const u = usual(r.platform);
+        const v = comparableViews(r);
+        return u && v !== null ? v / u : null;
+      });
+      return {
+        variant,
+        hook: copies.find((r) => r.features?.hook)?.features?.hook ?? "",
+        platforms: [...new Set(copies.map((r) => r.platform))],
+        views,
+        vsUsual: mean(present(ratios)),
+        skipRate: mean(present(copies.map((r) => r.metrics?.skipRate))),
+        growing,
+      };
+    });
+    const ranked = entries.filter((e) => e.vsUsual !== null).sort((a, b) => b.vsUsual! - a.vsUsual!);
+    const waiting = entries.some((e) => e.growing) || ranked.length < 2;
+    const won = !waiting && ranked[0]!.vsUsual! >= HOOK_WIN * ranked[1]!.vsUsual!;
+    out.push({ projectId, name: mine[0]!.name, status: waiting ? HookTestStatus.Waiting : won ? HookTestStatus.Won : HookTestStatus.Unclear, winner: won ? ranked[0]!.variant : null, entries });
+  }
+  return out;
+}
+
+function hookTestLine(t: HookTest): string {
+  const each = t.entries
+    .map((e) => `${e.variant} ("${e.hook || "?"}") on ${e.platforms.map((p) => SOCIAL_LABEL[p]).join(" + ")}: ${e.vsUsual === null ? "no numbers yet" : `${e.vsUsual.toFixed(1)}x your usual views`}${e.skipRate !== null ? `, ${pct(e.skipRate)} skip` : ""}`)
+    .join("; ");
+  const verdict = t.status === HookTestStatus.Waiting ? "waiting (under 3 days)" : t.status === HookTestStatus.Won ? `hook ${t.winner} won` : "no clear winner";
+  return `- "${t.name}": ${verdict}. ${each}.`;
+}
+
 /** "When a chart appears, 12% leave in the next 2 s (usually 4% there)". */
 export function dropoffLine(p: DropoffPattern): string {
   const when = p.kind === "still" ? `After ${p.label}` : `When ${p.label} appears`;
@@ -702,6 +773,8 @@ export function channelPlaybook(rows: ChannelVideo[], now = Date.now()): string 
     out.push(...drops.patterns.map((p) => `- ${dropoffLine(p)}${p.leave > p.normal ? ": avoid it or make it quicker" : ": it holds them, use more"}.`));
     out.push(...drops.moments.slice(0, 3).map((m) => `- Steepest fall: "${m.name}" at ${secs(m.t)}, ${pct(m.share)} left${m.onScreen.length ? ` while ${m.onScreen.join(", ")} was on screen` : ""}.`));
   }
+  const hooks = hookTests(rows, now);
+  if (hooks.length) out.push("Hook tests (same video, different openings; open like the winners):", ...hooks.map(hookTestLine));
   const experiments = channelExperiments(rows, now);
   if (experiments.length) out.push("Experiments so far (build on what worked, don't repeat what didn't):", ...experiments.slice(0, 10).map(experimentLine));
   if (growing.length) out.push(`Still collecting views (under ${MATURE_HOURS / 24} days, don't judge them yet): ${growing.map((r) => `"${r.name}" ${compactCount(r.metrics!.views)} views at ${Math.round(ageHours(r, now))} h`).join(", ")}.`);

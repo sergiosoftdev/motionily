@@ -184,6 +184,14 @@ describe("Social accounts and post performance", () => {
     assert.deepEqual(f.starts, [2, 5]);
     const named = videoFeatures({ scene: { duration: 10, layers: [{ id: "pricingTable", type: "shape", start: 1 }, { id: "bar-3", group: "revenue chart", type: "shape", start: 2 }, { id: "t", type: "text", text: "BIG", size: 140, start: 3 }] } })!;
     assert.deepEqual(named.timeline!.map((m) => m.kind), ["table", "chart", "title"], "named by its id or group first, then by what it is");
+    // Several openings: each posted copy is read with its own hook, the shared voice notwithstanding.
+    const hooks = {
+      scene: { duration: 10, variant: "B", layers: [{ type: "text", text: "Nobody tells you this", start: 0, end: 2.5, variant: "A" }, { type: "text", text: "Stop doing this", start: 0, end: 2.5, variant: "B" }, { type: "text", text: "The body", start: 3 }] },
+      audio: { words: [{ text: "Listen", start: 0.2 }] },
+    };
+    assert.equal(videoFeatures(hooks, "A")!.hook, "Nobody tells you this");
+    assert.equal(videoFeatures(hooks)!.hook, "Stop doing this", "the one the scene plays");
+    assert.deepEqual(videoFeatures(hooks, "A")!.timeline!.map((m) => m.label), ['"Nobody tells you this"', '"The body"']);
     // Without a voice, the hook is the text on screen.
     assert.equal(videoFeatures({ scene: { duration: 10, layers: [{ type: "text", text: "Vikings never had horns", start: 0.2 }] } })!.hook, "Vikings never had horns");
     assert.equal(videoFeatures({ scene: null }), null);
