@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { VoiceModel, type Voice } from "@motionily/protocol";
 import { api, type ElevenLabsStatus } from "../api/client";
+import { Dropdown } from "../components/Dropdown";
 
 const CHOICE_KEY = "motionily.voice";
 /** Show a search box once the account has more voices than this. */
@@ -224,18 +225,13 @@ export function VoicePicker({
         })}
       </div>
       <div className={`flex gap-2 ${compact ? "flex-col" : "flex-wrap items-center"}`}>
-        <select
+        <Dropdown
+          className={compact ? "" : "w-64"}
+          label="ElevenLabs model"
           value={choice.model}
-          onChange={(e) => choose({ ...choice, model: e.target.value as VoiceModel })}
-          aria-label="ElevenLabs model"
-          className="rounded-lg bg-neutral-900 px-3 py-2 text-sm focus:outline-none"
-        >
-          {Object.values(VoiceModel).map((m) => (
-            <option key={m} value={m}>
-              {MODEL_LABEL[m]}
-            </option>
-          ))}
-        </select>
+          onChange={(model) => choose({ ...choice, model })}
+          options={Object.values(VoiceModel).map((m) => ({ value: m, label: MODEL_LABEL[m] }))}
+        />
         <button
           type="button"
           disabled={busy || !selected}

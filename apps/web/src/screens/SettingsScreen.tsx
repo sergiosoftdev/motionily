@@ -8,6 +8,7 @@ import { KeyboardSettings } from "../keys/KeyboardSettings";
 import { AssetSourcesForm } from "../assets/AssetSources";
 import { AgentCliForm } from "../components/AgentCliForm";
 import { workerViewer } from "../engine/workerViewer";
+import { Dropdown } from "../components/Dropdown";
 
 export function SettingsScreen() {
   const user = useSession((s) => s.user);
@@ -44,20 +45,14 @@ export function SettingsScreen() {
           <p className="text-xs text-neutral-500">Default model level and effort when generating videos or editing prefabs.</p>
         </div>
         <div className="flex gap-2">
-          <select value={prefs.model} onChange={(e) => update({ model: e.target.value as AgentModel })} className="rounded-lg bg-neutral-900 px-3 py-2 text-sm focus:outline-none" aria-label="Model">
-            {Object.values(AgentModel).map((m) => (
-              <option key={m} value={m}>
-                {MODEL_LABEL[m]}
-              </option>
-            ))}
-          </select>
-          <select value={prefs.effort} onChange={(e) => update({ effort: e.target.value as AgentEffort })} className="rounded-lg bg-neutral-900 px-3 py-2 text-sm focus:outline-none" aria-label="Effort">
-            {Object.values(AgentEffort).map((x) => (
-              <option key={x} value={x}>
-                Effort: {EFFORT_LABEL[x]}
-              </option>
-            ))}
-          </select>
+          <Dropdown className="w-48" label="Model" value={prefs.model} onChange={(model) => update({ model })} options={Object.values(AgentModel).map((m) => ({ value: m, label: MODEL_LABEL[m] }))} />
+          <Dropdown
+            className="w-48"
+            label="Effort"
+            value={prefs.effort}
+            onChange={(effort) => update({ effort })}
+            options={Object.values(AgentEffort).map((x) => ({ value: x, label: `Effort: ${EFFORT_LABEL[x]}` }))}
+          />
         </div>
       </section>
       <section className="flex max-w-xl flex-col gap-3">

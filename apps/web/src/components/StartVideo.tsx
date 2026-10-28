@@ -4,6 +4,13 @@ import { api, type BrandSummary } from "../api/client";
 import { EditorMode, saveEditorMode } from "../editor/mode";
 import { navigate, RouteName } from "../router";
 import { FormatPicker } from "./FormatPicker";
+import { Dropdown, PaletteDots } from "./Dropdown";
+
+/** A project's main colors, for its swatch. */
+const paletteColors = (b: BrandSummary) => {
+  const p = b.palettes[0];
+  return p ? [p.primary, p.accent, p.background] : [];
+};
 
 /** Ways to start a video from the dashboard: straight into an editor, or the guided wizard. */
 const StartKind = { Create: "create", Edit: "edit", Guided: "guided" } as const;
@@ -65,27 +72,30 @@ export function StartVideo({ brands }: { brands: BrandSummary[] }) {
 
   return (
     <section className="flex flex-col gap-4 rounded-2xl bg-gradient-to-br from-neutral-900 to-neutral-950 p-5 ring-1 ring-white/[0.06]">
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
         <div>
           <h2 className="text-lg font-semibold">Start a video</h2>
-          <p className="text-sm text-neutral-500">Pick the shape and the project it belongs to, then how you want to work.</p>
+          <p className="text-sm text-neutral-500">Choose where it goes and its shape, then how you want to work.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          {brands.length > 1 && (
-            <select
-              value={brandId}
-              onChange={(e) => setPicked(e.target.value)}
-              aria-label="Project"
-              className="rounded-lg bg-neutral-800 px-3 py-2 text-sm text-neutral-200"
-            >
-              {brands.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
+        <div className="flex flex-wrap items-end gap-3">
+          {brands.length > 0 && (
+            <div className="flex w-60 flex-col gap-1.5">
+              <span className="text-xs text-neutral-500">Project</span>
+              <Dropdown
+                label="Project"
+                value={brandId ?? null}
+                onChange={setPicked}
+                options={brands.map((b) => ({
+                  value: b.id,
+                  label: b.name,
+                  hint: `${b.videos} ${b.videos === 1 ? "video" : "videos"}`,
+                  lead: <PaletteDots colors={paletteColors(b)} />,
+                }))}
+              />
+            </div>
           )}
-          <div className="w-64">
+          <div className="flex w-64 flex-col gap-1.5">
+            <span className="text-xs text-neutral-500">Shape</span>
             <FormatPicker value={format} onChange={setFormat} />
           </div>
         </div>

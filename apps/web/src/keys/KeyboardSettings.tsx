@@ -1,5 +1,6 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { COMMANDS, comboFromEvent, commandLabel, conflicts, keymap, KeyPreset, KeyScope, PRESETS, SCOPE_LABEL } from "./keymap";
+import { Dropdown } from "../components/Dropdown";
 
 /** Settings › Keyboard: a preset like the editor you come from, and any command re-assigned by pressing its new key. */
 export function KeyboardSettings() {
@@ -34,18 +35,13 @@ export function KeyboardSettings() {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        <select
+        <Dropdown
+          className="w-56"
+          label="Keyboard preset"
           value={keymap.preset}
-          onChange={(e) => keymap.setPreset(e.target.value as KeyPreset)}
-          aria-label="Keyboard preset"
-          className="rounded-lg bg-neutral-900 px-3 py-2 text-sm focus:outline-none"
-        >
-          {Object.entries(PRESETS).map(([id, p]) => (
-            <option key={id} value={id}>
-              {p.label}
-            </option>
-          ))}
-        </select>
+          onChange={(p) => keymap.setPreset(p)}
+          options={(Object.entries(PRESETS) as [KeyPreset, (typeof PRESETS)[KeyPreset]][]).map(([id, p]) => ({ value: id, label: p.label }))}
+        />
         <div className="flex rounded-lg bg-neutral-900 p-0.5">
           {Object.values(KeyScope).map((s) => (
             <button

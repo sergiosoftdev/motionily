@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { SOCIAL_LABEL, type ProjectListItem, type PublishedVideo } from "@motionily/protocol";
 import { api } from "../api/client";
+import { Dropdown } from "../components/Dropdown";
+import { CoverImage, edited } from "../components/VideoCard";
 
 /** Videos the inbox shows before "show all". */
 const INBOX_SHOWN = 8;
@@ -81,20 +83,25 @@ export function PostedInbox({ videos: mine }: { videos: ProjectListItem[] }) {
                 {firstLine(v.caption)}
               </a>
               <span className="text-[11px] text-neutral-500">{when(v.publishedAt)}</span>
-              <select
-                value=""
+              <Dropdown
+                size="sm"
+                className="mt-auto"
+                label="Link to a video"
+                placeholder={busy === v.id ? "Linking…" : "Link to a video…"}
                 disabled={busy === v.id}
-                onChange={(e) => e.target.value && void link(v, e.target.value)}
-                aria-label="Link to a video"
-                className="mt-auto w-full rounded-md bg-neutral-800 px-2 py-1 text-xs text-neutral-200"
-              >
-                <option value="">{busy === v.id ? "Linking…" : "Link to a video…"}</option>
-                {mine.map((p) => (
-                  <option key={p._id} value={p._id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
+                value={null}
+                onChange={(id) => void link(v, id)}
+                options={mine.map((p) => ({
+                  value: p._id,
+                  label: p.name,
+                  hint: `Edited ${edited(p.updatedAt)}`,
+                  lead: (
+                    <span className="block h-8 w-6 shrink-0 overflow-hidden rounded ring-1 ring-white/10">
+                      <CoverImage cover={p.cover} />
+                    </span>
+                  ),
+                }))}
+              />
             </div>
           </div>
         ))}

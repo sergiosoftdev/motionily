@@ -1,4 +1,5 @@
 import { AgentEffort, AgentModel, EFFORT_LABEL, MODEL_LABEL, type AgentPrefs } from "./GeneratePanel";
+import { Dropdown } from "./Dropdown";
 
 /** Mirrors GenerateMode in the API: who builds the video and how hard they think. */
 export const GenerationMode = { Premium: "premium", Balanced: "balanced", Economy: "economy", Custom: "custom" } as const;
@@ -16,7 +17,6 @@ const MODES: { id: GenerationMode; label: string; team: string; estimate: string
 export function ModePicker({ prefs, onChange }: { prefs: AgentPrefs; onChange: (p: Partial<AgentPrefs>) => void }) {
   const mode = prefs.mode ?? GenerationMode.Balanced;
   const current = MODES.find((m) => m.id === mode)!;
-  const select = "flex-1 rounded-md bg-neutral-900 px-2 py-1.5 text-xs text-neutral-300 focus:outline-none";
   return (
     <div className="flex flex-col gap-2">
       <div className="flex rounded-lg bg-neutral-900 p-0.5">
@@ -44,20 +44,15 @@ export function ModePicker({ prefs, onChange }: { prefs: AgentPrefs; onChange: (
       </div>
       {mode === GenerationMode.Custom && (
         <div className="flex gap-2">
-          <select value={prefs.model} onChange={(e) => onChange({ model: e.target.value as AgentModel })} aria-label="Model" className={select}>
-            {Object.values(AgentModel).map((m) => (
-              <option key={m} value={m}>
-                {MODEL_LABEL[m]}
-              </option>
-            ))}
-          </select>
-          <select value={prefs.effort} onChange={(e) => onChange({ effort: e.target.value as AgentEffort })} aria-label="Effort" className={select}>
-            {Object.values(AgentEffort).map((x) => (
-              <option key={x} value={x}>
-                Esfuerzo: {EFFORT_LABEL[x]}
-              </option>
-            ))}
-          </select>
+          <Dropdown size="sm" className="flex-1" label="Model" value={prefs.model} onChange={(model) => onChange({ model })} options={Object.values(AgentModel).map((m) => ({ value: m, label: MODEL_LABEL[m] }))} />
+          <Dropdown
+            size="sm"
+            className="flex-1"
+            label="Effort"
+            value={prefs.effort}
+            onChange={(effort) => onChange({ effort })}
+            options={Object.values(AgentEffort).map((x) => ({ value: x, label: `Effort: ${EFFORT_LABEL[x]}` }))}
+          />
         </div>
       )}
     </div>

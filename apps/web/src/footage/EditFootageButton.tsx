@@ -6,6 +6,7 @@ import { requestPipeline, VideoPipeline } from "../pipeline";
 import { navigate, RouteName } from "../router";
 import { browserLanguage, LANGUAGES } from "./languages";
 import { useAgentName } from "../agentName";
+import { Dropdown } from "../components/Dropdown";
 
 /** Clip formats the editor decodes. */
 const ACCEPT = "video/mp4,video/quicktime,video/webm";
@@ -99,16 +100,10 @@ function EditFootageDialog({ brandId, onClose }: { brandId: string; onClose: () 
           <span className="text-xs text-neutral-400">Format</span>
           <FormatPicker value={format} onChange={setFormat} />
         </div>
-        <label className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2">
           <span className="text-xs text-neutral-400">Language spoken</span>
-          <select value={language} disabled={busy} onChange={(e) => setLanguage(e.target.value)} className="rounded-lg bg-neutral-800 px-3 py-2 text-sm">
-            {LANGUAGES.map(([code, label]) => (
-              <option key={code} value={code}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
+          <Dropdown label="Language spoken" value={language} disabled={busy} onChange={setLanguage} options={LANGUAGES.map(([code, label]) => ({ value: code, label }))} />
+        </div>
         <label className="flex flex-col gap-2">
           <span className="text-xs text-neutral-400">What do you want?</span>
           <textarea

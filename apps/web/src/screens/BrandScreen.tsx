@@ -6,6 +6,7 @@ import { MotionilyLayout } from "../shell/MotionilyLayout";
 import { VideoCard } from "../components/VideoCard";
 import { SeriesStrip } from "../series/SeriesStrip";
 import { EditFootageButton } from "../footage/EditFootageButton";
+import { Dropdown } from "../components/Dropdown";
 
 /** Images and the clip formats video layers decode (mp4, webm, mov). */
 const ASSET_ACCEPT = "image/*,video/mp4,video/webm,video/quicktime";
@@ -176,14 +177,18 @@ function Kit({ kit, onKit }: { kit: BrandKit; onKit: (k: BrandKit) => void }) {
             <p className="text-xs text-neutral-500">Describe each image or clip (what it is, how it works) so the agent can explain it and use it in your videos.</p>
           </div>
           <div className="flex items-center gap-2">
-            <select value={kind} onChange={(e) => setKind(e.target.value as AssetKind)} className="rounded-md bg-neutral-900 px-2 py-1.5 text-xs focus:outline-none" aria-label="Tipo">
-              {/* Clips are recognised by their file, not picked. */}
-              {Object.values(AssetKind).filter((k) => k !== AssetKind.Video).map((k) => (
-                <option key={k} value={k}>
-                  {KIND_LABEL[k]}
-                </option>
-              ))}
-            </select>
+            {/* Clips are recognised by their file, not picked. */}
+            <Dropdown
+              size="sm"
+              align="right"
+              className="w-36"
+              label="Upload as"
+              value={kind}
+              onChange={setKind}
+              options={Object.values(AssetKind)
+                .filter((k) => k !== AssetKind.Video)
+                .map((k) => ({ value: k, label: KIND_LABEL[k] }))}
+            />
             <input ref={fileInput} type="file" accept={ASSET_ACCEPT} multiple className="hidden" onChange={(e) => void upload(e.target.files)} />
             <button type="button" disabled={uploading} onClick={() => fileInput.current?.click()} className="rounded-lg bg-neutral-800 px-3 py-1.5 text-xs font-semibold hover:bg-neutral-700 disabled:opacity-50">
               {uploading ? "Uploading…" : "Upload images or clips"}
