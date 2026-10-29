@@ -7,6 +7,7 @@ import { Post, PostStatus, type PostDocument } from "../posts/post.schema";
 import { Project } from "../projects/project.schema";
 import { coverUrl } from "../projects/projects.service";
 import { videoFeatures } from "./features";
+import { rankMatches, sureMatch, type MatchCandidate } from "./match";
 import { User } from "../users/user.schema";
 import { seal, unseal, type Sealed } from "../voice/secrets";
 import {
@@ -91,7 +92,13 @@ export function idFromUrl(platform: SocialPlatform, url: string): string | null 
  * rest) and the numbers of every video they posted from the calendar: each post is matched to its
  * published copy, then measured every few hours for TRACK_DAYS.
  */
-type PublishedRow = { platform: SocialPlatform; id: string; url: string | null; caption: string; publishedAt: string | null; thumbnail: string | null; linked: { projectId: string; name: string } | null };
+type AutoLinkRow = { platform: SocialPlatform; videoId: string; caption: string; thumbnail: string | null };
+type AutoLinkResult = {
+  linked: (AutoLinkRow & { projectId: string; name: string; why: string[] })[];
+  unsure: (AutoLinkRow & { likely: { projectId: string; name: string; why: string[] }[] })[];
+  errors: string[];
+};
+type PublishedRow = { platform: SocialPlatform; id: string; url: string | null; caption: string; publishedAt: string | null; duration: number | null; thumbnail: string | null; linked: { projectId: string; name: string } | null };
 
 @Injectable()
 export class SocialService implements OnModuleInit, OnModuleDestroy {
@@ -217,7 +224,7 @@ export class SocialService implements OnModuleInit, OnModuleDestroy {
       if (!states[platform]?.connected) continue;
       const token = await this.token(userId, platform, auth);
       for (const v of await this.guard(() => this.videos(platform, token, auth))) {
-        out.push({ platform, id: v.id, url: v.url, caption: v.caption, publishedAt: v.publishedAt, thumbnail: v.thumbnail ?? null, linked: linked.get(`${platform}:${v.id}`) ?? null });
+        out.push({ platform, id: v.id, url: v.url, caption: v.caption, publishedAt: v.publishedAt, duration: v.duration, thumbnail: v.thumbnail ?? null, linked: linked.get(`${platform}:${v.id}`) ?? null });
       }
     }
     return out.sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? ""));
@@ -233,6 +240,62 @@ export class SocialService implements OnModuleInit, OnModuleDestroy {
     const token = await this.token(userId, platform, auth);
     const v = (await this.guard(() => this.videos(platform, token, auth))).find((x) => x.id === videoId);
     if (!v) throw new BadRequestException(`that video is not among the latest on the connected ${SOCIAL_LABEL[platform]} account`);
+    const post = await this.linkVideo(userId, projectId, platform, v);
+    const { errors } = await this.syncPosts(userId, [post]);
+    return { postId: String(post._id), errors };
+  }
+
+  /**
+   * Link every video on the connected accounts that isn't linked yet to the video made here it clearly came
+   * from (rankMatches: length, caption words, dates). Unclear ones are left for the user, with the likeliest.
+   */
+  async autoLink(userId: Types.ObjectId): Promise<AutoLinkResult> {
+    const rows = (await this.published(userId)).filter((r) => !r.linked);
+    const projects = await this.projects
+      .find({ ownerId: userId, hidden: { $ne: true } }, { name: 1, voiceScript: 1, postCopy: 1, scene: 1, createdAt: 1 })
+      .lean();
+    const posted = await this.posts.find({ ownerId: userId, "links.0": { $exists: true } }, { projectId: 1, links: 1 }).lean();
+    const candidates: MatchCandidate[] = projects.map((p) => {
+      const layers = ((p.scene as { layers?: { type?: unknown; text?: unknown }[] } | null)?.layers ?? []).filter((l) => l.type === "text" && typeof l.text === "string");
+      const copy = (p.postCopy ?? []).map((c) => [c.caption, ...(c.hashtags ?? [])].join(" "));
+      return {
+        id: String(p._id),
+        name: p.name,
+        text: [p.name, p.voiceScript, ...copy, ...layers.map((l) => l.text as string)].join("\n"),
+        duration: typeof p.scene?.duration === "number" ? (p.scene.duration as number) : null,
+        createdAt: (p as { createdAt?: Date }).createdAt?.getTime() ?? 0,
+        postedAt: posted.filter((x) => String(x.projectId) === String(p._id)).flatMap((x) => (x.links ?? []).map((l) => (l.publishedAt ? Date.parse(l.publishedAt) : NaN)).filter((t) => !Number.isNaN(t))),
+      };
+    });
+    const names = new Map(candidates.map((c) => [c.id, c.name]));
+    const linked: AutoLinkResult["linked"] = [];
+    const unsure: AutoLinkResult["unsure"] = [];
+    const made: PostDocument[] = [];
+    const auth = await this.auth(userId);
+    const videos = new Map<SocialPlatform, PublishedVideo[]>();
+    for (const r of rows) {
+      const ranked = rankMatches(r, candidates);
+      const sure = sureMatch(ranked);
+      const row = { platform: r.platform, videoId: r.id, caption: r.caption, thumbnail: r.thumbnail };
+      if (!sure) {
+        unsure.push({ ...row, likely: ranked.slice(0, 2).filter((m) => m.score > 0).map((m) => ({ projectId: m.id, name: names.get(m.id)!, why: m.why })) });
+        continue;
+      }
+      if (!videos.has(r.platform)) videos.set(r.platform, await this.guard(async () => this.videos(r.platform, await this.token(userId, r.platform, auth), auth)));
+      const v = videos.get(r.platform)!.find((x) => x.id === r.id);
+      if (!v) continue;
+      made.push(await this.linkVideo(userId, sure.id, r.platform, v));
+      // Its copy now counts for the next ones ("its other copy went out the same days").
+      if (v.publishedAt) candidates.find((c) => c.id === sure.id)!.postedAt.push(Date.parse(v.publishedAt));
+      linked.push({ ...row, projectId: sure.id, name: names.get(sure.id)!, why: sure.why });
+    }
+    const { errors } = made.length ? await this.syncPosts(userId, made) : { errors: [] as string[] };
+    return { linked, unsure, errors };
+  }
+
+  /** Make a posted video already on an account a posted entry of the video made here (not measured yet). */
+  private async linkVideo(userId: Types.ObjectId, projectId: string, platform: SocialPlatform, v: PublishedVideo) {
+    const videoId = v.id;
     // Linked elsewhere: that entry lets it go (and goes, if it was only that link).
     for (const other of await this.posts.find({ ownerId: userId, links: { $elemMatch: { platform, id: videoId } } })) {
       other.links = (other.links ?? []).filter((l) => !(l.platform === platform && l.id === videoId));
@@ -248,8 +311,7 @@ export class SocialService implements OnModuleInit, OnModuleDestroy {
     const post = await this.posts.create({ ownerId: userId, projectId: new Types.ObjectId(projectId), scheduledAt: at, postedAt: at, platforms: [platform] as unknown as Post["platforms"], copy: [], status: PostStatus.Posted, links: [] });
     setLink(post, { platform, id: v.id, url: v.url, publishedAt: v.publishedAt });
     await post.save();
-    const { errors } = await this.syncPosts(userId, [post]);
-    return { postId: String(post._id), errors };
+    return post;
   }
 
   async unlink(userId: Types.ObjectId, postId: string, platform: SocialPlatform) {

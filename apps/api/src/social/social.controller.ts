@@ -113,6 +113,13 @@ export class SocialController {
     return this.social.linkPublished(userOnly(user), dto.projectId, dto.platform, dto.videoId);
   }
 
+  /** Link every video on the accounts not linked yet to the video it clearly came from; the rest come back with the likeliest. */
+  @Post("published/auto-link")
+  @HttpCode(200)
+  autoLink(@CurrentUser() user: AuthUser) {
+    return this.social.autoLink(userOnly(user));
+  }
+
   /** Every posted video with its numbers: the dashboard. */
   @Get("channel")
   channel(@CurrentUser() user: AuthUser) {

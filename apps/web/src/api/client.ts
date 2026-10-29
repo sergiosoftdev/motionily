@@ -1,4 +1,4 @@
-import type { AgentRunUsage, AttentionDevice, Brick, BrickSlot, ChannelVideo, Experiment, ExperimentMetric, LibraryItem, MediaItem, PostLink, PostMetrics, PostPerformance, Project, ProjectListItem, ProviderKey, PublishedVideo, ProviderStatus, Series, SeriesBlueprint, SocialAccount, SocialPlatform, SunoPrompt, User, VideoFormat, Voice, VoiceModel } from "@motionily/protocol";
+import type { AgentRunUsage, AttentionDevice, AutoLinkResult, Brick, BrickSlot, ChannelVideo, Experiment, ExperimentMetric, LibraryItem, MediaItem, PostLink, PostMetrics, PostPerformance, Project, ProjectListItem, ProviderKey, PublishedVideo, ProviderStatus, Series, SeriesBlueprint, SocialAccount, SocialPlatform, SunoPrompt, User, VideoFormat, Voice, VoiceModel } from "@motionily/protocol";
 import { useSession } from "../session";
 import type { AgentPrefs, GenerateState } from "../components/GeneratePanel";
 import { desktop } from "../desktop";
@@ -270,6 +270,8 @@ export const api = {
   /** Every posted video with its latest numbers (the Stats page). */
   channel: () => call<ChannelVideo[]>(HttpMethod.Get, "/social/channel"),
   /** Link one of them (posted outside the calendar) to video `projectId`: it is measured from then on. */
+  /** Link every posted video not linked yet to the video it clearly came from. */
+  autoLinkPublished: () => call<AutoLinkResult>(HttpMethod.Post, "/social/published/auto-link"),
   linkPublished: (projectId: string, platform: SocialPlatform, videoId: string) =>
     call<{ postId: string; errors: string[] }>(HttpMethod.Post, "/social/published/link", { projectId, platform, videoId }),
   socialAccounts: () => call<{ accounts: SocialAccount[]; youtubeRedirect: string }>(HttpMethod.Get, "/social/accounts"),

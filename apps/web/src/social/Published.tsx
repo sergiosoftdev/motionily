@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { SOCIAL_LABEL, type ProjectListItem, type PublishedVideo } from "@motionily/protocol";
+import { SOCIAL_LABEL, type AutoLinkResult, type LikelySource, type ProjectListItem, type PublishedVideo } from "@motionily/protocol";
 import { api } from "../api/client";
 import { Dropdown } from "../components/Dropdown";
 import { CoverImage, edited } from "../components/VideoCard";
@@ -38,13 +38,31 @@ function Thumbnail({ v, className = "" }: { v: PublishedVideo; className?: strin
  * Home's "Posted on your accounts": videos on Instagram, TikTok or YouTube that are not linked to a video
  * made here yet (posted outside the calendar), each with a picker to link it. Hidden with nothing to link.
  */
-export function PostedInbox({ videos: mine }: { videos: ProjectListItem[] }) {
+export function PostedInbox({ videos: mine, onLinked }: { videos: ProjectListItem[]; onLinked?: () => void }) {
   const { videos, reload } = usePublished();
   const [all, setAll] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [auto, setAuto] = useState<AutoLinkResult | null>(null);
   const loose = (videos ?? []).filter((v) => !v.linked);
-  if (!loose.length || !mine.length) return null;
+  if ((!loose.length && !auto?.linked.length) || !mine.length) return null;
+  const likely = new Map((auto?.unsure ?? []).map((u) => [`${u.platform}:${u.videoId}`, u.likely] as const));
+
+  const linkAll = async () => {
+    setBusy("auto");
+    setError(null);
+    try {
+      const r = await api.autoLinkPublished();
+      setAuto(r);
+      if (r.errors.length) setError(r.errors.join(" · "));
+      await reload();
+      if (r.linked.length) onLinked?.();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const link = async (v: PublishedVideo, projectId: string) => {
     setBusy(v.id);
@@ -53,6 +71,7 @@ export function PostedInbox({ videos: mine }: { videos: ProjectListItem[] }) {
       const r = await api.linkPublished(projectId, v.platform, v.id);
       if (r.errors.length) setError(r.errors.join(" · "));
       await reload();
+      onLinked?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -62,18 +81,36 @@ export function PostedInbox({ videos: mine }: { videos: ProjectListItem[] }) {
 
   return (
     <section className="flex flex-col gap-3">
-      <div className="flex items-baseline justify-between gap-4">
+      <div className="flex items-center justify-between gap-4">
         <div>
           <h2 className="text-lg font-semibold">Posted on your accounts</h2>
-          <p className="text-sm text-neutral-500">Not linked to a video here yet. Link each to the video it came from: its numbers show in the editor and the agent learns from them.</p>
+          <p className="text-sm text-neutral-500">
+            {loose.length
+              ? "Not linked to a video here yet. Link each to the video it came from: its numbers show in the editor and the agent learns from them."
+              : "Everything posted is linked to the video it came from."}
+          </p>
         </div>
-        {loose.length > INBOX_SHOWN && (
-          <button type="button" onClick={() => setAll((a) => !a)} className="shrink-0 text-sm text-neutral-400 hover:text-white">
-            {all ? "Show fewer" : `Show all ${loose.length}`}
-          </button>
-        )}
+        <div className="flex shrink-0 items-center gap-3">
+          {loose.length > INBOX_SHOWN && (
+            <button type="button" onClick={() => setAll((a) => !a)} className="text-sm text-neutral-400 hover:text-white">
+              {all ? "Show fewer" : `Show all ${loose.length}`}
+            </button>
+          )}
+          {loose.length > 0 && (
+            <button
+              type="button"
+              onClick={() => void linkAll()}
+              disabled={busy !== null}
+              title="Finds the video each one came from by its length, the words in its caption and when it went out"
+              className="rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-black hover:bg-neutral-200 disabled:opacity-60"
+            >
+              {busy === "auto" ? "Linking…" : "Link automatically"}
+            </button>
+          )}
+        </div>
       </div>
       {error && <p className="text-sm text-red-400">{error}</p>}
+      {auto && <AutoLinkSummary result={auto} />}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {(all ? loose : loose.slice(0, INBOX_SHOWN)).map((v) => (
           <div key={`${v.platform}:${v.id}`} className="flex gap-3 rounded-xl bg-neutral-900/60 p-2.5 ring-1 ring-white/[0.06]">
@@ -91,10 +128,10 @@ export function PostedInbox({ videos: mine }: { videos: ProjectListItem[] }) {
                 disabled={busy === v.id}
                 value={null}
                 onChange={(id) => void link(v, id)}
-                options={mine.map((p) => ({
+                options={byLikely(mine, likely.get(`${v.platform}:${v.id}`)).map(({ p, guess }) => ({
                   value: p._id,
                   label: p.name,
-                  hint: `Edited ${edited(p.updatedAt)}`,
+                  hint: guess ? `Likely: ${guess.why.join(", ") || "closest match"}` : `Edited ${edited(p.updatedAt)}`,
                   lead: (
                     <span className="block h-8 w-6 shrink-0 overflow-hidden rounded ring-1 ring-white/10">
                       <CoverImage cover={p.cover} />
@@ -107,6 +144,31 @@ export function PostedInbox({ videos: mine }: { videos: ProjectListItem[] }) {
         ))}
       </div>
     </section>
+  );
+}
+
+/** The user's videos with the likeliest sources of a posted one first. */
+function byLikely(mine: ProjectListItem[], likely: LikelySource[] | undefined) {
+  const guess = new Map((likely ?? []).map((l, i) => [l.projectId, { ...l, i }]));
+  return mine.map((p) => ({ p, guess: guess.get(p._id) })).sort((a, b) => (a.guess?.i ?? Infinity) - (b.guess?.i ?? Infinity));
+}
+
+/** What "Link automatically" did: each link and why, and how many were too unclear to link. */
+function AutoLinkSummary({ result }: { result: AutoLinkResult }) {
+  const { linked, unsure } = result;
+  return (
+    <div className="flex flex-col gap-1.5 rounded-xl bg-emerald-400/[0.06] p-3 text-sm ring-1 ring-emerald-400/20">
+      <span className="font-medium">
+        {linked.length ? `Linked ${linked.length} ${linked.length === 1 ? "video" : "videos"}` : "Nothing was clear enough to link"}
+        {unsure.length > 0 && <span className="font-normal text-neutral-400"> · {unsure.length} unclear: pick them below (the likeliest come first)</span>}
+      </span>
+      {linked.map((l) => (
+        <span key={`${l.platform}:${l.videoId}`} className="text-xs text-neutral-400">
+          {SOCIAL_LABEL[l.platform]} “{firstLine(l.caption)}” → <span className="text-neutral-200">{l.name}</span>
+          {l.why.length > 0 && ` (${l.why.join(", ")})`}
+        </span>
+      ))}
+    </div>
   );
 }
 

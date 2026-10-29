@@ -11,6 +11,7 @@ import { AppModule } from "../src/app.module";
 import { configureApp } from "../src/setup";
 import { idFromUrl, matchVideo, setMetrics } from "../src/social/social.service";
 import { videoFeatures } from "../src/social/features";
+import { rankMatches, sureMatch, type MatchCandidate } from "../src/social/match";
 import type { PostDocument } from "../src/posts/post.schema";
 import { isoSeconds } from "../src/social/platforms";
 import { SocialPlatform } from "../src/social/types";
@@ -217,6 +218,55 @@ describe("Social accounts and post performance", () => {
     assert.equal(matchVideo(when, "A dead man fooled Hitler", videos, new Set(["b"])), null, "taken videos and unrelated captions stay out");
     assert.equal(matchVideo(when, "", [videos[0]!], new Set())?.id, "a", "a lone video right next to it is the post");
     assert.equal(matchVideo(when, "x", [{ ...videos[1]!, publishedAt: iso(now - 5 * 24 * HOUR) }], new Set()), null, "days apart is another post");
+  });
+
+  it("finds which video a posted one came from by its length and the words its caption shares", () => {
+    const made = (id: string, name: string, script: string, duration: number): MatchCandidate => ({ id, name, text: `${name}\n${script}`, duration, createdAt: now - 72 * HOUR, postedAt: [] });
+    const videos = [
+      made("tongue", "The Tongue Map Is Fake", "You've seen the tongue map: sweet at the tip, bitter at the back. It's wrong.", 54.9),
+      made("vikings", "Vikings Never Had Horns", "Vikings never wore horned helmets. The horns came from an opera.", 53.2),
+      made("goldfish", "Goldfish Memory", "Goldfish don't have three-second memories.", 48.6),
+    ];
+    const tiktok = (caption: string, duration: number | null) => ({ caption, duration, publishedAt: iso(now - HOUR) });
+    // Same length as two of them: the caption decides.
+    assert.equal(sureMatch(rankMatches(tiktok("The tongue map you learned at school is a myth #science", 54), videos))?.id, "tongue");
+    // No caption, two videos as long: unclear, both offered.
+    const unclear = rankMatches(tiktok("", 54), videos);
+    assert.equal(sureMatch(unclear), null);
+    assert.deepEqual(unclear.slice(0, 2).map((m) => m.id).sort(), ["tongue", "vikings"]);
+    // Only the length (Instagram gives none): the caption alone is enough when it names it.
+    assert.equal(sureMatch(rankMatches(tiktok("Goldfish remember for months 🐟", null), videos))?.id, "goldfish");
+    // The length alone is enough when no other video is as long, unless the video was made after it went out.
+    assert.equal(sureMatch(rankMatches(tiktok("", 48), videos))?.id, "goldfish");
+    assert.equal(sureMatch(rankMatches({ ...tiktok("", 48), publishedAt: iso(now - 100 * HOUR) }, videos)), null);
+  });
+
+  it("links what was posted outside the calendar to the video it clearly came from", async () => {
+    const auth = await login("autolink@example.com");
+    await http.put("/social/instagram").set(auth).send({ token: IG_TOKEN }).expect(200);
+    const app = { clientKey: "awtiktok", clientSecret: "tt-secret", redirectUri: "https://example.com/callback" };
+    const { body: start } = await http.post("/social/tiktok/start").set(auth).send(app).expect(200);
+    const state = new URL(start.authorizeUrl as string).searchParams.get("state")!;
+    await http.post("/social/tiktok/finish").set(auth).send({ url: `https://example.com/callback?code=abc&state=${state}` }).expect(200);
+    const project = async (name: string, voiceScript: string, duration: number) => {
+      const { body: p } = await http.post("/projects").set(auth).send({ name }).expect(201);
+      await http.patch(`/projects/${p.id}`).set(auth).send({ voiceScript }).expect(200);
+      await http.put(`/projects/${p.id}/scene`).set(auth).send({ scene: { version: 1, duration, layers: [{ id: "t", type: "text", text: name, start: 0 }] }, baseRevision: 0 }).expect(200);
+      return p.id as string;
+    };
+    const mincemeat = await project("Operation Mincemeat", "In 1943 a dead man fooled Hitler with a briefcase of fake plans.", 15.4);
+    await project("Goldfish Memory", "Goldfish don't have three-second memories.", 48.6);
+
+    const { body: r } = await http.post("/social/published/auto-link").set(auth).expect(200);
+    assert.deepEqual(r.linked.map((l: { platform: string; projectId: string }) => [l.platform, l.projectId]).sort(), [["instagram", mincemeat], ["tiktok", mincemeat]].sort());
+    assert.ok(r.linked.find((l: { platform: string }) => l.platform === "tiktok").why.some((w: string) => /same length/.test(w)));
+    const { body: published } = await http.get("/social/published").set(auth).expect(200);
+    assert.ok(published.every((v: { linked: { projectId: string } | null }) => v.linked?.projectId === mincemeat), "both now belong to it");
+    const { body: channel } = await http.get("/social/channel").set(auth).expect(200);
+    assert.equal(channel.filter((c: { projectId: string }) => c.projectId === mincemeat).length, 2, "and are measured");
+    // Run again: nothing left to link.
+    const { body: again } = await http.post("/social/published/auto-link").set(auth).expect(200);
+    assert.deepEqual([again.linked, again.unsure], [[], []]);
   });
 
   it("connects the three accounts, matches the posted video on each and keeps its numbers", async () => {

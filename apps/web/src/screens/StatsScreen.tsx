@@ -181,7 +181,7 @@ export function StatsScreen() {
           {!all.length && <p className="text-sm text-neutral-500">No posted video is linked yet. Post from the calendar, or link the ones already on your accounts below.</p>}
         </>
       )}
-      <PostedInbox videos={videos} />
+      <PostedInbox videos={videos} onLinked={() => void load()} />
     </MotionilyLayout>
   );
 }

@@ -46,8 +46,20 @@ export type PublishedVideo = {
   url: string | null;
   caption: string;
   publishedAt: string | null;
+  /** Seconds, where the platform says (TikTok, YouTube). */
+  duration: number | null;
   thumbnail: string | null;
   linked: { projectId: string; name: string } | null;
+};
+
+/** A video made here a posted one probably came from, and why (same length, words its caption shares…). */
+export type LikelySource = { projectId: string; name: string; why: string[] };
+type AutoLinkRow = { platform: SocialPlatform; videoId: string; caption: string; thumbnail: string | null };
+/** "Link automatically": what got linked, and what was unclear (with the likeliest videos, best first). */
+export type AutoLinkResult = {
+  linked: (AutoLinkRow & LikelySource)[];
+  unsure: (AutoLinkRow & { likely: LikelySource[] })[];
+  errors: string[];
 };
 
 /** One posted video with its numbers, for the video's own page and its agent. */
