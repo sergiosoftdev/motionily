@@ -576,7 +576,7 @@ function Insights({ rows, agent }: { rows: ChannelVideo[]; agent: string }) {
       <div className="flex flex-col gap-1.5">
         <h2 className="text-sm font-semibold">What your best videos do</h2>
         <span className={`self-start rounded-md px-2 py-0.5 text-[10px] leading-snug font-medium ${CONFIDENCE_STYLE[level]}`}>
-          {ranked.length} {ranked.length === 1 ? "video" : "videos"} older than 3 days · {CONFIDENCE_LABEL[level]}
+          {ranked.length} {ranked.length === 1 ? "video" : "videos"} compared · {CONFIDENCE_LABEL[level]}
         </span>
       </div>
       {best?.features?.hook && (
@@ -602,7 +602,7 @@ function Insights({ rows, agent }: { rows: ChannelVideo[]; agent: string }) {
         </p>
       )}
       <p className="mt-auto border-t border-white/[0.06] pt-3 text-[11px] leading-relaxed text-neutral-500">
-        {agent} gets this every time it opens a video, and plans from your best one. Videos under 3 days are still collecting views: they show here but aren't compared.
+        {agent} gets this every time it opens a video, and plans from your best one. Videos under 3 days are still collecting views: they are only compared once they have more views than every older one.
       </p>
     </div>
   );

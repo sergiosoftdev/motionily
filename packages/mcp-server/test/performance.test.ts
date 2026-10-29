@@ -101,6 +101,11 @@ test("channel: videos under 3 days old are shown as growing, never compared", ()
   // Ranked by views at 3 days when kept, so an old video's later views don't count against a new one.
   const ranked = channelPlaybook([{ ...old[0]!, views3d: 900 }, { ...old[1]!, views3d: 1200 }], now)!;
   assert.match(ranked, /Learn from: "b"/);
+  // A young one that already has more views than every older one is the best whatever it ends at.
+  const hit = { ...posted("viral", "tiktok", 19450, 0.2, 30, 54), publishedAt: "2026-10-28T08:00:00.000Z" };
+  const withHit = channelPlaybook([...old, hit], now)!;
+  assert.match(withHit, /Learn from: "viral"/);
+  assert.doesNotMatch(withHit, /Still collecting views/);
 });
 
 test("channel: the best videos' hook, pace and voice against the rest", () => {

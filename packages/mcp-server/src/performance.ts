@@ -87,14 +87,14 @@ function channelLine(r: ChannelVideo, projectId: string) {
   return `- "${r.name}"${r.projectId === projectId ? " (this video)" : ""} · ${SOCIAL_LABEL[r.platform]} ${r.publishedAt?.slice(0, 10) ?? ""} · ${parts.join(" · ")}`;
 }
 
-/** get_channel_insights: the channel's playbook, then every video old enough to compare, best first. */
+/** get_channel_insights: the channel's playbook, then every video compared, best first. */
 export function channelReport(rows: ChannelVideo[], projectId: string): string {
   const playbook = channelPlaybook(rows);
   if (!playbook)
     return "No posted video has numbers yet: the user has to connect Instagram, TikTok or YouTube in Settings and post from the calendar (or link videos already posted, on the Stats page).";
   const ranked = comparable(rows);
   const out = [playbook];
-  if (ranked.length) out.push("", "Every video old enough to compare, best first (views at 3 days when known):", ...ranked.slice(0, CHANNEL_LISTED).map((r) => channelLine(r, projectId)));
+  if (ranked.length) out.push("", "Every video compared, best first (views at 3 days when known):", ...ranked.slice(0, CHANNEL_LISTED).map((r) => channelLine(r, projectId)));
   out.push("", "Open a specific video's moments (where viewers leave, and what was on screen) with get_performance on that video.");
   return out.join("\n");
 }

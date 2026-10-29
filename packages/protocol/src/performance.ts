@@ -282,9 +282,16 @@ export function channelSummary(rows: ChannelVideo[]): ChannelSummary {
   };
 }
 
-/** Measured videos old enough to compare, best first. */
+/**
+ * Measured videos to compare, best first: the ones old enough, plus a younger one that already has more views than
+ * every one of them (its views only grow, so it is the best whatever it ends at).
+ */
 export function comparable(rows: ChannelVideo[], now = Date.now()): ChannelVideo[] {
-  return rows.filter((r) => r.metrics?.views != null && !isGrowing(r, now)).sort((a, b) => comparableViews(b)! - comparableViews(a)!);
+  const measured = rows.filter((r) => r.metrics?.views != null);
+  const old = measured.filter((r) => !isGrowing(r, now));
+  const top = Math.max(-1, ...old.map((r) => comparableViews(r)!));
+  const ahead = old.length ? measured.filter((r) => isGrowing(r, now) && r.metrics!.views! > top) : [];
+  return [...old, ...ahead].sort((a, b) => comparableViews(b)! - comparableViews(a)!);
 }
 
 /** Videos needed before comparing the best ones with the rest says anything. */
@@ -752,10 +759,10 @@ function describe(r: ChannelVideo): string {
  */
 export function channelPlaybook(rows: ChannelVideo[], now = Date.now()): string | null {
   const measured = comparable(rows, now);
-  const growing = rows.filter((r) => r.metrics?.views != null && isGrowing(r, now));
+  const growing = rows.filter((r) => r.metrics?.views != null && isGrowing(r, now) && !measured.includes(r));
   if (!measured.length && !growing.length) return null;
   const level = confidence(measured.length);
-  const out = [`${measured.length} posted ${measured.length === 1 ? "video" : "videos"} old enough to compare · ${CONFIDENCE_LABEL[level]}.`];
+  const out = [`${measured.length} posted ${measured.length === 1 ? "video" : "videos"} to compare (3 days old, or already ahead of all of those) · ${CONFIDENCE_LABEL[level]}.`];
   if (measured.length) out.push(`Learn from: ${describe(measured[0]!)}`);
   if (measured.length > 1) out.push(`Weakest: ${describe(measured.at(-1)!)}`);
   const insights = channelInsights(rows, now);
